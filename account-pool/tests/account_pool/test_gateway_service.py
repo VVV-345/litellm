@@ -29,8 +29,8 @@ from account_pool.gateway_contracts import (
     Resolution,
     ResolveRequest,
 )
-from account_pool.gateway_service import GatewayService
-from account_pool.policies import AccountPolicy, PolicyUpdate, RoutingPolicy
+from account_pool.gateway_service import GatewayService, binding_hash
+from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView, RoutingPolicy
 from account_pool.result import Success
 from account_pool.settings import (
     AccountPoolSettings,
@@ -124,8 +124,13 @@ class MemoryLeases:
         *,
         model_cooldown_seconds: int = 0,
         model_succeeded: bool = False,
+        clear_sessions: bool = False,
     ) -> None:
         self.leases.pop(lease.lease_id, None)
+        if clear_sessions:
+            self.bindings = {
+                key: value for key, value in self.bindings.items() if value != lease.account_id
+            }
         if lease.budget_window_seconds is not None:
             self.settled_tokens[lease.account_id] = self.settled_tokens.get(lease.account_id, 0) + (actual_tokens or 0)
         if cooldown_seconds:
@@ -1013,3 +1018,67 @@ async def test_finish_releases_lease_when_request_log_cannot_be_persisted() -> N
     assert lease.lease_id not in leases.leases
     assert card.id not in leases.cooled
     assert leases.model_cooldowns[(card.id, "gpt-5")] == 60
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "reason,http_status,expected_bindings",
+    [
+        ("quota_exhausted", 503, 0),
+        ("account_unavailable", 403, 0),
+        ("upstream_unavailable", 503, 1),
+    ],
+)
+async def test_only_unusable_card_failures_release_session_bindings(
+    reason: str, http_status: int, expected_bindings: int
+) -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    policies: Final = MemoryPolicies()
+    policies.records[card.id] = PolicyView(
+        card_id=card.id,
+        version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(session_affinity=True)),
+    )
+    leases: Final = MemoryLeases()
+    service: Final = GatewayService(
+        keys,
+        MemoryRepository(card),
+        policies,
+        leases,
+        ErrorLogService(MemoryLogs()),
+        gateway,
+    )
+    session: Final = "ab" * 32
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key, session_hash=session))
+    candidate: Final = resolution.candidates[0]
+    lease: Final = await service.acquire(
+        AcquireRequest(
+            card_key=issued.value.key,
+            session_hash=session,
+            account_id=candidate.id,
+            request_id=uuid4(),
+            model="gpt-5",
+            card_version=resolution.card_version,
+            policy_version=resolution.policy_version,
+            account_version=candidate.environment_version,
+            account_policy_version=candidate.policy_version,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+    assert leases.bindings == {binding_hash(resolution.key_id, session): candidate.id}
+
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=http_status,
+            message="Upstream rejected the request",
+            failure_reason=reason,
+            endpoint="/v1/responses",
+        )
+    )
+
+    assert len(leases.bindings) == expected_bindings
+

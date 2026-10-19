@@ -330,7 +330,9 @@ class AccountPoolGatewayMiddleware:
                         and not isinstance(control, TrustedControl)
                         else selected.status
                     )
-                    await error_response(status, selected.message, selected.code)(scope, receive, send)
+                    await error_response(
+                        status, selected.message, selected.code, preflight=True
+                    )(scope, receive, send)
                     return
                 await forward(request, payload, key, session, resolution, selected, control, client, send)
         except ClientDisconnect:
@@ -453,14 +455,16 @@ def model_entry(name: str) -> _ModelEntry:
     return entry
 
 
-def error_response(status: int, message: str, code: str | None = None) -> JSONResponse:
+def error_response(status: int, message: str, code: str | None = None, *, preflight: bool = False) -> JSONResponse:
     plain: Final[_ErrorDetail] = {"message": message, "type": "account_pool_error"}
     classified: Final[_ErrorDetail] = {"message": message, "type": "account_pool_error", "code": code or ""}
     content: Final[_ErrorEnvelope] = {"error": classified if code else plain}
-    classified_headers: Final = (
-        MappingProxyType({**_NO_STORE_HEADERS, "x-account-pool-failure": code.removeprefix("account_pool_")})
-        if code
-        else _NO_STORE_HEADERS
+    classified_headers: Final = MappingProxyType(
+        {
+            **_NO_STORE_HEADERS,
+            **({"x-account-pool-failure": code.removeprefix("account_pool_")} if code else {}),
+            **({"x-account-pool-preflight": "rejected"} if preflight else {}),
+        }
     )
     return JSONResponse(
         content,

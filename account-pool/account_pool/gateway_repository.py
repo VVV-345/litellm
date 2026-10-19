@@ -271,10 +271,17 @@ class PostgresLeaseRepository:
         *,
         model_cooldown_seconds: int = 0,
         model_succeeded: bool = False,
+        clear_sessions: bool = False,
     ) -> None:
         async with database_connection(self._database_url) as connection:
             await _release_lease(
-                connection, lease, cooldown_seconds, actual_tokens, model_cooldown_seconds, model_succeeded
+                connection,
+                lease,
+                cooldown_seconds,
+                actual_tokens,
+                model_cooldown_seconds,
+                model_succeeded,
+                clear_sessions,
             )
 
 
@@ -285,6 +292,7 @@ async def _release_lease(
     actual_tokens: int | None,
     model_cooldown_seconds: int = 0,
     model_succeeded: bool = False,
+    clear_sessions: bool = False,
 ) -> None:
     environment: Final = await connection.execute(
         "SELECT id, payload FROM account_pool_environments WHERE id = %s FOR UPDATE",
@@ -325,6 +333,12 @@ async def _release_lease(
             "ON CONFLICT (account_id) DO UPDATE SET expires_at = GREATEST("
             "account_pool_runtime_cooldown.expires_at, EXCLUDED.expires_at)",
             (lease.account_id, utc_now() + timedelta(seconds=cooldown_seconds)),
+        )
+    if clear_sessions and deleted_row is not None:
+        # 卡片已判定不可用，解除绑定到它的会话，否则同一会话会持续命中同一张废卡。
+        await connection.execute(
+            "DELETE FROM account_pool_sessions WHERE card_id = %s AND account_id = %s",
+            (lease.card_id, lease.account_id),
         )
 
 

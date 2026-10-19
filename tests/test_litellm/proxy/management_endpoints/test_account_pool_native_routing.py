@@ -87,6 +87,195 @@ async def test_typed_gateway_failure_only_switches_within_authorized_scope(kind,
         snapshots.replace(previous)
         router.discard()
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preflight,expected_attempts", [(True, 2), (False, 1)])
+async def test_preflight_quota_rejection_switches_cards_with_client_tools(
+    preflight: bool, expected_attempts: int, monkeypatch
+) -> None:
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    first, second = uuid4(), uuid4()
+    router = Router(model_list=[deployment(first), deployment(second, 1)], num_retries=0, max_fallbacks=2)
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=True) for card in (first, second)})
+    attempts = []
+
+    async def provider(**kwargs):
+        card = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(card)
+        if card == str(first):
+            raise ServiceUnavailableError(
+                message="no bound account",
+                model="shared",
+                llm_provider="openai",
+                response=httpx.Response(
+                    503,
+                    headers={
+                        "x-account-pool-failure": "quota_exhausted",
+                        **({"x-account-pool-preflight": "rejected"} if preflight else {}),
+                    },
+                    request=httpx.Request("POST", "http://local/v1/responses"),
+                ),
+            )
+        return ResponsesAPIResponse(id="resp_success", created_at=1, model="shared", status="completed", output=[])
+
+    try:
+        if expected_attempts == 1:
+            with pytest.raises(ServiceUnavailableError):
+                await router._aresponses_with_streaming_fallbacks(
+                    original_function=provider,
+                    model="shared",
+                    input="hello",
+                    tools=[{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+                )
+        else:
+            result = await router._aresponses_with_streaming_fallbacks(
+                original_function=provider,
+                model="shared",
+                input="hello",
+                tools=[{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+            )
+            assert result.status == "completed"
+        assert attempts == [str(first), str(second)][:expected_attempts]
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()
+
+
+
+def test_preflight_rejection_marks_the_failed_card_depleted_until_reconcile() -> None:
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.proxy.management_endpoints.account_pool_native_routing import (
+        deplete_failed_deployment,
+        eligible_deployments,
+    )
+
+    first, second = uuid4(), uuid4()
+    previous = snapshots.values
+    snapshots.replace({str(card): RoutingSnapshot() for card in (first, second)})
+    deployments = [deployment(first), deployment(second, 1)]
+    error = ServiceUnavailableError(
+        message="no bound account",
+        model="shared",
+        llm_provider="openai",
+        response=httpx.Response(503, request=httpx.Request("POST", "http://local/v1/responses")),
+    )
+    error.failed_deployment_id = str(first)
+    try:
+        kept = eligible_deployments(deployments, "shared", snapshots.values, datetime.now(timezone.utc))
+        assert len(kept) == 2
+
+        assert deplete_failed_deployment(error, deployments, "shared") is True
+
+        remaining = eligible_deployments(deployments, "shared", snapshots.values, datetime.now(timezone.utc))
+        assert [item["model_info"]["id"] for item in remaining] == [str(second)]
+    finally:
+        snapshots.replace(previous)
+
+
+@pytest.mark.asyncio
+async def test_preflight_quota_rejection_strips_reasoning_before_switching(monkeypatch) -> None:
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    first, second = uuid4(), uuid4()
+    router = Router(model_list=[deployment(first), deployment(second, 1)], num_retries=0, max_fallbacks=2)
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=True) for card in (first, second)})
+    attempts: list[object] = []
+
+    async def provider(**kwargs):
+        card = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(kwargs.get("input"))
+        if card == str(first):
+            raise ServiceUnavailableError(
+                message="no bound account",
+                model="shared",
+                llm_provider="openai",
+                response=httpx.Response(
+                    503,
+                    headers={"x-account-pool-failure": "quota_exhausted", "x-account-pool-preflight": "rejected"},
+                    request=httpx.Request("POST", "http://local/v1/responses"),
+                ),
+            )
+        return ResponsesAPIResponse(id="resp_success", created_at=1, model="shared", status="completed", output=[])
+
+    try:
+        result = await router._aresponses_with_streaming_fallbacks(
+            original_function=provider,
+            model="shared",
+            input=[
+                {"role": "user", "content": "first"},
+                {"type": "reasoning", "summary": [], "encrypted_content": "foreign"},
+                {"role": "assistant", "content": "answer"},
+                {"role": "user", "content": "continue"},
+            ],
+            tools=[{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+        )
+        assert result.status == "completed"
+        assert len(attempts) == 2
+        retried: Final = attempts[1]
+        assert isinstance(retried, list)
+        assert all(item.get("type") != "reasoning" for item in retried)
+        assert any(item.get("role") == "user" for item in retried)
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()
+
+@pytest.mark.asyncio
+async def test_preflight_rejection_does_not_switch_server_state_requests(monkeypatch) -> None:
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.types.llms.openai import ResponsesAPIResponse
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    first, second = uuid4(), uuid4()
+    router = Router(model_list=[deployment(first), deployment(second, 1)], num_retries=0, max_fallbacks=2)
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    snapshots.replace({str(card): RoutingSnapshot(fallback_enabled=True) for card in (first, second)})
+    attempts = []
+
+    async def provider(**kwargs):
+        attempts.append(kwargs["litellm_metadata"]["model_info"]["id"])
+        raise ServiceUnavailableError(
+            message="no bound account",
+            model="shared",
+            llm_provider="openai",
+            response=httpx.Response(
+                503,
+                headers={"x-account-pool-failure": "quota_exhausted", "x-account-pool-preflight": "rejected"},
+                request=httpx.Request("POST", "http://local/v1/responses"),
+            ),
+        )
+
+    try:
+        with pytest.raises(ServiceUnavailableError):
+            await router._aresponses_with_streaming_fallbacks(
+                original_function=provider,
+                model="shared",
+                input="hello",
+                previous_response_id="resp_old",
+            )
+        assert attempts == [str(first)]
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()
 
 @pytest.mark.asyncio
 async def test_availability_failure_does_not_enable_quota_only_preview_model(monkeypatch):

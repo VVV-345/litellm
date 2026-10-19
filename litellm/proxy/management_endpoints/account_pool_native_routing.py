@@ -155,6 +155,43 @@ def unavailable_snapshot(error: Exception, deployments: Sequence[Mapping[str, ob
     )
 
 
+def deplete_failed_deployment(
+    error: Exception, deployments: Sequence[Mapping[str, object]], model: str
+) -> bool:
+    """网关已判定该卡不可用，立即在本地快照标记，避免后续请求等到下一次对账才绕开它。"""
+    failed: Final = getattr(error, "failed_deployment_id", None)
+    if not isinstance(failed, str) or not failed:
+        return False
+    environment: Final = next(
+        (
+            str(info["account_pool_environment_id"])
+            for deployment in deployments
+            if isinstance(info := deployment.get("model_info"), Mapping)
+            and info.get("id") == failed
+            and info.get("account_pool_environment_id")
+        ),
+        None,
+    )
+    current: Final = None if environment is None else snapshots.values.get(environment)
+    if environment is None or current is None:
+        return False
+    depleted: Final = RoutingQuota(remaining_percent=0, observed_at=now_utc())
+    target_model: Final = current.model_aliases.get(model, model)
+    # 卡片发布分模型额度时只标记该模型，否则只能按整卡标记。
+    updated: Final = (
+        current.model_copy(update={"model_quotas": {**current.model_quotas, target_model: depleted}})
+        if target_model in current.model_quotas
+        else current.model_copy(update={"quota": depleted})
+    )
+    snapshots.replace({**snapshots.values, environment: updated})
+    return True
+
+
+def preflight_rejected(error: Exception) -> bool:
+    """网关在执行前拒绝了请求，上游未被调用，因此换卡不会重放任何已产生的副作用。"""
+    return exception_header(error, "x-account-pool-preflight") == "rejected"
+
+
 def quota_failover_exclusions(
     deployments: Sequence[Mapping[str, object]], failed: str, previous: Sequence[str], model: str
 ) -> tuple[str, ...]:

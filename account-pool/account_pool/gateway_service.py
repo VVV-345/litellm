@@ -373,6 +373,7 @@ class GatewayService:
                     else 0,
                 ),
                 model_succeeded=not failed,
+                clear_sessions=request.failure_reason in ("quota_exhausted", "account_unavailable"),
             )
 
     async def cooldown_delay(self, lease: Lease) -> int:

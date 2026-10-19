@@ -7003,12 +7003,21 @@ class Router:
             raise e
 
         from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
-        from litellm.proxy.management_endpoints.account_pool_retry import replay_safe
+        from litellm.proxy.management_endpoints.account_pool_native_routing import preflight_rejected
+        from litellm.proxy.management_endpoints.account_pool_retry import failover_rebuildable, replay_safe
         from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
+        from litellm.proxy.management_endpoints.account_pool_signature import safe_signature_recovery
 
-        if pool_identity.get() is not None and has_signed_history(kwargs) and any(
-            (item.get("model_info") or {}).get("account_pool_environment_id")
-            for item in (self.get_model_list(model_name=original_model_group) or [])
+        preflight: Final = preflight_rejected(e)
+        # 带签名历史的会话原本不可跨卡；执行前被拒时上游未被调用，可以剥离推理后换卡。
+        if (
+            pool_identity.get() is not None
+            and not preflight
+            and has_signed_history(kwargs)
+            and any(
+                (item.get("model_info") or {}).get("account_pool_environment_id")
+                for item in (self.get_model_list(model_name=original_model_group) or [])
+            )
         ):
             raise e
 
@@ -7016,10 +7025,20 @@ class Router:
             "account_pool_attempt"
         )
 
+        from litellm.proxy.management_endpoints.account_pool_native_routing import (
+            deplete_failed_deployment,
+            exhausted_snapshot,
+            quota_failover_exclusions,
+            unavailable_snapshot,
+        )
+
+        rebuildable: Final = failover_rebuildable(kwargs)
+        # 执行前被拒说明上游未被调用，带推理签名的会话可以剥离推理后换卡继续。
+        stripped: Final = safe_signature_recovery(kwargs) if preflight and not rebuildable else None
         input_kwargs: Final = {
             "litellm_router": self,
             "original_exception": original_exception,
-            **kwargs,
+            **(stripped if stripped is not None else kwargs),
         }
 
         if "max_fallbacks" not in input_kwargs:
@@ -7029,19 +7048,14 @@ class Router:
         if include_fallback_errors:
             input_kwargs["include_fallback_errors"] = True
 
-        from litellm.proxy.management_endpoints.account_pool_native_routing import (
-            exhausted_snapshot,
-            quota_failover_exclusions,
-            unavailable_snapshot,
-        )
-
         quota_deployments: Final = self.get_model_list(model_name=original_model_group) or []
         depleted_settings: Final = exhausted_snapshot(e, quota_deployments, original_model_group)
         unavailable_settings: Final = unavailable_snapshot(e, quota_deployments)
         quota_settings: Final = depleted_settings or unavailable_settings
         if quota_settings is not None:
             # 额度耗尽由号池显式开关接管，不再受 weighted failover 的策略限制。
-            if not replay_safe(kwargs):
+            # 网关在执行前拒绝时上游尚未被调用，只要请求不依赖原卡状态就可以换卡。
+            if not replay_safe(kwargs) and not (preflight and (rebuildable or stripped is not None)):
                 raise e
             quota_metadata_name: Final = self._get_metadata_variable_name_from_kwargs(kwargs)
             quota_metadata: Final = kwargs.get(quota_metadata_name) or {}
@@ -7060,11 +7074,18 @@ class Router:
                 else self.fallbacks
             )
             quota_previews, _ = get_fallback_model_group(fallbacks=quota_mappings or [], model_group=original_model_group)
+            if preflight:
+                deplete_failed_deployment(e, quota_deployments, original_model_group)
+            # 网关执行前拒绝说明该卡当下不可用，即使未开启额度换卡也应排除它并重试其他卡。
+            switch_cards: Final = (
+                (quota_settings.quota_switch_project or preflight_rejected(e))
+                if depleted_settings
+                else unavailable_settings is not None
+            )
             quota_targets: Final = [
                 *(
                     [{"model": original_model_group, "_excluded_deployment_ids": list(quota_excluded)}]
-                    if (quota_settings.quota_switch_project if depleted_settings else unavailable_settings is not None)
-                    and quota_remaining
+                    if switch_cards and quota_remaining
                     else []
                 ),
                 *(quota_previews or [] if depleted_settings and depleted_settings.quota_switch_preview_model else []),

@@ -64,7 +64,22 @@ def test_preflight_reports_typed_account_failure_without_upstream_attempt(reason
         result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
     assert result.status_code == (429 if reason == "quota_exhausted" else 503)
     assert result.json()["error"]["code"] == "account_pool_" + reason
+    assert result.headers["x-account-pool-preflight"] == "rejected"
     assert control.acquisitions == []
+
+
+def test_upstream_failure_is_not_marked_preflight() -> None:
+    def upstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"code": "invalid_request_error", "message": "bad input"}})
+
+    client, _ = setup_gateway(upstream, retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses", json={"model": "model-a", "input": "hello"}, headers={"Authorization": f"Bearer {_KEY}"}
+        )
+    assert result.status_code == 400
+    assert result.headers["x-account-pool-failure"] == "request_rejected"
+    assert "x-account-pool-preflight" not in result.headers
 
 
 def test_model_cooldown_rejection_returns_429() -> None:
