@@ -7392,6 +7392,13 @@
     "completion tokens": "补全 Token",
     "Discount ({{percent}}):": "折扣（{{percent}}）：",
     "Margin ({{percent}}):": "加价（{{percent}}）：",
-    "threshold:": "阈值："
+    "threshold:": "阈值：",
+    "Image Edit - /images/edits": "图像编辑 - /images/edits",
+    "Simple Shuffle - Random selection from available models": "简单随机 - 从可用模型中随机选择",
+    "Least Busy - Route to model with lowest current load": "最空闲 - 路由到当前负载最低的模型",
+    "Latency Based - Route to model with best response time": "基于延迟 - 路由到响应时间最佳的模型",
+    "Cost Based - Route to most cost-effective model": "基于成本 - 路由到成本最低的模型",
+    "Usage Based - Route based on historical usage patterns": "基于用量 - 根据历史用量模式路由",
+    "Custom - Use custom routing logic defined in config": "自定义 - 使用配置中定义的自定义路由逻辑"
   }
 }

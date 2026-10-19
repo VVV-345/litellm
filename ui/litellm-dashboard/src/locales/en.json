@@ -7392,6 +7392,13 @@
     "completion tokens": "completion tokens",
     "Discount ({{percent}}):": "Discount ({{percent}}):",
     "Margin ({{percent}}):": "Margin ({{percent}}):",
-    "threshold:": "threshold:"
+    "threshold:": "threshold:",
+    "Image Edit - /images/edits": "Image Edit - /images/edits",
+    "Simple Shuffle - Random selection from available models": "Simple Shuffle - Random selection from available models",
+    "Least Busy - Route to model with lowest current load": "Least Busy - Route to model with lowest current load",
+    "Latency Based - Route to model with best response time": "Latency Based - Route to model with best response time",
+    "Cost Based - Route to most cost-effective model": "Cost Based - Route to most cost-effective model",
+    "Usage Based - Route based on historical usage patterns": "Usage Based - Route based on historical usage patterns",
+    "Custom - Use custom routing logic defined in config": "Custom - Use custom routing logic defined in config"
   }
 }

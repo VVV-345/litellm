@@ -1,5 +1,6 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { MountedFormHost } from "../../../tests/mounted-form-host";
 import AdvancedSettings from "./advanced_settings";
 
@@ -25,7 +26,8 @@ const renderAdvancedSettings = () =>
   );
 
 describe("AdvancedSettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     mockUsePtuCostAttributionEnabled.mockReturnValue(false);
   });

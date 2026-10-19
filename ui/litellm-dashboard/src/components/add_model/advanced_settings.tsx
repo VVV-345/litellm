@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "react-i18next";
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
@@ -82,6 +83,8 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
   tagsList,
   accessToken,
 }) => {
+  const { t } = useTranslation();
+  const ui = (value: string) => t(`ui.${value}`, { defaultValue: value });
   const [customPricing, setCustomPricing] = React.useState(false);
   const [pricingModel, setPricingModel] = React.useState<"per_token" | "per_second">("per_token");
   const [showCacheControl, setShowCacheControl] = React.useState(false);
@@ -99,12 +102,12 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
     <>
       <Collapsible className="mt-2 mb-4 overflow-hidden rounded-lg border">
         <CollapsibleTrigger className="group/section flex w-full items-center justify-between px-4 py-3 text-left">
-          <b>Advanced Settings</b>
+          <b>{ui("Advanced Settings")}</b>
           <ChevronDown className="size-5 shrink-0 text-muted-foreground transition-transform group-data-[panel-open]/section:rotate-180" />
         </CollapsibleTrigger>
         <CollapsibleContent className="px-4 pb-3">
           <div className="rounded-lg">
-            <MountedFormField name="custom_pricing" label="Custom Pricing" className="mb-4">
+            <MountedFormField name="custom_pricing" label={ui("Custom Pricing")} className="mb-4">
               {(control) => (
                 <Switch
                   id={control.id}
@@ -121,8 +124,8 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
               name="vector_store_ids"
               label={
                 <span>
-                  Attached Knowledge Bases (RAG){" "}
-                  <SimpleTooltip content="Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.">
+                  {ui("Attached Knowledge Bases (RAG)")}{" "}
+                  <SimpleTooltip content={ui("Vector stores to use for RAG. Every request to this model will automatically retrieve context from these knowledge bases.")}>
                     <a
                       href="https://docs.litellm.ai/docs/completion/knowledgebase"
                       target="_blank"
@@ -135,14 +138,14 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 </span>
               }
               className="mt-4"
-              help="Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores."
+              help={ui("Select vector stores to attach. Requests to this model will automatically use these for RAG. Set up vector stores in Tools > Vector Stores.")}
             >
               {(control) => (
                 <VectorStoreSelector
                   onChange={control.onChange}
                   value={control.value as string[] | undefined}
                   accessToken={accessToken}
-                  placeholder="Select knowledge bases (optional)"
+                  placeholder={ui("Select knowledge bases (optional)")}
                 />
               )}
             </MountedFormField>
@@ -151,8 +154,8 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
               name="guardrails"
               label={
                 <span>
-                  Guardrails{" "}
-                  <SimpleTooltip content="Apply safety guardrails to this key to filter content or enforce policies">
+                  {ui("Guardrails")}{" "}
+                  <SimpleTooltip content={ui("Apply safety guardrails to this key to filter content or enforce policies")}>
                     <a
                       href="https://docs.litellm.ai/docs/proxy/guardrails/quick_start"
                       target="_blank"
@@ -165,13 +168,13 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 </span>
               }
               className="mt-4"
-              help="Select existing guardrails. Go to 'Guardrails' tab to create new guardrails."
+              help={ui("Select existing guardrails. Go to 'Guardrails' tab to create new guardrails.")}
             >
               {(control) => (
                 <MultiSelect
                   id={control.id}
-                  placeholder="Select or enter guardrails"
-                  emptyText="Type to add a guardrail"
+                  placeholder={ui("Select or enter guardrails")}
+                  emptyText={ui("Type to add a guardrail")}
                   value={(control.value as string[] | undefined) ?? []}
                   onValueChange={control.onChange}
                   options={guardrailsList.map((name) => ({ value: name, label: name }))}
@@ -180,12 +183,12 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
               )}
             </MountedFormField>
 
-            <MountedFormField name="tags" label="Tags" className="mb-4">
+            <MountedFormField name="tags" label={ui("Tags")} className="mb-4">
               {(control) => (
                 <MultiSelect
                   id={control.id}
-                  placeholder="Select or enter tags"
-                  emptyText="Type to add a tag"
+                  placeholder={ui("Select or enter tags")}
+                  emptyText={ui("Type to add a tag")}
                   value={(control.value as string[] | undefined) ?? []}
                   onValueChange={control.onChange}
                   options={Object.values(tagsList).map((tag) => ({
@@ -203,8 +206,8 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 <MountedFormField
                   name={PTU_COUNT_FIELD}
                   label={labelWithHint(
-                    "PTU Count",
-                    "Provisioned throughput units for this deployment. Set together with Cost per PTU / Hour and a Team to attribute a flat daily cost.",
+                    ui("PTU Count"),
+                    ui("Provisioned throughput units for this deployment. Set together with Cost per PTU / Hour and a Team to attribute a flat daily cost."),
                   )}
                   rules={{
                     deps: REVALIDATED_WHEN_PTU_COUNT_CHANGES,
@@ -222,7 +225,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                       value={(control.value as string | undefined) ?? ""}
                       onChange={control.onChange}
                       onBlur={control.onBlur}
-                      placeholder="e.g. 15"
+                      placeholder={ui("e.g. 15")}
                     />
                   )}
                 </MountedFormField>
@@ -230,8 +233,8 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 <MountedFormField
                   name={PTU_RATE_FIELD}
                   label={labelWithHint(
-                    "Calculated Cost per PTU / Hour (USD)",
-                    "Flat cost = PTU count * this rate * active hours, attributed to the deployment's team.",
+                    ui("Calculated Cost per PTU / Hour (USD)"),
+                    ui("Flat cost = PTU count * this rate * active hours, attributed to the deployment's team."),
                   )}
                   rules={{
                     deps: [PTU_COUNT_FIELD],
@@ -249,7 +252,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                       value={(control.value as string | undefined) ?? ""}
                       onChange={control.onChange}
                       onBlur={control.onBlur}
-                      placeholder="e.g. 2.00"
+                      placeholder={ui("e.g. 2.00")}
                     />
                   )}
                 </MountedFormField>
@@ -305,10 +308,10 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
 
             {customPricing && (
               <div className="ml-6 pl-4 border-l-2 border-border">
-                <MountedFormField name="pricing_model" label="Pricing Model" className="mb-4">
+                <MountedFormField name="pricing_model" label={ui("Pricing Model")} className="mb-4">
                   {(control) => (
                     <Select
-                      items={PRICING_MODEL_ITEMS}
+                      items={PRICING_MODEL_ITEMS.map((item) => ({ ...item, label: ui(item.label) }))}
                       value={(control.value as "per_token" | "per_second" | undefined) ?? "per_token"}
                       onValueChange={handlePricingModelChange(control.onChange)}
                     >
@@ -318,7 +321,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                       <SelectContent>
                         {PRICING_MODEL_ITEMS.map((item) => (
                           <SelectItem key={item.value} value={item.value}>
-                            {item.label}
+                            {ui(item.label)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -330,7 +333,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                   <>
                     <MountedFormField
                       name="input_cost_per_token"
-                      label="Input Cost (per 1M tokens)"
+                      label={ui("Input Cost (per 1M tokens)")}
                       rules={usageCostRules}
                       className="mb-4"
                     >
@@ -345,7 +348,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     </MountedFormField>
                     <MountedFormField
                       name="output_cost_per_token"
-                      label="Output Cost (per 1M tokens)"
+                      label={ui("Output Cost (per 1M tokens)")}
                       rules={usageCostRules}
                       className="mb-4"
                     >
@@ -360,7 +363,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                     </MountedFormField>
                     <MountedFormField
                       name="cache_read_input_token_cost"
-                      label={labelWithHint("Cache Read Cost (per 1M tokens)", "If left blank, defaults to Input Cost.")}
+                      label={labelWithHint(ui("Cache Read Cost (per 1M tokens)"), ui("If left blank, defaults to Input Cost."))}
                       rules={usageCostRules}
                       className="mb-4"
                     >
@@ -370,15 +373,15 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                           value={(control.value as string | undefined) ?? ""}
                           onChange={control.onChange}
                           onBlur={control.onBlur}
-                          placeholder="Defaults to Input Cost if blank"
+                          placeholder={ui("Defaults to Input Cost if blank")}
                         />
                       )}
                     </MountedFormField>
                     <MountedFormField
                       name="cache_creation_input_token_cost"
                       label={labelWithHint(
-                        "Cache Write Cost (per 1M tokens)",
-                        "If left blank, defaults to Input Cost (the backend falls back to input_cost_per_token when no cache-write rate is set).",
+                        ui("Cache Write Cost (per 1M tokens)"),
+                        ui("If left blank, defaults to Input Cost (the backend falls back to input_cost_per_token when no cache-write rate is set)."),
                       )}
                       rules={usageCostRules}
                       className="mb-4"
@@ -389,7 +392,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                           value={(control.value as string | undefined) ?? ""}
                           onChange={control.onChange}
                           onBlur={control.onBlur}
-                          placeholder="Defaults to Input Cost if blank"
+                          placeholder={ui("Defaults to Input Cost if blank")}
                         />
                       )}
                     </MountedFormField>
@@ -397,7 +400,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
                 ) : (
                   <MountedFormField
                     name="input_cost_per_second"
-                    label="Cost Per Second"
+                    label={ui("Cost Per Second")}
                     rules={usageCostRules}
                     className="mb-4"
                   >
