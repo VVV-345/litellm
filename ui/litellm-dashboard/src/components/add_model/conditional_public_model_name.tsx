@@ -7,6 +7,7 @@ import { SimpleTooltip } from "@/components/ui/tooltip";
 import { validatorRules } from "../common_components/formRules";
 import { MountedFormField, type MountedFormValues } from "../common_components/MountedFormField";
 import { Providers } from "../provider_info_helpers";
+import i18n from "@/i18n";
 
 interface ModelMapping {
   public_name: string;
@@ -23,13 +24,13 @@ const sameMappings = (left: readonly ModelMapping[], right: readonly ModelMappin
 const modelMappingsRule = {
   validator: async (_: unknown, value: unknown) => {
     if (!value || (value as ModelMapping[]).length === 0) {
-      throw new Error("At least one model mapping is required");
+      throw new Error(i18n.t("ui.At least one model mapping is required", { defaultValue: "At least one model mapping is required" }));
     }
     const invalidMappings = (value as ModelMapping[]).filter(
       (mapping) => !mapping.public_name || mapping.public_name.trim() === "",
     );
     if (invalidMappings.length > 0) {
-      throw new Error("All model mappings must have valid public names");
+      throw new Error(i18n.t("ui.All model mappings must have valid public names", { defaultValue: "All model mappings must have valid public names" }));
     }
   },
 };
@@ -40,17 +41,17 @@ const ANTHROPIC_1M_HEADERS = JSON.stringify({ extra_headers: { "anthropic-beta":
 
 const publicNameTooltipContent = (
   <div className="flex flex-col gap-2 text-left font-normal">
-    <div>The name you specify in your API calls to LiteLLM Proxy</div>
+    <div>{i18n.t("ui.The name you specify in your API calls to LiteLLM Proxy", { defaultValue: "The name you specify in your API calls to LiteLLM Proxy" })}</div>
     <div>
-      <strong>Example:</strong> If you name your public model <code className={tooltipCodeClassName}>example-name</code>
+      <strong>{i18n.t("ui.Example:", { defaultValue: "Example:" })}</strong> {i18n.t("ui.If you name your public model", { defaultValue: "If you name your public model" })} <code className={tooltipCodeClassName}>example-name</code>
       , and choose <code className={tooltipCodeClassName}>openai/qwen-plus-latest</code> as the LiteLLM model
     </div>
     <div>
-      <strong>Usage:</strong> You make an API call to the LiteLLM proxy with{" "}
+      <strong>{i18n.t("ui.Usage:", { defaultValue: "Usage:" })}</strong> {i18n.t("ui.You make an API call to the LiteLLM proxy with", { defaultValue: "You make an API call to the LiteLLM proxy with" })}{" "}
       <code className={tooltipCodeClassName}>model = &quot;example-name&quot;</code>
     </div>
     <div>
-      <strong>Result:</strong> LiteLLM sends <code className={tooltipCodeClassName}>qwen-plus-latest</code> to the
+      <strong>{i18n.t("ui.Result:", { defaultValue: "Result:" })}</strong> {i18n.t("ui.LiteLLM sends", { defaultValue: "LiteLLM sends" })} <code className={tooltipCodeClassName}>qwen-plus-latest</code> to the
       provider
     </div>
   </div>
@@ -94,7 +95,7 @@ const columns: ColumnDef<ModelMapping>[] = [
     accessorKey: "public_name",
     header: () => (
       <span className="flex items-center">
-        Public Model Name
+        {i18n.t("ui.Public Model Name", { defaultValue: "Public Model Name" })}
         <SimpleTooltip content={publicNameTooltipContent} width="500px" />
       </span>
     ),
@@ -105,8 +106,8 @@ const columns: ColumnDef<ModelMapping>[] = [
     accessorKey: "litellm_model",
     header: () => (
       <span className="flex items-center">
-        LiteLLM Model Name
-        <SimpleTooltip content={<div>The model name LiteLLM will send to the LLM API</div>} width="360px" />
+        {i18n.t("ui.LiteLLM Model Name", { defaultValue: "LiteLLM Model Name" })}
+        <SimpleTooltip content={<div>{i18n.t("ui.The model name LiteLLM will send to the LLM API", { defaultValue: "The model name LiteLLM will send to the LLM API" })}</div>} width="360px" />
       </span>
     ),
   },
@@ -205,8 +206,8 @@ const ConditionalPublicModelName: React.FC = () => {
       name="model_mappings"
       label={
         <span className="flex items-center">
-          Model Mappings
-          <SimpleTooltip content="Map public model names to LiteLLM model names for load balancing" />
+          {i18n.t("ui.Model Mappings", { defaultValue: "Model Mappings" })}
+          <SimpleTooltip content={i18n.t("ui.Map public model names to LiteLLM model names for load balancing", { defaultValue: "Map public model names to LiteLLM model names for load balancing" })} />
         </span>
       }
       required

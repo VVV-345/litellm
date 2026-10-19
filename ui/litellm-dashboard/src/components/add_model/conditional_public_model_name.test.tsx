@@ -2,7 +2,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React, { useEffect, useRef } from "react";
 import { useFormContext, useWatch } from "react-hook-form";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import i18next from "@/i18n";
 import { MountedFormHost } from "../../../tests/mounted-form-host";
 import type { MountedFormValues } from "../common_components/MountedFormField";
 import ConditionalPublicModelName from "./conditional_public_model_name";
@@ -25,6 +26,10 @@ const LoopGuard: React.FC = () => {
 };
 
 describe("ConditionalPublicModelName", () => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
+  });
+
   it("should render", () => {
     render(
       <MountedFormHost
