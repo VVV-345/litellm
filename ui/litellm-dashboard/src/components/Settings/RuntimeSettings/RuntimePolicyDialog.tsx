@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "@/lib/toast";
 
 import { AccountPoolProviderPolicyFields } from "@/features/account-pool/components/providers/AccountPoolProviderPolicyFields";
+import { RuntimePolicyRoutingSection } from "./RuntimePolicyRoutingSection";
 import {
   getAccountPolicy,
   saveAccountPolicy,
@@ -131,6 +132,8 @@ const defaults: FormPolicy = {
   xai: null,
   antigravity: null,
 };
+
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 
 const FieldCard = ({ children, className = "" }: { children: ReactNode; className?: string }) => (
   <div className={`min-w-0 rounded-lg border border-border bg-background p-4 ${className}`}>{children}</div>
@@ -327,13 +330,19 @@ function PolicyForm({
       </div>
     </FieldCard>
   );
-  const optionalNumberField = (
-    label: string,
-    descriptionText: string,
-    current: number | null | undefined,
-    change: (next: number | null) => void,
-    max?: number,
-  ) => (
+  const optionalNumberField = ({
+    label,
+    description: descriptionText,
+    value: current,
+    onChange: change,
+    max,
+  }: {
+    label: string;
+    description: string;
+    value: number | null | undefined;
+    onChange: (next: number | null) => void;
+    max?: number;
+  }) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
         <div className="space-y-1">
@@ -426,6 +435,26 @@ function PolicyForm({
     const aliasValues = list(aliases);
     if (aliasValues.some((item) => !/^\S.*=\s*\S/.test(item))) {
       toast.error(t("accountPool.policy.invalidAliases"));
+      return;
+    }
+    const routing = policy.routing;
+    if (routing.max_attempts < 1 || routing.max_attempts > 5) {
+      toast.error(t("accountPool.policy.invalidMaxAttempts"));
+      return;
+    }
+    if (routing.backoff_ms < 0 || routing.backoff_ms > 60000) {
+      toast.error(t("accountPool.policy.invalidBackoff"));
+      return;
+    }
+    if (routing.session_affinity_ttl < 60 || routing.session_affinity_ttl > 86400) {
+      toast.error(t("accountPool.policy.invalidAffinityTtl"));
+      return;
+    }
+    if (
+      routing.retryable_statuses.length === 0 ||
+      routing.retryable_statuses.some((status) => !RETRYABLE_STATUSES.has(status))
+    ) {
+      toast.error(t("accountPool.policy.invalidRetryStatuses"));
       return;
     }
     const parsed: FormPolicy = {
@@ -542,63 +571,33 @@ function PolicyForm({
       </section>
       <section className="grid gap-3">
         <h3 className="font-medium">{t("accountPool.policy.routing")}</h3>
-        <details className="rounded-lg border p-3 text-sm">
-          <summary>旧版路由设置与迁移状态</summary>
-          <div className="mt-3 space-y-3">
-            <p>
-              权重、优先级和备用标记只在首次同步时初始化 LiteLLM 模型的 weight/order，之后以模型编辑中的值为准。
-              额度、套餐、到期时间偏好及会话亲和性已在 LiteLLM Router Settings
-              中提供新设置，包括按指定卡片顺序选择；此处旧值不会自动覆盖原生设置。旧重试与回退字段保留，但实际请求使用
-              LiteLLM 的重试和回退设置。
-            </p>
-            <dl className="grid gap-2 sm:grid-cols-2">
-              {(
-                [
-                  "strategy",
-                  "priority",
-                  "weight",
-                  "is_backup",
-                  "preferred_account_ids",
-                  "session_affinity",
-                  "session_affinity_ttl",
-                  "fallback_enabled",
-                  "max_attempts",
-                  "backoff_ms",
-                  "retryable_statuses",
-                ] as const
-              ).map((field) => (
-                <div key={field}>
-                  <dt className="font-medium">{t(`accountPool.policy.${field}`)}</dt>
-                  <dd className="break-all text-muted-foreground">{JSON.stringify(policy.routing[field])}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-        </details>
+        <RuntimePolicyRoutingSection
+          routing={policy.routing}
+          accounts={options.accounts}
+          busy={busy}
+          onChange={updateRouting}
+        />
         <div className="grid gap-3 sm:grid-cols-2">
-          <p className="text-sm text-muted-foreground">
-            卡片之间的权重、优先级、回退和会话亲和性使用 LiteLLM 路由设置；虚拟密钥指定卡片时仅在该卡片内调用。
-          </p>
           {numberField(
             t("accountPool.policy.quota_reserve_percent"),
             description("quota_reserve_percent"),
             policy.routing.quota_reserve_percent,
             (next) => updateRouting("quota_reserve_percent", next),
           )}
-          {optionalNumberField(
-            t("accountPool.policy.quota_reserve_5h_percent"),
-            t("accountPool.policy.windowReserveDescription", { window: "5 小时 / 300 min" }),
-            policy.routing.quota_reserve_5h_percent,
-            (next) => updateRouting("quota_reserve_5h_percent", next),
-            100,
-          )}
-          {optionalNumberField(
-            t("accountPool.policy.quota_reserve_weekly_percent"),
-            t("accountPool.policy.windowReserveDescription", { window: "7 天 / 10080 min" }),
-            policy.routing.quota_reserve_weekly_percent,
-            (next) => updateRouting("quota_reserve_weekly_percent", next),
-            100,
-          )}
+          {optionalNumberField({
+            label: t("accountPool.policy.quota_reserve_5h_percent"),
+            description: t("accountPool.policy.windowReserveDescription", { window: "5 小时 / 300 min" }),
+            value: policy.routing.quota_reserve_5h_percent,
+            onChange: (next) => updateRouting("quota_reserve_5h_percent", next),
+            max: 100,
+          })}
+          {optionalNumberField({
+            label: t("accountPool.policy.quota_reserve_weekly_percent"),
+            description: t("accountPool.policy.windowReserveDescription", { window: "7 天 / 10080 min" }),
+            value: policy.routing.quota_reserve_weekly_percent,
+            onChange: (next) => updateRouting("quota_reserve_weekly_percent", next),
+            max: 100,
+          })}
           <p className="text-sm text-muted-foreground sm:col-span-2">{t("accountPool.policy.windowCompatibility")}</p>
           {numberField(
             t("accountPool.policy.quota_snapshot_max_age"),
@@ -606,19 +605,18 @@ function PolicyForm({
             policy.routing.quota_snapshot_max_age,
             (next) => updateRouting("quota_snapshot_max_age", next),
           )}
-          {optionalNumberField(
-            t("accountPool.policy.token_budget_limit"),
-            description("token_budget_limit"),
-            policy.routing.token_budget_limit,
-            (next) => updateRouting("token_budget_limit", next),
-          )}
+          {optionalNumberField({
+            label: t("accountPool.policy.token_budget_limit"),
+            description: description("token_budget_limit"),
+            value: policy.routing.token_budget_limit,
+            onChange: (next) => updateRouting("token_budget_limit", next),
+          })}
           {numberField(
             t("accountPool.policy.token_budget_window_seconds"),
             description("token_budget_window_seconds"),
             policy.routing.token_budget_window_seconds,
             (next) => updateRouting("token_budget_window_seconds", next),
           )}
-          <p className="text-sm text-muted-foreground">重试次数和退避使用 LiteLLM 模型重试设置及虚拟密钥路由设置。</p>
           {multiField(excludedModelsField)}
           {textField(t("accountPool.policy.model_aliases"), description("model_aliases"), aliases, setAliases)}
         </div>
@@ -664,12 +662,12 @@ function PolicyForm({
             policy.transport.request_timeout_seconds,
             (next) => updateTransport("request_timeout_seconds", next),
           )}
-          {optionalNumberField(
-            t("accountPool.policy.read_timeout_seconds"),
-            description("read_timeout_seconds"),
-            policy.transport.read_timeout_seconds,
-            (next) => updateTransport("read_timeout_seconds", next),
-          )}
+          {optionalNumberField({
+            label: t("accountPool.policy.read_timeout_seconds"),
+            description: description("read_timeout_seconds"),
+            value: policy.transport.read_timeout_seconds,
+            onChange: (next) => updateTransport("read_timeout_seconds", next),
+          })}
           {toggleField(
             t("accountPool.policy.debug_log_enabled"),
             description("debug_log_enabled"),

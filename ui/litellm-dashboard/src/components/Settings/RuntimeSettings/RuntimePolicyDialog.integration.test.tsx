@@ -171,7 +171,7 @@ describe("RuntimePolicyDialog", () => {
   it("saves an explicit empty protocol set instead of silently restoring defaults", async () => {
     renderDialog();
     fireEvent.click(await screen.findByRole("switch", { name: "继承默认协议" }));
-    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    fireEvent.click(screen.getByRole("button", { name: /清除全部|Clear all/i }));
     fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
     expect((savePolicy.mock.calls[0][3] as AccountPolicy).transport?.supported_protocols).toEqual([]);
@@ -207,14 +207,35 @@ describe("RuntimePolicyDialog", () => {
       },
     });
     renderDialog([environment, backup]);
-    await screen.findByText(/卡片之间的权重/);
-    expect(screen.queryByRole("switch", { name: /故障切换|Failover/i })).not.toBeInTheDocument();
+    await screen.findByText(/以下字段由号池网关的卡级策略执行/);
+    expect(screen.getByRole("switch", { name: /故障切换|Failover/i })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
     expect((savePolicy.mock.calls[0][3] as AccountPolicy).routing).toMatchObject({
       max_attempts: 5,
       fallback_enabled: false,
       preferred_account_ids: [backup.id],
+    });
+  });
+
+  it("saves card failover when the switch is enabled", async () => {
+    const user = userEvent.setup();
+    getPolicy.mockResolvedValue({
+      ...policyView,
+      policy: {
+        ...policyView.policy,
+        routing: { ...policyView.policy!.routing!, fallback_enabled: false, max_attempts: 2 },
+      },
+    });
+    renderDialog();
+    const toggle = await screen.findByRole("switch", { name: /故障切换|Failover/i });
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledTimes(1));
+    expect((savePolicy.mock.calls[0][3] as AccountPolicy).routing).toMatchObject({
+      fallback_enabled: true,
+      max_attempts: 2,
     });
   });
 
@@ -238,8 +259,8 @@ describe("RuntimePolicyDialog", () => {
   it("explains routing and transport settings in user-facing language", async () => {
     renderDialog();
 
-    expect(await screen.findByText(/卡片之间的权重/)).toBeInTheDocument();
-    expect(screen.getByText(/重试次数和退避使用 LiteLLM/)).toBeInTheDocument();
+    expect(await screen.findByText(/以下字段由号池网关的卡级策略执行/)).toBeInTheDocument();
+    expect(screen.getByText(/LiteLLM Router Settings 负责模型级回退和重试/)).toBeInTheDocument();
     expect(screen.getByText(/剩余额度达到或低于|remaining quota reaches/i)).toBeInTheDocument();
     expect(screen.getByText(/认证信息与敏感内容仍会脱敏|credentials and sensitive data redacted/i)).toBeInTheDocument();
   });
