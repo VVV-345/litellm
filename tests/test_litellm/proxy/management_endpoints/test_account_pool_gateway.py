@@ -92,6 +92,7 @@ def test_model_cooldown_rejection_returns_429() -> None:
     assert result.status_code == 429
     assert result.json()["error"]["code"] == "account_pool_quota_exhausted"
     assert result.headers["x-account-pool-failure"] == "quota_exhausted"
+    assert result.headers["x-account-pool-preflight"] == "rejected"
     assert [item.account_id for item in control.acquisitions] == [
         account.id for account in control.resolution.candidates
     ]
@@ -106,6 +107,7 @@ def test_runtime_cooldown_rejection_returns_503() -> None:
         )
     assert result.status_code == 503
     assert result.json()["error"]["code"] == "account_pool_account_unavailable"
+    assert result.headers["x-account-pool-preflight"] == "rejected"
 
 
 def test_internal_forward_model_cooldown_stays_503(monkeypatch) -> None:

@@ -341,6 +341,17 @@ class DeploymentAffinityCheck(CustomLogger):
         self.cache.in_memory_cache.delete_cache(cache_key)
         self.cache.in_memory_cache.set_cache(cache_key, value, ttl=ttl_seconds)
 
+    async def _forget_pin(self, cache_key: str) -> None:
+        """The session can no longer run on the pinned deployment, so drop the pin and let the next success rebind it."""
+        self.cache.in_memory_cache.delete_cache(cache_key)
+        redis_cache: Final = self.cache.redis_cache
+        if redis_cache is None:
+            return
+        try:
+            await redis_cache.async_delete_cache(cache_key)
+        except Exception as e:  # noqa: BLE001  # clearing a stale pin must never block routing
+            verbose_router_logger.debug("DeploymentAffinityCheck: failed to clear session pin. error=%s", e)
+
     async def _claim_pin(self, cache_key: str, pin_value: DeploymentAffinityCacheValue, ttl_seconds: int) -> str | None:
         """First-writer-wins pin write: store `pin_value` only when the key is absent and
         return the deployment id the key holds afterwards, so a caller learns whether it won
@@ -507,6 +518,7 @@ class DeploymentAffinityCheck(CustomLogger):
                                 model=model,
                                 llm_provider="account_pool",
                             )
+                        await self._forget_pin(session_cache_key)
                         verbose_router_logger.debug(
                             "DeploymentAffinityCheck: session-id pinned deployment=%s not found in healthy_deployments",
                             session_model_id,

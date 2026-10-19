@@ -451,6 +451,8 @@ async def forward(
                 if status == 503
                 else _EMPTY_HEADERS
             ),
+            # 租约被拒时上游一次都没被调用，Router 可以安全地换一张卡重试。
+            **({"x-account-pool-preflight": "rejected"} if status in (429, 503) else {}),
         }
     )
     await JSONResponse(

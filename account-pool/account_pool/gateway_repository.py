@@ -59,6 +59,7 @@ class LeaseRepository(CooldownRepository, Protocol):
         *,
         model_cooldown_seconds: int = 0,
         model_succeeded: bool = False,
+        clear_sessions: bool = False,
     ) -> None: ...
 
 

@@ -614,3 +614,36 @@ def test_complexity_router_with_deployment_affinity_registers_affinity_callback(
         _cleanup_router_callbacks(enabled)
         _cleanup_router_callbacks(session_only)
         _cleanup_router_callbacks(disabled)
+
+@pytest.mark.asyncio
+async def test_session_affinity_forgets_pin_when_pinned_deployment_disappears() -> None:
+    cache = DualCache()
+    callback = DeploymentAffinityCheck(
+        cache=cache,
+        ttl_seconds=123,
+        enable_user_key_affinity=False,
+        enable_responses_api_affinity=False,
+        enable_session_id_affinity=True,
+    )
+    healthy_deployments = [
+        {
+            "model_name": "model_group",
+            "litellm_params": {"model": "model_2"},
+            "model_info": {"id": "deployment-2"},
+        }
+    ]
+    cache_key = DeploymentAffinityCheck.get_session_affinity_cache_key(
+        "model_group", "session1", user_key="user1"
+    )
+    await cache.async_set_cache(cache_key, {"model_id": "deployment-1"})
+
+    filtered = await callback.async_filter_deployments(
+        model="model_group",
+        healthy_deployments=healthy_deployments,
+        messages=[],
+        request_kwargs={"metadata": {"user_api_key_hash": "user1", "session_id": "session1"}},
+    )
+
+    assert [item["model_info"]["id"] for item in filtered] == ["deployment-2"]
+    assert await cache.async_get_cache(cache_key) is None
+
