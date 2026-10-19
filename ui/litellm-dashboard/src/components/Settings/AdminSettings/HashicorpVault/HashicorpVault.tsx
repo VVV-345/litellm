@@ -1,6 +1,7 @@
 "use client";
 
 import { Edit, ExternalLink, Info, KeyRound, PlugZap, Trash2 } from "lucide-react";
+import i18n from "@/i18n";
 import { useState } from "react";
 
 import { testHashicorpVaultConnection } from "@/app/(dashboard)/hooks/configOverrides/hashicorpVaultApi";
@@ -86,7 +87,7 @@ export default function HashicorpVault() {
 
   const renderValue = (key: string) => {
     const value = rawValues[key];
-    if (!value) return <span className="text-muted-foreground italic">Not configured</span>;
+    if (!value) return <span className="text-muted-foreground italic">{i18n.t("ui.Not configured")}</span>;
     if (!SENSITIVE_FIELDS.has(key)) return <span className="font-mono text-muted-foreground">{value}</span>;
 
     return (
@@ -110,7 +111,7 @@ export default function HashicorpVault() {
   return (
     <>
       {isLoading ? (
-        <Card role="status" aria-label="Loading Hashicorp Vault configuration">
+        <Card role="status" aria-label={i18n.t("ui.Loading Hashicorp Vault configuration")}>
           <CardContent className="space-y-3">
             <Skeleton className="h-8 w-64" />
             <Skeleton className="h-40 w-full" />
@@ -120,7 +121,7 @@ export default function HashicorpVault() {
         <Card>
           <CardContent>
             <Alert variant="error">
-              <AlertTitle>Could not load Hashicorp Vault configuration</AlertTitle>
+              <AlertTitle>{i18n.t("ui.Could not load Hashicorp Vault configuration")}</AlertTitle>
               {error instanceof Error && <AlertDescription>{error.message}</AlertDescription>}
             </Alert>
           </CardContent>
@@ -132,9 +133,9 @@ export default function HashicorpVault() {
               <KeyRound className="size-6 text-muted-foreground" />
               <div>
                 <CardTitle>
-                  <h3>Hashicorp Vault</h3>
+                  <h3>{i18n.t("ui.Hashicorp Vault")}</h3>
                 </CardTitle>
-                <CardDescription>Manage secret manager configuration</CardDescription>
+                <CardDescription>{i18n.t("ui.Manage secret manager configuration")}</CardDescription>
               </div>
             </div>
             {isConfigured && (
@@ -145,12 +146,10 @@ export default function HashicorpVault() {
                 </Button>
                 <Button type="button" variant="outline" onClick={() => setIsEditModalVisible(true)}>
                   <Edit />
-                  Edit Configuration
-                </Button>
+                  {i18n.t("ui.Edit Configuration")}</Button>
                 <Button type="button" variant="destructive" onClick={() => setIsDeleteModalOpen(true)}>
                   <Trash2 />
-                  Delete Configuration
-                </Button>
+                  {i18n.t("ui.Delete Configuration")}</Button>
               </CardAction>
             )}
           </CardHeader>
@@ -167,8 +166,7 @@ export default function HashicorpVault() {
                     rel="noreferrer"
                     className="inline-flex items-center gap-1"
                   >
-                    View documentation
-                    <ExternalLink className="size-3" />
+                    {i18n.t("ui.View documentation")}<ExternalLink className="size-3" />
                   </a>
                 </AlertDescription>
               </Alert>
@@ -177,7 +175,7 @@ export default function HashicorpVault() {
             {isConfigured ? (
               fieldsToShow.length > 0 && (
                 <dl className="divide-y divide-border overflow-hidden rounded-md border border-border">
-                  <DetailRow label="Auth Method">{detectAuthMethod(rawValues)}</DetailRow>
+                  <DetailRow label={i18n.t("ui.Auth Method")}>{detectAuthMethod(rawValues)}</DetailRow>
                   {fieldsToShow.map(([key]) => (
                     <DetailRow key={key} label={FIELD_LABELS[key] ?? key}>
                       {renderValue(key)}
@@ -199,7 +197,7 @@ export default function HashicorpVault() {
       />
       <DeleteResourceModal
         isOpen={isDeleteModalOpen}
-        title="Delete Hashicorp Vault Configuration?"
+        title={i18n.t("ui.Delete Hashicorp Vault Configuration?")}
         message="Models using Vault secrets will lose access to their API keys until a new configuration is saved."
         resourceInformationTitle="Vault Configuration"
         resourceInformation={[{ label: "Vault Address", value: rawValues.vault_addr }]}

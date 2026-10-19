@@ -1,9 +1,14 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { renderWithProviders } from "../../../tests/test-utils";
 import { TeamData } from "./TeamInfo";
 import TeamMembersComponent from "./TeamMemberTab";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 vi.mock("@/app/(dashboard)/hooks/uiSettings/useUISettings", () => ({
   useUISettings: vi.fn(),

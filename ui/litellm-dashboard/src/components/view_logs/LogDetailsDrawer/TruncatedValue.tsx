@@ -1,4 +1,5 @@
 import CopyButton from "@/components/shared/CopyButton";
+import i18n from "@/i18n";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DEFAULT_MAX_WIDTH, FONT_FAMILY_MONO } from "./constants";
 
@@ -23,7 +24,7 @@ export function TruncatedValue({ value, maxWidth = DEFAULT_MAX_WIDTH }: Truncate
               <span className="truncate text-xs" style={{ maxWidth, fontFamily: FONT_FAMILY_MONO }}>
                 {value}
               </span>
-              <CopyButton value={value} label="Copy" className="size-4 shrink-0" iconClassName="size-3" />
+              <CopyButton value={value} label={i18n.t("ui.Copy")} className="size-4 shrink-0" iconClassName="size-3" />
             </span>
           }
         />

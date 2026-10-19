@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import i18n from "@/i18n";
 import { useState } from "react";
 
 import { useCredentials } from "@/app/(dashboard)/hooks/credentials/useCredentials";
@@ -114,13 +115,11 @@ export default function CredentialsPanel() {
     <div className="mx-auto flex w-full flex-auto flex-col gap-4 overflow-y-auto p-2">
       <div className="flex items-center justify-between gap-4">
         <p className="text-sm text-muted-foreground">
-          Configured credentials for different AI providers. Add and manage your API credentials.
-        </p>
+          {i18n.t("ui.Configured credentials for different AI providers. Add and manage your API credentials.")}</p>
         {canModifyCredentials && (
           <Button onClick={() => setIsAddModalOpen(true)}>
             <Plus className="size-4" />
-            Add Credential
-          </Button>
+            {i18n.t("ui.Add Credential")}</Button>
         )}
       </div>
 
@@ -154,7 +153,7 @@ export default function CredentialsPanel() {
         isOpen={isDeleteModalOpen}
         onCancel={closeDeleteModal}
         onOk={handleDeleteCredential}
-        title="Delete Credential?"
+        title={i18n.t("ui.Delete Credential?")}
         message="Are you sure you want to delete this credential? This action cannot be undone and may break existing integrations."
         resourceInformationTitle="Credential Information"
         resourceInformation={[

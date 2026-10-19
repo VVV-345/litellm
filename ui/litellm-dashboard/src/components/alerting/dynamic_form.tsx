@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { useForm } from "react-hook-form";
 import { CircleCheck, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -111,9 +112,9 @@ const DynamicForm: React.FC<DynamicFormProps> = ({
                 In DB
               </Badge>
             ) : value.stored_in_db == false ? (
-              <Badge variant="outline">In Config</Badge>
+              <Badge variant="outline">{i18n.t("ui.In Config")}</Badge>
             ) : (
-              <Badge variant="outline">Not Set</Badge>
+              <Badge variant="outline">{i18n.t("ui.Not Set")}</Badge>
             )}
           </TableCell>
           <TableCell>

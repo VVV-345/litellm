@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { CredentialItem } from "@/components/networking";
@@ -60,8 +61,7 @@ function CredentialRowActions({ credential, onEdit, onDelete }: CredentialRowAct
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuItem data-testid="credential-action-edit" onClick={() => onEdit(credential)}>
           <Pencil />
-          Edit
-        </DropdownMenuItem>
+          {i18n.t("ui.Edit")}</DropdownMenuItem>
         <DropdownMenuItem
           data-testid="credential-action-copy"
           onClick={() => void copyToClipboard(credential.credential_name, "Credential name copied")}
@@ -76,8 +76,7 @@ function CredentialRowActions({ credential, onEdit, onDelete }: CredentialRowAct
           onClick={() => onDelete(credential)}
         >
           <Trash2 />
-          Delete
-        </DropdownMenuItem>
+          {i18n.t("ui.Delete")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -101,7 +100,7 @@ export const getCredentialsTableColumns = ({
       id: "credential_name",
       accessorKey: "credential_name",
       meta: { title: "Credential Name" },
-      header: ({ column }) => <DataTableSortHeader column={column} title="Credential Name" />,
+      header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Credential Name")} />,
       size: 260,
       enableSorting: true,
       cell: ({ row }) => (

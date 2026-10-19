@@ -402,8 +402,7 @@ const VectorStoreForm: React.FC<VectorStoreFormProps> = ({
                       </li>
                       <li>{t("ui.Create a corpus in your Google Cloud project")}</li>
                       <li>
-                        Note the corpus ID from the Vertex AI console (now labeled &quot;RAG Engine&quot; in Google
-                        Cloud)
+                        {t("ui.Note the corpus ID from the Vertex AI console (now labeled &quot;RAG Engine&quot; in Google Cloud)")}
                       </li>
                       <li>{t("ui.Enter the corpus ID in the Vector Store ID field below")}</li>
                     </ol>
@@ -418,8 +417,7 @@ const VectorStoreForm: React.FC<VectorStoreFormProps> = ({
                   <AlertDescription>
                     <p>{t("ui.To use Vertex AI Search (Discovery Engine):")}</p>
                     <p style={{ marginTop: "4px", fontStyle: "italic" }}>
-                      Note: Google Cloud has renamed this to &quot;Agent Search&quot; in its console — the steps below
-                      still apply.
+                      {t("ui.Note: Google Cloud has renamed this to &quot;Agent Search&quot; in its console — the steps below still apply.")}
                     </p>
                     <ol style={{ marginLeft: "16px", marginTop: "8px", listStyleType: "decimal" }}>
                       <li>

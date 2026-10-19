@@ -1,4 +1,5 @@
 import { SimpleTooltip } from "@/components/ui/tooltip";
+import i18n from "@/i18n";
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { SearchSelect } from "@/components/shared/SearchSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -208,36 +209,34 @@ const TierSetToolbar: React.FC<{
         <>
           <Button variant="outline" onClick={onAdd} disabled={rowCount >= MAX_TIER_COUNT}>
             <Plus />
-            Add tier
+            {i18n.t("ui.Add tier")}
           </Button>
           <SimpleTooltip content={rowsError || undefined}>
             <Button variant="outline" disabled={Boolean(rowsError)} onClick={() => onEditingChange?.(false)}>
-              Done
-            </Button>
+              {i18n.t("ui.Done")}</Button>
           </SimpleTooltip>
           {isCustomSet && (
             <Button variant="outline" size="sm" onClick={onRestore}>
-              Restore defaults
+              {i18n.t("ui.Restore defaults")}
             </Button>
           )}
         </>
       ) : (
         onEditingChange && (
           <Button variant="outline" onClick={() => onEditingChange(true)}>
-            Edit tiers
+            {i18n.t("ui.Edit tiers")}
           </Button>
         )
       )}
     </div>
     {editing && (
       <span className="block mt-1 text-xs text-muted-foreground">
-        Add or remove tiers to define your own set. Every custom tier needs a definition the LLM classifier routes on,
-        and an edited set requires the LLM classification method
+        {i18n.t("ui.Add or remove tiers to define your own set. Every custom tier needs a definition the LLM classifier routes on, and an edited set requires the LLM classification method")}
       </span>
     )}
     {editing && keywordRulesError && (
       <span className="block mt-1 text-xs text-destructive">
-        {keywordRulesError}. Edit the rules under Advanced: Keyword/Semantic Matching, or bring the tier back
+        {keywordRulesError}{i18n.t("ui.. Edit the rules under Advanced: Keyword/Semantic Matching, or bring the tier back")}
       </span>
     )}
   </>
@@ -250,17 +249,17 @@ const FallbackTierField: React.FC<{
 }> = ({ rows, fallbackTierId, onValueChange }) => (
   <div className="mt-4">
     <div className="flex items-center gap-2 mb-2">
-      <strong className="text-base font-semibold">Fallback Tier</strong>
-      <SimpleTooltip content="Where requests route when the LLM classifier errors, times out, or returns an unparseable reply. Required for an edited tier set: the heuristic scorer cannot produce your tiers.">
+      <strong className="text-base font-semibold">{i18n.t("ui.Fallback Tier")}</strong>
+      <SimpleTooltip content={i18n.t("ui.Where requests route when the LLM classifier errors, times out, or returns an unparseable reply. Required for an edited tier set: the heuristic scorer cannot produce your tiers.")}>
         <Info className="size-4 text-muted-foreground" />
       </SimpleTooltip>
     </div>
     <TierRowSelect
-      label="Fallback tier"
+      label={i18n.t("ui.Fallback tier")}
       options={rows.filter((row) => activeTierName(row)).map((row) => ({ value: row.id, label: activeTierName(row) }))}
       value={fallbackTierId || null}
       onValueChange={onValueChange}
-      placeholder="Pick the tier classifier failures route to"
+      placeholder={i18n.t("ui.Pick the tier classifier failures route to")}
     />
   </div>
 );
@@ -276,7 +275,7 @@ const TierRowHeader: React.FC<{
   onRemove: () => void;
 }> = ({ row, index, rowCount, label, description, editing, isCustomSet, onRemove }) => (
   <div className="flex items-center gap-2 mb-2">
-    <strong className="text-base font-semibold">{label} Tier</strong>
+    <strong className="text-base font-semibold">{label} {i18n.t("ui.Tier")}</strong>
     <SimpleTooltip
       content={
         row.definition.trim() ||
@@ -287,7 +286,7 @@ const TierRowHeader: React.FC<{
       <Info className="size-4 text-muted-foreground" />
     </SimpleTooltip>
     <span className="text-xs text-muted-foreground">
-      Tier {index + 1} of {rowCount} &middot; {rowOrigin(row, isCustomSet)}
+      {`${i18n.t("ui.Tier")} ${index + 1} ${i18n.t("ui.of")} ${rowCount} · ${rowOrigin(row, isCustomSet)}`}
     </span>
     {editing && (
       <Button
@@ -299,8 +298,7 @@ const TierRowHeader: React.FC<{
         onClick={onRemove}
       >
         <Trash2 />
-        Remove
-      </Button>
+        {i18n.t("ui.Remove")}</Button>
     )}
   </div>
 );
@@ -315,7 +313,7 @@ const TierRowEditFields: React.FC<{
     <Input
       value={row.name}
       onChange={(event) => onPatch({ name: event.target.value })}
-      placeholder="Tier name, e.g. SECURITY_REVIEW"
+      placeholder={i18n.t("ui.Tier name, e.g. SECURITY_REVIEW")}
       aria-label={`Name for tier ${index + 1}`}
       maxLength={MAX_TIER_NAME_CHARS}
       className="mb-2"
@@ -335,7 +333,7 @@ const TierRowEditFields: React.FC<{
     />
     {definitionMissing && (
       <span className="mb-2 block text-xs text-destructive">
-        A definition is required: it is the rubric the classifier routes on for this tier
+        {i18n.t("ui.A definition is required: it is the rubric the classifier routes on for this tier")}
       </span>
     )}
   </>
@@ -486,22 +484,20 @@ const AffinityControls: React.FC<{
       <Switch
         checked={value.deployment_affinity ?? DEFAULT_DEPLOYMENT_AFFINITY}
         onCheckedChange={(deploymentAffinity) => onChange({ ...value, deployment_affinity: deploymentAffinity })}
-        aria-label="Pin a session to one deployment per model group"
+        aria-label={i18n.t("ui.Pin a session to one deployment per model group")}
       />
-      <strong className="font-semibold">Pin a session to one deployment per model group</strong>
+      <strong className="font-semibold">{i18n.t("ui.Pin a session to one deployment per model group")}</strong>
     </div>
     <span className="block text-xs mb-3 text-muted-foreground">
-      Keeps a session on the same deployment within a group, so provider prompt caches stay warm. Turn off to
-      load-balance every turn.
-    </span>
+      {i18n.t("ui.Keeps a session on the same deployment within a group, so provider prompt caches stay warm. Turn off to load-balance every turn.")}</span>
     <div className="flex items-center gap-2 mb-2">
       <Switch
         checked={value.custom_tier_set ? false : value.session_affinity ?? DEFAULT_SESSION_AFFINITY}
         disabled={Boolean(value.custom_tier_set)}
         onCheckedChange={(sessionAffinity) => onChange({ ...value, session_affinity: sessionAffinity })}
-        aria-label="Pin a session to its first model"
+        aria-label={i18n.t("ui.Pin a session to its first model")}
       />
-      <strong className="font-semibold">Pin a session to its first model</strong>
+      <strong className="font-semibold">{i18n.t("ui.Pin a session to its first model")}</strong>
     </div>
     <span className="block text-xs text-muted-foreground">
       {restrictedBy(value, "sessionAffinity")?.reason ??
@@ -526,19 +522,18 @@ const PlanModeOverrideControls: React.FC<{
             plan_mode_min_tier: enabled ? planModeTierOptions.at(-1)?.value : undefined,
           })
         }
-        aria-label="Route plan-mode requests to a minimum tier"
+        aria-label={i18n.t("ui.Route plan-mode requests to a minimum tier")}
       />
-      <strong className="font-semibold">Route plan-mode requests to a minimum tier</strong>
+      <strong className="font-semibold">{i18n.t("ui.Route plan-mode requests to a minimum tier")}</strong>
     </div>
     <span className="block text-xs mb-3 text-muted-foreground">
-      Requests from coding agents in plan mode (Claude Code, GitHub Copilot) route to at least this tier. The classifier
-      still wins when it picks higher, and the override only lasts while plan mode is active.
+      {i18n.t("ui.Requests from coding agents in plan mode (Claude Code, GitHub Copilot) route to at least this tier. The classifier still wins when it picks higher, and the override only lasts while plan mode is active.")}
       {planModeTierOptions.length === 0 && " Add models to a tier to enable this."}
     </span>
     {value.plan_mode_min_tier !== undefined && (
       <div style={{ maxWidth: 320 }}>
         <TierRowSelect
-          label="Plan-mode minimum tier"
+          label={i18n.t("ui.Plan-mode minimum tier")}
           options={planModeTierOptions}
           value={value.plan_mode_min_tier ?? null}
           onValueChange={(tier) => onChange({ ...value, plan_mode_min_tier: tier })}
@@ -557,13 +552,12 @@ const ResponseFormatControls: React.FC<{
       <Switch
         checked={value.return_raw_model_name ?? false}
         onCheckedChange={(returnRawModelName) => onChange({ ...value, return_raw_model_name: returnRawModelName })}
-        aria-label="Return raw model name"
+        aria-label={i18n.t("ui.Return raw model name")}
       />
-      <strong className="font-semibold">Return raw model name</strong>
+      <strong className="font-semibold">{i18n.t("ui.Return raw model name")}</strong>
     </div>
     <span className="block text-xs text-muted-foreground">
-      Return the resolved underlying model name in responses instead of the autorouter alias.
-    </span>
+      {i18n.t("ui.Return the resolved underlying model name in responses instead of the autorouter alias.")}</span>
   </>
 );
 
@@ -653,8 +647,8 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
   return (
     <div className="w-full max-w-none">
       <div className="inline-flex items-center gap-2 mb-4">
-        <h4 className="m-0 text-xl font-semibold text-foreground">Complexity Tier Configuration</h4>
-        <SimpleTooltip content="Map each complexity tier to one or more models. Simple queries use cheaper/faster models, complex queries use more capable models.">
+        <h4 className="m-0 text-xl font-semibold text-foreground">{i18n.t("ui.Complexity Tier Configuration")}</h4>
+        <SimpleTooltip content={i18n.t("ui.Map each complexity tier to one or more models. Simple queries use cheaper/faster models, complex queries use more capable models.")}>
           <Info className="size-4 text-muted-foreground" />
         </SimpleTooltip>
       </div>
@@ -685,7 +679,7 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
                     onRemove={() => removeTierRow(row.id)}
                   />
                   {tierInfo && !customTierSet && (
-                    <span className="block mb-2 text-xs text-muted-foreground">Examples: {tierInfo.examples}</span>
+                    <span className="block mb-2 text-xs text-muted-foreground">{i18n.t("ui.Examples:")}{tierInfo.examples}</span>
                   )}
                   {editingTiers && (
                     <TierRowEditFields
@@ -721,7 +715,7 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
                     value={row.models}
                     onValueChange={(models: string[]) => setRowModels(row, models)}
                     placeholder={`Select model(s) for ${label.toLowerCase()} queries`}
-                    emptyText="No models found"
+                    emptyText={i18n.t("ui.No models found")}
                     className={tierMissing ? "w-full border-destructive" : "w-full"}
                   />
                   <TierModelEffortRows
@@ -733,8 +727,7 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
                   />
                   {row.models.length > 1 && (
                     <span className="text-xs text-muted-foreground">
-                      Multiple models selected: the router randomly picks among them per request (or Thompson-samples
-                      within the pool when adaptive routing is on).
+                      {i18n.t("ui.Multiple models selected: the router randomly picks among them per request (or Thompson-samples within the pool when adaptive routing is on).")}
                     </span>
                   )}
                   {tierMissing && <span className="text-xs text-destructive">The {label} tier is required</span>}
@@ -766,8 +759,8 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
 
           <div className="mb-2">
             <div className="flex items-center gap-2 mb-2">
-              <strong className="text-base font-semibold">Default Model</strong>
-              <SimpleTooltip content="Leave empty to follow the tiers. A model chosen here is pinned: it stays the default however the tiers change.">
+              <strong className="text-base font-semibold">{i18n.t("ui.Default Model")}</strong>
+              <SimpleTooltip content={i18n.t("ui.Leave empty to follow the tiers. A model chosen here is pinned: it stays the default however the tiers change.")}>
                 <Info className="size-4 text-muted-foreground" />
               </SimpleTooltip>
             </div>
@@ -776,12 +769,11 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
               value={value.default_model ?? ""}
               onValueChange={handleDefaultModelChange}
               placeholder={defaultModelPlaceholder}
-              emptyText="No models found"
-              aria-label="Default model"
+              emptyText={i18n.t("ui.No models found")}
+              aria-label={i18n.t("ui.Default model")}
             />
             <span className="block mt-1 text-xs text-muted-foreground">
-              Used when the tier the request lands in has no model, and when the classifier fails with &quot;Route to
-              the default model&quot; selected.
+              {i18n.t("ui.Used when the tier the request lands in has no model, and when the classifier fails with \"Route to the default model\" selected.")}
             </span>
           </div>
         </CardContent>
@@ -793,7 +785,7 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
         {[
           {
             key: "classifier",
-            label: <strong className="text-foreground font-semibold">Advanced: Classification Method</strong>,
+            label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Classification Method")}</strong>,
             children: (
               <ClassificationMethodConfig
                 value={value}
@@ -808,7 +800,7 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
           },
           {
             key: "adaptive",
-            label: <strong className="text-foreground font-semibold">Advanced: Adaptive Routing</strong>,
+            label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Adaptive Routing")}</strong>,
             children: (
               <Restricted by={restrictedBy(value, "adaptive")}>
                 <AdaptiveRoutingConfig value={value} onChange={onChange} />
@@ -817,26 +809,26 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
           },
           {
             key: "affinity",
-            label: <strong className="text-foreground font-semibold">Advanced: Affinity</strong>,
+            label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Affinity")}</strong>,
             children: <AffinityControls value={value} onChange={onChange} />,
           },
           {
             key: "plan-mode",
-            label: <strong className="text-foreground font-semibold">Advanced: Plan-Mode Override</strong>,
+            label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Plan-Mode Override")}</strong>,
             children: (
               <PlanModeOverrideControls value={value} onChange={onChange} planModeTierOptions={planModeTierOptions} />
             ),
           },
           {
             key: "response",
-            label: <strong className="text-foreground font-semibold">Advanced: Response Format</strong>,
+            label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Response Format")}</strong>,
             children: <ResponseFormatControls value={value} onChange={onChange} />,
           },
           ...(onEscalationKeywordsChange
             ? [
                 {
                   key: "escalation",
-                  label: <strong className="text-foreground font-semibold">Advanced: Escalation Keywords</strong>,
+                  label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Escalation Keywords")}</strong>,
                   children: (
                     <Restricted by={restrictedBy(value, "escalation")}>
                       <EscalationKeywords keywords={escalationKeywords} onChange={onEscalationKeywordsChange} />
@@ -849,7 +841,7 @@ const ComplexityRouterConfig: React.FC<ComplexityRouterConfigProps> = ({
             ? [
                 {
                   key: "keyword-semantic",
-                  label: <strong className="text-foreground font-semibold">Advanced: Keyword/Semantic Matching</strong>,
+                  label: <strong className="text-foreground font-semibold">{i18n.t("ui.Advanced: Keyword/Semantic Matching")}</strong>,
                   children: (
                     <>
                       {onKeywordTierRulesChange && (

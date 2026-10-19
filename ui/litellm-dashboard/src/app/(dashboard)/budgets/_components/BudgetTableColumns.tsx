@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef, FilterFn } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
@@ -115,7 +116,7 @@ export const getBudgetTableColumns = ({
     meta: { title: t("ui.Max Budget"), numeric: true },
     header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Max Budget")} />,
     size: 120,
-    cell: ({ row }) => <MoneyCell value={row.original.max_budget} decimals={2} showZero emptyText="Unlimited" />,
+    cell: ({ row }) => <MoneyCell value={row.original.max_budget} decimals={2} showZero emptyText={i18n.t("ui.Unlimited")} />,
   },
   {
     id: "tpm_limit",

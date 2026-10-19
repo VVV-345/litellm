@@ -1,5 +1,6 @@
 "use client";
 import { useKeys } from "@/app/(dashboard)/hooks/keys/useKeys";
+import i18n from "@/i18n";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import CopyButton from "@/components/shared/CopyButton";
 import { DateCell, IdCell, MoneyCell } from "@/components/shared/table_cells";
@@ -135,7 +136,7 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
         id: "token",
         accessorKey: "token",
         meta: { title: "Key ID" },
-        header: ({ column }) => <DataTableSortHeader column={column} title="Key ID" variant="header-cycle" />,
+        header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Key ID")} variant="header-cycle" />,
         size: 120,
         enableSorting: true,
         cell: (info) => (
@@ -146,7 +147,7 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
         id: "key_alias",
         accessorKey: "key_alias",
         meta: { title: "Key Alias" },
-        header: ({ column }) => <DataTableSortHeader column={column} title="Key Alias" variant="header-cycle" />,
+        header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Key Alias")} variant="header-cycle" />,
         size: 150,
         enableSorting: true,
         cell: (info) => {
@@ -210,7 +211,7 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
         id: "created_at",
         accessorKey: "created_at",
         meta: { title: "Created At" },
-        header: ({ column }) => <DataTableSortHeader column={column} title="Created At" variant="header-cycle" />,
+        header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Created At")} variant="header-cycle" />,
         size: 120,
         enableSorting: true,
         cell: (info) => <DateCell value={info.getValue() as string | null} precision="date" />,
@@ -313,11 +314,11 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
         id: "max_budget",
         accessorKey: "max_budget",
         meta: { title: "Budget (USD)" },
-        header: ({ column }) => <DataTableSortHeader column={column} title="Budget (USD)" variant="header-cycle" />,
+        header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Budget (USD)")} variant="header-cycle" />,
         size: 110,
         enableSorting: true,
         cell: (info) => (
-          <MoneyCell value={info.getValue() as number | null} decimals={0} emptyText="Unlimited" showZero />
+          <MoneyCell value={info.getValue() as number | null} decimals={0} emptyText={i18n.t("ui.Unlimited")} showZero />
         ),
       },
       {
@@ -345,8 +346,7 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
             </SimpleTooltip>
           ) : (
             <Badge variant="destructive" className="mb-1">
-              All Proxy Models
-            </Badge>
+              {i18n.t("ui.All Proxy Models")}</Badge>
           );
           return (
             <div className="flex flex-col py-2">
@@ -380,8 +380,7 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
                           {models.slice(0, 3).map((model, index) =>
                             model === "all-proxy-models" ? (
                               <Badge key={index} variant="destructive">
-                                All Proxy Models
-                              </Badge>
+                                {i18n.t("ui.All Proxy Models")}</Badge>
                             ) : (
                               <Badge key={index}>
                                 {model.length > 30
@@ -400,8 +399,7 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
                               {models.slice(3).map((model, index) =>
                                 model === "all-proxy-models" ? (
                                   <Badge key={index + 3} variant="destructive">
-                                    All Proxy Models
-                                  </Badge>
+                                    {i18n.t("ui.All Proxy Models")}</Badge>
                                 ) : (
                                   <Badge key={index + 3}>
                                     {model.length > 30
@@ -431,8 +429,8 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
           const key = row.original;
           return (
             <div>
-              <div>TPM: {key.tpm_limit !== null ? key.tpm_limit : "Unlimited"}</div>
-              <div>RPM: {key.rpm_limit !== null ? key.rpm_limit : "Unlimited"}</div>
+              <div>{i18n.t("ui.TPM:")}{key.tpm_limit !== null ? key.tpm_limit : "Unlimited"}</div>
+              <div>{i18n.t("ui.RPM:")}{key.rpm_limit !== null ? key.rpm_limit : "Unlimited"}</div>
             </div>
           );
         },
@@ -493,11 +491,11 @@ export function TeamVirtualKeysTable({ teamId, teamAlias, organization }: TeamVi
                   table={table}
                   open={filtersOpen}
                   onOpenChange={setFiltersOpen}
-                  title="Filters"
+                  title={i18n.t("ui.Filters")}
                   description={`Narrow down keys for ${teamAlias ?? "this team"}`}
                 >
                   {({ get, set }) => (
-                    <DataTableFilterField label="User ID">
+                    <DataTableFilterField label={i18n.t("ui.User ID")}>
                       <Input
                         value={(get("user_id") as string) ?? ""}
                         onChange={(event) => set("user_id", event.target.value)}

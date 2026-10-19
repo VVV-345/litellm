@@ -1,4 +1,5 @@
 import React, { useCallback, useState } from "react";
+import i18n from "@/i18n";
 import { TriangleAlert } from "lucide-react";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { getAutoRouterClassifierDefaultPromptCall } from "@/components/networking";
@@ -67,8 +68,7 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
         </Button>
         {isOverridden && (
           <Button type="button" size="sm" variant="link" onClick={() => onChange(undefined)}>
-            Reset to default
-          </Button>
+            {i18n.t("ui.Reset to default")}</Button>
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
@@ -80,14 +80,13 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Classifier prompt</DialogTitle>
+            <DialogTitle>{i18n.t("ui.Classifier prompt")}</DialogTitle>
           </DialogHeader>
 
           <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
             <p className="flex items-center gap-2 font-medium">
               <TriangleAlert className="size-4" aria-hidden />
-              Proceed with caution
-            </p>
+              {i18n.t("ui.Proceed with caution")}</p>
             <p className="mt-2">
               Your prompt becomes the classifier&apos;s entire system role. We strongly recommend including its closing
               paragraph, which guards against prompt injection attacks by telling the classifier that the caller&apos;s
@@ -101,9 +100,7 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
               names if you renamed them and otherwise SIMPLE, MEDIUM, COMPLEX, and REASONING.
             </p>
             <p className="mt-2">
-              The heuristic fallback still scores complexity, so if your prompt classifies something else, set the
-              fallback below to the default model.
-            </p>
+              {i18n.t("ui.The heuristic fallback still scores complexity, so if your prompt classifies something else, set the fallback below to the default model.")}</p>
           </div>
 
           <Textarea
@@ -111,7 +108,7 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
             onChange={(e) => setDraft(e.target.value)}
             rows={16}
             disabled={isLoading}
-            aria-label="Classifier system prompt"
+            aria-label={i18n.t("ui.Classifier system prompt")}
             className="mt-3 font-mono text-xs"
           />
           <div className="mt-2 flex items-center justify-between">
@@ -126,17 +123,14 @@ const ClassifierPromptEditor: React.FC<ClassifierPromptEditorProps> = ({
               onClick={() => setDraft(defaultPrompt)}
               disabled={isLoading || draft === defaultPrompt}
             >
-              Restore default text
-            </Button>
+              {i18n.t("ui.Restore default text")}</Button>
           </div>
 
           <DialogFooter className="mt-4">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button type="button" onClick={handleSave} disabled={isLoading || !draft.trim()}>
-              Save prompt
-            </Button>
+              {i18n.t("ui.Save prompt")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

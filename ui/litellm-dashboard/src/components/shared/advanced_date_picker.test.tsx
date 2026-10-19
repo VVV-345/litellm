@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import i18next from "@/i18n";
 import AdvancedDatePicker from "./advanced_date_picker";
 
 // Polyfill requestIdleCallback for test environment
@@ -25,7 +26,8 @@ describe("AdvancedDatePicker", () => {
     to: new Date("2025-01-31T12:00:00.000Z"),
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     mockOnValueChange.mockClear();
   });
 

@@ -1,6 +1,7 @@
 import React from "react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { renderWithProviders, screen, testQueryClient, waitFor, within } from "../../tests/test-utils";
 import TeamSSOSettings from "./TeamSSOSettings";
 import * as networking from "./networking";
@@ -124,7 +125,8 @@ describe("TeamSSOSettings", () => {
     },
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     testQueryClient.clear();
     mockOrganizationListCall.mockResolvedValue(MOCK_ORGANIZATIONS);

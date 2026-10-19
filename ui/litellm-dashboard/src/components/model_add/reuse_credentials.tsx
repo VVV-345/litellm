@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { z } from "zod/v4";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { FormField } from "@/components/shared/form/FormField";
@@ -56,14 +57,14 @@ const ReuseCredentialsModal: React.FC<ReuseCredentialsModalProps> = ({
     <Dialog open={isVisible} onOpenChange={(open) => !open && handleCancel()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Reuse Credentials</DialogTitle>
+          <DialogTitle>{i18n.t("ui.Reuse Credentials")}</DialogTitle>
         </DialogHeader>
         <TooltipProvider>
           <form onSubmit={form.handleSubmit(handleSubmit)} noValidate>
             <FieldGroup>
-              <FormField control={form.control} name="credential_name" label="Credential Name:">
+              <FormField control={form.control} name="credential_name" label={i18n.t("ui.Credential Name:")}>
                 {({ ref, ...field }) => (
-                  <Input {...field} ref={ref} placeholder="Enter a friendly name for these credentials" />
+                  <Input {...field} ref={ref} placeholder={i18n.t("ui.Enter a friendly name for these credentials")} />
                 )}
               </FormField>
 
@@ -88,18 +89,16 @@ const ReuseCredentialsModal: React.FC<ReuseCredentialsModalProps> = ({
                         href="https://github.com/BerriAI/litellm/issues"
                         className="text-sm text-primary underline-offset-4 hover:underline"
                       >
-                        Need Help?
-                      </a>
+                        {i18n.t("ui.Need Help?")}</a>
                     }
                   />
-                  <TooltipContent>Get help on our github</TooltipContent>
+                  <TooltipContent>{i18n.t("ui.Get help on our github")}</TooltipContent>
                 </Tooltip>
 
                 <div className="flex gap-2.5">
                   <Button type="button" variant="outline" onClick={handleCancel}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">Reuse Credentials</Button>
+                    {i18n.t("ui.Cancel")}</Button>
+                  <Button type="submit">{i18n.t("ui.Reuse Credentials")}</Button>
                 </div>
               </div>
             </FieldGroup>

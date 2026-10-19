@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import i18n from "@/i18n";
 import { ChevronRight } from "lucide-react";
 import type { MCPEvent } from "@/components/mcp_tools/types";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -114,7 +115,7 @@ function MCPEventsPanels({ toolsEvent, mcpCallEvents, defaultOpenKeys }: MCPEven
             >
               <div>
                 <div className="relative z-raised mb-3 bg-card last:mb-0">
-                  <div className="mb-1 text-[13px] font-medium text-muted-foreground">Request</div>
+                  <div className="mb-1 text-[13px] font-medium text-muted-foreground">{i18n.t("ui.Request")}</div>
                   <div className="rounded-md border border-border bg-muted p-2 text-xs">
                     {callEvent.item?.arguments && (
                       <pre className="m-0 whitespace-pre-wrap break-words font-mono text-foreground">
@@ -135,7 +136,7 @@ function MCPEventsPanels({ toolsEvent, mcpCallEvents, defaultOpenKeys }: MCPEven
 
                 {callEvent.item?.output && (
                   <div className="relative z-raised mb-3 bg-card last:mb-0">
-                    <div className="mb-1 text-[13px] font-medium text-muted-foreground">Response</div>
+                    <div className="mb-1 text-[13px] font-medium text-muted-foreground">{i18n.t("ui.Response")}</div>
                     <div className="whitespace-pre-wrap font-mono text-[13px] leading-normal text-foreground">
                       {callEvent.item.output}
                     </div>

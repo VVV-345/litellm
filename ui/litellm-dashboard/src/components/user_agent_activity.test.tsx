@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import i18next from "@/i18n";
 import UserAgentActivity from "./user_agent_activity";
 import * as networking from "./networking";
 
@@ -16,6 +17,10 @@ vi.mock("./networking", () => ({
 vi.mock("./per_user_usage", () => ({
   default: () => <div>Per User Usage</div>,
 }));
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("UserAgentActivity", () => {
   const mockUserAgentSummaryCall = vi.mocked(networking.userAgentSummaryCall);

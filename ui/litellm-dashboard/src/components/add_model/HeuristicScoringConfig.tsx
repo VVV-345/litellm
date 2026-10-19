@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import i18n from "@/i18n";
 import React, { useState } from "react";
 import { useComplexityScorerDefaults } from "@/app/(dashboard)/hooks/autoRouter/useComplexityScorerDefaults";
 import { Badge } from "@/components/ui/badge";
@@ -123,10 +124,10 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
         <ChevronDown
           className={`size-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? "rotate-180" : ""}`}
         />
-        <span className="text-sm font-medium">Advanced scoring</span>
+        <span className="text-sm font-medium">{i18n.t("ui.Advanced scoring")}</span>
         {overrides > 0 && (
           <Badge variant="secondary" data-testid="advanced-scoring-override-count">
-            {overrides} {overrides === 1 ? "override" : "overrides"}
+            {overrides} {overrides === 1 ? i18n.t("ui.override") : i18n.t("ui.overrides")}
           </Badge>
         )}
       </CollapsibleTrigger>
@@ -134,23 +135,20 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
       <CollapsibleContent>
         <div className="mt-3 space-y-6 pl-6">
           <p className="text-xs text-muted-foreground">
-            Every knob below is optional. Left untouched, the router follows the shipped defaults, so it picks up any
-            recalibration of them rather than staying pinned to the numbers shown here.
+            {i18n.t("ui.Every knob below is optional. Left untouched, the router follows the shipped defaults, so it picks up any recalibration of them rather than staying pinned to the numbers shown here.")}
           </p>
 
           {isPending ? (
-            <p className="text-xs text-muted-foreground">Loading the shipped defaults...</p>
+            <p className="text-xs text-muted-foreground">{i18n.t("ui.Loading the shipped defaults...")}</p>
           ) : (
             <>
               {isError && (
                 <div className="flex items-start gap-2" role="alert">
                   <p className="text-xs font-medium text-destructive">
-                    Could not load the shipped defaults, so only values this router already overrides are shown. Saving
-                    still works, and an untouched knob keeps following the defaults.
+                    {i18n.t("ui.Could not load the shipped defaults, so only values this router already overrides are shown. Saving still works, and an untouched knob keeps following the defaults.")}
                   </p>
                   <Button type="button" variant="link" size="xs" onClick={() => void refetch()}>
-                    Retry
-                  </Button>
+                    {i18n.t("ui.Retry")}</Button>
                 </div>
               )}
               {GROUPS.map((spec) => {
@@ -161,12 +159,12 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
                   <section key={spec.group} className="space-y-2">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{spec.title}</span>
+                        <span className="text-sm font-medium">{i18n.t(`ui.${spec.title}`, { defaultValue: spec.title })}</span>
                         {/* Only a known dimension set has a meaningful total; summing the overrides
                             alone would state a total that is not the router's. */}
                         {spec.withSlider && defaults !== undefined && (
                           <span className="text-xs text-muted-foreground" data-testid="dimension-weight-total">
-                            total {weightTotal(effective).toFixed(2)}
+                            {i18n.t("ui.total")} {weightTotal(effective).toFixed(2)}
                           </span>
                         )}
                       </div>
@@ -177,11 +175,11 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
                           size="xs"
                           onClick={() => onChange({ ...value, [spec.group]: undefined })}
                         >
-                          Reset to defaults
+                          {i18n.t("ui.Reset to defaults")}
                         </Button>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">{spec.blurb}</p>
+                    <p className="text-xs text-muted-foreground">{i18n.t(`ui.${spec.blurb}`, { defaultValue: spec.blurb })}</p>
 
                     {Object.keys(effective).map((key) => {
                       const id = `${spec.group}-${key}`;
@@ -189,7 +187,7 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
                       return (
                         <div key={key} className="flex items-center gap-3">
                           <Label htmlFor={id} className="w-44 text-xs font-normal">
-                            {label}
+                            {i18n.t(`ui.${label}`, { defaultValue: label })}
                           </Label>
                           {spec.withSlider && (
                             <Slider
@@ -231,7 +229,7 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
 
               <section className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Reasoning override floor</span>
+                  <span className="text-sm font-medium">{i18n.t("ui.Reasoning override floor")}</span>
                   {value.reasoning_override_min_score !== undefined && (
                     <Button
                       type="button"
@@ -239,21 +237,20 @@ const HeuristicScoringConfig: React.FC<HeuristicScoringConfigProps> = ({ value, 
                       size="xs"
                       onClick={() => onChange({ ...value, reasoning_override_min_score: undefined })}
                     >
-                      Reset to defaults
+                      {i18n.t("ui.Reset to defaults")}
                     </Button>
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Two or more reasoning markers promote a request to the reasoning tier, but only once its weighted
-                  score reaches this floor.{" "}
+                  {i18n.t("ui.Two or more reasoning markers promote a request to the reasoning tier, but only once its weighted score reaches this floor.")}{" "}
                   {trackedFloor === undefined
                     ? "Left untouched, it tracks the Simple to Medium boundary."
                     : `Left untouched, it tracks the Simple to Medium boundary, currently ${trackedFloor.toFixed(2)}.`}{" "}
-                  Set it to 0 to promote on the markers alone.
+                  {i18n.t("ui.Set it to 0 to promote on the markers alone.")}
                 </p>
                 <div className="flex items-center gap-3">
                   <Label htmlFor={OVERRIDE_FLOOR_ID} className="w-44 text-xs font-normal">
-                    Minimum score
+                    {i18n.t("ui.Minimum score")}
                   </Label>
                   <Input
                     id={OVERRIDE_FLOOR_ID}

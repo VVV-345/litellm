@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { UserGroupIcon } from "@heroicons/react/outline";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -58,7 +59,7 @@ export function AgentPermissions({ agents, agentAccessGroups = [], accessToken }
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <UserGroupIcon className="h-4 w-4 text-purple-600" />
-        <p className="text-sm font-semibold text-foreground">Agents</p>
+        <p className="text-sm font-semibold text-foreground">{i18n.t("ui.Agents")}</p>
         <Badge variant="secondary">{totalCount}</Badge>
       </div>
 

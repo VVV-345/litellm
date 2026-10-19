@@ -1,6 +1,7 @@
 "use client";
 
 import { Globe } from "lucide-react";
+import i18n from "@/i18n";
 import React, { useState } from "react";
 
 import {
@@ -89,7 +90,7 @@ export const GuardrailsSelect: React.FC<GuardrailsSelectProps> = ({
             <>
               {chips.map((option) => (
                 <ComboboxChip key={option.name} aria-label={option.name}>
-                  {globalGuardrailNames.has(option.name) && <Globe className="size-3" aria-label="Global guardrail" />}
+                  {globalGuardrailNames.has(option.name) && <Globe className="size-3" aria-label={i18n.t("ui.Global guardrail")} />}
                   {option.name}
                 </ComboboxChip>
               ))}

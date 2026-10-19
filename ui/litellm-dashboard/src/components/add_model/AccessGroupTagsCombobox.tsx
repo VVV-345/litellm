@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import i18n from "@/i18n";
 import {
   Combobox,
   ComboboxChip,
@@ -79,7 +80,7 @@ const AccessGroupTagsCombobox: React.FC<AccessGroupTagsComboboxProps> = ({
                 id={id}
                 aria-invalid={ariaInvalid}
                 aria-describedby={ariaDescribedBy}
-                placeholder="Select existing groups or type to create new ones"
+                placeholder={i18n.t("ui.Select existing groups or type to create new ones")}
               />
             </>
           )}

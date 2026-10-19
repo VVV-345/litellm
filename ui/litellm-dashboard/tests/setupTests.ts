@@ -1,7 +1,11 @@
 import "@testing-library/jest-dom";
-import "@/i18n";
+import i18n from "@/i18n";
 import { cleanup } from "@testing-library/react";
-import { afterEach, vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const ensureTestLocalStorage = () => {
   if (typeof window === "undefined" || typeof window.Storage === "undefined") {

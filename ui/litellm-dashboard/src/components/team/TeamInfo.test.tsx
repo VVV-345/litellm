@@ -3,8 +3,13 @@ import * as networking from "@/components/networking";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 import { chooseSelectOption, renderWithProviders, testQueryClient } from "../../../tests/test-utils";
 import TeamInfoView, { type TeamData } from "./TeamInfo";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 const authState = vi.hoisted(() => ({ userRole: "Admin" }));
 

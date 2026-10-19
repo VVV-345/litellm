@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const NEVER_RESETS_BUDGET_DURATION = "none";
@@ -41,11 +42,11 @@ const BudgetDurationDropdown: React.FC<BudgetDurationDropdownProps> = ({
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={null}>{placeholder}</SelectItem>
-        {showNeverResets ? <SelectItem value={NEVER_RESETS_BUDGET_DURATION}>Never resets</SelectItem> : null}
+        {showNeverResets ? <SelectItem value={NEVER_RESETS_BUDGET_DURATION}>{i18n.t("ui.Never resets")}</SelectItem> : null}
         <SelectItem value="1h">hourly</SelectItem>
-        <SelectItem value="24h">daily</SelectItem>
-        <SelectItem value="7d">weekly</SelectItem>
-        <SelectItem value="30d">monthly</SelectItem>
+        <SelectItem value="24h">{i18n.t("ui.daily")}</SelectItem>
+        <SelectItem value="7d">{i18n.t("ui.weekly")}</SelectItem>
+        <SelectItem value="30d">{i18n.t("ui.monthly")}</SelectItem>
       </SelectContent>
     </Select>
   );

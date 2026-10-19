@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import { Eye, EyeOff, Info, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import React, { useState } from "react";
 
@@ -53,7 +54,7 @@ function HeadersCell({ value }: { value: object }) {
 
 function MethodsCell({ methods }: { methods: string[] | undefined }) {
   if (!methods || methods.length === 0) {
-    return <Badge variant="secondary">ALL</Badge>;
+    return <Badge variant="secondary">{i18n.t("ui.ALL")}</Badge>;
   }
   return (
     <div className="flex flex-wrap gap-1">
@@ -77,7 +78,7 @@ function EndpointRowActions({ endpoint, onEndpointClick, onDeleteClick }: Endpoi
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open endpoint actions"
+        aria-label={i18n.t("ui.Open endpoint actions")}
         data-testid={`endpoint-actions-${endpointId || endpoint.path}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -90,8 +91,7 @@ function EndpointRowActions({ endpoint, onEndpointClick, onDeleteClick }: Endpoi
           onClick={() => endpointId && onEndpointClick(endpointId)}
         >
           <Pencil />
-          Edit
-        </DropdownMenuItem>
+          {i18n.t("ui.Edit")}</DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
@@ -100,8 +100,7 @@ function EndpointRowActions({ endpoint, onEndpointClick, onDeleteClick }: Endpoi
           onClick={() => endpointId && onDeleteClick(endpointId)}
         >
           <Trash2 />
-          Delete
-        </DropdownMenuItem>
+          {i18n.t("ui.Delete")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -167,7 +166,7 @@ export const getPassThroughEndpointsTableColumns = ({
   {
     id: "methods",
     meta: { title: "Methods", skeleton: "chips" },
-    header: () => <HeaderWithTooltip title="Methods" tooltip="HTTP methods supported by this endpoint" />,
+    header: () => <HeaderWithTooltip title={i18n.t("ui.Methods")} tooltip={i18n.t("ui.HTTP methods supported by this endpoint")} />,
     size: 150,
     enableSorting: false,
     cell: ({ row }) => <MethodsCell methods={row.original.methods} />,
@@ -176,7 +175,7 @@ export const getPassThroughEndpointsTableColumns = ({
     id: "auth",
     accessorKey: "auth",
     meta: { title: "Authentication", skeleton: "badge" },
-    header: () => <HeaderWithTooltip title="Authentication" tooltip="LiteLLM Virtual Key required to call endpoint" />,
+    header: () => <HeaderWithTooltip title={i18n.t("ui.Authentication")} tooltip="LiteLLM Virtual Key required to call endpoint" />,
     size: 140,
     enableSorting: false,
     cell: ({ row }) => (

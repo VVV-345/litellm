@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import i18n from "@/i18n";
 import { z } from "zod/v4";
 import { toast } from "@/lib/toast";
 import { CircleHelp } from "lucide-react";
@@ -659,16 +660,15 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
         <TooltipProvider>
           <DialogHeader>
-            <DialogTitle>Edit Auto Router Configuration</DialogTitle>
+            <DialogTitle>{i18n.t("ui.Edit Auto Router Configuration")}</DialogTitle>
             <DialogDescription>
-              Edit the auto router configuration including routing logic, default models, and access settings.
-            </DialogDescription>
+              {i18n.t("ui.Edit the auto router configuration including routing logic, default models, and access settings.")}</DialogDescription>
           </DialogHeader>
 
           <form onSubmit={(event) => event.preventDefault()} noValidate>
             <FieldGroup>
-              <FormField control={form.control} name="auto_router_name" label="Auto Router Name">
-                {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="e.g., auto_router_1, smart_routing" />}
+              <FormField control={form.control} name="auto_router_name" label={i18n.t("ui.Auto Router Name")}>
+                {({ ref, ...field }) => <Input {...field} ref={ref} placeholder={i18n.t("ui.e.g., auto_router_1, smart_routing")} />}
               </FormField>
 
               {isComplexityRouterModel ? (
@@ -714,28 +714,28 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
                     />
                   </div>
 
-                  <FormField control={form.control} name="auto_router_default_model" label="Default Model">
+                  <FormField control={form.control} name="auto_router_default_model" label={i18n.t("ui.Default Model")}>
                     {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
                       <ModelChoiceCombobox
                         id={id}
                         value={value}
                         onChange={onChange}
                         choices={modelChoices}
-                        placeholder="Select a default model"
+                        placeholder={i18n.t("ui.Select a default model")}
                         ariaInvalid={ariaInvalid}
                         ariaDescribedBy={ariaDescribedBy}
                       />
                     )}
                   </FormField>
 
-                  <FormField control={form.control} name="auto_router_embedding_model" label="Embedding Model">
+                  <FormField control={form.control} name="auto_router_embedding_model" label={i18n.t("ui.Embedding Model")}>
                     {({ id, value, onChange, "aria-invalid": ariaInvalid, "aria-describedby": ariaDescribedBy }) => (
                       <ModelChoiceCombobox
                         id={id}
                         value={value}
                         onChange={onChange}
                         choices={modelChoices}
-                        placeholder="Select an embedding model"
+                        placeholder={i18n.t("ui.Select an embedding model")}
                         ariaInvalid={ariaInvalid}
                         ariaDescribedBy={ariaDescribedBy}
                       />
@@ -767,20 +767,17 @@ const EditAutoRouterModal: React.FC<EditAutoRouterModalProps> = ({
 
           <DialogFooter>
             <Button variant="outline" onClick={onCancel}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             {submitBlockedReason === null ? (
               <Button disabled={loading} onClick={handleSubmit}>
                 {loading && <UiLoadingSpinner className="size-4" />}
-                Save Changes
-              </Button>
+                {i18n.t("ui.Save Changes")}</Button>
             ) : (
               <Tooltip>
                 <TooltipTrigger
                   render={
                     <Button disabled onClick={handleSubmit}>
-                      Save Changes
-                    </Button>
+                      {i18n.t("ui.Save Changes")}</Button>
                   }
                 />
                 <TooltipContent>{submitBlockedReason}</TooltipContent>

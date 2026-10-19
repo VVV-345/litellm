@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -73,22 +74,22 @@ export function TagRateLimitEditor({ value, onChange }: TagRateLimitEditorProps)
       {value.map((row, idx) => (
         <div key={row.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
           <Input
-            aria-label="Tag"
+            aria-label={i18n.t("ui.Tag")}
             value={row.tag}
             onChange={(e) => updateRow(idx, "tag", e.target.value)}
-            placeholder="Tag (e.g. cell-1)"
+            placeholder={i18n.t("ui.Tag (e.g. cell-1)")}
             style={{ width: 180 }}
           />
           <Input
-            aria-label="RPM limit"
+            aria-label={i18n.t("ui.RPM limit")}
             type="number"
             min={0}
             value={row.rpm_limit ?? ""}
             onChange={(e) => updateRow(idx, "rpm_limit", e.target.value === "" ? null : Number(e.target.value))}
-            placeholder="RPM"
+            placeholder={i18n.t("ui.RPM")}
             style={{ width: 120 }}
           />
-          <Button variant="destructive" size="sm" aria-label="Remove tag limit" onClick={() => removeRow(idx)}>
+          <Button variant="destructive" size="sm" aria-label={i18n.t("ui.Remove tag limit")} onClick={() => removeRow(idx)}>
             ✕
           </Button>
         </div>
@@ -101,8 +102,7 @@ export function TagRateLimitEditor({ value, onChange }: TagRateLimitEditorProps)
           addRow();
         }}
       >
-        + Add Tag Limit
-      </Button>
+        {i18n.t("ui.+ Add Tag Limit")}</Button>
     </div>
   );
 }

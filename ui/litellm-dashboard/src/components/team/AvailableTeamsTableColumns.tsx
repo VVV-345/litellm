@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import type { TFunction } from "i18next";
 import { MoreHorizontal, UserPlus } from "lucide-react";
 
@@ -28,7 +29,7 @@ function AvailableTeamRowActions({ team, onJoinTeam }: { team: AvailableTeam; on
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        aria-label="Open team actions"
+        aria-label={i18n.t("ui.Open team actions")}
         data-testid={`available-team-actions-${team.team_id}`}
         className={cn(buttonVariants({ variant: "ghost", size: "icon-sm" }), "text-muted-foreground")}
       >
@@ -59,7 +60,7 @@ export const getAvailableTeamsTableColumns = ({
     id: "team_alias",
     accessorKey: "team_alias",
     meta: { title: "Team Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Team Name" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Team Name")} />,
     size: 220,
     enableSorting: true,
     cell: ({ row }) => (
@@ -86,7 +87,7 @@ export const getAvailableTeamsTableColumns = ({
     id: "members",
     accessorFn: (team) => team.members_with_roles.length,
     meta: { title: "Members" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Members" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Members")} />,
     size: 120,
     enableSorting: true,
     cell: ({ row }) => (

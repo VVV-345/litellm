@@ -1,8 +1,13 @@
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
+import i18next from "@/i18n";
 import ResponseMetrics, { type TokenUsage } from "./ResponseMetrics";
 
 const baseUsage: TokenUsage = { promptTokens: 5000, completionTokens: 12, totalTokens: 5012 };
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("ResponseMetrics prompt cache chips", () => {
   it("renders both cache chips when the provider reports reads and writes", () => {

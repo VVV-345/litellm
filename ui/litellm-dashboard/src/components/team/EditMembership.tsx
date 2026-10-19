@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import i18n from "@/i18n";
 import { z } from "zod/v4";
 import NumericalInput from "../shared/numerical_input";
 import BudgetDurationDropdown from "../common_components/budget_duration_dropdown";
@@ -176,7 +177,7 @@ const MemberModal = <T extends BaseMember>({
         <form onSubmit={form.handleSubmit(handleSubmit)}>
           <FieldGroup>
             {config.showEmail && (
-              <FormField control={form.control} name="user_email" label="Email">
+              <FormField control={form.control} name="user_email" label={i18n.t("ui.Email")}>
                 {({ ref, value, onChange, ...rest }) => (
                   <Input
                     {...rest}
@@ -194,7 +195,7 @@ const MemberModal = <T extends BaseMember>({
             )}
 
             {config.showUserId && (
-              <FormField control={form.control} name="user_id" label="User ID">
+              <FormField control={form.control} name="user_id" label={i18n.t("ui.User ID")}>
                 {({ ref, value, onChange, ...rest }) => (
                   <Input
                     {...rest}
@@ -212,7 +213,7 @@ const MemberModal = <T extends BaseMember>({
               name="role"
               label={
                 <span className="flex items-center gap-2">
-                  <span>Role</span>
+                  <span>{i18n.t("ui.Role")}</span>
                   {mode === "edit" && initialData && (
                     <span className="text-sm text-muted-foreground">(Current: {getRoleLabel(initialData.role)})</span>
                   )}
@@ -244,8 +245,7 @@ const MemberModal = <T extends BaseMember>({
 
           <div className="mt-6 text-right">
             <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting} className="mr-2">
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button type="submit" variant="outline" disabled={isSubmitting}>
               {isSubmitting && <UiLoadingSpinner className="size-4" />}
               {mode === "add"

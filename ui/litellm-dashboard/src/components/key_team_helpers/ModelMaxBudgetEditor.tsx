@@ -1,4 +1,5 @@
 import { SearchSelect } from "@/components/shared/SearchSelect";
+import i18n from "@/i18n";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
@@ -150,13 +151,13 @@ export function ModelMaxBudgetEditor({
             </button>
 
             <div className="mb-3">
-              <label className="block text-xs font-medium text-muted-foreground mb-1">Model</label>
+              <label className="block text-xs font-medium text-muted-foreground mb-1">{i18n.t("ui.Model")}</label>
               <SearchSelect
                 options={modelOptions.map((model) => ({ label: model, value: model }))}
                 value={entry.model ?? ""}
                 onValueChange={(model) => updateEntry(entry.id, { model: model === "" ? null : model })}
-                placeholder="Select model"
-                emptyText="No models found"
+                placeholder={i18n.t("ui.Select model")}
+                emptyText={i18n.t("ui.No models found")}
                 disabled={!premiumUser}
               />
             </div>
@@ -177,7 +178,7 @@ export function ModelMaxBudgetEditor({
                     const typed = event.target.valueAsNumber;
                     updateEntry(entry.id, { budgetLimit: Number.isNaN(typed) ? null : typed });
                   }}
-                  placeholder="Max spend ($)"
+                  placeholder={i18n.t("ui.Max spend ($)")}
                   disabled={!premiumUser}
                 />
               </InputGroup>
@@ -225,7 +226,7 @@ export function ModelMaxBudgetField({ hint, ...editorProps }: ModelMaxBudgetFiel
   return (
     <Field>
       <FieldLabel>
-        <span title={hint}>Per-Model Budgets</span>
+        <span title={hint}>{i18n.t("ui.Per-Model Budgets")}</span>
       </FieldLabel>
       <ModelMaxBudgetEditor {...editorProps} />
     </Field>

@@ -1,4 +1,5 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import i18n from "@/i18n";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { Info } from "lucide-react";
 import React from "react";
@@ -85,7 +86,7 @@ const TierModelEffortRows: React.FC<TierModelEffortRowsProps> = ({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={PROVIDER_DEFAULT}>Default</SelectItem>
+              <SelectItem value={PROVIDER_DEFAULT}>{i18n.t("ui.Default")}</SelectItem>
               {options.map((option) => (
                 <SelectItem key={option} value={option}>
                   {option}

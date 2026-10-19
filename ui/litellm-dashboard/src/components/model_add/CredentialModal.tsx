@@ -1,4 +1,5 @@
 import { Input } from "@/components/ui/input";
+import i18n from "@/i18n";
 import { SearchSelect, type SearchSelectOption } from "@/components/shared/SearchSelect";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
@@ -101,7 +102,7 @@ export default function CredentialModal({
               }}
             >
               <MountedFormField
-                label="Credential Name:"
+                label={i18n.t("ui.Credential Name:")}
                 name="credential_name"
                 required
                 rules={{ validate: { required: requiredRule("Credential name is required") } }}
@@ -113,7 +114,7 @@ export default function CredentialModal({
                     value={(control.value as string | undefined) ?? ""}
                     onChange={control.onChange}
                     onBlur={control.onBlur}
-                    placeholder="Enter a friendly name for these credentials"
+                    placeholder={i18n.t("ui.Enter a friendly name for these credentials")}
                     disabled={isEdit}
                   />
                 )}
@@ -129,7 +130,7 @@ export default function CredentialModal({
                 {(control) => (
                   <SearchSelect
                     inputId={control.id}
-                    placeholder="Select a provider"
+                    placeholder={i18n.t("ui.Select a provider")}
                     options={providerOptions}
                     value={(control.value as string | undefined) ?? ""}
                     onValueChange={(value) => {
@@ -143,16 +144,14 @@ export default function CredentialModal({
               <ProviderSpecificFields selectedProvider={selectedProvider} />
 
               <div className="flex justify-between items-center">
-                <SimpleTooltip content="Get help on our github">
+                <SimpleTooltip content={i18n.t("ui.Get help on our github")}>
                   <a href="https://github.com/BerriAI/litellm/issues" className="text-sm text-primary hover:underline">
-                    Need Help?
-                  </a>
+                    {i18n.t("ui.Need Help?")}</a>
                 </SimpleTooltip>
 
                 <div>
                   <Button variant="outline" className="mr-2.5" onClick={closeAndReset}>
-                    Cancel
-                  </Button>
+                    {i18n.t("ui.Cancel")}</Button>
                   <Button type="submit">{isEdit ? "Update Credential" : "Add Credential"}</Button>
                 </div>
               </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Eye, EyeOff, Pencil, Plus, Trash2 } from "lucide-react";
 import { getConfigFieldSetting, updateConfigFieldSetting } from "@/components/networking";
@@ -28,6 +29,8 @@ interface Plugin {
 const BLANK_PLUGIN: PluginFormValues = { name: "", display_name: "", url: "", plugin_key: undefined };
 
 export default function PluginSettings() {
+  const { t } = useTranslation();
+  const ui = (value: string) => t(`ui.${value}`, { defaultValue: value });
   const { accessToken } = useAuthorized();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,7 +105,7 @@ export default function PluginSettings() {
       return (
         <TableRow>
           <TableCell colSpan={5} className="py-6 text-center text-sm text-muted-foreground">
-            No data
+            {ui("No data")}
           </TableCell>
         </TableRow>
       );
@@ -128,13 +131,13 @@ export default function PluginSettings() {
         </TableCell>
         <TableCell>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon-sm" aria-label={`Edit ${plugin.name}`} onClick={() => openEdit(idx)}>
+            <Button variant="outline" size="icon-sm" aria-label={`${ui("Edit")} ${plugin.name}`} onClick={() => openEdit(idx)}>
               <Pencil />
             </Button>
             <Button
               variant="destructive"
               size="icon-sm"
-              aria-label={`Delete ${plugin.name}`}
+              aria-label={`${ui("Delete")} ${plugin.name}`}
               onClick={() => handleDelete(idx)}
             >
               <Trash2 />
@@ -148,30 +151,31 @@ export default function PluginSettings() {
   return (
     <Card>
       <CardHeader>
-        <h4 className="text-base font-semibold text-foreground">Plugins</h4>
+        <h4 className="text-base font-semibold text-foreground">{ui("Plugins")}</h4>
         <p className="text-sm text-foreground">
-          Register external services as plugins. Once added, users can toggle to the plugin from the mode switcher in
-          the top-left of the sidebar.
+          {ui(
+            "Register external services as plugins. Once added, users can toggle to the plugin from the mode switcher in the top-left of the sidebar.",
+          )}
         </p>
         <p className="text-xs text-muted-foreground">
-          Each plugin must expose <code className={INLINE_CODE_CLASS}>GET /api/plugin-manifest</code> returning nav
-          items and capabilities.
+          {ui("Each plugin must expose")} <code className={INLINE_CODE_CLASS}>GET /api/plugin-manifest</code>{" "}
+          {ui("returning nav items and capabilities.")}
         </p>
       </CardHeader>
       <CardContent>
         <Button className="mb-4" onClick={openAdd}>
           <Plus />
-          Add Plugin
+          {ui("Add Plugin")}
         </Button>
 
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Display Name</TableHead>
-              <TableHead>URL</TableHead>
-              <TableHead>Plugin Key</TableHead>
-              <TableHead>Actions</TableHead>
+              <TableHead>{ui("Name")}</TableHead>
+              <TableHead>{ui("Display Name")}</TableHead>
+              <TableHead>{ui("URL")}</TableHead>
+              <TableHead>{ui("Plugin Key")}</TableHead>
+              <TableHead>{ui("Actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>{renderRows()}</TableBody>
@@ -181,29 +185,29 @@ export default function PluginSettings() {
       <Dialog open={modalOpen} onOpenChange={(open) => !open && setModalOpen(false)}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{editingIndex !== null ? "Edit Plugin" : "Add Plugin"}</DialogTitle>
+            <DialogTitle>{editingIndex !== null ? ui("Edit Plugin") : ui("Add Plugin")}</DialogTitle>
           </DialogHeader>
           <form onSubmit={(event) => event.preventDefault()} noValidate style={{ marginTop: 16 }}>
             <FieldGroup>
               <FormField
                 control={form.control}
                 name="name"
-                label="Name (identifier)"
-                description="Used in URLs and config. No spaces. E.g. litellm-platform-plugin"
+                label={ui("Name (identifier)")}
+                description={ui("Used in URLs and config. No spaces. E.g. litellm-platform-plugin")}
               >
                 {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="litellm-platform-plugin" />}
               </FormField>
-              <FormField control={form.control} name="display_name" label="Display Name">
+              <FormField control={form.control} name="display_name" label={ui("Display Name")}>
                 {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="Agent Control Plane" />}
               </FormField>
-              <FormField control={form.control} name="url" label="URL" description="Base URL of the plugin service">
+              <FormField control={form.control} name="url" label={ui("URL")} description={ui("Base URL of the plugin service")}>
                 {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="https://your-plugin.example.com" />}
               </FormField>
               <FormField
                 control={form.control}
                 name="plugin_key"
-                label="Plugin Key"
-                description="Optional. The plugin's own credential, injected as Authorization: Bearer <key> only when litellm reverse-proxies API calls to the plugin's backend (/plugin-proxy/<name>/*). Leave blank for plugins that use the forwarded litellm user token (e.g. iframe plugins) — that path uses the user's token, not this key."
+                label={ui("Plugin Key")}
+                description={ui("Optional. The plugin's own credential, injected as Authorization: Bearer <key> only when litellm reverse-proxies API calls to the plugin's backend (/plugin-proxy/<name>/*). Leave blank for plugins that use the forwarded litellm user token (e.g. iframe plugins) — that path uses the user's token, not this key.")}
               >
                 {({ ref, ...field }) => (
                   <InputGroup>
@@ -212,13 +216,13 @@ export default function PluginSettings() {
                       ref={ref}
                       type={keyVisible ? "text" : "password"}
                       value={field.value ?? ""}
-                      placeholder={editingIndex !== null ? "Leave blank to keep current key" : "sk-... (optional)"}
+                      placeholder={editingIndex !== null ? ui("Leave blank to keep current key") : ui("sk-... (optional)")}
                     />
                     <InputGroupAddon align="inline-end">
                       <InputGroupButton
                         size="icon-xs"
                         onClick={() => setKeyVisible(!keyVisible)}
-                        aria-label={keyVisible ? "Hide plugin key" : "Show plugin key"}
+                        aria-label={keyVisible ? ui("Hide plugin key") : ui("Show plugin key")}
                       >
                         {keyVisible ? <EyeOff /> : <Eye />}
                       </InputGroupButton>
@@ -230,10 +234,10 @@ export default function PluginSettings() {
           </form>
           <DialogFooter>
             <Button variant="outline" onClick={() => setModalOpen(false)}>
-              Cancel
+              {ui("Cancel")}
             </Button>
             <Button onClick={form.handleSubmit(handleOk)} disabled={saving} aria-busy={saving}>
-              Save
+              {ui("Save")}
             </Button>
           </DialogFooter>
         </DialogContent>

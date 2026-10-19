@@ -1,4 +1,5 @@
 import { Inbox, Info, Plus, Trash2 } from "lucide-react";
+import i18n from "@/i18n";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -51,15 +52,14 @@ const KeywordTierRules: React.FC<KeywordTierRulesProps> = ({ rules, onChange, ti
     <div className="w-full max-w-none">
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <h4 className="m-0 text-xl font-semibold text-foreground">Keyword Tier Overrides</h4>
-          <SimpleTooltip content="Match known terms and force the request straight to a chosen complexity tier, bypassing rule-based scoring.">
+          <h4 className="m-0 text-xl font-semibold text-foreground">{i18n.t("ui.Keyword Tier Overrides")}</h4>
+          <SimpleTooltip content={i18n.t("ui.Match known terms and force the request straight to a chosen complexity tier, bypassing rule-based scoring.")}>
             <Info className="size-4 text-muted-foreground" />
           </SimpleTooltip>
         </div>
         <Button variant="outline" onClick={addRule}>
           <Plus />
-          Add keyword rule
-        </Button>
+          {i18n.t("ui.Add keyword rule")}</Button>
       </div>
       <span className="mb-4 block text-muted-foreground">
         Optional: route requests containing specific keywords directly to a tier, e.g. route &quot;invoice, refund,
@@ -71,7 +71,7 @@ const KeywordTierRules: React.FC<KeywordTierRulesProps> = ({ rules, onChange, ti
           <CardContent>
             <div className="py-2 text-center">
               <Inbox className="mx-auto mb-2 size-6 text-muted-foreground" aria-hidden="true" />
-              <p className="text-sm text-muted-foreground">No keyword tier overrides configured</p>
+              <p className="text-sm text-muted-foreground">{i18n.t("ui.No keyword tier overrides configured")}</p>
             </div>
           </CardContent>
         </Card>
@@ -82,22 +82,22 @@ const KeywordTierRules: React.FC<KeywordTierRulesProps> = ({ rules, onChange, ti
               <CardContent>
                 <div className="flex items-end gap-3">
                   <div className="flex-1">
-                    <strong className="mb-2 block font-semibold">Keywords {index + 1}</strong>
+                    <strong className="mb-2 block font-semibold">{`${i18n.t("ui.Keywords")} ${index + 1}`}</strong>
                     <MultiSelect
                       options={rule.keywords.map((keyword) => ({ label: keyword, value: keyword }))}
                       value={rule.keywords}
                       onValueChange={replaceKeywords(rule)}
-                      placeholder="e.g., invoice, refund, billing"
-                      emptyText="Type to add a keyword"
+                      placeholder={i18n.t("ui.e.g., invoice, refund, billing")}
+                      emptyText={i18n.t("ui.Type to add a keyword")}
                       allowCustomValues
                       className={emptyRuleIndexes.has(index) ? "w-full border-destructive" : "w-full"}
                     />
                     {emptyRuleIndexes.has(index) && (
-                      <span className="text-xs text-destructive">At least one keyword is required</span>
+                      <span className="text-xs text-destructive">{i18n.t("ui.At least one keyword is required")}</span>
                     )}
                   </div>
                   <div style={{ width: 220 }}>
-                    <strong className="mb-2 block font-semibold">Route to tier</strong>
+                    <strong className="mb-2 block font-semibold">{i18n.t("ui.Route to tier")}</strong>
                     <Select
                       items={tierOptions(tierLabels, tierNames)}
                       value={rule.tier}

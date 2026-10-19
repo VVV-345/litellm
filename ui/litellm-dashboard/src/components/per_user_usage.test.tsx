@@ -1,11 +1,16 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import i18next from "@/i18n";
 import PerUserUsage from "./per_user_usage";
 import * as networking from "./networking";
 
 vi.mock("./networking", () => ({
   perUserAnalyticsCall: vi.fn(),
 }));
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 type UserRow = {
   user_id: string;

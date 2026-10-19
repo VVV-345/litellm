@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import i18n from "@/i18n";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { useUpdateUserBanner } from "@/app/(dashboard)/hooks/userBanner/useUpdateUserBanner";
 import { useUserBanner } from "@/app/(dashboard)/hooks/userBanner/useUserBanner";
@@ -65,7 +66,7 @@ function UserBannerSettingsForm({ persisted, isLoading, isPending, saveBanner }:
   const handleSave = () => {
     saveBanner(draft, {
       onSuccess: () => {
-        toast.success("User banner updated successfully");
+        toast.success(i18n.t("ui.User banner updated successfully"));
       },
       onError: (error) => {
         toast.fromError(error);
@@ -76,10 +77,9 @@ function UserBannerSettingsForm({ persisted, isLoading, isPending, saveBanner }:
   return (
     <Card>
       <CardHeader>
-        <CardTitle>User Banner</CardTitle>
+        <CardTitle>{i18n.t("ui.User Banner")}</CardTitle>
         <CardDescription>
-          Publish an announcement to all dashboard users. Markdown is supported; the banner appears below the header on
-          every page until you unpublish it. Users can dismiss it, and it reappears whenever the content changes.
+          {i18n.t("ui.Publish an announcement to all dashboard users. Markdown is supported; the banner appears below the header on every page until you unpublish it. Users can dismiss it, and it reappears whenever the content changes.")}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -91,28 +91,28 @@ function UserBannerSettingsForm({ persisted, isLoading, isPending, saveBanner }:
               <Switch
                 checked={draft.enabled}
                 onCheckedChange={(checked: boolean) => setDraft({ ...draft, enabled: checked })}
-                aria-label="Publish user banner"
+                aria-label={i18n.t("ui.Publish user banner")}
               />
-              <Label>Publish user banner</Label>
+              <Label>{i18n.t("ui.Publish user banner")}</Label>
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label htmlFor="user-banner-message">Message</Label>
+              <Label htmlFor="user-banner-message">{i18n.t("ui.Message")}</Label>
               <Textarea
                 id="user-banner-message"
                 value={draft.message}
                 maxLength={4000}
                 rows={3}
-                placeholder="**Scheduled maintenance** tonight at 10 PM UTC. See [status page](https://example.com)."
+                placeholder={i18n.t("ui.**Scheduled maintenance** tonight at 10 PM UTC. See [status page](https://example.com).")}
                 onChange={(event: React.ChangeEvent<HTMLTextAreaElement>) =>
                   setDraft({ ...draft, message: event.target.value })
                 }
               />
-              {messageMissing && <p className="text-sm text-destructive">Add a message before publishing.</p>}
+              {messageMissing && <p className="text-sm text-destructive">{i18n.t("ui.Add a message before publishing.")}</p>}
             </div>
 
             <div className="flex flex-col gap-2">
-              <Label>Severity</Label>
+              <Label>{i18n.t("ui.Severity")}</Label>
               <Select
                 items={SEVERITY_ITEMS}
                 value={draft.severity}
@@ -120,13 +120,13 @@ function UserBannerSettingsForm({ persisted, isLoading, isPending, saveBanner }:
                   setDraft({ ...draft, severity: (value ?? "info") as UserBannerSeverity })
                 }
               >
-                <SelectTrigger className="w-48" aria-label="Banner severity">
-                  <SelectValue placeholder="Severity" />
+                <SelectTrigger className="w-48" aria-label={i18n.t("ui.Banner severity")}>
+                  <SelectValue placeholder={i18n.t("ui.Severity")} />
                 </SelectTrigger>
                 <SelectContent>
                   {SEVERITY_ITEMS.map((item) => (
                     <SelectItem key={item.value} value={item.value}>
-                      {item.label}
+                      {i18n.t(`ui.${item.label}`, { defaultValue: item.label })}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -135,7 +135,7 @@ function UserBannerSettingsForm({ persisted, isLoading, isPending, saveBanner }:
 
             {draft.message.trim() !== "" && (
               <div className="flex flex-col gap-2">
-                <Label>Preview</Label>
+                <Label>{i18n.t("ui.Preview")}</Label>
                 <Alert variant={draft.severity}>
                   {SEVERITY_ICONS[draft.severity]}
                   <AlertDescription>
@@ -147,7 +147,7 @@ function UserBannerSettingsForm({ persisted, isLoading, isPending, saveBanner }:
 
             <div>
               <Button onClick={handleSave} disabled={isPending || messageMissing}>
-                {isPending ? "Saving..." : "Save banner"}
+                {isPending ? i18n.t("ui.Saving...") : i18n.t("ui.Save banner")}
               </Button>
             </div>
           </div>

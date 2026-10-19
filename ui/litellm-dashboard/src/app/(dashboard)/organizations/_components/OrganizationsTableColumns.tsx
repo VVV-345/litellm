@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -29,8 +30,8 @@ function OrganizationLimitsCell({ organization }: { organization: Organization }
   const { tpm_limit, rpm_limit } = getOrganizationBudget(organization);
   return (
     <div className="flex flex-col text-xs text-muted-foreground">
-      <span>TPM: {tpm_limit ?? "Unlimited"}</span>
-      <span>RPM: {rpm_limit ?? "Unlimited"}</span>
+      <span>{i18n.t("ui.TPM:")}{tpm_limit ?? "Unlimited"}</span>
+      <span>{i18n.t("ui.RPM:")}{rpm_limit ?? "Unlimited"}</span>
     </div>
   );
 }
@@ -90,7 +91,7 @@ export const getOrganizationsTableColumns = ({
     id: "organization_id",
     accessorKey: "organization_id",
     meta: { title: "Organization ID" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Organization ID" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Organization ID")} />,
     size: 220,
     enableSorting: true,
     cell: ({ row }) => (
@@ -106,7 +107,7 @@ export const getOrganizationsTableColumns = ({
     id: "organization_alias",
     accessorKey: "organization_alias",
     meta: { title: "Organization Name" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Organization Name" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Organization Name")} />,
     size: 200,
     enableSorting: true,
     cell: ({ row }) => {
@@ -123,7 +124,7 @@ export const getOrganizationsTableColumns = ({
     accessorKey: "created_at",
     sortingFn: "datetime",
     meta: { title: "Created" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Created" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Created")} />,
     size: 130,
     enableSorting: true,
     cell: ({ row }) => <DateCell value={row.original.created_at} precision="date" />,
@@ -132,7 +133,7 @@ export const getOrganizationsTableColumns = ({
     id: "spend",
     accessorKey: "spend",
     meta: { title: "Spend (USD)" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Spend (USD)" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Spend (USD)")} />,
     size: 120,
     enableSorting: true,
     cell: ({ row }) => <MoneyCell value={row.original.spend} decimals={4} />,
@@ -144,7 +145,7 @@ export const getOrganizationsTableColumns = ({
     size: 120,
     enableSorting: false,
     cell: ({ row }) => (
-      <MoneyCell value={getOrganizationBudget(row.original).max_budget} decimals={2} emptyText="Unlimited" showZero />
+      <MoneyCell value={getOrganizationBudget(row.original).max_budget} decimals={2} emptyText={i18n.t("ui.Unlimited")} showZero />
     ),
   },
   {
@@ -169,12 +170,12 @@ export const getOrganizationsTableColumns = ({
     header: "Members",
     size: 100,
     enableSorting: false,
-    cell: ({ row }) => <span className="text-sm">{row.original.members?.length ?? 0} Members</span>,
+    cell: ({ row }) => <span className="text-sm">{row.original.members?.length ?? 0} {i18n.t("ui.Members")}</span>,
   },
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{i18n.t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

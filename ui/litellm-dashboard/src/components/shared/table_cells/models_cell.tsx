@@ -1,6 +1,7 @@
 "use client";
 
 import { deriveKeyModelScope } from "@/components/key_scope";
+import i18n from "@/i18n";
 import { getModelDisplayName } from "@/components/key_team_helpers/fetch_available_models_team_key";
 import { Badge } from "@/components/ui/badge";
 
@@ -38,7 +39,7 @@ export function ModelsCell({ models, maxVisible = 3, allowedRoutes, keyType }: M
         />
       );
     }
-    return <Badge variant="secondary">All Proxy Models</Badge>;
+    return <Badge variant="secondary">{i18n.t("ui.All Proxy Models")}</Badge>;
   }
 
   const visible = models.slice(0, maxVisible);
@@ -62,8 +63,7 @@ export function ModelsCell({ models, maxVisible = 3, allowedRoutes, keyType }: M
           }
           trigger={
             <Badge variant="outline" className="cursor-default">
-              +{overflow.length} more
-            </Badge>
+              +{overflow.length} {i18n.t("ui.more")}</Badge>
           }
         />
       )}

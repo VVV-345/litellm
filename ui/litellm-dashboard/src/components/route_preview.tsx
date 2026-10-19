@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { ArrowRight, Info } from "lucide-react";
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,45 +29,44 @@ const RoutePreview: React.FC<RoutePreviewProps> = ({ pathValue, targetValue, inc
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Route Preview</CardTitle>
-        <CardDescription>How your requests will be routed</CardDescription>
+        <CardTitle className="text-lg">{i18n.t("ui.Route Preview")}</CardTitle>
+        <CardDescription>{i18n.t("ui.How your requests will be routed")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         <div>
-          <h4 className="mb-3 text-base font-semibold">Basic routing:</h4>
+          <h4 className="mb-3 text-base font-semibold">{i18n.t("ui.Basic routing:")}</h4>
           <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
-            <Endpoint label="Your endpoint">{`${proxyBaseUrl}${pathValue}`}</Endpoint>
+            <Endpoint label={i18n.t("ui.Your endpoint")}>{`${proxyBaseUrl}${pathValue}`}</Endpoint>
             <ArrowRight className="size-5 shrink-0 self-center text-muted-foreground max-sm:rotate-90" />
-            <Endpoint label="Forwards to">{targetValue}</Endpoint>
+            <Endpoint label={i18n.t("ui.Forwards to")}>{targetValue}</Endpoint>
           </div>
         </div>
 
         {includeSubpath ? (
           <div>
-            <h4 className="mb-3 text-base font-semibold">With subpaths:</h4>
+            <h4 className="mb-3 text-base font-semibold">{i18n.t("ui.With subpaths:")}</h4>
             <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center">
-              <Endpoint label="Your endpoint + subpath">
+              <Endpoint label={i18n.t("ui.Your endpoint + subpath")}>
                 {`${proxyBaseUrl}${pathValue}`}
                 <span className="text-primary">/v1/text-to-image/base/model</span>
               </Endpoint>
               <ArrowRight className="size-5 shrink-0 self-center text-muted-foreground max-sm:rotate-90" />
-              <Endpoint label="Forwards to">
+              <Endpoint label={i18n.t("ui.Forwards to")}>
                 {targetValue}
                 <span className="text-primary">/v1/text-to-image/base/model</span>
               </Endpoint>
             </div>
             <p className="mt-3 text-sm text-muted-foreground">
-              Any path after {pathValue} will be appended to the target URL
+              {i18n.t("ui.Any path after")} {pathValue} {i18n.t("ui.will be appended to the target URL")}
             </p>
           </div>
         ) : (
           <div className="flex items-start gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-sm">
             <Info className="mt-0.5 size-4 shrink-0 text-primary" />
             <p>
-              <span className="font-medium">Not seeing the routing you wanted?</span> Try enabling - Include Subpaths -
-              above - this allows subroutes like{" "}
-              <code className="rounded-sm bg-primary/10 px-1 py-0.5 font-mono text-xs">/api/v1/models</code> to be
-              forwarded automatically.
+              <span className="font-medium">{i18n.t("ui.Not seeing the routing you wanted?")}</span>{" "}
+                {i18n.t("ui.Try enabling - Include Subpaths - above - this allows subroutes like")}{" "}
+              <code className="rounded-sm bg-primary/10 px-1 py-0.5 font-mono text-xs">/api/v1/models</code> {i18n.t("ui.to be forwarded automatically.")}
             </p>
           </div>
         )}

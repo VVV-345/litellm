@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -266,7 +267,7 @@ const SchemaFormFields: React.FC<SchemaFormFieldsProps> = ({
   };
 
   if (error) {
-    return <div className="text-destructive">Error: {error}</div>;
+    return <div className="text-destructive">{i18n.t("ui.Error:")}{error}</div>;
   }
 
   if (!schemaProperties?.properties) {

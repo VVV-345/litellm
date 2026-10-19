@@ -1,6 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import type { TFunction } from "i18next";
 
 import { DataTableSortHeader } from "@/components/shared/DataTable";
@@ -159,8 +160,7 @@ export const getRequestLogsTableColumns = ({
           {isMultiCallSession && <span className="text-[10px] text-muted-foreground">{t("ui.session total")}</span>}
           {mcpCount > 0 && mcpSpend > 0 && (
             <span className="text-[10px] text-warning">
-              incl. {getSpendString(mcpSpend)} from {mcpCount} MCP
-            </span>
+              incl. {getSpendString(mcpSpend)} from {mcpCount} {i18n.t("ui.MCP")}</span>
           )}
         </div>
       );

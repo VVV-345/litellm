@@ -3,7 +3,8 @@ import { resolve } from "path";
 
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import ModelAliasManager from "./ModelAliasManager";
 
@@ -22,6 +23,10 @@ const HARDCODED_PALETTE =
   /\b(?:text|bg|border|hover:bg|hover:text|dark:bg|dark:text)-(?:gray|slate|zinc|neutral|stone|red|blue|green|yellow|amber|orange)-\d+\b/g;
 const SEMANTIC_TOKEN =
   /\b(?:text|bg|border)-(?:foreground|muted-foreground|muted|background|card|primary|secondary|destructive|border|input|accent)\b/g;
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 const NO_ALIASES: Record<string, string> = {};
 

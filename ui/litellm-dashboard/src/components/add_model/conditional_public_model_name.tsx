@@ -44,16 +44,13 @@ const publicNameTooltipContent = (
     <div>{i18n.t("ui.The name you specify in your API calls to LiteLLM Proxy", { defaultValue: "The name you specify in your API calls to LiteLLM Proxy" })}</div>
     <div>
       <strong>{i18n.t("ui.Example:", { defaultValue: "Example:" })}</strong> {i18n.t("ui.If you name your public model", { defaultValue: "If you name your public model" })} <code className={tooltipCodeClassName}>example-name</code>
-      , and choose <code className={tooltipCodeClassName}>openai/qwen-plus-latest</code> as the LiteLLM model
-    </div>
+      , and choose <code className={tooltipCodeClassName}>openai/qwen-plus-latest</code> {i18n.t("ui.as the LiteLLM model")}</div>
     <div>
       <strong>{i18n.t("ui.Usage:", { defaultValue: "Usage:" })}</strong> {i18n.t("ui.You make an API call to the LiteLLM proxy with", { defaultValue: "You make an API call to the LiteLLM proxy with" })}{" "}
       <code className={tooltipCodeClassName}>model = &quot;example-name&quot;</code>
     </div>
     <div>
-      <strong>{i18n.t("ui.Result:", { defaultValue: "Result:" })}</strong> {i18n.t("ui.LiteLLM sends", { defaultValue: "LiteLLM sends" })} <code className={tooltipCodeClassName}>qwen-plus-latest</code> to the
-      provider
-    </div>
+      <strong>{i18n.t("ui.Result:", { defaultValue: "Result:" })}</strong> {i18n.t("ui.LiteLLM sends", { defaultValue: "LiteLLM sends" })} <code className={tooltipCodeClassName}>qwen-plus-latest</code> {i18n.t("ui.to the provider")}</div>
   </div>
 );
 

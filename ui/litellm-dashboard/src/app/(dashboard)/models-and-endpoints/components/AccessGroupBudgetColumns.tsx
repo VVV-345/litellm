@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import { MoreHorizontal, Trash2, Wallet } from "lucide-react";
 
 import { getBudgetDurationLabel } from "@/components/common_components/budget_duration_dropdown";
@@ -93,7 +94,7 @@ export const getAccessGroupBudgetColumns = ({
     id: "access_group",
     accessorKey: "access_group",
     meta: { title: "Access Group" },
-    header: ({ column }) => <DataTableSortHeader column={column} title="Access Group" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={i18n.t("ui.Access Group")} />,
     size: 220,
     enableSorting: true,
     cell: ({ row }) => (
@@ -149,7 +150,7 @@ export const getAccessGroupBudgetColumns = ({
   {
     id: "actions",
     meta: { className: "text-right", headerClassName: "text-right" },
-    header: () => <span className="sr-only">Actions</span>,
+    header: () => <span className="sr-only">{i18n.t("ui.Actions")}</span>,
     size: 64,
     enableSorting: false,
     enableHiding: false,

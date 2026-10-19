@@ -1,6 +1,7 @@
 "use client";
 
 import { toast } from "@/lib/toast";
+import i18n from "@/i18n";
 import { parseErrorMessage } from "@/components/shared/errorUtils";
 import React from "react";
 import BaseSSOSettingsForm, {
@@ -48,14 +49,13 @@ const AddSSOSettingsModal: React.FC<AddSSOSettingsModalProps> = ({ isVisible, on
     <Dialog open={isVisible} onOpenChange={(open) => !open && handleCancel()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
         <DialogHeader>
-          <DialogTitle>Add SSO</DialogTitle>
+          <DialogTitle>{i18n.t("ui.Add SSO")}</DialogTitle>
         </DialogHeader>
         <BaseSSOSettingsForm form={form} onFormSubmit={handleFormSubmit} />
         <DialogFooter>
           <div className="flex items-center justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={isPending}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button
               type="button"
               disabled={isPending}

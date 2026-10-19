@@ -1,4 +1,5 @@
 import { useTeams } from "@/app/(dashboard)/hooks/teams/useTeams";
+import i18n from "@/i18n";
 import { createTeamAliasMap } from "@/utils/teamUtils";
 import { Loader2 } from "lucide-react";
 import React, { useMemo, useState } from "react";
@@ -85,8 +86,7 @@ const EntityUsageExportModal: React.FC<EntityUsageExportModalProps> = ({
             ) : (
               <>
                 <Button variant="outline" onClick={onClose} disabled={isExporting}>
-                  Cancel
-                </Button>
+                  {i18n.t("ui.Cancel")}</Button>
                 <Button onClick={() => handleExport()} disabled={isExporting}>
                   {isExporting && <Loader2 className="animate-spin" />}
                   {isExporting ? "Exporting..." : `Export ${exportFormat.toUpperCase()}`}

@@ -1,4 +1,5 @@
 import { useLicenseInfo } from "@/app/(dashboard)/hooks/license/useLicenseInfo";
+import i18n from "@/i18n";
 import { formatExpirationStatus } from "@/utils/licenseUtils";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -111,8 +112,7 @@ export default function SidebarUsageCard({ accessToken, collapsed, onExpandRail 
       <CollapsibleContent className="flex flex-col gap-3 px-3 pt-0.5 pb-3">
         {isLoading && meters.length === 0 ? (
           <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" /> Loading…
-          </div>
+            <Loader2 className="size-3.5 animate-spin" /> {i18n.t("ui.Loading…")}</div>
         ) : (
           meters.map((m) => <UsageMeter key={m.label} {...m} />)
         )}

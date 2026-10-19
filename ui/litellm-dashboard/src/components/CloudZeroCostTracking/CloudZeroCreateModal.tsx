@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import i18n from "@/i18n";
 import { z } from "zod/v4";
 
 import { useCloudZeroCreate } from "@/app/(dashboard)/hooks/cloudzero/useCloudZeroCreate";
@@ -60,18 +61,18 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
     <Dialog open={open} onOpenChange={(open) => !open && handleCancel()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create CloudZero Integration</DialogTitle>
+          <DialogTitle>{i18n.t("ui.Create CloudZero Integration")}</DialogTitle>
         </DialogHeader>
         <TooltipProvider>
           <form onSubmit={(event) => event.preventDefault()} noValidate>
             <FieldGroup>
-              <FormField control={form.control} name="api_key" label="CloudZero API Key">
+              <FormField control={form.control} name="api_key" label={i18n.t("ui.CloudZero API Key")}>
                 {({ ref, ...field }) => (
-                  <CloudZeroApiKeyInput {...field} ref={ref} placeholder="Enter your CloudZero API key" />
+                  <CloudZeroApiKeyInput {...field} ref={ref} placeholder={i18n.t("ui.Enter your CloudZero API key")} />
                 )}
               </FormField>
-              <FormField control={form.control} name="connection_id" label="Connection ID">
-                {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="Enter your CloudZero connection ID" />}
+              <FormField control={form.control} name="connection_id" label={i18n.t("ui.Connection ID")}>
+                {({ ref, ...field }) => <Input {...field} ref={ref} placeholder={i18n.t("ui.Enter your CloudZero connection ID")} />}
               </FormField>
               <FormField
                 control={form.control}
@@ -85,8 +86,7 @@ export default function CloudZeroCreationModal({ open, onOk, onCancel }: CloudZe
         </TooltipProvider>
         <DialogFooter>
           <Button variant="outline" onClick={handleCancel} disabled={createMutation.isPending}>
-            Cancel
-          </Button>
+            {i18n.t("ui.Cancel")}</Button>
           <Button
             onClick={() => void form.handleSubmit(handleSubmit)()}
             disabled={createMutation.isPending}

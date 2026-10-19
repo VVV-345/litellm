@@ -1,4 +1,9 @@
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
+
+beforeEach(async () => {
+  const { default: i18next } = await import("@/i18n");
+  await i18next.changeLanguage("en");
+});
 
 vi.mock("@/lib/toast", () => ({
   toast: {

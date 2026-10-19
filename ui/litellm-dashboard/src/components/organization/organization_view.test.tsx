@@ -2,6 +2,7 @@ import React from "react";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi, test, expect, beforeEach } from "vitest";
+import i18next from "@/i18n";
 import { renderWithProviders } from "../../../tests/test-utils";
 import OrganizationInfoView from "./organization_view";
 import { useOrganization } from "@/app/(dashboard)/hooks/organizations/useOrganizations";
@@ -101,7 +102,8 @@ const mockOrg = {
   metadata: null,
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
   mockUseOrganization.mockReset();
 });
 

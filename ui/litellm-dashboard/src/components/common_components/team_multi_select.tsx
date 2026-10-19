@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import i18n from "@/i18n";
 import { PaginatedMultiSelect } from "@/components/shared/PaginatedMultiSelect";
 import type { SearchSelectOption } from "@/components/shared/SearchSelect";
 import { useInfiniteTeams } from "@/app/(dashboard)/hooks/teams/useTeams";
@@ -57,7 +58,7 @@ const TeamMultiSelect: React.FC<TeamMultiSelectProps> = ({
       isLoading={isLoading}
       isFetchingNextPage={isFetchingNextPage}
       placeholder={placeholder}
-      emptyText="No teams found"
+      emptyText={i18n.t("ui.No teams found")}
       loadingText="Loading teams..."
       clearAllLabel="Clear all teams"
       disabled={disabled}

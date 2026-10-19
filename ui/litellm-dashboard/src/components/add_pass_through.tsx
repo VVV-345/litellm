@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import i18n from "@/i18n";
 import { CircleHelp, Info, Plug } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shared/Alert";
 import { useWatch } from "react-hook-form";
@@ -149,44 +150,40 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
     <TooltipProvider>
       <div>
         <Button className="mx-auto mb-4 mt-4" onClick={() => setIsModalVisible(true)}>
-          + Add Pass-Through Endpoint
-        </Button>
+          {i18n.t("ui.+ Add Pass-Through Endpoint")}</Button>
         <Dialog open={isModalVisible} onOpenChange={(open) => !open && handleCancel()}>
           <DialogContent className="top-8 max-h-[calc(100dvh-4rem)] translate-y-0 overflow-y-auto sm:max-w-[1000px]">
             <DialogHeader>
               <div className="flex items-center space-x-3 border-b border-border pb-4">
                 <Plug className="size-5 text-info" />
-                <DialogTitle className="text-xl font-semibold text-foreground">Add Pass-Through Endpoint</DialogTitle>
+                <DialogTitle className="text-xl font-semibold text-foreground">{i18n.t("ui.Add Pass-Through Endpoint")}</DialogTitle>
               </div>
             </DialogHeader>
             <div className="mt-6">
               <Alert variant="info" className="mb-6">
                 <Info />
-                <AlertTitle>What is a Pass-Through Endpoint?</AlertTitle>
+                <AlertTitle>{i18n.t("ui.What is a Pass-Through Endpoint?")}</AlertTitle>
                 <AlertDescription>
-                  Route requests from your LiteLLM proxy to any external API. Perfect for custom models, image
-                  generation APIs, or any service you want to proxy through LiteLLM.
-                </AlertDescription>
+                  {i18n.t("ui.Route requests from your LiteLLM proxy to any external API. Perfect for custom models, image generation APIs, or any service you want to proxy through LiteLLM.")}</AlertDescription>
               </Alert>
 
               <form onSubmit={form.handleSubmit(addPassThrough)} className="space-y-6">
                 <Card className="block p-5">
-                  <h3 className="mb-2 text-lg font-semibold text-foreground">Route Configuration</h3>
+                  <h3 className="mb-2 text-lg font-semibold text-foreground">{i18n.t("ui.Route Configuration")}</h3>
                   <p className="mb-5 text-sm text-muted-foreground">
-                    Configure how requests to your domain will be forwarded to the target API
-                  </p>
+                    {i18n.t("ui.Configure how requests to your domain will be forwarded to the target API")}</p>
 
                   <div className="space-y-5">
                     <FormField
                       control={form.control}
                       name="path"
-                      label="Path Prefix"
-                      description="Example: /bria, /adobe-photoshop, /elasticsearch"
+                      label={i18n.t("ui.Path Prefix")}
+                      description={i18n.t("ui.Example: /bria, /adobe-photoshop, /elasticsearch")}
                     >
                       {({ value, onChange, ...field }) => (
                         <Input
                           {...field}
-                          placeholder="bria"
+                          placeholder={i18n.t("ui.bria")}
                           value={value ?? ""}
                           onChange={(event) => {
                             const raw = event.target.value;
@@ -199,11 +196,11 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                     <FormField
                       control={form.control}
                       name="target"
-                      label="Target URL"
-                      description="Example:https://engine.prod.bria-api.com"
+                      label={i18n.t("ui.Target URL")}
+                      description={i18n.t("ui.Example:https://engine.prod.bria-api.com")}
                     >
                       {({ value, ...field }) => (
-                        <Input {...field} placeholder="https://engine.prod.bria-api.com" value={value ?? ""} />
+                        <Input {...field} placeholder={i18n.t("ui.https://engine.prod.bria-api.com")} value={value ?? ""} />
                       )}
                     </FormField>
 
@@ -223,7 +220,7 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                       {({ value, onChange, ref: _ref, ...field }) => (
                         <Select multiple items={HTTP_METHOD_OPTIONS} value={value ?? []} onValueChange={onChange}>
                           <SelectTrigger {...field} className="w-full">
-                            <SelectValue placeholder="Select methods (leave empty for all)">
+                            <SelectValue placeholder={i18n.t("ui.Select methods (leave empty for all)")}>
                               {(selected: string[]) =>
                                 selected.length === 0 ? "Select methods (leave empty for all)" : selected.join(", ")
                               }
@@ -242,10 +239,9 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
 
                     <div className="flex items-center justify-between py-3">
                       <div>
-                        <div className="text-sm font-medium text-foreground">Include Subpaths</div>
+                        <div className="text-sm font-medium text-foreground">{i18n.t("ui.Include Subpaths")}</div>
                         <div className="mt-0.5 text-xs text-muted-foreground">
-                          Forward all subpaths to the target API (recommended for REST APIs)
-                        </div>
+                          {i18n.t("ui.Forward all subpaths to the target API (recommended for REST APIs)")}</div>
                       </div>
                       <FormField control={form.control} name="include_subpath">
                         {({ value, onChange, ref: _ref, ...field }) => (
@@ -259,10 +255,9 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                 <RoutePreview pathValue={pathValue} targetValue={targetValue} includeSubpath={includeSubpath} />
 
                 <Card className="block p-6">
-                  <h3 className="mb-2 text-lg font-semibold text-foreground">Headers</h3>
+                  <h3 className="mb-2 text-lg font-semibold text-foreground">{i18n.t("ui.Headers")}</h3>
                   <p className="mb-6 text-sm text-muted-foreground">
-                    Add headers that will be sent with every request to the target API
-                  </p>
+                    {i18n.t("ui.Add headers that will be sent with every request to the target API")}</p>
 
                   <FormField
                     control={form.control}
@@ -274,9 +269,8 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                     description={
                       <>
                         <span className="mb-1 block font-medium">
-                          Add authentication tokens and other required headers
-                        </span>
-                        <span className="block">Common examples: auth_token, Authorization, x-api-key</span>
+                          {i18n.t("ui.Add authentication tokens and other required headers")}</span>
+                        <span className="block">{i18n.t("ui.Common examples: auth_token, Authorization, x-api-key")}</span>
                       </>
                     }
                   >
@@ -285,10 +279,9 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                 </Card>
 
                 <Card className="block p-6">
-                  <h3 className="mb-2 text-lg font-semibold text-foreground">Default Query Parameters</h3>
+                  <h3 className="mb-2 text-lg font-semibold text-foreground">{i18n.t("ui.Default Query Parameters")}</h3>
                   <p className="mb-6 text-sm text-muted-foreground">
-                    Add query parameters that will be automatically sent with every request to the target API
-                  </p>
+                    {i18n.t("ui.Add query parameters that will be automatically sent with every request to the target API")}</p>
 
                   <FormField
                     control={form.control}
@@ -300,11 +293,9 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                     description={
                       <>
                         <span className="mb-1 block font-medium">
-                          Parameters are sent with all GET, POST, PUT, PATCH requests
-                        </span>
+                          {i18n.t("ui.Parameters are sent with all GET, POST, PUT, PATCH requests")}</span>
                         <span className="block">
-                          Client parameters override defaults. Examples: version=v1, format=json, key=default
-                        </span>
+                          {i18n.t("ui.Client parameters override defaults. Examples: version=v1, format=json, key=default")}</span>
                       </>
                     }
                   >
@@ -325,10 +316,9 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                 <PassThroughGuardrailsSection accessToken={accessToken} value={guardrails} onChange={setGuardrails} />
 
                 <Card className="block p-6">
-                  <h3 className="mb-2 text-lg font-semibold text-foreground">Performance</h3>
+                  <h3 className="mb-2 text-lg font-semibold text-foreground">{i18n.t("ui.Performance")}</h3>
                   <p className="mb-6 text-sm text-muted-foreground">
-                    Configure upstream request timeout for this endpoint
-                  </p>
+                    {i18n.t("ui.Configure upstream request timeout for this endpoint")}</p>
 
                   <FormField
                     control={form.control}
@@ -337,7 +327,7 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                       "Request Timeout (seconds)",
                       "Max time to wait for the upstream API to respond. Leave empty to use general_settings.pass_through_request_timeout (default 600s).",
                     )}
-                    description="Use a higher value for slow upstream APIs (e.g. 1200 for long-running LLM calls)"
+                    description={i18n.t("ui.Use a higher value for slow upstream APIs (e.g. 1200 for long-running LLM calls)")}
                   >
                     {({ value, onChange, ref: _ref, ...field }) => (
                       <NumericalInput
@@ -355,8 +345,8 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                 </Card>
 
                 <Card className="block p-6">
-                  <h3 className="mb-2 text-lg font-semibold text-foreground">Billing</h3>
-                  <p className="mb-6 text-sm text-muted-foreground">Optional cost tracking for this endpoint</p>
+                  <h3 className="mb-2 text-lg font-semibold text-foreground">{i18n.t("ui.Billing")}</h3>
+                  <p className="mb-6 text-sm text-muted-foreground">{i18n.t("ui.Optional cost tracking for this endpoint")}</p>
 
                   <FormField
                     control={form.control}
@@ -365,7 +355,7 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
                       "Cost Per Request (USD)",
                       "Optional: Track costs for requests to this endpoint",
                     )}
-                    description="The cost charged for each request through this endpoint"
+                    description={i18n.t("ui.The cost charged for each request through this endpoint")}
                   >
                     {({ value, onChange, ref: _ref, ...field }) => (
                       <NumericalInput
@@ -384,8 +374,7 @@ const AddPassThroughEndpoint: React.FC<AddFallbacksProps> = ({
 
                 <div className="flex items-center justify-end space-x-3 border-t border-border pt-6">
                   <Button type="button" variant="outline" onClick={handleCancel}>
-                    Cancel
-                  </Button>
+                    {i18n.t("ui.Cancel")}</Button>
                   <Button type="submit" disabled={isLoading} aria-busy={isLoading}>
                     {isLoading && <UiLoadingSpinner className="size-4" />}
                     {isLoading ? "Creating..." : "Add Pass-Through Endpoint"}

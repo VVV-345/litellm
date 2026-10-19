@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import PluginSettings from "./PluginSettings";
 
@@ -22,6 +23,10 @@ const REDACTED_PLUGIN = {
 };
 
 const savedPayload = () => updateConfigFieldSettingMock.mock.calls[0];
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("PluginSettings config payload", () => {
   beforeEach(() => {

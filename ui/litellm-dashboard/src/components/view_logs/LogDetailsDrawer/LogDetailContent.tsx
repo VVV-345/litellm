@@ -1,4 +1,5 @@
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import i18n from "@/i18n";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { RequestDiagnostics } from "../RequestDiagnostics";
 import { useState } from "react";
@@ -589,7 +590,7 @@ function RequestResponseSection({
             </CollapsibleTrigger>
             <TabsList className="mr-4">
               <TabsTrigger value="pretty">{t("ui.Pretty")}</TabsTrigger>
-              <TabsTrigger value="json">JSON</TabsTrigger>
+              <TabsTrigger value="json">{i18n.t("ui.JSON")}</TabsTrigger>
             </TabsList>
           </div>
           <CollapsibleContent>
@@ -706,12 +707,12 @@ function MetadataSection({ metadata }: { metadata: Record<string, any> }) {
           ) : (
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
           )}
-          <h3 className="text-lg font-medium text-foreground">Metadata</h3>
+          <h3 className="text-lg font-medium text-foreground">{i18n.t("ui.Metadata")}</h3>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <div>
             <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-              <CopyButton getText={() => JSON.stringify(metadata, null, 2)} label="Copy Metadata" />
+              <CopyButton getText={() => JSON.stringify(metadata, null, 2)} label={i18n.t("ui.Copy Metadata")} />
             </div>
             <pre
               style={{

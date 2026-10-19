@@ -1,4 +1,5 @@
 import { TriangleAlert } from "lucide-react";
+import i18n from "@/i18n";
 import { useState } from "react";
 import { z } from "zod/v4";
 import { modelPatchUpdateCall } from "./networking";
@@ -72,7 +73,7 @@ export default function UpdateModelCredentialsModal({
     <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && close()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[520px]">
         <DialogHeader>
-          <DialogTitle>Update API Key</DialogTitle>
+          <DialogTitle>{i18n.t("ui.Update API Key")}</DialogTitle>
         </DialogHeader>
         <span className="block mb-4 text-sm text-muted-foreground">
           Update this model&apos;s API key. Only the new key is sent; the rest of the deployment configuration is left
@@ -88,20 +89,18 @@ export default function UpdateModelCredentialsModal({
         </Alert>
         <form onSubmit={form.handleSubmit(handleSubmit)}>
           <FieldGroup>
-            <FormField control={form.control} name="api_key" label="New API Key">
+            <FormField control={form.control} name="api_key" label={i18n.t("ui.New API Key")}>
               {({ ref, ...field }) => (
-                <PasswordInput {...field} ref={ref} placeholder="Enter the new API key" autoComplete="new-password" />
+                <PasswordInput {...field} ref={ref} placeholder={i18n.t("ui.Enter the new API key")} autoComplete="new-password" />
               )}
             </FormField>
           </FieldGroup>
           <div className="flex justify-end items-center mt-4 gap-2.5">
             <Button type="button" variant="outline" onClick={close}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button type="submit" disabled={isSaving}>
               {isSaving && <UiLoadingSpinner className="size-4" />}
-              Update API Key
-            </Button>
+              {i18n.t("ui.Update API Key")}</Button>
           </div>
         </form>
       </DialogContent>

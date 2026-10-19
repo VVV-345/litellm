@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import i18n from "@/i18n";
 import { Dialog as SheetPrimitive } from "@base-ui/react/dialog";
 
 import { cn } from "@/lib/cva.config";
@@ -65,7 +66,7 @@ function SheetContent({
             render={<Button variant="ghost" className="absolute top-4 right-4" size="icon-sm" />}
           >
             <XIcon />
-            <span className="sr-only">Close</span>
+            <span className="sr-only">{i18n.t("ui.Close")}</span>
           </SheetPrimitive.Close>
         )}
       </SheetPrimitive.Popup>

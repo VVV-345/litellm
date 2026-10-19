@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import { FormProvider, useWatch, type UseFormReturn } from "react-hook-form";
 import { getSSOSettings, updateSSOSettings } from "./networking";
 import { toast } from "@/lib/toast";
@@ -264,7 +265,7 @@ const SSOModals: React.FC<SSOModalsProps> = ({
                 {provider ? renderProviderFields(provider) : null}
                 <ProxyAdminEmailField />
                 <ProxyBaseUrlField />
-                {showRoleMappingToggle && <MappingToggleField name="use_role_mappings" label="Use Role Mappings" />}
+                {showRoleMappingToggle && <MappingToggleField name="use_role_mappings" label={i18n.t("ui.Use Role Mappings")} />}
                 {useRoleMappings && (
                   <>
                     <GroupClaimField />
@@ -275,10 +276,9 @@ const SSOModals: React.FC<SSOModalsProps> = ({
               <div className="mt-4 flex items-center justify-end gap-2">
                 {ssoConfigured && (
                   <Button type="button" variant="secondary" onClick={() => setIsClearConfirmModalVisible(true)}>
-                    Clear
-                  </Button>
+                    {i18n.t("ui.Clear")}</Button>
                 )}
-                <Button type="submit">Save</Button>
+                <Button type="submit">{i18n.t("ui.Save")}</Button>
               </div>
             </form>
           </FormProvider>
@@ -289,17 +289,15 @@ const SSOModals: React.FC<SSOModalsProps> = ({
       <Dialog open={isClearConfirmModalVisible} onOpenChange={(open) => !open && setIsClearConfirmModalVisible(false)}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Confirm Clear SSO Settings</DialogTitle>
+            <DialogTitle>{i18n.t("ui.Confirm Clear SSO Settings")}</DialogTitle>
           </DialogHeader>
-          <p>Are you sure you want to clear all SSO settings? This action cannot be undone.</p>
-          <p>Users will no longer be able to login using SSO after this change.</p>
+          <p>{i18n.t("ui.Are you sure you want to clear all SSO settings? This action cannot be undone.")}</p>
+          <p>{i18n.t("ui.Users will no longer be able to login using SSO after this change.")}</p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsClearConfirmModalVisible(false)}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button onClick={handleClearSSO} variant="destructive">
-              Yes, Clear
-            </Button>
+              {i18n.t("ui.Yes, Clear")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -307,17 +305,16 @@ const SSOModals: React.FC<SSOModalsProps> = ({
       <Dialog open={isInstructionsModalVisible} onOpenChange={(open) => !open && handleInstructionsCancel()}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[800px]">
           <DialogHeader>
-            <DialogTitle>SSO Setup Instructions</DialogTitle>
+            <DialogTitle>{i18n.t("ui.SSO Setup Instructions")}</DialogTitle>
           </DialogHeader>
-          <p>Follow these steps to complete the SSO setup:</p>
-          <p className="text-sm mt-2">1. DO NOT Exit this TAB</p>
-          <p className="text-sm mt-2">2. Open a new tab, visit your proxy base url</p>
-          <p className="text-sm mt-2">3. Confirm your SSO is configured correctly and you can login on the new Tab</p>
-          <p className="text-sm mt-2">4. If Step 3 is successful, you can close this tab</p>
+          <p>{i18n.t("ui.Follow these steps to complete the SSO setup:")}</p>
+          <p className="text-sm mt-2">{i18n.t("ui.1. DO NOT Exit this TAB")}</p>
+          <p className="text-sm mt-2">{i18n.t("ui.2. Open a new tab, visit your proxy base url")}</p>
+          <p className="text-sm mt-2">{i18n.t("ui.3. Confirm your SSO is configured correctly and you can login on the new Tab")}</p>
+          <p className="text-sm mt-2">{i18n.t("ui.4. If Step 3 is successful, you can close this tab")}</p>
           <div style={{ textAlign: "right", marginTop: "10px" }}>
             <Button type="button" onClick={handleInstructionsOk}>
-              Done
-            </Button>
+              {i18n.t("ui.Done")}</Button>
           </div>
         </DialogContent>
       </Dialog>

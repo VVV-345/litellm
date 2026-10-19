@@ -3,6 +3,7 @@
  */
 
 import { useState } from "react";
+import i18n from "@/i18n";
 import { useTranslation } from "react-i18next";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ParsedTool } from "./types";
@@ -32,8 +33,8 @@ export function ToolExpandedContent({ tool }: ToolExpandedContentProps) {
         <span className="text-xs text-muted-foreground">{t("ui.Description")}</span>
         <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as ViewMode)}>
           <TabsList>
-            <TabsTrigger value="formatted">Formatted</TabsTrigger>
-            <TabsTrigger value="json">JSON</TabsTrigger>
+            <TabsTrigger value="formatted">{i18n.t("ui.Formatted")}</TabsTrigger>
+            <TabsTrigger value="json">{i18n.t("ui.JSON")}</TabsTrigger>
           </TabsList>
         </Tabs>
       </div>

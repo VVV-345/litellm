@@ -1,4 +1,5 @@
 import { useTeams } from "@/app/(dashboard)/hooks/teams/useTeams";
+import i18n from "@/i18n";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import useIsOrgAdmin from "@/app/(dashboard)/hooks/useIsOrgAdmin";
 import { useHealthReadinessDetails } from "@/app/(dashboard)/hooks/healthReadiness/useHealthReadinessDetails";
@@ -221,7 +222,7 @@ const menuGroups: MenuGroup[] = [
         roles: [...all_admin_roles, ...internalUserRoles],
         label: (
           <span className="flex items-center gap-2">
-            Cost Optimization <BetaBadge />
+            {i18n.t("ui.Cost Optimization")}<BetaBadge />
           </span>
         ),
       },
@@ -244,7 +245,7 @@ const menuGroups: MenuGroup[] = [
         page: "projects",
         label: (
           <span className="flex items-center gap-2">
-            Projects <BetaBadge />
+            {i18n.t("ui.Projects")}<BetaBadge />
           </span>
         ),
         icon: <Folder {...ICON} />,

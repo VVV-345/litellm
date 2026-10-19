@@ -1,8 +1,13 @@
 import { renderWithProviders, screen } from "../../../../../tests/test-utils";
 import { fireEvent } from "@testing-library/react";
-import { vi } from "vitest";
+import { beforeEach, vi } from "vitest";
+import i18next from "@/i18n";
 import UserBannerSettings from "./UserBannerSettings";
 import { UserBanner } from "@/components/networking";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: vi.fn(() => ({ accessToken: "token" })),

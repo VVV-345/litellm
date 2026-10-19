@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import i18n from "@/i18n";
 import { TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shared/Alert";
 import { useHealthReadinessDetails } from "@/app/(dashboard)/hooks/healthReadiness/useHealthReadinessDetails";
@@ -20,12 +21,9 @@ export const DebugWarningBanner: React.FC<DebugWarningBannerProps> = ({ accessTo
   return (
     <Alert variant="warning" className="rounded-none border-x-0 border-t-0">
       <TriangleAlert className="size-4" aria-hidden />
-      <AlertTitle>Performance Warning: Detailed Debug Mode Active</AlertTitle>
+      <AlertTitle>{i18n.t("ui.Performance Warning: Detailed Debug Mode Active")}</AlertTitle>
       <AlertDescription>
-        Detailed debug logging (<code>LITELLM_LOG=DEBUG</code>) is currently enabled. This mode logs extensive
-        diagnostic information and will significantly degrade performance. It should only be used for troubleshooting
-        and disabled in production environments.
-      </AlertDescription>
+        {i18n.t("ui.Detailed debug logging (")}<code>{i18n.t("ui.LITELLM_LOG=DEBUG")}</code>{i18n.t("ui.) is currently enabled. This mode logs extensive diagnostic information and will significantly degrade performance. It should only be used for troubleshooting and disabled in production environments.")}</AlertDescription>
     </Alert>
   );
 };

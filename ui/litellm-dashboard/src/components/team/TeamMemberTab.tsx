@@ -1,4 +1,6 @@
 import { useUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUISettings";
+import i18n from "@/i18n";
+import { useTranslation } from "react-i18next";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import MemberTable from "@/components/common_components/MemberTable";
@@ -27,6 +29,7 @@ export default function TeamMemberTab({
   setIsEditMemberModalVisible,
   setIsAddMemberModalVisible,
 }: TeamMemberTabProps) {
+  const { t } = useTranslation();
   const formatNumber = (value: number | null): string => {
     if (value === null || value === undefined) return "0";
 
@@ -66,7 +69,7 @@ export default function TeamMemberTab({
 
   // Helper function to get rate limits for a user
   const getUserRateLimits = (userId: string | null): string => {
-    if (!userId) return "No Limits";
+    if (!userId) return t("ui.No Limits");
     const membership = teamData.team_memberships.find((tm) => tm.user_id === userId);
     const rpmLimit = membership?.litellm_budget_table?.rpm_limit;
     const tpmLimit = membership?.litellm_budget_table?.tpm_limit;
@@ -75,7 +78,7 @@ export default function TeamMemberTab({
     const tpmText = tpmLimit != null ? `${formatNumber(tpmLimit)} TPM` : null;
 
     const limits = [rpmText, tpmText].filter(Boolean);
-    return limits.length > 0 ? limits.join(" / ") : "No Limits";
+    return limits.length > 0 ? limits.join(" / ") : t("ui.No Limits");
   };
 
   const { data: uiSettingsData } = useUISettings();
@@ -101,9 +104,9 @@ export default function TeamMemberTab({
     {
       title: (
         <span className="flex items-center gap-1">
-          Model Scope
-          <SimpleTooltip content="Models this member can access. Empty means they inherit all team models.">
-            <CircleHelp className="size-4" aria-label="Model scope information" />
+          {t("ui.Model Scope")}
+          <SimpleTooltip content={t("ui.Models this member can access. Empty means they inherit all team models.")}>
+            <CircleHelp className="size-4" aria-label={t("ui.Model scope information")} />
           </SimpleTooltip>
         </span>
       ),
@@ -111,7 +114,7 @@ export default function TeamMemberTab({
       render: (_: unknown, record: Member) => {
         const models = getUserAllowedModels(record.user_id);
         if (!models) {
-          return <span className="text-muted-foreground">(all team models)</span>;
+          return <span className="text-muted-foreground">{t("ui.(all team models)")}</span>;
         }
         const displayed = models.slice(0, 2);
         const remaining = models.length - displayed.length;
@@ -124,7 +127,7 @@ export default function TeamMemberTab({
             ))}
             {remaining > 0 && (
               <SimpleTooltip content={models.slice(2).join(", ")}>
-                <span className="text-muted-foreground">+{remaining} more</span>
+                <span className="text-muted-foreground">+{remaining} {t("ui.more")}</span>
               </SimpleTooltip>
             )}
           </div>
@@ -134,9 +137,9 @@ export default function TeamMemberTab({
     {
       title: (
         <span className="flex items-center gap-1">
-          Current Cycle Spend (USD)
-          <SimpleTooltip content="Spend for the current budget cycle. Resets to $0 when the member's budget window rolls over. This is the value checked against the member's budget.">
-            <CircleHelp className="size-4" aria-label="Current cycle spend information" />
+          {t("ui.Current Cycle Spend (USD)")}
+          <SimpleTooltip content={t("ui.Spend for the current budget cycle. Resets to $0 when the member's budget window rolls over. This is the value checked against the member's budget.")}>
+            <CircleHelp className="size-4" aria-label={t("ui.Current cycle spend information")} />
           </SimpleTooltip>
         </span>
       ),
@@ -148,9 +151,9 @@ export default function TeamMemberTab({
     {
       title: (
         <span className="flex items-center gap-1">
-          Total Spend (USD)
-          <SimpleTooltip content="Cumulative spend by this member within this team, across all budget cycles. Tracking began 2026-04-21; spend from before that date is not included.">
-            <CircleHelp className="size-4" aria-label="Total spend information" />
+          {t("ui.Total Spend (USD)")}
+          <SimpleTooltip content={t("ui.Cumulative spend by this member within this team, across all budget cycles. Tracking began 2026-04-21; spend from before that date is not included.")}>
+            <CircleHelp className="size-4" aria-label={t("ui.Total spend information")} />
           </SimpleTooltip>
         </span>
       ),
@@ -158,23 +161,23 @@ export default function TeamMemberTab({
       render: (_: unknown, record: Member) => <MoneyCell value={getUserTotalSpend(record.user_id)} decimals={2} />,
     },
     {
-      title: "Team Member Budget (USD)",
+      title: t("ui.Team Member Budget (USD)"),
       key: "budget",
       render: (_: unknown, record: Member) => (
-        <MoneyCell value={getUserBudget(record.user_id)} decimals={2} emptyText="Unlimited" showZero />
+        <MoneyCell value={getUserBudget(record.user_id)} decimals={2} emptyText={i18n.t("ui.Unlimited")} showZero />
       ),
     },
     {
-      title: "Budget Reset",
+      title: t("ui.Budget Reset"),
       key: "budget_reset",
       render: (_: unknown, record: Member) => <DateCell value={getUserBudgetReset(record.user_id)} precision="date" />,
     },
     {
       title: (
         <span className="flex items-center gap-1">
-          Team Member Rate Limits
-          <SimpleTooltip content="Rate limits for this member's usage within this team.">
-            <CircleHelp className="size-4" aria-label="Team member rate limits information" />
+          {t("ui.Team Member Rate Limits")}
+          <SimpleTooltip content={t("ui.Rate limits for this member's usage within this team.")}>
+            <CircleHelp className="size-4" aria-label={t("ui.Team member rate limits information")} />
           </SimpleTooltip>
         </span>
       ),
@@ -202,8 +205,8 @@ export default function TeamMemberTab({
       }}
       onDelete={handleMemberDelete}
       onAddMember={() => setIsAddMemberModalVisible(true)}
-      roleColumnTitle="Team Role"
-      roleTooltip="This role applies only to this team and is independent from the user's proxy-level role."
+      roleColumnTitle={t("ui.Team Role")}
+      roleTooltip={t("ui.This role applies only to this team and is independent from the user's proxy-level role.")}
       extraColumns={extraColumns}
       showDeleteForMember={() =>
         isProxyAdmin || (canEditTeam && !isUserTeamAdmin) || (isUserTeamAdmin && !disableTeamAdminDeleteTeamUser)

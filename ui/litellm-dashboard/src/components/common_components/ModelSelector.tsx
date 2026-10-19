@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { Bot } from "lucide-react";
 import { useDebouncedCallback } from "@tanstack/react-pacer/debouncer";
 import { Input } from "@/components/ui/input";
@@ -102,7 +103,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       {showCustomModelInput && (
         <Input
           className="mt-2"
-          placeholder="Enter custom model name"
+          placeholder={i18n.t("ui.Enter custom model name")}
           onChange={(e) => debouncedSelect(e.target.value)}
           disabled={disabled}
         />

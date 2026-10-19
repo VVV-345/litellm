@@ -1,4 +1,5 @@
 import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
+import i18n from "@/i18n";
 import React, { useState, useEffect } from "react";
 import { CircleCheck, FileDown } from "lucide-react";
 import { z } from "zod/v4";
@@ -220,7 +221,7 @@ const CloudZeroExportModal: React.FC<CloudZeroExportModalProps> = ({ isOpen, onC
               (e.target as HTMLImageElement).style.display = "none";
             }}
           />
-          <span>Export to CloudZero</span>
+          <span>{i18n.t("ui.Export to CloudZero")}</span>
         </div>
       ),
     },
@@ -236,7 +237,7 @@ const CloudZeroExportModal: React.FC<CloudZeroExportModalProps> = ({ isOpen, onC
               d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
             />
           </svg>
-          <span>Export to CSV</span>
+          <span>{i18n.t("ui.Export to CSV")}</span>
         </div>
       ),
     },
@@ -246,14 +247,14 @@ const CloudZeroExportModal: React.FC<CloudZeroExportModalProps> = ({ isOpen, onC
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleModalClose()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Export Data</DialogTitle>
+          <DialogTitle>{i18n.t("ui.Export Data")}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           {/* Export Type Selection */}
           <div>
-            <p className="text-sm font-medium mb-2 block">Export Destination</p>
+            <p className="text-sm font-medium mb-2 block">{i18n.t("ui.Export Destination")}</p>
             <Select items={exportOptions} value={exportType} onValueChange={(value) => value && setExportType(value)}>
-              <SelectTrigger className="w-full" aria-label="Export Destination">
+              <SelectTrigger className="w-full" aria-label={i18n.t("ui.Export Destination")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -278,7 +279,7 @@ const CloudZeroExportModal: React.FC<CloudZeroExportModalProps> = ({ isOpen, onC
                   {existingSettings && (
                     <Alert className="mb-4">
                       <CircleCheck />
-                      <AlertTitle>Existing CloudZero Configuration</AlertTitle>
+                      <AlertTitle>{i18n.t("ui.Existing CloudZero Configuration")}</AlertTitle>
                       <AlertDescription>
                         API Key: {existingSettings.api_key_masked}
                         <br />
@@ -290,15 +291,15 @@ const CloudZeroExportModal: React.FC<CloudZeroExportModalProps> = ({ isOpen, onC
                   {!existingSettings && (
                     <form onSubmit={(event) => event.preventDefault()}>
                       <FieldGroup>
-                        <FormField control={form.control} name="api_key" label="CloudZero API Key">
+                        <FormField control={form.control} name="api_key" label={i18n.t("ui.CloudZero API Key")}>
                           {({ ref, ...field }) => (
-                            <PasswordInput {...field} ref={ref} placeholder="Enter your CloudZero API key" />
+                            <PasswordInput {...field} ref={ref} placeholder={i18n.t("ui.Enter your CloudZero API key")} />
                           )}
                         </FormField>
 
-                        <FormField control={form.control} name="connection_id" label="Connection ID">
+                        <FormField control={form.control} name="connection_id" label={i18n.t("ui.Connection ID")}>
                           {({ ref, ...field }) => (
-                            <Input {...field} ref={ref} placeholder="Enter CloudZero connection ID" />
+                            <Input {...field} ref={ref} placeholder={i18n.t("ui.Enter CloudZero connection ID")} />
                           )}
                         </FormField>
                       </FieldGroup>
@@ -313,18 +314,16 @@ const CloudZeroExportModal: React.FC<CloudZeroExportModalProps> = ({ isOpen, onC
           {exportType === "csv" && (
             <Alert variant="info">
               <FileDown />
-              <AlertTitle>CSV Export</AlertTitle>
+              <AlertTitle>{i18n.t("ui.CSV Export")}</AlertTitle>
               <AlertDescription>
-                Export your usage data as a CSV file for analysis in spreadsheet applications.
-              </AlertDescription>
+                {i18n.t("ui.Export your usage data as a CSV file for analysis in spreadsheet applications.")}</AlertDescription>
             </Alert>
           )}
 
           {/* Action Buttons */}
           <div className="flex justify-end space-x-2 pt-4">
             <Button type="button" variant="secondary" onClick={handleModalClose}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button
               type="button"
               onClick={handleExport}

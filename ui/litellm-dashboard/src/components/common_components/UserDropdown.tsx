@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import i18n from "@/i18n";
 import { PaginatedSearchSelect } from "@/components/shared/PaginatedSearchSelect";
 import type { SearchSelectOption } from "@/components/shared/SearchSelect";
 import { useInfiniteUsers, useUserLookup } from "@/app/(dashboard)/hooks/users/useUsers";
@@ -55,7 +56,7 @@ const UserDropdown: React.FC<UserDropdownProps> = ({ value, onChange, disabled, 
         isLoading={isLoading}
         isFetchingNextPage={isFetchingNextPage}
         placeholder="Search users by email…"
-        emptyText="No users found"
+        emptyText={i18n.t("ui.No users found")}
         loadingText="Loading users…"
         disabled={disabled}
         inputId={id}

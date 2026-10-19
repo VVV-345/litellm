@@ -1,6 +1,7 @@
 "use client";
 
 import { Menu } from "@base-ui/react/menu";
+import i18n from "@/i18n";
 import type { Column, SortDirection, Table } from "@tanstack/react-table";
 import { Check, ChevronDown, ChevronsUpDown, ChevronUp, X } from "lucide-react";
 import type * as React from "react";
@@ -187,8 +188,7 @@ export function DataTableMultiSortHeader<TData>({ table, fields, className }: Da
                 );
               })}
               <Menu.Item className={MENU_ITEM_CLASS} onClick={() => table.setSorting([])}>
-                <X className="size-3.5" /> Reset
-              </Menu.Item>
+                <X className="size-3.5" /> {i18n.t("ui.Reset")}</Menu.Item>
             </Menu.Popup>
           </Menu.Positioner>
         </Menu.Portal>

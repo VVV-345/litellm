@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { DatabaseIcon } from "@heroicons/react/outline";
 import { Badge } from "@/components/ui/badge";
 import { vectorStoreListCall } from "../networking";
@@ -52,7 +53,7 @@ export function VectorStorePermissions({ vectorStores, accessToken }: VectorStor
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <DatabaseIcon className="h-4 w-4 text-info" />
-        <p className="text-sm font-semibold text-foreground">Vector Stores</p>
+        <p className="text-sm font-semibold text-foreground">{i18n.t("ui.Vector Stores")}</p>
         <Badge variant="secondary">{vectorStores.length}</Badge>
       </div>
 

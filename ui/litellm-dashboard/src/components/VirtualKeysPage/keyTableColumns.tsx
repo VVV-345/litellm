@@ -1,6 +1,7 @@
 "use client";
 
 import { Info } from "lucide-react";
+import i18n from "@/i18n";
 import { ColumnDef } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 
@@ -385,8 +386,8 @@ export const getKeyTableColumns = ({
       const key = row.original;
       return (
         <div className="text-xs">
-          <div>TPM: {key.tpm_limit !== null ? key.tpm_limit : t("ui.Unlimited")}</div>
-          <div>RPM: {key.rpm_limit !== null ? key.rpm_limit : t("ui.Unlimited")}</div>
+          <div>{i18n.t("ui.TPM:")}{key.tpm_limit !== null ? key.tpm_limit : t("ui.Unlimited")}</div>
+          <div>{i18n.t("ui.RPM:")}{key.rpm_limit !== null ? key.rpm_limit : t("ui.Unlimited")}</div>
         </div>
       );
     },

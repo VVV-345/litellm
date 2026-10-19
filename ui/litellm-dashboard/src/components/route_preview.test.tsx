@@ -1,9 +1,14 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import RoutePreview from "./route_preview";
 
 vi.mock("./networking", () => ({ getProxyBaseUrl: () => "http://proxy.test" }));
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("RoutePreview", () => {
   it("stays hidden until both route values are provided", () => {

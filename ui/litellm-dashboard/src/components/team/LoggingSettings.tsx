@@ -1,5 +1,6 @@
 /* eslint-disable react/no-unescaped-entities */
 import React from "react";
+import i18n from "@/i18n";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
@@ -153,18 +154,18 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
           <div className="w-3 h-3 bg-muted rounded-full flex items-center justify-center">
             <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
           </div>
-          <span className="text-sm font-medium text-foreground">Integration Parameters</span>
+          <span className="text-sm font-medium text-foreground">{i18n.t("ui.Integration Parameters")}</span>
         </div>
         <div className="grid grid-cols-1 gap-4">
           {Object.entries(dynamicParams).map(([paramName, paramType]) => (
             <div key={paramName} className="space-y-2">
               <label className="text-sm font-medium text-foreground capitalize flex items-center space-x-1">
                 <span>{paramName.replace(/_/g, " ")}</span>
-                {paramType === "password" && <Badge variant="secondary">Sensitive</Badge>}
-                {paramType === "number" && <Badge variant="secondary">Number</Badge>}
+                {paramType === "password" && <Badge variant="secondary">{i18n.t("ui.Sensitive")}</Badge>}
+                {paramType === "number" && <Badge variant="secondary">{i18n.t("ui.Number")}</Badge>}
               </label>
               {paramType === "number" && (
-                <span className="text-xs text-muted-foreground">Value must be between 0 and 1</span>
+                <span className="text-xs text-muted-foreground">{i18n.t("ui.Value must be between 0 and 1")}</span>
               )}
               {paramType === "number" ? (
                 <NumericalInput
@@ -195,17 +196,17 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
       <div className="space-y-4">
         <div className="flex items-center space-x-2">
           <BanIcon className="w-5 h-5 text-destructive" />
-          <span className="text-base font-semibold text-foreground">Disabled Callbacks</span>
-          <SimpleTooltip content="Select callbacks to disable for this key. Disabled callbacks will not receive any logging data.">
+          <span className="text-base font-semibold text-foreground">{i18n.t("ui.Disabled Callbacks")}</span>
+          <SimpleTooltip content={i18n.t("ui.Select callbacks to disable for this key. Disabled callbacks will not receive any logging data.")}>
             <Info className="size-4 text-muted-foreground cursor-help" />
           </SimpleTooltip>
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Disabled Callbacks</label>
+          <label className="text-sm font-medium text-foreground">{i18n.t("ui.Disabled Callbacks")}</label>
           <Select multiple value={disabledCallbacks} onValueChange={handleDisabledCallbacksChange}>
             <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select callbacks to disable">
+              <SelectValue placeholder={i18n.t("ui.Select callbacks to disable")}>
                 {(selected: string[]) => (selected.length === 0 ? "Select callbacks to disable" : selected.join(", "))}
               </SelectValue>
             </SelectTrigger>
@@ -230,8 +231,7 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
             </SelectContent>
           </Select>
           <div className="text-xs text-muted-foreground">
-            Select callbacks that should be disabled for this key. These callbacks will not receive any logging data.
-          </div>
+            {i18n.t("ui.Select callbacks that should be disabled for this key. These callbacks will not receive any logging data.")}</div>
         </div>
       </div>
 
@@ -241,15 +241,14 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
       <div className="flex justify-between items-center">
         <div className="flex items-center space-x-2">
           <CogIcon className="w-5 h-5 text-foreground" />
-          <span className="text-base font-semibold text-foreground">Logging Integrations</span>
-          <SimpleTooltip content="Configure callback logging integrations for this team.">
+          <span className="text-base font-semibold text-foreground">{i18n.t("ui.Logging Integrations")}</span>
+          <SimpleTooltip content={i18n.t("ui.Configure callback logging integrations for this team.")}>
             <Info className="size-4 text-muted-foreground cursor-help" />
           </SimpleTooltip>
         </div>
         <Button variant="secondary" onClick={addLoggingConfig} size="sm" type="button">
           <Plus />
-          Add Integration
-        </Button>
+          {i18n.t("ui.Add Integration")}</Button>
       </div>
 
       <div className="space-y-4">
@@ -272,7 +271,7 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
                       className="w-5 h-5 object-contain"
                     />
                   )}
-                  <span className="text-sm font-medium">{callbackDisplayName || "New Integration"} Configuration</span>
+                  <span className="text-sm font-medium">{callbackDisplayName || "New Integration"} {i18n.t("ui.Configuration")}</span>
                 </div>
                 <Button
                   variant="ghost"
@@ -282,13 +281,12 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
                   type="button"
                 >
                   <Trash2 />
-                  Remove
-                </Button>
+                  {i18n.t("ui.Remove")}</Button>
               </div>
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Integration Type</label>
+                    <label className="text-sm font-medium text-foreground">{i18n.t("ui.Integration Type")}</label>
                     <Select
                       value={callbackDisplayName ?? null}
                       onValueChange={(value: string | null) =>
@@ -296,7 +294,7 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
                       }
                     >
                       <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select integration" />
+                        <SelectValue placeholder={i18n.t("ui.Select integration")} />
                       </SelectTrigger>
                       <SelectContent>
                         {supportedCallbacks.map((callbackName) => {
@@ -321,7 +319,7 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Event Type</label>
+                    <label className="text-sm font-medium text-foreground">{i18n.t("ui.Event Type")}</label>
                     <Select
                       items={CALLBACK_TYPE_ITEMS}
                       value={config.callback_type}
@@ -329,7 +327,7 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
                         value && updateLoggingConfig(index, "callback_type", value)
                       }
                     >
-                      <SelectTrigger aria-label="Event Type" className="w-full">
+                      <SelectTrigger aria-label={i18n.t("ui.Event Type")} className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -353,7 +351,7 @@ const LoggingSettings: React.FC<LoggingSettingsProps> = ({
       {value.length === 0 && (
         <div className="text-center py-12 text-muted-foreground border-2 border-dashed border-border rounded-lg bg-muted/30">
           <CogIcon className="w-12 h-12 text-muted-foreground mb-3 mx-auto" />
-          <div className="text-base font-medium mb-1">No logging integrations configured</div>
+          <div className="text-base font-medium mb-1">{i18n.t("ui.No logging integrations configured")}</div>
           <div className="text-sm text-muted-foreground">
             Click "Add Integration" to configure logging for this team
           </div>

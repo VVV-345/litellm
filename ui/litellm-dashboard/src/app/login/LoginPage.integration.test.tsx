@@ -2,6 +2,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
+import i18next from "@/i18n";
 import LoginPage from "./LoginPage";
 
 const mockPush = vi.fn();

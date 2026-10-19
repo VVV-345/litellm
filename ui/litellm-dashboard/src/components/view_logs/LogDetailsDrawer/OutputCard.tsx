@@ -4,6 +4,7 @@
  */
 
 import { useState } from "react";
+import i18n from "@/i18n";
 import { toast } from "@/lib/toast";
 import { COLOR_BORDER } from "./constants";
 import { ParsedMessage } from "./prettyMessagesTypes";
@@ -45,7 +46,7 @@ export function OutputCard({ message, completionTokens, outputCost }: OutputCard
           {message ? (
             <SimpleMessageBlock label="ASSISTANT" content={message.content} toolCalls={message.toolCalls} />
           ) : (
-            <span className="text-[13px] text-muted-foreground italic">No response data available</span>
+            <span className="text-[13px] text-muted-foreground italic">{i18n.t("ui.No response data available")}</span>
           )}
         </div>
       </div>

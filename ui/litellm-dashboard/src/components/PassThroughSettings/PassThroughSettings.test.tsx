@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import { deletePassThroughEndpointsCall, getPassThroughEndpointsCall } from "../networking";
 import PassThroughSettings from "./PassThroughSettings";
@@ -51,7 +52,8 @@ const defaultProps = {
 const endpoint = { id: "ep-1", path: "/v1/rerank", target: "https://example.com", headers: {} };
 
 describe("PassThroughSettings", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18next.changeLanguage("en");
     vi.clearAllMocks();
     mockGetEndpoints.mockResolvedValue({ endpoints: [endpoint] });
   });

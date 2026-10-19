@@ -10,6 +10,7 @@ import {
   StoreRequestInSpendLogsParams,
   useStoreRequestInSpendLogs,
 } from "@/app/(dashboard)/hooks/storeRequestInSpendLogs/useStoreRequestInSpendLogs";
+import i18n from "@/i18n";
 import { toast } from "@/lib/toast";
 import { parseErrorMessage } from "@/components/shared/errorUtils";
 import { FieldGroup } from "@/components/ui/field";
@@ -225,7 +226,7 @@ const LoggingSettingsForm: React.FC<LoggingSettingsFormProps> = ({
         </FieldGroup>
 
         <Button type="submit" className="mt-6" disabled={isSaving}>
-          {isSaving && <UiLoadingSpinner role="img" aria-label="loading" className="size-4" />}
+          {isSaving && <UiLoadingSpinner role="img" aria-label={i18n.t("ui.loading")} className="size-4" />}
           {isSaving ? ui("Saving...") : ui("Save Settings")}
         </Button>
       </form>

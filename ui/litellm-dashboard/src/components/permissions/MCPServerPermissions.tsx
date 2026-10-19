@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { ServerIcon, ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/outline";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -111,7 +112,7 @@ export function MCPServerPermissions({
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         <ServerIcon className="h-4 w-4 text-info" />
-        <p className="text-sm font-semibold text-foreground">MCP Servers</p>
+        <p className="text-sm font-semibold text-foreground">{i18n.t("ui.MCP Servers")}</p>
         <Badge variant={blocksAllMcpServers ? "destructive" : "secondary"}>
           {blocksAllMcpServers ? "Blocked" : grantsAllProxyMcpServers ? "All" : totalCount}
         </Badge>
@@ -127,7 +128,7 @@ export function MCPServerPermissions({
       ) : grantsAllProxyMcpServers ? (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-info/10 border border-info/20">
           <ServerIcon className="h-4 w-4 text-info" />
-          <p className="text-info text-sm">All Proxy MCP Servers</p>
+          <p className="text-info text-sm">{i18n.t("ui.All Proxy MCP Servers")}</p>
         </div>
       ) : totalCount > 0 ? (
         <div className="max-h-[400px] overflow-y-auto space-y-2 pr-1">
@@ -223,8 +224,7 @@ export function MCPServerPermissions({
                         {detail?.toolset_name ?? toolsetId}
                       </span>
                       <span className="ml-1 px-1.5 py-0.5 text-[9px] font-semibold text-purple-600 bg-purple-50 border border-purple-200 rounded-sm uppercase tracking-wide shrink-0 dark:text-purple-300 dark:bg-purple-950 dark:border-purple-800">
-                        Toolset
-                      </span>
+                        {i18n.t("ui.Toolset")}</span>
                     </div>
                     {toolCount > 0 && (
                       <div className="flex items-center gap-1 shrink-0 whitespace-nowrap">

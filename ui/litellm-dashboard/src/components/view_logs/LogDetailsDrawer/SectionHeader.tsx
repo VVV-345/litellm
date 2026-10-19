@@ -3,6 +3,7 @@
  */
 
 import { ChevronDown, ChevronUp, Copy, MessageSquare } from "lucide-react";
+import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cva.config";
@@ -53,7 +54,7 @@ export function SectionHeader({
         </div>
 
         {tokens !== undefined && (
-          <span className="text-xs text-muted-foreground">Tokens: {tokens.toLocaleString()}</span>
+          <span className="text-xs text-muted-foreground">{i18n.t("ui.Tokens:")}{tokens.toLocaleString()}</span>
         )}
 
         {cost !== undefined && <span className="text-xs text-muted-foreground">Cost: ${cost.toFixed(6)}</span>}
@@ -69,7 +70,7 @@ export function SectionHeader({
             <Button
               variant="ghost"
               size="icon-sm"
-              aria-label="Copy"
+              aria-label={i18n.t("ui.Copy")}
               onClick={(e) => {
                 e.stopPropagation();
                 onCopy();
@@ -79,7 +80,7 @@ export function SectionHeader({
         >
           <Copy />
         </TooltipTrigger>
-        <TooltipContent>Copy</TooltipContent>
+        <TooltipContent>{i18n.t("ui.Copy")}</TooltipContent>
       </Tooltip>
     </div>
   );

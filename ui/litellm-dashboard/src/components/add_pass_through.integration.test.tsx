@@ -1,9 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import i18next from "@/i18n";
 import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import { fireEvent, renderWithProviders, screen, waitFor } from "../../tests/test-utils";
 import AddPassThroughEndpoint from "./add_pass_through";
 
 const createPassThroughEndpoint = vi.fn();
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 vi.mock("./networking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./networking")>()),

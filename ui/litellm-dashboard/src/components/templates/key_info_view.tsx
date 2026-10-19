@@ -1,4 +1,5 @@
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+import i18n from "@/i18n";
 import { VirtualKeySecret } from "@/components/VirtualKeysPage/VirtualKeySecret";
 import { useProjects } from "@/app/(dashboard)/hooks/projects/useProjects";
 import { useUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUISettings";
@@ -648,10 +649,10 @@ export default function KeyInfoView({
                 <p className="text-sm">{t("ui.Rate Limits")}</p>
                 <div className="mt-2">
                   <p className="text-sm">
-                    TPM: {currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
+                    {i18n.t("ui.TPM:")}{currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
                   </p>
                   <p className="text-sm">
-                    RPM: {currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
+                    {i18n.t("ui.RPM:")}{currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
                   </p>
                   {Boolean(currentKeyData.metadata?.throttle_on_budget_exceeded) && (
                     <p className="text-sm">{t("ui.Throttle on budget exceeded: Yes")}</p>
@@ -1013,10 +1014,10 @@ export default function KeyInfoView({
                   <div>
                     <p className="text-sm font-medium">{t("ui.Rate Limits")}</p>
                     <p className="text-sm">
-                      TPM: {currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
+                      {i18n.t("ui.TPM:")}{currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
                     </p>
                     <p className="text-sm">
-                      RPM: {currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
+                      {i18n.t("ui.RPM:")}{currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
                     </p>
                     <p className="text-sm">
                       {t("ui.Max Parallel Requests")}: {" "}

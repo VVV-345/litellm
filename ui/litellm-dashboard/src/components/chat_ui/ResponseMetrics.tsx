@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import {
   ArrowDownToLine,
   ArrowUpFromLine,
@@ -59,10 +60,10 @@ function MetricItem({ label, tooltip, icon, value }: MetricItemProps) {
 function ResponseCacheIndicator() {
   return (
     <MetricItem
-      label="Response Cache"
+      label={i18n.t("ui.Response Cache")}
       tooltip={RESPONSE_CACHE_TOOLTIP}
       icon={<History className="size-3" aria-hidden="true" />}
-      value="Hit"
+      value={i18n.t("ui.Hit")}
     />
   );
 }
@@ -79,7 +80,7 @@ function PromptCacheChips({ usage }: { usage?: TokenUsage }) {
     <>
       {readTokens > 0 && (
         <MetricItem
-          label="Cache Read"
+          label={i18n.t("ui.Cache Read")}
           tooltip={PROMPT_CACHE_READ_TOOLTIP}
           icon={<Database className="size-3" aria-hidden="true" />}
           value={String(readTokens)}
@@ -88,7 +89,7 @@ function PromptCacheChips({ usage }: { usage?: TokenUsage }) {
 
       {creationTokens > 0 && (
         <MetricItem
-          label="Cache Write"
+          label={i18n.t("ui.Cache Write")}
           tooltip={PROMPT_CACHE_CREATION_TOOLTIP}
           icon={<DatabaseBackup className="size-3" aria-hidden="true" />}
           value={String(creationTokens)}
@@ -105,8 +106,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
     <div className="response-metrics mt-2 flex flex-wrap gap-3 border-t border-border pt-2 text-xs text-muted-foreground">
       {timeToFirstToken !== undefined && (
         <MetricItem
-          label="TTFT"
-          tooltip="Time to first token"
+          label={i18n.t("ui.TTFT")}
+          tooltip={i18n.t("ui.Time to First Token")}
           icon={<Clock className="size-3" aria-hidden="true" />}
           value={`${(timeToFirstToken / 1000).toFixed(2)}s`}
         />
@@ -114,8 +115,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {totalLatency !== undefined && (
         <MetricItem
-          label="Total Latency"
-          tooltip="Total latency"
+          label={i18n.t("ui.Total Latency")}
+          tooltip={i18n.t("ui.Total latency")}
           icon={<Clock className="size-3" aria-hidden="true" />}
           value={`${(totalLatency / 1000).toFixed(2)}s`}
         />
@@ -123,8 +124,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {usage?.promptTokens !== undefined && (
         <MetricItem
-          label="In"
-          tooltip="Prompt tokens"
+          label={i18n.t("ui.In")}
+          tooltip={i18n.t("ui.Prompt tokens")}
           icon={<ArrowDownToLine className="size-3" aria-hidden="true" />}
           value={String(usage.promptTokens)}
         />
@@ -134,8 +135,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {usage?.completionTokens !== undefined && (
         <MetricItem
-          label="Out"
-          tooltip="Completion tokens"
+          label={i18n.t("ui.Out")}
+          tooltip={i18n.t("ui.Completion tokens")}
           icon={<ArrowUpFromLine className="size-3" aria-hidden="true" />}
           value={String(usage.completionTokens)}
         />
@@ -143,8 +144,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {usage?.reasoningTokens !== undefined && (
         <MetricItem
-          label="Reasoning"
-          tooltip="Reasoning tokens"
+          label={i18n.t("ui.Reasoning")}
+          tooltip={i18n.t("ui.Reasoning tokens")}
           icon={<Lightbulb className="size-3" aria-hidden="true" />}
           value={String(usage.reasoningTokens)}
         />
@@ -152,8 +153,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {usage?.totalTokens !== undefined && (
         <MetricItem
-          label="Total"
-          tooltip="Total tokens"
+          label={i18n.t("ui.Total")}
+          tooltip={i18n.t("ui.Total tokens")}
           icon={<Hash className="size-3" aria-hidden="true" />}
           value={String(usage.totalTokens)}
         />
@@ -161,8 +162,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {usage?.cost !== undefined && (
         <MetricItem
-          label="Cost"
-          tooltip="Cost"
+          label={i18n.t("ui.Cost")}
+          tooltip={i18n.t("ui.Cost")}
           icon={<DollarSign className="size-3" aria-hidden="true" />}
           value={`$${usage.cost.toFixed(6)}`}
         />
@@ -170,8 +171,8 @@ const ResponseMetrics: React.FC<ResponseMetricsProps> = ({ timeToFirstToken, tot
 
       {toolName && (
         <MetricItem
-          label="Tool"
-          tooltip="Tool used"
+          label={i18n.t("ui.Tool")}
+          tooltip={i18n.t("ui.Tool used")}
           icon={<Wrench className="size-3" aria-hidden="true" />}
           value={toolName}
         />

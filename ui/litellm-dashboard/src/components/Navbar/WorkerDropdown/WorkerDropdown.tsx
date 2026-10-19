@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import i18n from "@/i18n";
 import { Server } from "lucide-react";
 import {
   Combobox,
@@ -45,7 +46,7 @@ const WorkerDropdown: React.FC<WorkerDropdownProps> = ({ onWorkerSwitch }) => {
         }
       }}
     >
-      <ComboboxInput className="min-w-[180px]" aria-label="Worker">
+      <ComboboxInput className="min-w-[180px]" aria-label={i18n.t("ui.Worker")}>
         <InputGroupAddon align="inline-start">
           <Server className="size-4" />
         </InputGroupAddon>

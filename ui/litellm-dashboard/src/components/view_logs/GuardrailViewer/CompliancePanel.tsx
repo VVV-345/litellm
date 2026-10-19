@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   checkEuAiActCompliance,
@@ -93,8 +94,7 @@ const ComplianceCard = ({
           )}
           {error && (
             <span className="px-2 py-0.5 rounded-sm text-[11px] font-medium bg-muted text-muted-foreground border border-border">
-              UNAVAILABLE
-            </span>
+              {i18n.t("ui.UNAVAILABLE")}</span>
           )}
           <svg
             width="20"
@@ -110,7 +110,7 @@ const ComplianceCard = ({
 
       {expanded && (
         <div className="border-t border-border px-4 py-3">
-          {loading && <p className="text-sm text-muted-foreground">Checking compliance...</p>}
+          {loading && <p className="text-sm text-muted-foreground">{i18n.t("ui.Checking compliance...")}</p>}
           {error && <p className="text-sm text-destructive">{error}</p>}
           {data && (
             <div className="space-y-2">
@@ -173,11 +173,10 @@ const CompliancePanel: React.FC<CompliancePanelProps> = ({ accessToken, logEntry
   return (
     <div>
       <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4">
-        Regulatory Compliance
-      </h4>
+        {i18n.t("ui.Regulatory Compliance")}</h4>
       <div className="space-y-3">
-        <ComplianceCard title="EU AI Act" data={euAiActData} loading={euAiActLoading} error={euAiActError} />
-        <ComplianceCard title="GDPR" data={gdprData} loading={gdprLoading} error={gdprError} />
+        <ComplianceCard title={i18n.t("ui.EU AI Act")} data={euAiActData} loading={euAiActLoading} error={euAiActError} />
+        <ComplianceCard title={i18n.t("ui.GDPR")} data={gdprData} loading={gdprLoading} error={gdprError} />
       </div>
     </div>
   );

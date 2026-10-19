@@ -1,6 +1,7 @@
 "use client";
 
 import { Edit, ExternalLink, Info, KeyRound, PlugZap, Trash2 } from "lucide-react";
+import i18n from "@/i18n";
 import { useState } from "react";
 
 import { testCyberArkConnection } from "@/app/(dashboard)/hooks/configOverrides/cyberArkApi";
@@ -85,7 +86,7 @@ export default function CyberArk() {
 
   const renderValue = (key: string) => {
     const value = rawValues[key];
-    if (!value) return <span className="text-muted-foreground italic">Not configured</span>;
+    if (!value) return <span className="text-muted-foreground italic">{i18n.t("ui.Not configured")}</span>;
     if (!SENSITIVE_FIELDS.has(key)) return <span className="font-mono text-muted-foreground">{value}</span>;
 
     return (
@@ -109,7 +110,7 @@ export default function CyberArk() {
   const renderCard = () => {
     if (isLoading) {
       return (
-        <Card role="status" aria-label="Loading CyberArk configuration">
+        <Card role="status" aria-label={i18n.t("ui.Loading CyberArk configuration")}>
           <CardContent className="space-y-3">
             <Skeleton className="h-8 w-64" />
             <Skeleton className="h-40 w-full" />
@@ -122,7 +123,7 @@ export default function CyberArk() {
         <Card>
           <CardContent>
             <Alert variant="error">
-              <AlertTitle>Could not load CyberArk configuration</AlertTitle>
+              <AlertTitle>{i18n.t("ui.Could not load CyberArk configuration")}</AlertTitle>
               {error instanceof Error && <AlertDescription>{error.message}</AlertDescription>}
             </Alert>
           </CardContent>
@@ -136,9 +137,9 @@ export default function CyberArk() {
             <KeyRound className="size-6 text-muted-foreground" />
             <div>
               <CardTitle>
-                <h3>CyberArk Conjur</h3>
+                <h3>{i18n.t("ui.CyberArk Conjur")}</h3>
               </CardTitle>
-              <CardDescription>Manage secret manager configuration</CardDescription>
+              <CardDescription>{i18n.t("ui.Manage secret manager configuration")}</CardDescription>
             </div>
           </div>
           {isConfigured && (
@@ -149,12 +150,10 @@ export default function CyberArk() {
               </Button>
               <Button type="button" variant="outline" onClick={() => setIsEditModalVisible(true)}>
                 <Edit />
-                Edit Configuration
-              </Button>
+                {i18n.t("ui.Edit Configuration")}</Button>
               <Button type="button" variant="destructive" onClick={() => setIsDeleteModalOpen(true)}>
                 <Trash2 />
-                Delete Configuration
-              </Button>
+                {i18n.t("ui.Delete Configuration")}</Button>
             </CardAction>
           )}
         </CardHeader>
@@ -162,7 +161,7 @@ export default function CyberArk() {
           {isConfigured && (
             <Alert variant="info">
               <Info />
-              <AlertTitle>Configuration changes are hot-reloaded across all proxy instances</AlertTitle>
+              <AlertTitle>{i18n.t("ui.Configuration changes are hot-reloaded across all proxy instances")}</AlertTitle>
               <AlertDescription>
                 <a
                   href="https://docs.litellm.ai/docs/secret_managers/cyberark"
@@ -170,8 +169,7 @@ export default function CyberArk() {
                   rel="noreferrer"
                   className="inline-flex items-center gap-1"
                 >
-                  View documentation
-                  <ExternalLink className="size-3" />
+                  {i18n.t("ui.View documentation")}<ExternalLink className="size-3" />
                 </a>
               </AlertDescription>
             </Alert>
@@ -180,7 +178,7 @@ export default function CyberArk() {
           {isConfigured ? (
             fieldsToShow.length > 0 && (
               <dl className="divide-y divide-border overflow-hidden rounded-md border border-border">
-                <DetailRow label="Auth Method">{detectAuthMethod(rawValues)}</DetailRow>
+                <DetailRow label={i18n.t("ui.Auth Method")}>{detectAuthMethod(rawValues)}</DetailRow>
                 {fieldsToShow.map(([key]) => (
                   <DetailRow key={key} label={FIELD_LABELS[key] ?? key}>
                     {renderValue(key)}
@@ -207,7 +205,7 @@ export default function CyberArk() {
       />
       <DeleteResourceModal
         isOpen={isDeleteModalOpen}
-        title="Delete CyberArk Configuration?"
+        title={i18n.t("ui.Delete CyberArk Configuration?")}
         message="Models using CyberArk secrets will lose access to their API keys until a new configuration is saved."
         resourceInformationTitle="CyberArk Configuration"
         resourceInformation={[{ label: "Conjur Server URL", value: rawValues.cyberark_api_base }]}

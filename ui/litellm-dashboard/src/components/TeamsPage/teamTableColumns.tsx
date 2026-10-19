@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import type { TFunction } from "i18next";
 import { Copy, KeyRound, Layers, MoreHorizontal, Pencil, Trash2, Users } from "lucide-react";
 
@@ -259,8 +260,8 @@ export const getTeamTableColumns = ({
       enableSorting: false,
       cell: ({ row }) => (
         <div className="text-xs leading-tight">
-          <RateLimitLine label="TPM" value={row.original.tpm_limit} t={t} />
-          <RateLimitLine label="RPM" value={row.original.rpm_limit} t={t} />
+          <RateLimitLine label={i18n.t("ui.TPM")} value={row.original.tpm_limit} t={t} />
+          <RateLimitLine label={i18n.t("ui.RPM")} value={row.original.rpm_limit} t={t} />
         </div>
       ),
     },

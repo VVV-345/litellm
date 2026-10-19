@@ -1,6 +1,7 @@
 "use client";
 
 import { SortingState } from "@tanstack/react-table";
+import i18n from "@/i18n";
 import { Users } from "lucide-react";
 import React, { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -32,8 +33,7 @@ function EmptyState() {
           rel="noopener noreferrer"
           className="text-primary underline-offset-4 hover:underline"
         >
-          here
-        </a>
+          {i18n.t("ui.here")}</a>
       </div>
     </div>
   );

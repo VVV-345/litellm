@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import { MultiSelect, type MultiSelectOption } from "@/components/shared/MultiSelect";
 import { getAgentsList } from "../networking";
 
@@ -91,7 +92,7 @@ const AgentSelector: React.FC<AgentSelectorProps> = ({
         value={selectedValues}
         onValueChange={handleChange}
         placeholder={placeholder}
-        emptyText="No agents found"
+        emptyText={i18n.t("ui.No agents found")}
         loading={loading}
         disabled={disabled}
         className={`w-full ${className ?? ""}`}

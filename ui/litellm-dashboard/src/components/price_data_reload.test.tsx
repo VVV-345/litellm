@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18next from "@/i18n";
 
 import { toast } from "@/lib/toast";
 import {
@@ -11,6 +12,10 @@ import {
   scheduleModelCostMapReload,
 } from "./networking";
 import PriceDataReload from "./price_data_reload";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 vi.mock("./networking", () => ({
   cancelModelCostMapReload: vi.fn(),

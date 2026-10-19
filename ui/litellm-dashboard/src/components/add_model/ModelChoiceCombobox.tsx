@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import i18n from "@/i18n";
 import {
   Combobox,
   ComboboxContent,
@@ -53,7 +54,7 @@ const ModelChoiceCombobox: React.FC<ModelChoiceComboboxProps> = ({
         showClear={value !== ""}
       />
       <ComboboxContent>
-        <ComboboxEmpty>No models found</ComboboxEmpty>
+        <ComboboxEmpty>{i18n.t("ui.No models found")}</ComboboxEmpty>
         <ComboboxList>
           {(choice: ModelChoice) => (
             <ComboboxItem key={choice.value} value={choice}>

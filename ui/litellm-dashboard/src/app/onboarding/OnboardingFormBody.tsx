@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { CircleAlert, Info } from "lucide-react";
 import { z } from "zod/v4";
 import { Alert, AlertDescription, AlertTitle } from "@/components/shared/Alert";
@@ -21,7 +22,7 @@ type OnboardingFormBodyProps = {
 };
 
 const onboardingSchema = z.object({
-  password: z.string().min(1, "password required to sign up"),
+  password: z.string().min(1, i18n.t("ui.password required to sign up")),
 });
 
 type OnboardingFormValues = z.infer<typeof onboardingSchema>;
@@ -30,7 +31,7 @@ export function OnboardingFormBody({ variant, userEmail, isPending, claimError, 
   const form = useZodForm(onboardingSchema, { defaultValues: { password: "" } });
   const emailFieldId = React.useId();
   const isResetPassword = variant === "reset_password";
-  const actionLabel = isResetPassword ? "Reset Password" : "Sign Up";
+  const actionLabel = isResetPassword ? i18n.t("ui.Reset Password") : i18n.t("ui.Sign Up");
 
   const handleSubmit = (values: OnboardingFormValues) => onSubmit({ password: values.password });
 
@@ -42,24 +43,24 @@ export function OnboardingFormBody({ variant, userEmail, isPending, claimError, 
           <h3 className="text-2xl font-semibold text-foreground">{actionLabel}</h3>
           <p className="text-sm text-foreground">
             {isResetPassword
-              ? "Reset your password to access Admin UI."
-              : "Claim your user account to login to Admin UI."}
+              ? i18n.t("ui.Reset your password to access Admin UI.")
+                : i18n.t("ui.Claim your user account to login to Admin UI.")}
           </p>
 
           {variant === "signup" && (
             <Alert className="mt-4" variant="info">
               <Info />
-              <AlertTitle>SSO</AlertTitle>
+              <AlertTitle>{i18n.t("ui.SSO")}</AlertTitle>
               <AlertDescription>
                 <div className="flex justify-between items-center">
-                  <span>SSO is under the Enterprise Tier.</span>
+                  <span>{i18n.t("ui.SSO is under the Enterprise Tier.")}</span>
                   <a
                     className={cn(buttonVariants({ size: "sm" }))}
                     href="https://forms.gle/W3U4PZpJGFHWtHyA9"
                     target="_blank"
                     rel="noopener noreferrer"
                   >
-                    Get Free Trial
+                    {i18n.t("ui.Get Free Trial")}
                   </a>
                 </div>
               </AlertDescription>
@@ -69,15 +70,15 @@ export function OnboardingFormBody({ variant, userEmail, isPending, claimError, 
           <form className="mt-10 mb-5" onSubmit={form.handleSubmit(handleSubmit)}>
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor={emailFieldId}>Email Address</FieldLabel>
+                <FieldLabel htmlFor={emailFieldId}>{i18n.t("ui.Email Address")}</FieldLabel>
                 <Input id={emailFieldId} type="email" value={userEmail} readOnly disabled />
               </Field>
 
               <FormField
                 control={form.control}
                 name="password"
-                label="Password"
-                description={isResetPassword ? "Enter your new password" : "Create a password for your account"}
+                label={i18n.t("ui.Password")}
+                description={isResetPassword ? i18n.t("ui.Enter your new password") : i18n.t("ui.Create a password for your account")}
               >
                 {({ ref, ...field }) => <PasswordInput {...field} ref={ref} />}
               </FormField>
@@ -92,7 +93,7 @@ export function OnboardingFormBody({ variant, userEmail, isPending, claimError, 
 
             <div className="mt-10">
               <Button type="submit" variant="outline" disabled={isPending}>
-                {isPending && <UiLoadingSpinner className="size-4" role="img" aria-label="loading" />}
+                {isPending && <UiLoadingSpinner className="size-4" role="img" aria-label={i18n.t("ui.loading")} />}
                 {actionLabel}
               </Button>
             </div>

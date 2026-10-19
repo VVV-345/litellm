@@ -1,5 +1,6 @@
 import React from "react";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
+import i18next from "@/i18n";
 import BedrockGuardrailDetails, {
   BedrockGuardrailResponse,
 } from "@/components/view_logs/GuardrailViewer/BedrockGuardrailDetails";
@@ -10,6 +11,10 @@ import {
   makeBedrockResponse,
   makeBedrockUsage,
 } from "@/components/view_logs/GuardrailViewer/__tests__/fixtures";
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 describe("BedrockGuardrailDetails", () => {
   it("returns null when response is falsy", () => {

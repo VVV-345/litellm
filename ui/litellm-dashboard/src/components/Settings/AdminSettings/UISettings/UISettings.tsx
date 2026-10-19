@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
+import i18n from "@/i18n";
 
 import { useUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUISettings";
 import { useUpdateUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUpdateUISettings";
@@ -306,7 +307,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggle}
               ariaLabel={property?.description ?? "Disable model add for internal users"}
-              label="Disable model add for internal users"
+              label={i18n.t("ui.Disable model add for internal users")}
               description={property?.description}
             />
             <SettingRow
@@ -314,7 +315,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleTeamAdminDelete}
               ariaLabel={disableTeamAdminDeleteProperty?.description ?? "Disable team admin delete team user"}
-              label="Disable team admin delete team user"
+              label={i18n.t("ui.Disable team admin delete team user")}
               description={disableTeamAdminDeleteProperty?.description}
             />
             <SettingRow
@@ -322,7 +323,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleRequireAuthForPublicAIHub}
               ariaLabel={requireAuthForPublicAIHubProperty?.description ?? "Require authentication for public AI Hub"}
-              label="Require authentication for public AI Hub"
+              label={i18n.t("ui.Require authentication for public AI Hub")}
               description={requireAuthForPublicAIHubProperty?.description}
             />
             <SettingRow
@@ -330,7 +331,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleForwardClientHeaders}
               ariaLabel={forwardClientHeadersProperty?.description ?? "Forward client headers to LLM API"}
-              label="Forward client headers to LLM API"
+              label={i18n.t("ui.Forward client headers to LLM API")}
               description={
                 forwardClientHeadersProperty?.description ??
                 "Forwards client headers (Authorization, anthropic-beta, and x-* custom headers) to the upstream LLM. Enable for Claude Code with a Max subscription (forwards the OAuth token) or to pass custom/tracing headers through to the provider. Independent of the BYOK toggle — enable only the one(s) you need."
@@ -341,7 +342,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleForwardLLMProviderAuthHeaders}
               ariaLabel={forwardLLMProviderAuthHeadersProperty?.description ?? "Forward LLM provider auth headers"}
-              label="Forward LLM provider auth headers"
+              label={i18n.t("ui.Forward LLM provider auth headers")}
               description={
                 forwardLLMProviderAuthHeadersProperty?.description ??
                 "Forwards provider auth headers (x-api-key, x-goog-api-key, api-key, ocp-apim-subscription-key) to the upstream LLM, overriding any deployment-configured key for that request. Enable for Claude Code BYOK (clients bring their own API key). Independent of the client-headers toggle — enable only the one(s) you need."
@@ -353,7 +354,7 @@ export default function UISettings() {
                 disabled={isUpdating}
                 onCheckedChange={handleToggleEnableProjectsUI}
                 ariaLabel={enableProjectsUIProperty.description ?? "Enable Projects UI"}
-                label="[BETA] Enable Projects (page will refresh)"
+                label={i18n.t("ui.[BETA] Enable Projects (page will refresh)")}
                 description={
                   enableProjectsUIProperty.description ??
                   "If enabled, shows the Projects feature in the UI sidebar and the project field in key management."
@@ -365,7 +366,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleEnableChatUI}
               ariaLabel={enableChatUIProperty?.description ?? "Enable Chat page"}
-              label="[BETA] Enable Chat page (page will refresh)"
+              label={i18n.t("ui.[BETA] Enable Chat page (page will refresh)")}
               description={
                 enableChatUIProperty?.description ??
                 "If enabled, shows the Chat page in the UI sidebar, letting users chat with an LLM and connect their own MCP server credentials via OAuth."
@@ -378,7 +379,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleDisableAgents}
               ariaLabel={disableAgentsProperty?.description ?? "Disable agents for internal users"}
-              label="Disable agents for internal users"
+              label={i18n.t("ui.Disable agents for internal users")}
               description={disableAgentsProperty?.description}
             />
             <SettingRow
@@ -386,7 +387,7 @@ export default function UISettings() {
               disabled={isUpdating || !isAgentsDisabled}
               onCheckedChange={handleToggleAllowAgentsTeamAdmins}
               ariaLabel={allowAgentsTeamAdminsProperty?.description ?? "Allow agents for team admins"}
-              label="Allow agents for team admins"
+              label={i18n.t("ui.Allow agents for team admins")}
               description={allowAgentsTeamAdminsProperty?.description}
               indented
               muted={!isAgentsDisabled}
@@ -398,7 +399,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleDisableVectorStores}
               ariaLabel={disableVectorStoresProperty?.description ?? "Disable vector stores for internal users"}
-              label="Disable vector stores for internal users"
+              label={i18n.t("ui.Disable vector stores for internal users")}
               description={disableVectorStoresProperty?.description}
             />
             <SettingRow
@@ -406,7 +407,7 @@ export default function UISettings() {
               disabled={isUpdating || !isVectorStoresDisabled}
               onCheckedChange={handleToggleAllowVectorStoresTeamAdmins}
               ariaLabel={allowVectorStoresTeamAdminsProperty?.description ?? "Allow vector stores for team admins"}
-              label="Allow vector stores for team admins"
+              label={i18n.t("ui.Allow vector stores for team admins")}
               description={allowVectorStoresTeamAdminsProperty?.description}
               indented
               muted={!isVectorStoresDisabled}
@@ -418,7 +419,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleScopeUserSearch}
               ariaLabel={scopeUserSearchProperty?.description ?? "Scope user search to organization"}
-              label="Scope user search to organization"
+              label={i18n.t("ui.Scope user search to organization")}
               description={
                 scopeUserSearchProperty?.description ??
                 "If enabled, the user search endpoint restricts results by organization. When off, any authenticated user can search all users."
@@ -431,7 +432,7 @@ export default function UISettings() {
               disabled={isUpdating}
               onCheckedChange={handleToggleDisableCustomApiKeys}
               ariaLabel={disableCustomApiKeysProperty?.description ?? "Disable custom Virtual key values"}
-              label="Disable custom Virtual key values"
+              label={i18n.t("ui.Disable custom Virtual key values")}
               description={
                 disableCustomApiKeysProperty?.description ??
                 "If true, users cannot specify custom key values. All keys must be auto-generated."

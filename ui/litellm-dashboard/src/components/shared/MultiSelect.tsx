@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import i18n from "@/i18n";
 import {
   Combobox,
   ComboboxChip,
@@ -123,7 +124,7 @@ export function MultiSelect({
                 className="min-w-24"
                 aria-label={placeholder || undefined}
               />
-              {canClear(selected) && <ComboboxClear className="ml-auto self-center" aria-label="Clear all" />}
+              {canClear(selected) && <ComboboxClear className="ml-auto self-center" aria-label={i18n.t("ui.Clear all")} />}
             </>
           )}
         </ComboboxValue>

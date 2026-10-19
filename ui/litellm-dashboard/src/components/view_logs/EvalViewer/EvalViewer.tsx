@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { useTranslation } from "react-i18next";
 import { CircleCheck, CircleX, FlaskConical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -91,9 +92,7 @@ function EvalEntryCard({ entry }: { entry: EvalInformation }) {
                   {entry.threshold != null && ` (${ui("threshold:")} ${entry.threshold})`}
                 </TooltipTrigger>
                 <TooltipContent>
-                  Weighted average of all criterion scores. Each criterion has a weight (%) set when the eval was
-                  created — higher-weight criteria count more toward the final score.
-                </TooltipContent>
+                  {i18n.t("ui.Weighted average of all criterion scores. Each criterion has a weight (%) set when the eval was created — higher-weight criteria count more toward the final score.")}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           </div>

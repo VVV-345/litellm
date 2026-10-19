@@ -3,6 +3,7 @@
  */
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import i18n from "@/i18n";
 import { useTranslation } from "react-i18next";
 import { ParsedTool, ParameterRow } from "./types";
 
@@ -50,13 +51,12 @@ export function FormattedToolView({ tool }: FormattedToolViewProps) {
               marginBottom: 8,
             }}
           >
-            Parameters
-          </span>
+            {i18n.t("ui.Parameters")}</span>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Parameter</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead>{i18n.t("ui.Type")}</TableHead>
                 <TableHead>{t("ui.Description")}</TableHead>
               </TableRow>
             </TableHeader>

@@ -1,4 +1,5 @@
 import { CircleHelp, Minus, Plus } from "lucide-react";
+import i18n from "@/i18n";
 import React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -83,7 +84,7 @@ const CacheControlInjectionPoints: React.FC<CacheControlInjectionPointsProps> = 
       {points.map((point, index) => (
         <div key={index} className="mb-4 flex items-end gap-4">
           <div className="w-[180px] space-y-1">
-            <Label>Type</Label>
+            <Label>{i18n.t("ui.Type")}</Label>
             <Select items={LOCATION_ITEMS} value={point.location} disabled>
               <SelectTrigger className="w-full">
                 <SelectValue />
@@ -99,7 +100,7 @@ const CacheControlInjectionPoints: React.FC<CacheControlInjectionPointsProps> = 
           </div>
 
           <div className="w-[180px] space-y-1">
-            <LabelWithHint label="Role" hint={CACHE_CONTROL_ROLE_HINT} />
+            <LabelWithHint label={i18n.t("ui.Role")} hint={CACHE_CONTROL_ROLE_HINT} />
             <Select
               items={ROLE_ITEMS}
               value={point.role ?? null}
@@ -108,10 +109,10 @@ const CacheControlInjectionPoints: React.FC<CacheControlInjectionPointsProps> = 
               }
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="Select a role" />
+                <SelectValue placeholder={i18n.t("ui.Select a role")} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={null}>None</SelectItem>
+                <SelectItem value={null}>{i18n.t("ui.None")}</SelectItem>
                 {ROLE_ITEMS.map((item) => (
                   <SelectItem key={item.value} value={item.value}>
                     {item.label}
@@ -122,10 +123,10 @@ const CacheControlInjectionPoints: React.FC<CacheControlInjectionPointsProps> = 
           </div>
 
           <div className="w-[180px] space-y-1">
-            <LabelWithHint label="Index" hint={CACHE_CONTROL_INDEX_HINT} />
+            <LabelWithHint label={i18n.t("ui.Index")} hint={CACHE_CONTROL_INDEX_HINT} />
             <NumericalInput
               type="number"
-              placeholder="Optional"
+              placeholder={i18n.t("ui.Optional")}
               step={1}
               value={point.index ?? ""}
               onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
@@ -159,8 +160,7 @@ const CacheControlInjectionPoints: React.FC<CacheControlInjectionPointsProps> = 
         onClick={() => onChange?.([...points, NEW_CACHE_CONTROL_POINT])}
       >
         <Plus className="mr-2 size-4" />
-        Add Injection Point
-      </Button>
+        {i18n.t("ui.Add Injection Point")}</Button>
     </div>
   );
 };

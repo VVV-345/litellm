@@ -1,4 +1,5 @@
 import { Info } from "lucide-react";
+import i18n from "@/i18n";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { SearchSelect } from "@/components/shared/SearchSelect";
@@ -108,31 +109,31 @@ const HowClassificationWorks: React.FC<{ value: ComplexityRouterConfigValue }> =
   return (
     <Card className="bg-muted mt-4">
       <CardContent>
-        <strong className="block mb-2 font-semibold">How Classification Works</strong>
+        <strong className="block mb-2 font-semibold">{i18n.t("ui.How Classification Works")}</strong>
         <span className="text-[13px] text-muted-foreground">{scoringExplanation(value)}</span>
         {scorerRuns && ranges && (
           <ul style={{ marginTop: 8, marginBottom: 0, paddingLeft: 20, fontSize: 13, color: "rgba(0, 0, 0, 0.45)" }}>
             <li>
-              <strong>{effectiveTierLabel("SIMPLE", value.tier_labels)}</strong>: Score &lt; {ranges.simpleMedium}
+              <strong>{effectiveTierLabel("SIMPLE", value.tier_labels)}</strong>{i18n.t("ui.: Score <")} {ranges.simpleMedium}
             </li>
             <li>
-              <strong>{effectiveTierLabel("MEDIUM", value.tier_labels)}</strong>: Score {ranges.simpleMedium} -{" "}
+              <strong>{effectiveTierLabel("MEDIUM", value.tier_labels)}</strong>{i18n.t("ui.: Score")} {ranges.simpleMedium} -{" "}
               {ranges.mediumComplex}
             </li>
             <li>
-              <strong>{effectiveTierLabel("COMPLEX", value.tier_labels)}</strong>: Score {ranges.mediumComplex} -{" "}
+              <strong>{effectiveTierLabel("COMPLEX", value.tier_labels)}</strong>{i18n.t("ui.: Score")} {ranges.mediumComplex} -{" "}
               {ranges.complexReasoning}
             </li>
             <li>
-              <strong>{effectiveTierLabel("REASONING", value.tier_labels)}</strong>: Score &gt;{" "}
-              {ranges.complexReasoning} (or 2+ reasoning markers with a score of at least{" "}
+              <strong>{effectiveTierLabel("REASONING", value.tier_labels)}</strong>{i18n.t("ui.: Score >")}{" "}
+              {ranges.complexReasoning} {i18n.t("ui.(or 2+ reasoning markers with a score of at least")}{" "}
               {ranges.reasoningOverrideFloor})
             </li>
           </ul>
         )}
         {!ranges && isError && (
           <span className="text-[13px] block mt-2 text-muted-foreground">
-            The tier score ranges could not be loaded from the proxy.
+            {i18n.t("ui.The tier score ranges could not be loaded from the proxy.")}
           </span>
         )}
       </CardContent>
@@ -169,9 +170,9 @@ const ClassifierTypeRadios: React.FC<{
           <Label className="items-start font-normal leading-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-50">
             <RadioGroupItem value="heuristic" className="mt-0.5" disabled={scorerLocked} />
             <span>
-              <strong className="font-semibold">Heuristic</strong>{" "}
+              <strong className="font-semibold">{i18n.t("ui.Heuristic")}</strong>{" "}
               <span className="text-muted-foreground">
-                (default), rule-based scoring with no API calls and &lt;1ms latency
+                {i18n.t("ui.(default), rule-based scoring with no API calls and <1ms latency")}
               </span>
             </span>
           </Label>
@@ -179,17 +180,17 @@ const ClassifierTypeRadios: React.FC<{
         <Label className="items-start font-normal leading-normal">
           <RadioGroupItem value="llm" className="mt-0.5" />
           <span>
-            <strong className="font-semibold">LLM Classifier</strong>{" "}
-            <span className="text-muted-foreground">calls a model to decide the tier (e.g. a small/fast model)</span>
+            <strong className="font-semibold">{i18n.t("ui.LLM Classifier")}</strong>{" "}
+            <span className="text-muted-foreground">{i18n.t("ui.calls a model to decide the tier (e.g. a small/fast model)")}</span>
           </span>
         </Label>
         <SimpleTooltip content={scorerLockedReason}>
           <Label className="items-start font-normal leading-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-50">
             <RadioGroupItem value="heuristic_first" className="mt-0.5" disabled={scorerLocked} />
             <span>
-              <strong className="font-semibold">Heuristic first</strong>{" "}
+              <strong className="font-semibold">{i18n.t("ui.Heuristic first")}</strong>{" "}
               <span className="text-muted-foreground">
-                scores locally, and only pays for the classifier when the score does not confidently land a cheap tier
+                {i18n.t("ui.scores locally, and only pays for the classifier when the score does not confidently land a cheap tier")}
               </span>
             </span>
           </Label>
@@ -344,7 +345,7 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
 
       {classifierType === "heuristic_first" && (
         <div className="mt-4 space-y-2">
-          <strong className="block font-semibold">Decide locally up to</strong>
+          <strong className="block font-semibold">{i18n.t("ui.Decide locally up to")}</strong>
           <Select
             value={value.heuristic_first_max_tier}
             onValueChange={(tier: unknown) => handleHeuristicFirstMaxTierChange(tier as string)}
@@ -361,8 +362,7 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
             </SelectContent>
           </Select>
           <p className="text-sm text-muted-foreground">
-            A request the scorer places at or below this tier routes there without a classifier call. Anything the
-            scorer places higher, and anything it found no signal for at all, goes to the classifier instead
+            {i18n.t("ui.A request the scorer places at or below this tier routes there without a classifier call. Anything the scorer places higher, and anything it found no signal for at all, goes to the classifier instead")}
           </p>
         </div>
       )}
@@ -370,22 +370,21 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
       {usesLlmClassifier(classifierType) && (
         <div className="mt-4 space-y-3">
           <div>
-            <strong className="block mb-1 font-semibold">Classifier Model</strong>
+            <strong className="block mb-1 font-semibold">{i18n.t("ui.Classifier Model")}</strong>
             <SearchSelect
               options={modelOptions}
               value={value.classifier_llm_config?.model ?? ""}
               onValueChange={handleClassifierModelChange}
-              placeholder="Select the model that will classify request complexity"
-              emptyText="No models found"
+              placeholder={i18n.t("ui.Select the model that will classify request complexity")}
+              emptyText={i18n.t("ui.No models found")}
               allowClear={false}
               className={classifierModelMissing ? "border-destructive" : undefined}
             />
-            {classifierModelMissing && <span className="text-xs text-destructive">A classifier model is required</span>}
+            {classifierModelMissing && <span className="text-xs text-destructive">{i18n.t("ui.A classifier model is required")}</span>}
           </div>
           <div>
             <Label htmlFor={CLASSIFIER_TIMEOUT_ID} className="block mb-1 font-semibold">
-              Timeout (ms)
-            </Label>
+              {i18n.t("ui.Timeout (ms)")}</Label>
             <Input
               id={CLASSIFIER_TIMEOUT_ID}
               type="text"
@@ -407,13 +406,12 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
               className="w-full"
             />
             <span className="text-xs text-muted-foreground">
-              How long the classifier call has before it fails and the fallback below takes over.
-            </span>
+              {i18n.t("ui.How long the classifier call has before it fails and the fallback below takes over.")}</span>
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <strong className="font-semibold">Classification Rubric</strong>
-              <SimpleTooltip content="Every rubric uses the same four tiers. They differ in the worked examples that show the classifier where the boundary between tiers sits, and the Business rubric also rewrites the tier definitions for business traffic.">
+              <strong className="font-semibold">{i18n.t("ui.Classification Rubric")}</strong>
+              <SimpleTooltip content={i18n.t("ui.Every rubric uses the same four tiers. They differ in the worked examples that show the classifier where the boundary between tiers sits, and the Business rubric also rewrites the tier definitions for business traffic.")}>
                 <Info className="size-4 text-muted-foreground" />
               </SimpleTooltip>
             </div>
@@ -435,7 +433,7 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
                 }
                 disabled={usesCustomPrompt || Boolean(value.custom_tier_set)}
               >
-                <SelectTrigger aria-label="Classification Rubric" className="w-full">
+                <SelectTrigger aria-label={i18n.t("ui.Classification Rubric")} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -455,7 +453,7 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
             </span>
           </div>
           <div>
-            <strong className="block mb-1 font-semibold">Classifier Prompt</strong>
+            <strong className="block mb-1 font-semibold">{i18n.t("ui.Classifier Prompt")}</strong>
             {value.custom_tier_set ? (
               <CustomTierPromptEditor
                 classificationPrompt={value.classification_prompt}
@@ -482,8 +480,8 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
                 <Label className="items-start font-normal leading-normal">
                   <RadioGroupItem value="heuristic" className="mt-0.5" />
                   <span>
-                    <span>Score with the heuristic</span>{" "}
-                    <span className="text-muted-foreground">— right when the classifier grades complexity too</span>
+                    <span>{i18n.t("ui.Score with the heuristic")}</span>{" "}
+                    <span className="text-muted-foreground">{i18n.t("ui.— right when the classifier grades complexity too")}</span>
                   </span>
                 </Label>
                 <Label className="items-start font-normal leading-normal has-data-disabled:cursor-not-allowed has-data-disabled:opacity-50">
@@ -496,23 +494,20 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
                     }
                   >
                     <span>
-                      <span>Route to the default model{defaultModel ? ` (${defaultModel})` : ""}</span>{" "}
+                      <span>{i18n.t("ui.Route to the default model")}{defaultModel ? ` (${defaultModel})` : ""}</span>{" "}
                       <span className="text-muted-foreground">
-                        — right when your prompt grades something other than complexity
-                      </span>
+                        {i18n.t("ui.— right when your prompt grades something other than complexity")}</span>
                     </span>
                   </SimpleTooltip>
                 </Label>
               </div>
             </RadioGroup>
             <span className="block text-xs text-muted-foreground">
-              Applies when the classifier call errors, times out, or returns an unparseable response.
-            </span>
+              {i18n.t("ui.Applies when the classifier call errors, times out, or returns an unparseable response.")}</span>
           </RestrictedSection>
           <div>
             <Label htmlFor={CLASSIFIER_CONTEXT_WINDOW_SIZE_ID} className="block mb-1 font-semibold">
-              Context Window Size
-            </Label>
+              {i18n.t("ui.Context Window Size")}</Label>
             <Input
               id={CLASSIFIER_CONTEXT_WINDOW_SIZE_ID}
               type="text"
@@ -534,14 +529,12 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
               className="w-full"
             />
             <span className="text-xs text-muted-foreground">
-              Number of prior user turns (tool output and harness reminders excluded) sent to the classifier as context,
-              so a referring follow-up like &quot;now do the same for the streaming path&quot; is classified against
-              what it refers to. Set to 0 to send only the current message.
+              {i18n.t("ui.Number of prior user turns (tool output and harness reminders excluded) sent to the classifier as context, so a referring follow-up like \"now do the same for the streaming path\" is classified against what it refers to. Set to 0 to send only the current message.")}
             </span>
           </div>
           <div>
             <Label htmlFor={CLASSIFIER_CONTEXT_BUDGET_CHARS_ID} className="block mb-1 font-semibold">
-              Context Character Budget
+              {i18n.t("ui.Context Character Budget")}
             </Label>
             <Input
               id={CLASSIFIER_CONTEXT_BUDGET_CHARS_ID}
@@ -564,14 +557,11 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
               className="w-full"
             />
             <span className="text-xs text-muted-foreground">
-              Total characters of prior conversation sent to the classifier. Turns are taken newest first and quoted
-              whole while they fit, so a short conversation is never cut.
+              {i18n.t("ui.Total characters of prior conversation sent to the classifier. Turns are taken newest first and quoted whole while they fit, so a short conversation is never cut.")}
             </span>
             {contextBudgetQuotesNothing && (
               <span className="block text-xs text-destructive">
-                Under {MIN_QUOTED_CONTEXT_TURN_CHARS} characters there is no room to quote a turn that does not already
-                fit, so a long conversation reaches the classifier with no context at all. Set Context Window Size to 0
-                to turn context off deliberately.
+                {i18n.t("ui.Under")} {MIN_QUOTED_CONTEXT_TURN_CHARS} {i18n.t("ui.characters there is no room to quote a turn that does not already fit, so a long conversation reaches the classifier with no context at all. Set Context Window Size to 0 to turn context off deliberately.")}
               </span>
             )}
           </div>
@@ -581,9 +571,9 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
                 checked={value.classifier_context_include_assistant_turns ?? false}
                 onCheckedChange={handleClassifierContextIncludeAssistantTurnsChange}
                 size="sm"
-                aria-label="Include Assistant Turns"
+                aria-label={i18n.t("ui.Include Assistant Turns")}
               />
-              <strong className="font-semibold">Include Assistant Turns</strong>
+              <strong className="font-semibold">{i18n.t("ui.Include Assistant Turns")}</strong>
               <SimpleTooltip content="Off by default. Enabling it changes tier decisions, and therefore spend, for an existing router, and sends assistant text to the classifier model, which may be a different provider than the routed model.">
                 <Info className="size-4 text-muted-foreground" />
               </SimpleTooltip>
@@ -601,15 +591,13 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
       {heuristicScoringRole(value) !== "never" && (
         <div className="mt-4">
           <div className="flex items-center gap-2 mb-1">
-            <strong className="font-semibold">Custom Technical Keywords</strong>
-            <SimpleTooltip content="Domain-specific terms appended to the built-in technical keyword list. Prompts containing these terms score higher on the technical dimension and route to more capable models.">
+            <strong className="font-semibold">{i18n.t("ui.Custom Technical Keywords")}</strong>
+            <SimpleTooltip content={i18n.t("ui.Domain-specific terms appended to the built-in technical keyword list. Prompts containing these terms score higher on the technical dimension and route to more capable models.")}>
               <Info className="size-4 text-muted-foreground" />
             </SimpleTooltip>
           </div>
           <span className="block mb-2 text-xs text-muted-foreground">
-            Optional: Add terms to the built-in list to improve classification accuracy on the technical dimension.
-            (e.g., udp, kafka, terraform).
-          </span>
+            {i18n.t("ui.Optional: Add terms to the built-in list to improve classification accuracy on the technical dimension. (e.g., udp, kafka, terraform).")}</span>
           <MultiSelect
             options={(customTechnicalKeywords ?? []).map((keyword) => ({ label: keyword, value: keyword }))}
             value={customTechnicalKeywords ?? []}
@@ -620,8 +608,8 @@ const ClassificationMethodConfig: React.FC<ClassificationMethodConfigProps> = ({
                 ),
               )
             }
-            placeholder="Type a keyword and press Enter"
-            emptyText="Type to add a keyword"
+            placeholder={i18n.t("ui.Type a keyword and press Enter")}
+            emptyText={i18n.t("ui.Type to add a keyword")}
             allowCustomValues
             className="w-full"
           />

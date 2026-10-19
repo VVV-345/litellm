@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
+import i18next from "@/i18n";
 import BulkCreateUsersButton from "./bulk_create_users_button";
 
 vi.mock("./networking", () => ({
@@ -13,6 +14,10 @@ vi.mock("./networking", () => ({
     SSO_ENABLED: false,
   }),
 }));
+
+beforeEach(async () => {
+  await i18next.changeLanguage("en");
+});
 
 const csvFile = () =>
   new File(["user_email,user_role\nnew.hire@example.com,internal_user\n"], "users.csv", { type: "text/csv" });

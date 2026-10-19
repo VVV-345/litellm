@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import { useTranslation } from "react-i18next";
 import { MultiSelect } from "@/components/shared/MultiSelect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -422,15 +423,14 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
               label={labelWithHint(
                 "Use in pass through routes",
                 <span>
-                  Allow using these credentials in pass through routes.{" "}
+                  {i18n.t("ui.Allow using these credentials in pass through routes.")}{" "}
                   <a
                     href="https://docs.litellm.ai/docs/pass_through/vertex_ai"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-primary underline-offset-4 hover:underline"
                   >
-                    Learn more
-                  </a>
+                    {i18n.t("ui.Learn more")}</a>
                 </span>,
               )}
               className="mb-4 mt-4"
@@ -493,7 +493,7 @@ const AdvancedSettings: React.FC<AdvancedSettingsProps> = ({
             </MountedFormField>
             <div className="grid grid-cols-24 mb-4">
               <p className="col-start-11 col-span-10 text-muted-foreground text-sm">
-                Pass JSON of litellm supported params{" "}
+                {i18n.t("ui.Pass JSON of litellm supported params")}{" "}
                 <a
                   href="https://docs.litellm.ai/docs/completion/input"
                   target="_blank"

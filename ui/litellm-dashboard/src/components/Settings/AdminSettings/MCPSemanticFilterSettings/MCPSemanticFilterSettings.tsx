@@ -1,6 +1,7 @@
 "use client";
 
 import { useMCPSemanticFilterSettings } from "@/app/(dashboard)/hooks/mcpSemanticFilterSettings/useMCPSemanticFilterSettings";
+import i18n from "@/i18n";
 import { useUpdateMCPSemanticFilterSettings } from "@/app/(dashboard)/hooks/mcpSemanticFilterSettings/useUpdateMCPSemanticFilterSettings";
 import { toast } from "@/lib/toast";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -90,9 +91,9 @@ const SaveSuccessAlert = () => {
   return (
     <Alert variant="success" className="mb-4">
       <CircleCheck />
-      <AlertTitle>Settings saved successfully</AlertTitle>
+      <AlertTitle>{i18n.t("ui.Settings saved successfully")}</AlertTitle>
       <AlertAction>
-        <Button variant="ghost" size="icon-sm" aria-label="Close" onClick={() => setDismissed(true)}>
+        <Button variant="ghost" size="icon-sm" aria-label={i18n.t("ui.Close")} onClick={() => setDismissed(true)}>
           <X className="size-4" />
         </Button>
       </AlertAction>
@@ -189,7 +190,7 @@ export default function MCPSemanticFilterSettings({ accessToken }: MCPSemanticFi
 
   if (!accessToken) {
     return (
-      <div className="p-6 text-center text-muted-foreground">Please log in to configure semantic filter settings.</div>
+      <div className="p-6 text-center text-muted-foreground">{i18n.t("ui.Please log in to configure semantic filter settings.")}</div>
     );
   }
 
@@ -204,14 +205,14 @@ export default function MCPSemanticFilterSettings({ accessToken }: MCPSemanticFi
         </div>
       ) : isError ? (
         <Alert variant="error" className="mb-6">
-          <AlertTitle>Could not load MCP Semantic Filter settings</AlertTitle>
+          <AlertTitle>{i18n.t("ui.Could not load MCP Semantic Filter settings")}</AlertTitle>
           {error instanceof Error && <AlertDescription>{error.message}</AlertDescription>}
         </Alert>
       ) : (
         <>
           <Alert variant="info" className="mb-6">
             <Info />
-            <AlertTitle>Semantic Tool Filtering</AlertTitle>
+            <AlertTitle>{i18n.t("ui.Semantic Tool Filtering")}</AlertTitle>
             <AlertDescription>
               Filter MCP tools semantically based on query relevance. This reduces context window size and improves tool
               selection accuracy. Click &apos;Save Settings&apos; to apply changes across all pods (takes effect within
@@ -223,7 +224,7 @@ export default function MCPSemanticFilterSettings({ accessToken }: MCPSemanticFi
 
           {updateError && (
             <Alert variant="error" className="mb-4">
-              <AlertTitle>Could not update settings</AlertTitle>
+              <AlertTitle>{i18n.t("ui.Could not update settings")}</AlertTitle>
               {updateError instanceof Error && <AlertDescription>{updateError.message}</AlertDescription>}
             </Alert>
           )}
@@ -261,7 +262,7 @@ export default function MCPSemanticFilterSettings({ accessToken }: MCPSemanticFi
 
                   <Card className="mb-4">
                     <CardHeader className="border-b">
-                      <CardTitle>Configuration</CardTitle>
+                      <CardTitle>{i18n.t("ui.Configuration")}</CardTitle>
                     </CardHeader>
                     <CardContent>
                       <FieldGroup>
@@ -359,8 +360,7 @@ export default function MCPSemanticFilterSettings({ accessToken }: MCPSemanticFi
                       disabled={!isDirty || isUpdating}
                     >
                       {isUpdating ? <UiLoadingSpinner className="size-4" /> : <Save />}
-                      Save Settings
-                    </Button>
+                      {i18n.t("ui.Save Settings")}</Button>
                   </div>
                 </form>
               </TooltipProvider>

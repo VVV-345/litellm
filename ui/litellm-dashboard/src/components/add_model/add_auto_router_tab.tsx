@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import { useQuery } from "@tanstack/react-query";
 import { useWatch } from "react-hook-form";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -476,18 +477,18 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                 name="auto_router_name"
                 label={labelWithHint("Auto Router Name", "Unique name for this auto router configuration")}
               >
-                {({ ref, ...field }) => <Input {...field} ref={ref} placeholder="e.g., smart_router, auto_router_1" />}
+                {({ ref, ...field }) => <Input {...field} ref={ref} placeholder={i18n.t("ui.e.g., smart_router, auto_router_1")} />}
               </FormField>
 
               <div>
-                <label className="block text-sm font-medium text-foreground mb-2">Template</label>
+                <label className="block text-sm font-medium text-foreground mb-2">{i18n.t("ui.Template")}</label>
                 <Select
                   items={templateItems}
                   value={selectedPreset ?? null}
                   onValueChange={(presetKey: string | null) => handlePresetChange(presetKey ?? undefined)}
                 >
                   <SelectTrigger data-testid="template-selector" className="w-full">
-                    <SelectValue placeholder="Choose a template or select Custom to define your own" />
+                    <SelectValue placeholder={i18n.t("ui.Choose a template or select Custom to define your own")} />
                   </SelectTrigger>
                   <SelectContent>
                     {sortedPresetOptions.map(({ preset, availability: presetState }) => {
@@ -517,20 +518,19 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                         </SelectItem>
                       );
                     })}
-                    <SelectItem value="custom" label="Custom Configuration">
+                    <SelectItem value="custom" label={i18n.t("ui.Custom Configuration")}>
                       <div>
-                        <div className="font-medium">Custom Configuration</div>
-                        <div className="text-xs text-muted-foreground">Define your auto router from scratch</div>
+                        <div className="font-medium">{i18n.t("ui.Custom Configuration")}</div>
+                        <div className="text-xs text-muted-foreground">{i18n.t("ui.Define your auto router from scratch")}</div>
                       </div>
                     </SelectItem>
                   </SelectContent>
                 </Select>
                 {modelsUnverifiable && (
                   <div className="text-xs mt-1 text-destructive">
-                    Could not load available models.{" "}
+                    {i18n.t("ui.Could not load available models.")}{" "}
                     <button type="button" className="underline" onClick={() => refetchModels()}>
-                      Retry
-                    </button>
+                      {i18n.t("ui.Retry")}</button>
                   </div>
                 )}
               </div>
@@ -561,8 +561,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                     ) : (
                       <ChevronRight className="size-3 text-muted-foreground" />
                     )}
-                    Detailed Configuration
-                  </span>
+                    {i18n.t("ui.Detailed Configuration")}</span>
                   {!detailsExpanded && (
                     <span className="text-xs text-muted-foreground line-clamp-2">
                       {tierConfigSummary(complexityRouterConfig)}
@@ -629,11 +628,10 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                         href="https://github.com/BerriAI/litellm/issues"
                         className="text-sm text-primary underline-offset-4 hover:underline"
                       >
-                        Need Help?
-                      </a>
+                        {i18n.t("ui.Need Help?")}</a>
                     }
                   />
-                  <TooltipContent>Get help on our github</TooltipContent>
+                  <TooltipContent>{i18n.t("ui.Get help on our github")}</TooltipContent>
                 </Tooltip>
                 <div className="flex gap-2">
                   <BlockedReasonTooltip reason={submitBlockedReason}>
@@ -644,8 +642,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                       disabled={submitBlockedReason !== null || isSubmitting}
                       onClick={() => setIsRoutingTestVisible(true)}
                     >
-                      Test Routing
-                    </Button>
+                      {i18n.t("ui.Test Routing")}</Button>
                   </BlockedReasonTooltip>
                   <Button
                     type="button"
@@ -655,8 +652,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                     disabled={isTestingConnection}
                   >
                     {isTestingConnection && <UiLoadingSpinner className="size-4" />}
-                    Test Connection
-                  </Button>
+                    {i18n.t("ui.Test Connection")}</Button>
                   <BlockedReasonTooltip reason={submitBlockedReason}>
                     <Button
                       type="button"
@@ -665,8 +661,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                         void handleAutoRouterSubmit();
                       }}
                     >
-                      Add Auto Router
-                    </Button>
+                      {i18n.t("ui.Add Auto Router")}</Button>
                   </BlockedReasonTooltip>
                 </div>
               </div>
@@ -678,7 +673,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
       <Dialog open={isRoutingTestVisible} onOpenChange={(open) => !open && setIsRoutingTestVisible(false)}>
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[760px]">
           <DialogHeader>
-            <DialogTitle>Test Routing</DialogTitle>
+            <DialogTitle>{i18n.t("ui.Test Routing")}</DialogTitle>
           </DialogHeader>
           {isRoutingTestVisible && (
             <AutoRouterRoutingTest
@@ -692,8 +687,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
           <DialogFooter>
             {" "}
             <Button variant="outline" onClick={() => setIsRoutingTestVisible(false)}>
-              Close
-            </Button>
+              {i18n.t("ui.Close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -709,7 +703,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
       >
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[700px]">
           <DialogHeader>
-            <DialogTitle>Connection Test Results</DialogTitle>
+            <DialogTitle>{i18n.t("ui.Connection Test Results")}</DialogTitle>
           </DialogHeader>
           {isTestModalVisible && (
             <AutoRouterConnectionTest
@@ -728,8 +722,7 @@ const AddAutoRouterTab: React.FC<AddAutoRouterTabProps> = ({
                 setIsTestingConnection(false);
               }}
             >
-              Close
-            </Button>
+              {i18n.t("ui.Close")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

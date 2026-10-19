@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Combobox,
@@ -374,13 +375,13 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
         <CardContent className="space-y-6">
           <div className="flex justify-between items-start">
             <div>
-              <h3 className="text-lg font-medium text-foreground">Summary by User Agent</h3>
-              <p className="text-sm text-muted-foreground">Performance metrics for different user agents</p>
+              <h3 className="text-lg font-medium text-foreground">{i18n.t("ui.Summary by User Agent")}</h3>
+              <p className="text-sm text-muted-foreground">{i18n.t("ui.Performance metrics for different user agents")}</p>
             </div>
 
             {/* User Agent Filter */}
             <div className="w-96">
-              <label className="text-sm font-medium block mb-2">Filter by User Agents</label>
+              <label className="text-sm font-medium block mb-2">{i18n.t("ui.Filter by User Agents")}</label>
               <Combobox
                 multiple
                 items={availableTags}
@@ -397,11 +398,11 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
                       ))
                     }
                   </ComboboxValue>
-                  <ComboboxChipsInput placeholder="All User Agents" aria-label="All User Agents" />
-                  {selectedTags.length > 0 && <ComboboxClear aria-label="Clear user agent filter" />}
+                  <ComboboxChipsInput placeholder={i18n.t("ui.All User Agents")} aria-label={i18n.t("ui.All User Agents")} />
+                  {selectedTags.length > 0 && <ComboboxClear aria-label={i18n.t("ui.Clear user agent filter")} />}
                 </ComboboxChips>
                 <ComboboxContent anchor={anchor}>
-                  <ComboboxEmpty>No user agents found</ComboboxEmpty>
+                  <ComboboxEmpty>{i18n.t("ui.No user agents found")}</ComboboxEmpty>
                   <ComboboxList>
                     {(tag: string) => {
                       const userAgent = extractUserAgent(tag);
@@ -438,15 +439,15 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
                       </Tooltip>
                       <div className="mt-4 space-y-3">
                         <div>
-                          <p className="text-sm text-muted-foreground">Success Requests</p>
+                          <p className="text-sm text-muted-foreground">{i18n.t("ui.Success Requests")}</p>
                           <p className="text-lg font-semibold">{formatAbbreviatedNumber(tag.successful_requests)}</p>
                         </div>
                         <div>
-                          <p className="text-sm text-muted-foreground">Total Tokens</p>
+                          <p className="text-sm text-muted-foreground">{i18n.t("ui.Total Tokens")}</p>
                           <p className="text-lg font-semibold">{formatAbbreviatedNumber(tag.total_tokens)}</p>
                         </div>
                         <div>
-                          <p className="text-sm text-muted-foreground">Total Cost</p>
+                          <p className="text-sm text-muted-foreground">{i18n.t("ui.Total Cost")}</p>
                           <p className="text-lg font-semibold">${formatAbbreviatedNumber(tag.total_spend, 4)}</p>
                         </div>
                       </div>
@@ -458,18 +459,18 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
               {Array.from({ length: Math.max(0, 4 - (summaryData.results || []).length) }).map((_, index) => (
                 <Card key={`empty-${index}`}>
                   <CardContent>
-                    <h4 className="text-lg font-medium text-foreground">No Data</h4>
+                    <h4 className="text-lg font-medium text-foreground">{i18n.t("ui.No Data")}</h4>
                     <div className="mt-4 space-y-3">
                       <div>
-                        <p className="text-sm text-muted-foreground">Success Requests</p>
+                        <p className="text-sm text-muted-foreground">{i18n.t("ui.Success Requests")}</p>
                         <p className="text-lg font-semibold">-</p>
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">Total Tokens</p>
+                        <p className="text-sm text-muted-foreground">{i18n.t("ui.Total Tokens")}</p>
                         <p className="text-lg font-semibold">-</p>
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">Total Cost</p>
+                        <p className="text-sm text-muted-foreground">{i18n.t("ui.Total Cost")}</p>
                         <p className="text-lg font-semibold">-</p>
                       </div>
                     </div>
@@ -487,36 +488,36 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
           <Tabs defaultValue="active-users">
             <TabsList variant="line" className="mb-6 h-auto w-full justify-start rounded-none border-b p-0">
               <TabsTrigger value="active-users" className="flex-none rounded-none px-4 py-2">
-                DAU/WAU/MAU
+                {i18n.t("ui.DAU/WAU/MAU")}
               </TabsTrigger>
               <TabsTrigger value="per-user" className="flex-none rounded-none px-4 py-2">
-                Per User Usage (Last 30 Days)
+                {i18n.t("ui.Per User Usage (Last 30 Days)")}
               </TabsTrigger>
             </TabsList>
 
             {/* DAU/WAU/MAU Tab Panel */}
             <TabsContent value="active-users" keepMounted>
               <div className="mb-6">
-                <h3 className="text-lg font-medium text-foreground">DAU, WAU &amp; MAU per Agent</h3>
-                <p className="text-sm text-muted-foreground">Active users across different time periods</p>
+                <h3 className="text-lg font-medium text-foreground">{i18n.t("ui.DAU, WAU & MAU per Agent")}</h3>
+                <p className="text-sm text-muted-foreground">{i18n.t("ui.Active users across different time periods")}</p>
               </div>
 
               <Tabs defaultValue="dau">
                 <TabsList variant="line" className="mb-6 h-auto w-full justify-start rounded-none border-b p-0">
                   <TabsTrigger value="dau" className="flex-none rounded-none px-4 py-2">
-                    DAU
+                    {i18n.t("ui.DAU")}
                   </TabsTrigger>
                   <TabsTrigger value="wau" className="flex-none rounded-none px-4 py-2">
-                    WAU
+                    {i18n.t("ui.WAU")}
                   </TabsTrigger>
                   <TabsTrigger value="mau" className="flex-none rounded-none px-4 py-2">
-                    MAU
+                    {i18n.t("ui.MAU")}
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="dau" keepMounted>
                   <div className="mb-4">
-                    <h4 className="text-lg font-medium text-foreground">Daily Active Users - Last 7 Days</h4>
+                    <h4 className="text-lg font-medium text-foreground">{i18n.t("ui.Daily Active Users - Last 7 Days")}</h4>
                   </div>
                   {dauLoading ? (
                     <ChartLoader isDateChanging={false} />
@@ -535,7 +536,7 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
 
                 <TabsContent value="wau" keepMounted>
                   <div className="mb-4">
-                    <h4 className="text-lg font-medium text-foreground">Weekly Active Users - Last 7 Weeks</h4>
+                    <h4 className="text-lg font-medium text-foreground">{i18n.t("ui.Weekly Active Users - Last 7 Weeks")}</h4>
                   </div>
                   {wauLoading ? (
                     <ChartLoader isDateChanging={false} />
@@ -554,7 +555,7 @@ const UserAgentActivity: React.FC<UserAgentActivityProps> = ({ accessToken, user
 
                 <TabsContent value="mau" keepMounted>
                   <div className="mb-4">
-                    <h4 className="text-lg font-medium text-foreground">Monthly Active Users - Last 7 Months</h4>
+                    <h4 className="text-lg font-medium text-foreground">{i18n.t("ui.Monthly Active Users - Last 7 Months")}</h4>
                   </div>
                   {mauLoading ? (
                     <ChartLoader isDateChanging={false} />

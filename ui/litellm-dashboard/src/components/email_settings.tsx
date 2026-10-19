@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import i18n from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from "@/components/ui/input-group";
@@ -13,7 +14,7 @@ interface EmailSettingsProps {
   alerts: any[];
 }
 
-const REQUIRED_MARKER = <span className="text-destructive"> Required * </span>;
+const REQUIRED_MARKER = <span className="text-destructive"> {i18n.t("ui.Required *")}</span>;
 
 const FIELD_HELP: Record<string, React.ReactNode> = {
   SMTP_HOST: <>Enter the SMTP host address, e.g. `smtp.resend.com`{REQUIRED_MARKER}</>,
@@ -22,9 +23,9 @@ const FIELD_HELP: Record<string, React.ReactNode> = {
   SMTP_PASSWORD: REQUIRED_MARKER,
   SMTP_SENDER_EMAIL: <>Enter the sender email address, e.g. `sender@berri.ai`{REQUIRED_MARKER}</>,
   TEST_EMAIL_ADDRESS: <>Email Address to send `Test Email Alert` to. example: `info@berri.ai`{REQUIRED_MARKER}</>,
-  EMAIL_LOGO_URL: <>(Optional) Customize the Logo that appears in the email, pass a url to your logo</>,
+  EMAIL_LOGO_URL: <>{i18n.t("ui.(Optional) Customize the Logo that appears in the email, pass a url to your logo")}</>,
   EMAIL_SUPPORT_CONTACT: (
-    <>(Optional) Customize the support email address that appears in the email. Default is support@berri.ai</>
+    <>{i18n.t("ui.(Optional) Customize the support email address that appears in the email. Default is support@berri.ai")}</>
   ),
 };
 
@@ -91,7 +92,7 @@ const EmailSettings: React.FC<EmailSettingsProps> = ({ accessToken, premiumUser,
       </div>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Email Server Settings</CardTitle>
+          <CardTitle className="text-base">{i18n.t("ui.Email Server Settings")}</CardTitle>
           <p className="text-sm">
             <a
               href="https://docs.litellm.ai/docs/proxy/email"
@@ -99,8 +100,7 @@ const EmailSettings: React.FC<EmailSettingsProps> = ({ accessToken, premiumUser,
               rel="noreferrer"
               className="text-primary underline underline-offset-4"
             >
-              LiteLLM Docs: email alerts
-            </a>
+              {i18n.t("ui.LiteLLM Docs: email alerts")}</a>
           </p>
         </CardHeader>
 
@@ -154,7 +154,7 @@ const EmailSettings: React.FC<EmailSettingsProps> = ({ accessToken, premiumUser,
             ))}
 
           <div className="mt-6 flex gap-2">
-            <Button onClick={() => handleSaveEmailSettings()}>Save Changes</Button>
+            <Button onClick={() => handleSaveEmailSettings()}>{i18n.t("ui.Save Changes")}</Button>
             <Button
               variant="secondary"
               onClick={async () => {
@@ -167,8 +167,7 @@ const EmailSettings: React.FC<EmailSettingsProps> = ({ accessToken, premiumUser,
                 }
               }}
             >
-              Test Email Alerts
-            </Button>
+              {i18n.t("ui.Test Email Alerts")}</Button>
           </div>
         </CardContent>
       </Card>

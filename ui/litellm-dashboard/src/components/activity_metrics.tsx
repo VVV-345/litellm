@@ -1,4 +1,5 @@
 import { AreaChart, BarChart, CustomLegend, CustomTooltip } from "@/components/shared/charts";
+import i18n from "@/i18n";
 import { formatNumberWithCommas } from "@/utils/dataUtils";
 import { resolveTeamAliasFromTeamID } from "@/utils/teamUtils";
 import { Card, CardContent } from "@/components/ui/card";
@@ -49,7 +50,7 @@ const ModelSection = ({
             <p className="text-sm text-muted-foreground">{t("ui.Total Tokens")}</p>
             <h3 className="text-lg font-medium text-foreground">{metrics.total_tokens.toLocaleString()}</h3>
             <p className="text-sm text-muted-foreground">
-              {Math.round(metrics.total_tokens / metrics.total_successful_requests)} avg per successful request
+              {Math.round(metrics.total_tokens / metrics.total_successful_requests)} {t("ui.avg per successful request")}
             </p>
           </CardContent>
         </Card>
@@ -58,8 +59,7 @@ const ModelSection = ({
             <p className="text-sm text-muted-foreground">{t("ui.Total Spend")}</p>
             <h3 className="text-lg font-medium text-foreground">${formatNumberWithCommas(metrics.total_spend, 2)}</h3>
             <p className="text-sm text-muted-foreground">
-              ${formatNumberWithCommas(metrics.total_spend / metrics.total_successful_requests, 3)} per successful
-              request
+              ${formatNumberWithCommas(metrics.total_spend / metrics.total_successful_requests, 3)} {t("ui.per successful request")}
             </p>
           </CardContent>
         </Card>
@@ -68,20 +68,19 @@ const ModelSection = ({
       {metrics.top_api_keys && metrics.top_api_keys.length > 0 && (
         <Card className="mt-4">
           <CardContent>
-            <h3 className="text-lg font-medium text-foreground">Top Virtual Keys by Spend</h3>
+            <h3 className="text-lg font-medium text-foreground">{t("ui.Top Virtual Keys by Spend")}</h3>
             <div className="mt-3">
               <div className="grid grid-cols-1 gap-2">
                 {metrics.top_api_keys.map((keyData) => (
                   <div key={keyData.api_key} className="flex justify-between items-center p-3 bg-muted rounded-lg">
                     <div>
                       <p className="font-medium">{keyData.key_alias || `${keyData.api_key.substring(0, 10)}...`}</p>
-                      {keyData.team_id && <p className="text-xs text-muted-foreground">Team: {keyData.team_id}</p>}
+                      {keyData.team_id && <p className="text-xs text-muted-foreground">{i18n.t("ui.Team:")} {keyData.team_id}</p>}
                     </div>
                     <div className="text-right">
                       <p className="font-medium">${formatNumberWithCommas(keyData.spend, 2)}</p>
                       <p className="text-xs text-muted-foreground">
-                        {keyData.requests.toLocaleString()} requests | {keyData.tokens.toLocaleString()} tokens
-                      </p>
+                        {keyData.requests.toLocaleString()} {t("ui.requests")} | {keyData.tokens.toLocaleString()} {i18n.t("ui.tokens")}</p>
                     </div>
                   </div>
                 ))}
@@ -97,7 +96,7 @@ const ModelSection = ({
       <Card className="mt-4">
         <CardContent>
           <div className="flex justify-between items-center">
-            <h3 className="text-lg font-medium text-foreground">Spend per day</h3>
+            <h3 className="text-lg font-medium text-foreground">{t("ui.Spend per day")}</h3>
             <CustomLegend categories={["metrics.spend"]} colors={["green"]} />
           </div>
           <BarChart
@@ -189,11 +188,9 @@ const ModelSection = ({
               </div>
               <div className="mb-2">
                 <p className="text-sm">
-                  {t("ui.Cache Read")}: {metrics.total_cache_read_input_tokens?.toLocaleString() || 0} tokens
-                </p>
+                  {t("ui.Cache Read")}: {metrics.total_cache_read_input_tokens?.toLocaleString() || 0} {i18n.t("ui.tokens")}</p>
                 <p className="text-sm">
-                  {t("ui.Cache Creation")}: {metrics.total_cache_creation_input_tokens?.toLocaleString() || 0} tokens
-                </p>
+                  {t("ui.Cache Creation")}: {metrics.total_cache_creation_input_tokens?.toLocaleString() || 0} {i18n.t("ui.tokens")}</p>
               </div>
               <AreaChart
                 className="mt-4"

@@ -1,4 +1,5 @@
 import React from "react";
+import i18n from "@/i18n";
 import {
   ArrowLeft,
   ArrowLeftRight,
@@ -302,14 +303,14 @@ export function KeyInfoHeader({
 
         <div className="flex min-w-0 flex-col gap-4">
           <LabeledField
-            label="Team"
+            label={i18n.t("ui.Team")}
             value={data.teamAlias || data.teamId}
             icon={<Users className="size-3.5" />}
             href={data.teamId ? teamDetailHref(data.teamId) : undefined}
             truncate
           />
           <LabeledField
-            label="Organization"
+            label={i18n.t("ui.Organization")}
             value={data.orgAlias || data.orgId}
             icon={<Building2 className="size-3.5" />}
             href={data.orgId ? orgDetailHref(data.orgId) : undefined}

@@ -1,4 +1,5 @@
 import { formatBudgetReset } from "@/utils/budgetUtils";
+import i18n from "@/i18n";
 import { formatNumberWithCommas } from "@/utils/dataUtils";
 import { SimpleTooltip } from "@/components/ui/tooltip";
 import { Badge } from "@/components/ui/badge";
@@ -105,7 +106,7 @@ export default function MyUserTab({ teamId }: MyUserTabProps) {
                 of {maxBudget === null ? "Unlimited" : `$${formatNumber(maxBudget, 4)}`}
               </span>
             </div>
-            {budgetReset && <div className="mt-1 text-muted-foreground">Resets {budgetReset}</div>}
+            {budgetReset && <div className="mt-1 text-muted-foreground">{i18n.t("ui.Resets")}{budgetReset}</div>}
           </CardContent>
         </Card>
 
@@ -113,9 +114,9 @@ export default function MyUserTab({ teamId }: MyUserTabProps) {
           <CardContent>
             {labelWithTooltip("Rate Limits", "Your per-member rate limits within this team.")}
             <div className="mt-2">
-              <span>TPM: {formatRateLimit(tpmLimit)}</span>
+              <span>{i18n.t("ui.TPM:")}{formatRateLimit(tpmLimit)}</span>
               <br />
-              <span>RPM: {formatRateLimit(rpmLimit)}</span>
+              <span>{i18n.t("ui.RPM:")}{formatRateLimit(rpmLimit)}</span>
             </div>
           </CardContent>
         </Card>
@@ -140,7 +141,7 @@ export default function MyUserTab({ teamId }: MyUserTabProps) {
                   ))}
                 </div>
               ) : (
-                <span>All Team Models</span>
+                <span>{i18n.t("ui.All Team Models")}</span>
               )}
             </div>
           </CardContent>

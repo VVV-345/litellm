@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import i18n from "@/i18n";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { getAutoRouterCustomTierPromptCall } from "@/components/networking";
 import { Button } from "@/components/ui/button";
@@ -70,30 +71,27 @@ const CustomTierPromptEditor: React.FC<CustomTierPromptEditorProps> = ({
     <div>
       <div className="flex items-center gap-2">
         <Button type="button" size="sm" variant="outline" onClick={openEditor}>
-          Edit prompt
+          {i18n.t("ui.Edit prompt")}
         </Button>
         {isOverridden && (
           <Button type="button" size="sm" variant="link" onClick={() => onChange(undefined)}>
-            Reset to default
-          </Button>
+            {i18n.t("ui.Reset to default")}</Button>
         )}
       </div>
       <p className="mt-1 text-xs text-muted-foreground">
         {isOverridden
-          ? "This router opens with your own instructions and calibration examples. Your tier definitions and the injection guard are still appended below them."
-          : "Write the opening instructions and your own calibration examples. Your tier definitions and the injection guard are always appended below them."}
+          ? i18n.t("ui.This router opens with your own instructions and calibration examples. Your tier definitions and the injection guard are still appended below them.")
+          : i18n.t("ui.Write the opening instructions and your own calibration examples. Your tier definitions and the injection guard are always appended below them.")}
       </p>
 
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
           <DialogHeader>
-            <DialogTitle>Classifier prompt</DialogTitle>
+            <DialogTitle>{i18n.t("ui.Classifier prompt")}</DialogTitle>
           </DialogHeader>
 
           <p className="text-sm text-muted-foreground">
-            Your text is the opening of the classifier prompt, so it is where calibration examples of your own belong.
-            The router appends your tier definitions and its injection guard underneath, and neither can be edited or
-            removed from here. Edit the definitions themselves with Edit tiers above.
+            {i18n.t("ui.Your text is the opening of the classifier prompt, so it is where calibration examples of your own belong. The router appends your tier definitions and its injection guard underneath, and neither can be edited or removed from here. Edit the definitions themselves with Edit tiers above.")}
           </p>
 
           <Textarea
@@ -101,23 +99,23 @@ const CustomTierPromptEditor: React.FC<CustomTierPromptEditorProps> = ({
             onChange={(e) => setDraft(e.target.value)}
             rows={12}
             placeholder={PLACEHOLDER}
-            aria-label="Classifier opening instructions"
+            aria-label={i18n.t("ui.Classifier opening instructions")}
             className="mt-3 font-mono text-xs"
           />
 
           <div className="mt-3">
-            <p className="text-xs font-medium">What this router sends</p>
+            <p className="text-xs font-medium">{i18n.t("ui.What this router sends")}</p>
             {preview.status === "loading" && (
-              <p className="mt-1 text-xs text-muted-foreground">Loading the assembled prompt…</p>
+              <p className="mt-1 text-xs text-muted-foreground">{i18n.t("ui.Loading the assembled prompt…")}</p>
             )}
             {preview.status === "error" && (
               <p className="mt-1 text-xs text-muted-foreground">
-                Could not load the assembled prompt. Your text is still saved as written.
+                {i18n.t("ui.Could not load the assembled prompt. Your text is still saved as written.")}
               </p>
             )}
             {preview.status === "ready" && (
               <pre
-                aria-label="Assembled classifier prompt"
+                aria-label={i18n.t("ui.Assembled classifier prompt")}
                 className="mt-1 overflow-x-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap text-muted-foreground"
               >
                 {preview.text}
@@ -127,11 +125,9 @@ const CustomTierPromptEditor: React.FC<CustomTierPromptEditorProps> = ({
 
           <DialogFooter className="mt-4">
             <Button type="button" variant="outline" onClick={() => setIsOpen(false)}>
-              Cancel
-            </Button>
+              {i18n.t("ui.Cancel")}</Button>
             <Button type="button" onClick={handleSave}>
-              Save prompt
-            </Button>
+              {i18n.t("ui.Save prompt")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

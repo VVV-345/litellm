@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import i18n from "@/i18n";
 import { useTranslation } from "react-i18next";
 import type { ColumnDef } from "@tanstack/react-table";
 import { BarChart } from "@/components/shared/charts";
@@ -80,22 +81,22 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
 
   const columns: ColumnDef<PerUserMetrics>[] = [
     {
-      header: "User ID",
+      header: t("ui.User ID"),
       accessorKey: "user_id",
       cell: ({ row }) => <span className="font-medium">{row.original.user_id}</span>,
     },
     {
-      header: "User Email",
+      header: t("ui.User Email"),
       accessorKey: "user_email",
       cell: ({ row }) => row.original.user_email || "N/A",
     },
     {
-      header: "User Agent",
+      header: t("ui.User Agent"),
       accessorKey: "user_agent",
       cell: ({ row }) => row.original.user_agent || "Unknown",
     },
     {
-      header: "Success Generations",
+      header: t("ui.Success Generations"),
       accessorKey: "successful_requests",
       meta: { numeric: true },
       cell: ({ row }) => formatAbbreviatedNumber(row.original.successful_requests),
@@ -107,13 +108,13 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
       cell: ({ row }) => formatAbbreviatedNumber(row.original.total_tokens),
     },
     {
-      header: "Failed Requests",
+      header: t("ui.Failed Requests"),
       accessorKey: "failed_requests",
       meta: { numeric: true },
       cell: ({ row }) => formatAbbreviatedNumber(row.original.failed_requests),
     },
     {
-      header: "Total Cost",
+      header: t("ui.Total Cost"),
       accessorKey: "spend",
       meta: { numeric: true },
       cell: ({ row }) => `$${formatAbbreviatedNumber(row.original.spend, 4)}`,
@@ -122,16 +123,16 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
 
   return (
     <div className="mb-6">
-      <h3 className="text-lg font-medium text-foreground">Per User Usage</h3>
-      <p className="text-sm text-muted-foreground">Individual developer usage metrics</p>
+      <h3 className="text-lg font-medium text-foreground">{t("ui.Per User Usage")}</h3>
+      <p className="text-sm text-muted-foreground">{t("ui.Individual developer usage metrics")}</p>
 
       <Tabs defaultValue="details">
         <TabsList variant="line" className="mb-6 h-auto w-full justify-start rounded-none border-b p-0">
           <TabsTrigger value="details" className="flex-none rounded-none px-4 py-2">
-            User Details
+            {t("ui.User Details")}
           </TabsTrigger>
           <TabsTrigger value="distribution" className="flex-none rounded-none px-4 py-2">
-            Usage Distribution
+            {t("ui.Usage Distribution")}
           </TabsTrigger>
         </TabsList>
 
@@ -141,25 +142,23 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
             columns={columns}
             data={perUserData.results.slice(0, 10)}
             getRowId={(row) => row.user_id}
-            noDataMessage="No per-user usage data"
+            noDataMessage={t("ui.No per-user usage data")}
             size="compact"
           />
 
           {perUserData.results.length > 10 && (
             <div className="mt-4 flex justify-between items-center">
-              <p className="text-sm text-muted-foreground">Showing 10 of {perUserData.total_count} results</p>
+              <p className="text-sm text-muted-foreground">{t("ui.Showing 10 of")} {perUserData.total_count} {t("ui.results")}</p>
               <div className="flex gap-2">
                 <Button size="sm" variant="secondary" onClick={handlePrevPage} disabled={currentPage === 1}>
-                  Previous
-                </Button>
+                  {i18n.t("ui.Previous")}</Button>
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={handleNextPage}
                   disabled={currentPage >= perUserData.total_pages}
                 >
-                  Next
-                </Button>
+                  {i18n.t("ui.Next")}</Button>
               </div>
             </div>
           )}
@@ -168,8 +167,8 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
         {/* Tab 2: Usage Distribution Histogram */}
         <TabsContent value="distribution" keepMounted>
           <div className="mb-4">
-            <h4 className="text-lg font-medium text-foreground">User Usage Distribution</h4>
-            <p className="text-sm text-muted-foreground">Number of users by successful request frequency</p>
+            <h4 className="text-lg font-medium text-foreground">{t("ui.User Usage Distribution")}</h4>
+            <p className="text-sm text-muted-foreground">{t("ui.Number of users by successful request frequency")}</p>
           </div>
 
           <BarChart
@@ -242,7 +241,7 @@ const PerUserUsage: React.FC<PerUserUsageProps> = ({ accessToken, selectedTags, 
                 .map(([agent]) => agent);
             })()}
             colors={["blue", "green", "orange", "red", "purple", "yellow", "pink", "indigo"]}
-            valueFormatter={(value: number) => `${value} users`}
+            valueFormatter={(value: number) => `${value} ${t("ui.users")}`}
             yAxisWidth={80}
             showLegend={true}
             stack={true}

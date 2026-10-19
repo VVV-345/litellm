@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import i18n from "@/i18n";
 import { Info, UserPlus } from "lucide-react";
 import { Alert, AlertTitle } from "@/components/shared/Alert";
 import { useForm } from "react-hook-form";
@@ -160,7 +161,7 @@ const UserSearchModal: React.FC<UserSearchModalProps> = ({
           autoHighlight="always"
           isLoading={loading}
           placeholder={placeholder}
-          emptyText="No results"
+          emptyText={i18n.t("ui.No results")}
           loadingText="Loading..."
           inputId={controlProps.id}
         />
@@ -185,7 +186,7 @@ const UserSearchModal: React.FC<UserSearchModalProps> = ({
             </Alert>
 
             <FieldGroup>
-              <FormField control={form.control} name="user_email" label="Email">
+              <FormField control={form.control} name="user_email" label={i18n.t("ui.Email")}>
                 {({ id, value, onChange }) =>
                   renderUserSearch("user_email", "Search by email", { id, value, onChange }, "member-email-search")
                 }
@@ -193,11 +194,11 @@ const UserSearchModal: React.FC<UserSearchModalProps> = ({
 
               <div className="text-center">OR</div>
 
-              <FormField control={form.control} name="user_id" label="User ID">
+              <FormField control={form.control} name="user_id" label={i18n.t("ui.User ID")}>
                 {({ id, value, onChange }) => renderUserSearch("user_id", "Search by user ID", { id, value, onChange })}
               </FormField>
 
-              <FormField control={form.control} name="role" label="Member Role">
+              <FormField control={form.control} name="role" label={i18n.t("ui.Member Role")}>
                 {({ id, value, onChange }) => (
                   <Select items={roles} value={value} onValueChange={(next) => onChange(next as string)}>
                     <SelectTrigger id={id}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { CircleHelp } from "lucide-react";
+import i18n from "@/i18n";
 import React from "react";
 import { z } from "zod/v4";
 import BudgetDurationDropdown from "@/components/common_components/budget_duration_dropdown";
@@ -59,12 +60,11 @@ const AccessGroupBudgetModal: React.FC<AccessGroupBudgetModalProps> = ({
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>
-            {budget ? "Edit" : "Set"} budget for &quot;{accessGroup?.access_group}&quot;
+            {i18n.t(budget ? "ui.Edit budget for {{name}}" : "ui.Set budget for {{name}}", { name: accessGroup?.access_group ?? "" })}
           </DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Every key granted this access group by name draws from this one budget. A key that reaches the group&apos;s
-          models through a wildcard or <code>all-proxy-models</code> is not charged against it.
+          {i18n.t("ui.Every key granted this access group by name draws from this one budget. A key that reaches the group's models through a wildcard or")} <code>all-proxy-models</code> {i18n.t("ui.is not charged against it.")}
         </p>
         <form onSubmit={form.handleSubmit((values) => onSubmit(buildAccessGroupBudgetBody(values)))} noValidate>
           <TooltipProvider>
@@ -73,8 +73,8 @@ const AccessGroupBudgetModal: React.FC<AccessGroupBudgetModalProps> = ({
                 control={form.control}
                 name="max_budget"
                 label={labelWithHint(
-                  "Max Budget (USD)",
-                  "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused",
+                  i18n.t("ui.Max Budget (USD)"),
+                    i18n.t("ui.Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused"),
                 )}
               >
                 {({ ref, value, ...field }) => <NumericalInput {...field} value={value ?? ""} step={0.01} />}
@@ -106,7 +106,7 @@ const AccessGroupBudgetModal: React.FC<AccessGroupBudgetModalProps> = ({
             </FieldGroup>
 
             <p className="mt-3 text-xs text-muted-foreground">
-              A field left blank keeps whatever the budget already has. Use Clear budget to remove the budget itself.
+              {i18n.t("ui.A field left blank keeps whatever the budget already has. Use Clear budget to remove the budget itself.")}
             </p>
 
             <div className="mt-6 flex justify-end gap-2">

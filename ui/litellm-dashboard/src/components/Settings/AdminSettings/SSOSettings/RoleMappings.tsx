@@ -1,4 +1,5 @@
 import type { RoleMappings as RoleMappingsType } from "@/app/(dashboard)/hooks/sso/useSSOSettings";
+import i18n from "@/i18n";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/shared/DataTable";
 import { StatusBadge } from "@/components/shared/table_cells/status_badge";
@@ -38,7 +39,7 @@ export default function RoleMappings({ roleMappings }: { roleMappings: RoleMappi
             ))}
           </div>
         ) : (
-          <span className="text-muted-foreground italic">No groups mapped</span>
+          <span className="text-muted-foreground italic">{i18n.t("ui.No groups mapped")}</span>
         ),
     },
   ];
@@ -47,18 +48,18 @@ export default function RoleMappings({ roleMappings }: { roleMappings: RoleMappi
       <CardContent>
         <div className="flex items-center gap-3">
           <Users className="w-6 h-6 text-muted-foreground mb-2" />
-          <h3 className="mb-2 text-2xl font-semibold text-foreground">Role Mappings</h3>
+          <h3 className="mb-2 text-2xl font-semibold text-foreground">{i18n.t("ui.Role Mappings")}</h3>
         </div>
         <div className="space-y-8">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <h5 className="mb-2 text-base font-semibold text-foreground">Group Claim</h5>
+              <h5 className="mb-2 text-base font-semibold text-foreground">{i18n.t("ui.Group Claim")}</h5>
               <div>
                 <code className={inlineCodeClass}>{roleMappings.group_claim}</code>
               </div>
             </div>
             <div>
-              <h5 className="mb-2 text-base font-semibold text-foreground">Default Role</h5>
+              <h5 className="mb-2 text-base font-semibold text-foreground">{i18n.t("ui.Default Role")}</h5>
               <div>
                 <strong className="font-semibold">{defaultRoleDisplayNames[roleMappings.default_role]}</strong>
               </div>
