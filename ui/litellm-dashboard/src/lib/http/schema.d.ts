@@ -1307,6 +1307,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/onboarding/items/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cleanup */
+        post: operations["cleanup_account_pool_onboarding_items_cleanup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/onboarding/items/{item_id}/action": {
         parameters: {
             query?: never;
@@ -25161,6 +25178,7 @@ export interface components {
              * @default []
              */
             advanced_profiles: components["schemas"]["AdvancedSettingsProfile"][];
+            auth_file_template?: components["schemas"]["AuthFileTemplate"] | null;
             /**
              * Auth Refresh Interval Minutes
              * @default 15
@@ -26011,6 +26029,15 @@ export interface components {
             updated_values?: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** AuthFileTemplate */
+        AuthFileTemplate: {
+            /** Prefix */
+            prefix?: string | null;
+            /** Priority */
+            priority?: number | null;
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
         };
         /**
          * AutoRouterBenchmarkGroup
@@ -36393,6 +36420,18 @@ export interface components {
             /** User Code */
             user_code: string | null;
         };
+        /** OnboardingCleanup */
+        OnboardingCleanup: {
+            /** Completed Before */
+            completed_before?: string | null;
+            /** Source */
+            source?: ("auth_file" | "oauth") | null;
+        };
+        /** OnboardingCleanupResult */
+        OnboardingCleanupResult: {
+            /** Cleared */
+            cleared: number;
+        };
         /** OnboardingEntry */
         OnboardingEntry: {
             /**
@@ -36467,6 +36506,8 @@ export interface components {
             card_id: string;
             /** Card Name */
             card_name?: string | null;
+            /** Completed At */
+            completed_at?: string | null;
             /**
              * Created At
              * Format: date-time
@@ -46300,6 +46341,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OnboardingItem"][];
+                };
+            };
+        };
+    };
+    cleanup_account_pool_onboarding_items_cleanup_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingCleanup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OnboardingCleanupResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

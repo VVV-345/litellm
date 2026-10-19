@@ -1,6 +1,6 @@
 /** 验证两条上号流程独立、密码按需读取和等待授权的界面。 */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
@@ -69,6 +69,89 @@ beforeEach(() => {
 });
 
 describe("onboarding workflows", () => {
+  it("allows optional node selection for JSON auth files and resets a stale preview when the node changes", async () => {
+    const user = userEvent.setup();
+    mount();
+    const input = await screen.findByLabelText("认证 JSON 文件（可多选）");
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.click(await screen.findByRole("combobox", { name: "认证文件出站代理" }));
+    await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+    const content = '{"type":"codex","refresh_token":"fixture"}';
+    const file = new File([content], "account.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => content });
+    await user.upload(input, file);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/account_pool/onboarding/preview",
+        expect.objectContaining({
+          body: expect.objectContaining({ source: "auth_file", proxy_profile_id: "proxy-us" }),
+        }),
+      ),
+    );
+    expect(screen.getByRole("button", { name: "导入有效项" })).toBeVisible();
+    await user.click(screen.getByRole("combobox", { name: "认证文件出站代理" }));
+    await user.click(await screen.findByRole("option", { name: "沿用文件 / 默认配置" }));
+    expect(screen.queryByRole("button", { name: "导入有效项" })).not.toBeInTheDocument();
+  });
+
+  it("requires confirmation and forwards the current source and timezone-aware cleanup cutoff", async () => {
+    const user = userEvent.setup();
+    post.mockResolvedValue({ cleared: 1 });
+    mount();
+    await user.click(screen.getByRole("button", { name: "清理已完成记录" }));
+    expect(post).not.toHaveBeenCalled();
+    const dialog = within(screen.getByRole("dialog"));
+    await user.selectOptions(dialog.getByLabelText("清理范围"), "before");
+    expect(dialog.getByRole("button", { name: "确认清理" })).toBeDisabled();
+    fireEvent.change(dialog.getByLabelText("完成时间早于"), { target: { value: "2026-10-01T12:00" } });
+    await user.click(dialog.getByRole("button", { name: "确认清理" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/account_pool/onboarding/items/cleanup", {
+        accessToken: "test",
+        body: { source: "auth_file", completed_before: new Date("2026-10-01T12:00").toISOString() },
+      }),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("applies the saved form template only when opted in, preserving auth tokens", async () => {
+    const originalGet = get.getMockImplementation()!;
+    get.mockImplementation(async (path: string) =>
+      path === "/config/runtime"
+        ? {
+            version: 2,
+            values: { auth_file_template: { priority: 0, prefix: "shared", proxy_profile_id: "proxy-us" } },
+          }
+        : originalGet(path),
+    );
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("checkbox", { name: "使用默认认证模板" }));
+    const content = '{"email":"test@example.test","refresh_token":"fixture","prefix":"old"}';
+    const file = new File([content], "account.json", { type: "application/json" });
+    Object.defineProperty(file, "text", { value: async () => content });
+    await user.upload(screen.getByLabelText("认证 JSON 文件（可多选）"), file);
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith(
+        "/account_pool/onboarding/preview",
+        expect.objectContaining({
+          body: expect.objectContaining({
+            proxy_profile_id: "proxy-us",
+            entries: [
+              expect.objectContaining({
+                content: JSON.stringify({
+                  email: "test@example.test",
+                  refresh_token: "fixture",
+                  prefix: "shared",
+                  priority: 0,
+                }),
+              }),
+            ],
+          }),
+        }),
+      ),
+    );
+  });
   it("keeps OAuth inventory out of the auth-file view and only reads secrets on demand", async () => {
     const user = userEvent.setup();
     mount();

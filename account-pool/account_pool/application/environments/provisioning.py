@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID, uuid4
 
+from pydantic import JsonValue, TypeAdapter
+
 from account_pool.application.authorization import (
     _authorization_expires_at,
     _replace_state,
@@ -64,6 +66,11 @@ from account_pool.ports import (
 from account_pool.shared.error_safety import safe_error as _safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
+
+
+def auth_file_with_proxy(content: bytes, proxy_url: str) -> bytes:
+    values: Final = TypeAdapter(dict[str, JsonValue]).validate_json(content)
+    return json.dumps({**values, "proxy_url": proxy_url}).encode()
 
 
 @dataclass(frozen=True, slots=True)
@@ -285,11 +292,22 @@ class EnvironmentProvisioning:
                 return Failure(FailureCode.CONFLICT, "卡片已停用、冷却或删除，请先检查卡片状态")
             if existing.status is EnvironmentStatus.READY and not existing.configuration_pending:
                 return Success(to_view(existing))
+            selected_proxy: Final = (
+                await self._selected_proxy(request.proxy_profile_id) if request.proxy_profile_id is not None else None
+            )
+            if isinstance(selected_proxy, Failure):
+                return selected_proxy
             try:
                 await self._channel(existing).provision(existing)
             except Exception:
                 return Failure(FailureCode.UPSTREAM, "卡片运行环境启动失败，可重试原任务")
-            return await self.upload_auth_file(environment_id, filename, content, "application/json", replace=True)
+            return await self.upload_auth_file(
+                environment_id,
+                filename,
+                auth_file_with_proxy(content, selected_proxy.value[2]) if selected_proxy is not None else content,
+                "application/json",
+                replace=True,
+            )
         lock: Final = await self._lock_for(environment_id)
         async with lock, self._ownership.operation(environment_id):
             return await self.provision_direct_credential_environment(
@@ -297,11 +315,15 @@ class EnvironmentProvisioning:
                 supplier=request.supplier,
                 operation_id=request.operation_id,
                 credential_content=content,
-                write_credential=lambda channel, record, _: self._cli_proxy.upload_auth_file(
-                    record, filename, content, "application/json"
+                write_credential=lambda channel, record, proxy_url: self._cli_proxy.upload_auth_file(
+                    record,
+                    filename,
+                    auth_file_with_proxy(content, proxy_url) if request.proxy_profile_id is not None else content,
+                    "application/json",
                 ),
                 auth_file=True,
                 environment_id=environment_id,
+                selected_proxy_profile_id=request.proxy_profile_id,
             )
 
     async def pending_authorization(self, environment_id: UUID) -> Result[AuthorizationView]:
@@ -353,6 +375,7 @@ class EnvironmentProvisioning:
         write_credential: Callable[[EnvironmentChannel, EnvironmentRecord, str], Awaitable[None]],
         auth_file: bool = False,
         environment_id: UUID | None = None,
+        selected_proxy_profile_id: str | None = None,
     ) -> Result[EnvironmentView]:
         try:
             supplier_definition: Final = self._channels.get(ChannelKind.CLIPROXYAPI).supplier(supplier)
@@ -365,7 +388,11 @@ class EnvironmentProvisioning:
             if existing is not None:
                 return Success(to_view(existing))
         pool_settings: Final = await self._account_pool_settings()
-        proxy_result: Final = await self._default_proxy(pool_settings)
+        proxy_result: Final = (
+            await self._selected_proxy(selected_proxy_profile_id)
+            if selected_proxy_profile_id is not None
+            else await self._default_proxy(pool_settings)
+        )
         if isinstance(proxy_result, Failure):
             return proxy_result
         proxy_mode, proxy_profile_id, proxy_url = proxy_result.value

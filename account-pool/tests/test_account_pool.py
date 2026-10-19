@@ -4595,3 +4595,47 @@ async def test_refreshed_quota_releases_expired_quota_cooldown_only(
     assert observed.enabled is enabled
     assert observed.manual_cooldown is manual
     assert reread.status is want
+
+
+class FieldsCLI(FakeCLIProxy):
+    def __init__(self):
+        super().__init__()
+        self.fields_calls = []
+
+    async def patch_auth_file_fields(self, record, filename, fields):
+        self.fields_calls.append((record.id, filename, dict(fields)))
+
+
+@pytest.mark.asyncio
+async def test_auth_fields_resolve_proxy_profile_and_preserve_explicit_empty_values(tmp_path):
+    record = _record(status=EnvironmentStatus.READY)
+    cli = FieldsCLI()
+    runtime = FakeRuntime()
+    service = EnvironmentService(
+        _settings(tmp_path), MemoryRepository(record), runtime, cli,
+        StaticProfiles("  http://selected-proxy.example:8080  "), EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    result = await service.patch_auth_file_fields(record.id, {"priority": 0, "prefix": "", "proxy_profile_id": "node-a"})
+    assert isinstance(result, Success)
+    assert cli.fields_calls == [(record.id, record.auth_file_name, {"priority": 0, "prefix": "", "proxy_url": "http://selected-proxy.example:8080"})]
+    assert "selected-proxy" not in result.value.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fields", [{"priority": True}, {"priority": 1.5}, {"prefix": 12}, {"access_token": "secret"}, {"proxy_profile_id": "missing"}, {"proxy_profile_id": "node", "proxy_url": "http://proxy:80"}])
+async def test_auth_fields_reject_invalid_values_before_upstream(tmp_path, fields):
+    record = _record(status=EnvironmentStatus.READY)
+    cli = FieldsCLI()
+    result = await _service(record, cli, tmp_path).patch_auth_file_fields(record.id, fields)
+    assert isinstance(result, Failure)
+    assert not cli.fields_calls
+
+
+@pytest.mark.asyncio
+async def test_auth_fields_cannot_edit_deleting_card(tmp_path):
+    record = _record(status=EnvironmentStatus.DELETING)
+    cli = FieldsCLI()
+    result = await _service(record, cli, tmp_path).patch_auth_file_fields(record.id, {"prefix": "team"})
+    assert isinstance(result, Failure)
+    assert not cli.fields_calls

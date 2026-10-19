@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets as random_secrets
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Final
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -25,6 +25,8 @@ from account_pool.domain import (
 )
 from account_pool.onboarding_models import (
     OnboardingAction,
+    OnboardingCleanup,
+    OnboardingCleanupResult,
     OnboardingEntry,
     OnboardingImport,
     OnboardingImportResult,
@@ -43,6 +45,7 @@ from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose,
 
 _LOGGER: Final = logging.getLogger(__name__)
 _ACTIVE: Final = frozenset({"queued", "running", "awaiting_authorization"})
+_COMPLETED: Final = frozenset({"ready", "cooling_down", "disabled"})
 _SUPPLIER_NAMES: Final = {
     "openai_codex": "Codex",
     "anthropic_claude": "Claude",
@@ -88,6 +91,10 @@ def target_view(target: OnboardingTarget, items: tuple[OnboardingItem, ...]) -> 
         awaiting_mailbox=sum(item.state == "awaiting_mailbox" for item in selected),
         shortage=max(0, target.count - ready - pending),
     )
+
+
+def completion_time(item: OnboardingItem) -> datetime | None:
+    return item.completed_at or (item.updated_at if item.card_name is not None and item.state in _COMPLETED else None)
 
 
 def usable_models(record: EnvironmentRecord) -> tuple[str, ...]:
@@ -200,15 +207,46 @@ class OnboardingService:
             )
         return OnboardingImportResult(
             preview=preview,
-            items=tuple(row.item for row in await self.repository.list() if row.item.job_id == request.job_id),
+            items=tuple(
+                row.item
+                for row in await self.repository.list()
+                if row.item.job_id == request.job_id and not row.history_cleared
+            ),
         )
 
     async def list(self) -> tuple[OnboardingItem, ...]:
-        return tuple(row.item for row in await self.repository.list())
+        return tuple(row.item for row in await self.repository.list() if not row.history_cleared)
+
+    async def cleanup(self, request: OnboardingCleanup) -> Result[OnboardingCleanupResult]:
+        async with self.repository.worker_lock() as acquired:
+            if not acquired:
+                return Failure(FailureCode.CONFLICT, "后台正在处理卡片，请稍后重试")
+            eligible: Final = tuple(
+                row
+                for row in await self.repository.list()
+                if not row.history_cleared
+                and not row.paused
+                and row.item.state in _COMPLETED
+                and (request.source is None or row.item.source == request.source)
+                and (completed_at := completion_time(row.item)) is not None
+                and (request.completed_before is None or completed_at < request.completed_before)
+            )
+            for row in eligible:
+                # 隐藏完成历史并丢弃原始认证文件，保留 OAuth 账号资料、卡片关联与去重指纹。
+                await self.repository.save(
+                    row.model_copy(
+                        update={
+                            "item": row.item.model_copy(update={"completed_at": completion_time(row.item)}),
+                            "history_cleared": True,
+                            "ciphertext": row.ciphertext if row.item.source == "oauth" else "",
+                        }
+                    )
+                )
+            return Success(OnboardingCleanupResult(cleared=len(eligible)))
 
     async def reveal(self, item_id: UUID) -> Result[OnboardingSecrets]:
         row: Final = await self.repository.get(item_id)
-        if row is None or row.item.source != "oauth":
+        if row is None or row.history_cleared or row.item.source != "oauth":
             return Failure(FailureCode.NOT_FOUND, "未找到 OAuth 账号")
         payload: Final = self._payload(row)
         return Success(
@@ -224,10 +262,14 @@ class OnboardingService:
             if not acquired:
                 return Failure(FailureCode.CONFLICT, "后台正在处理卡片，请稍后重试")
             row: Final = await self.repository.get(item_id)
-            if row is None:
+            if row is None or row.history_cleared:
                 return Failure(FailureCode.NOT_FOUND, "任务不存在")
             if request.action == "pause":
-                return Success(await self._save(row, "disabled", "已暂停此任务，已有卡片请在仪表盘管理"))
+                return Success(
+                    await self._save(
+                        row.model_copy(update={"paused": True}), "disabled", "已暂停此任务，已有卡片请在仪表盘管理"
+                    )
+                )
             if request.action in ("mailbox_ready", "generate_password"):
                 if row.item.source != "oauth" or row.item.state not in (
                     "awaiting_mailbox",
@@ -259,22 +301,32 @@ class OnboardingService:
                     }
                 )
                 updated: Final = row.model_copy(
-                    update={"ciphertext": self._cipher.seal(item_id, prepared.model_dump_json())}
+                    update={"ciphertext": self._cipher.seal(item_id, prepared.model_dump_json()), "paused": False}
                 )
                 return Success(await self._save(updated, "standby", "邮箱已由管理员确认，等待启动授权"))
             if row.item.state not in ("standby", "failed", "disabled", "awaiting_mailbox"):
                 return Failure(FailureCode.CONFLICT, "任务已经在处理或已完成")
             if row.item.source == "oauth" and not self._payload(row).mailbox_ready:
                 return Failure(FailureCode.CONFLICT, "请先完成邮箱准备并确认")
-            return Success(await self._save(row, "queued", "已排队，复用原任务和卡片"))
+            return Success(
+                await self._save(row.model_copy(update={"paused": False}), "queued", "已排队，复用原任务和卡片")
+            )
 
     async def _save(self, row: StoredOnboarding, state: OnboardingState, message: str) -> OnboardingItem:
-        item: Final = row.item.model_copy(update={"state": state, "message": message, "updated_at": utc_now()})
+        now: Final = utc_now()
+        item: Final = row.item.model_copy(
+            update={
+                "state": state,
+                "message": message,
+                "updated_at": now,
+                "completed_at": completion_time(row.item) or (now if state == "ready" else None),
+            }
+        )
         await self.repository.save(row.model_copy(update={"item": item}))
         return item
 
     async def targets(self) -> tuple[OnboardingTargetView, ...]:
-        items: Final = await self.list()
+        items: Final = tuple(row.item for row in await self.repository.list())
         return tuple(target_view(target, items) for target in await self.repository.targets())
 
     async def authorization(self, item_id: UUID) -> Result[AuthorizationView]:

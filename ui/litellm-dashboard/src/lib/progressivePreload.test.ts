@@ -125,10 +125,49 @@ describe("progressive preloading", () => {
     await finished;
   });
 
-  it("cancels an idle background warmup and settles without loading after logout", async () => {
-    const idle = vi.fn(() => 4);
-    const cancel = vi.fn();
-    vi.stubGlobal("window", { setTimeout, clearTimeout, requestIdleCallback: idle, cancelIdleCallback: cancel });
+  it("loads background batches in parallel with the v1.6.1 250ms inter-batch cadence", async () => {
+    vi.setSystemTime(0);
+    const starts: Array<[string, number]> = [];
+    const task = (id: string) => ({ id, run: () => starts.push([id, Date.now()]) });
+    const finished = runPreloadStages(
+      [task("primary-one"), task("primary-two")],
+      [[task("background-one"), task("background-two")], [task("background-three")]],
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(starts).toEqual([["primary-one", 0], ["primary-two", 0]]);
+    await vi.advanceTimersByTimeAsync(249);
+    expect(starts).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(starts).toEqual([
+      ["primary-one", 0], ["primary-two", 0], ["background-one", 250], ["background-two", 250],
+    ]);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(starts.at(-1)).toEqual(["background-three", 500]);
+    await vi.advanceTimersByTimeAsync(250);
+    expect(await finished).toMatchObject({ stage: "complete", background: { completed: 3, failed: 0 } });
+    expect(Date.now()).toBe(750);
+  });
+
+  it.each([{ saveData: true }, { effectiveType: "2g" }])(
+    "settles staged warmup on constrained connections without waiting for optional idle preloads: %s",
+    async (connection) => {
+      vi.stubGlobal("navigator", { connection });
+      const loaded: string[] = [];
+      let complete = false;
+      const finished = runPreloadStages(
+        [{ id: "primary", run: () => loaded.push("primary") }],
+        [[{ id: "background", run: () => loaded.push("background") }]],
+      ).then(() => { complete = true; });
+
+      await vi.runAllTimersAsync();
+      expect(loaded).toEqual(["primary", "background"]);
+      expect(complete).toBe(true);
+      await finished;
+    },
+  );
+
+  it("cancels a staged warmup yield and settles without loading after logout", async () => {
     const controller = new AbortController();
     const primary = vi.fn();
     const background = vi.fn();
@@ -139,12 +178,11 @@ describe("progressive preloading", () => {
     );
     await vi.advanceTimersByTimeAsync(0);
     expect(primary).toHaveBeenCalledOnce();
-    await vi.advanceTimersByTimeAsync(1500);
-    expect(idle).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(100);
     expect(background).not.toHaveBeenCalled();
     controller.abort();
     await finished;
-    expect(cancel).toHaveBeenCalledWith(4);
+    expect(vi.getTimerCount()).toBe(0);
     expect(background).not.toHaveBeenCalled();
   });
 

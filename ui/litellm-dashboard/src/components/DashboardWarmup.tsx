@@ -42,7 +42,7 @@ import {
 import { runPreloadStages, type PreloadStageProgress, type PreloadTask } from "@/lib/progressivePreload";
 import { all_admin_roles, rolesAllowedToViewWriteScopedPages } from "@/utils/roles";
 import { preloadModelsModules } from "@/app/(dashboard)/models-and-endpoints/preloadModels";
-import { ACCOUNT_POOL_MODULE_LOADERS } from "@/features/account-pool/preloadModules";
+import { preloadAccountPoolModules } from "@/features/account-pool/preloadModules";
 import {
   DEFAULT_LOGS_SORTING,
   initialLogsRange,
@@ -187,6 +187,7 @@ const createPrimaryTasks = (
       runQuery(queryClient, accountPoolDashboardStatsOptions(accessToken)),
       runQuery(queryClient, accountPoolQuotaRefreshStatusOptions(accessToken)),
       runQuery(queryClient, proxyGatewayQueryOptions(accessToken)),
+      preloadAccountPoolModules(),
       runQuery(queryClient, {
         queryKey: accountPoolQueryKeys.providerFamilies(accessToken),
         queryFn: () => listAccountPoolProviderFamilies(accessToken),
@@ -240,7 +241,6 @@ const createBackgroundBatches = async (
 ) => {
   const { queryClient, accessToken, userRole } = context;
   const tasks: PreloadTask[] = [...dashboardBackgroundTasks(context, signal, disabledPages)];
-  if (canManageAccountPool(userRole, false)) tasks.push(...ACCOUNT_POOL_MODULE_LOADERS.map((run, index) => task(`account-pool-module-${index}`, run)));
   tasks.push(task("other-log-modules", preloadOtherLogModules));
   if (canManageAccountPool(userRole, false)) {
     tasks.unshift(
@@ -306,7 +306,11 @@ function WarmupProgress({
   const value = progressPercent(succeeded, progress.total);
   return (
     <div
-      className="fixed bottom-4 right-4 z-floating w-72 rounded-md border bg-background p-3 shadow-sm"
+      className={
+        primaryOnly
+          ? "flex min-h-screen items-center justify-center bg-background p-6"
+          : "fixed bottom-4 right-4 z-floating w-72 rounded-md border bg-background p-3 shadow-sm"
+      }
       role="status"
       aria-live="polite"
     >
@@ -349,6 +353,7 @@ export default function DashboardWarmup({
   const { mode } = usePluginMode();
   const queryClient = useQueryClient();
   const router = useRouter();
+  const [readyKey, setReadyKey] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<PreloadStageProgress>({
     primary: { completed: 0, total: PRIMARY_PAGES.length, failed: 0 },
@@ -358,6 +363,7 @@ export default function DashboardWarmup({
 
   const shouldWarmup = Boolean(accessToken && mode === "ai-gateway");
   const warmupKey = shouldWarmup ? `${accessToken}:${userID}:${userRole}:${attempt}` : null;
+  const ready = !shouldWarmup || readyKey === warmupKey;
 
   useEffect(() => {
     if (!accessToken || mode !== "ai-gateway") {
@@ -379,6 +385,7 @@ export default function DashboardWarmup({
       (next) => {
         if (controller.signal.aborted) return;
         setState(next);
+        if (next.stage !== "primary") setReadyKey(warmupKey);
       },
       controller.signal,
       disabledPages,
@@ -390,13 +397,12 @@ export default function DashboardWarmup({
   }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPages]);
 
   const retry = () => setAttempt((value) => value + 1);
-  const primaryReady =
-    !shouldWarmup || (state.primary.total > 0 && state.primary.completed >= state.primary.total);
+  if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} />;
   return (
-    <DashboardReadinessProvider value={primaryReady}>
+    <DashboardReadinessProvider value={ready}>
       {children}
-      {(shouldWarmup && (state.primary.failed > 0 || state.background.failed > 0)) && (
-        <WarmupProgress state={state} primaryOnly={state.primary.failed > 0} retry={retry} />
+      {(shouldWarmup && (state.stage === "background" || state.background.failed > 0)) && (
+        <WarmupProgress state={state} primaryOnly={false} retry={retry} />
       )}
     </DashboardReadinessProvider>
   );

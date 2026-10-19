@@ -14,6 +14,8 @@ const base = "/account_pool/onboarding";
 
 export const listOnboarding = (accessToken: string) =>
   apiClient.get<OnboardingItem[]>(`${base}/items`, { accessToken });
+export const cleanupOnboarding = (accessToken: string, body: components["schemas"]["OnboardingCleanup"]) =>
+  apiClient.post<components["schemas"]["OnboardingCleanupResult"]>(`${base}/items/cleanup`, { accessToken, body });
 export const previewOnboarding = (accessToken: string, body: OnboardingImport) =>
   apiClient.post<OnboardingPreview[]>(`${base}/preview`, { accessToken, body });
 export const submitOnboarding = (accessToken: string, body: OnboardingImport) =>

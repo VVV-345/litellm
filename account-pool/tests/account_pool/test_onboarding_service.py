@@ -1,10 +1,12 @@
 """验证上号隔离、去重、重试、密码保护及等待授权的真实状态。"""
 
+import json
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
 from account_pool.domain import (
     CreateEnvironmentRequest,
     EnvironmentStatus,
@@ -325,3 +327,212 @@ async def test_file_creation_keeps_observed_cooldown_instead_of_forcing_ready(tm
     assert isinstance(result, Success)
     assert result.value.status == EnvironmentStatus.COOLING_DOWN
     assert (await environments.get(item_id)).oauth_state is None
+
+
+async def test_file_import_selected_proxy_overrides_embedded_proxy_without_changing_credentials(tmp_path):
+    service, _, environments, _, cli, _ = setup_service(tmp_path)
+    original = file_request()
+    request = original.model_copy(
+        update={
+            "proxy_profile_id": "onboarding-proxy",
+            "entries": (
+                original.entries[0].model_copy(
+                    update={
+                        "content": json.dumps(
+                            {
+                                "type": "codex",
+                                "email": "test@example.com",
+                                "refresh_token": "private-refresh",
+                                "proxy_url": "http://embedded-user:embedded-secret@embedded.example:8080",
+                                "priority": 17,
+                            }
+                        )
+                    }
+                ),
+            ),
+        }
+    )
+    item = (await service.submit(request)).items[0]
+
+    await service.run_once()
+
+    record = await environments.get(item.card_id)
+    assert record.proxy_profile_id == "onboarding-proxy"
+    assert record.desired_configuration.proxy_url == "http://onboarding-proxy.example:8080"
+    assert json.loads(cli.upload_calls[0][2]) == {
+        "type": "codex",
+        "email": "test@example.com",
+        "refresh_token": "private-refresh",
+        "proxy_url": "http://onboarding-proxy.example:8080",
+        "priority": 17,
+    }
+    assert "embedded-secret" not in (await service.list())[0].model_dump_json()
+    assert not cli.submit_calls and not cli.authorization_status_calls
+
+
+async def test_completion_time_survives_later_observations(tmp_path):
+    service, tasks, environments, _, _, _ = setup_service(tmp_path)
+    item = (await service.submit(file_request())).items[0]
+    await service.run_once()
+    row = tasks.rows[item.id]
+    assert row.item.completed_at is not None
+    completed = utc_now() - timedelta(hours=1)
+    tasks.rows[item.id] = row.model_copy(
+        update={"item": row.item.model_copy(update={"completed_at": completed, "updated_at": completed})}
+    )
+
+    await service._complete(tasks.rows[item.id], await environments.get(item.card_id))
+
+    assert tasks.rows[item.id].item.completed_at == completed
+    assert tasks.rows[item.id].item.updated_at > completed
+
+
+async def test_cleanup_hides_completed_history_and_preserves_cards_and_fingerprints(tmp_path):
+    from account_pool.onboarding_models import OnboardingCleanup
+
+    service, tasks, environments, runtime, cli, environment_service = setup_service(tmp_path)
+    request = file_request()
+    item = (await service.submit(request)).items[0]
+    await service.run_once()
+    card_before = await environments.get(item.card_id)
+    fingerprints = tasks.rows[item.id].fingerprints
+
+    result = await service.cleanup(OnboardingCleanup(source="auth_file"))
+
+    assert isinstance(result, Success) and result.value.cleared == 1
+    assert await service.list() == ()
+    assert (await environments.get(item.card_id)) == card_before
+    assert tasks.rows[item.id].fingerprints == fingerprints
+    assert tasks.rows[item.id].ciphertext == ""
+    assert (await service.preview(request))[0].status == "duplicate"
+    assert (await service.submit(request)).items == ()
+    assert isinstance(await service.action(item.id, OnboardingAction(action="retry")), Failure)
+    restarted = OnboardingService(tasks, environments, environment_service, EnvironmentSecretDeriver("s" * 32))
+    assert await restarted.list() == ()
+    assert (await restarted.preview(request))[0].status == "duplicate"
+    again = await restarted.cleanup(OnboardingCleanup())
+    assert isinstance(again, Success) and again.value.cleared == 0
+    assert len(runtime.provisioned) == len(cli.upload_calls) == 1
+
+
+@pytest.mark.parametrize("state", ("ready", "cooling_down", "disabled"))
+async def test_cleanup_uses_completion_cutoff_and_source_not_last_poll_time(tmp_path, state):
+    from account_pool.onboarding_models import OnboardingCleanup
+
+    service, tasks, _, _, _, _ = setup_service(tmp_path)
+    item = (await service.submit(file_request())).items[0]
+    await service.run_once()
+    cutoff = utc_now() - timedelta(hours=1)
+    row = tasks.rows[item.id]
+    tasks.rows[item.id] = row.model_copy(
+        update={
+            "item": row.item.model_copy(
+                update={"state": state, "completed_at": cutoff - timedelta(seconds=1), "updated_at": utc_now()}
+            )
+        }
+    )
+    wrong_source = await service.cleanup(OnboardingCleanup(source="oauth", completed_before=cutoff))
+    assert isinstance(wrong_source, Success) and wrong_source.value.cleared == 0
+    too_early = await service.cleanup(OnboardingCleanup(completed_before=cutoff - timedelta(seconds=1)))
+    assert isinstance(too_early, Success) and too_early.value.cleared == 0
+    result = await service.cleanup(OnboardingCleanup(source="auth_file", completed_before=cutoff))
+    assert isinstance(result, Success) and result.value.cleared == 1
+
+
+@pytest.mark.parametrize(
+    "state", ("awaiting_mailbox", "standby", "queued", "running", "awaiting_authorization", "failed")
+)
+async def test_cleanup_preserves_unfinished_or_failed_tasks(tmp_path, state):
+    from account_pool.onboarding_models import OnboardingCleanup
+
+    service, tasks, _, _, _, _ = setup_service(tmp_path)
+    item = (await service.submit(oauth_request())).items[0]
+    row = tasks.rows[item.id]
+    tasks.rows[item.id] = row.model_copy(update={"item": row.item.model_copy(update={"state": state})})
+    result = await service.cleanup(OnboardingCleanup())
+    assert isinstance(result, Success) and result.value.cleared == 0
+    assert len(await service.list()) == 1
+    assert tasks.rows[item.id].ciphertext == row.ciphertext
+
+
+async def test_cleanup_preserves_explicitly_paused_completed_task(tmp_path):
+    from account_pool.onboarding_models import OnboardingCleanup
+
+    service, _, _, _, _, _ = setup_service(tmp_path)
+    item = (await service.submit(file_request())).items[0]
+    await service.run_once()
+    await service.action(item.id, OnboardingAction(action="pause"))
+
+    result = await service.cleanup(OnboardingCleanup())
+
+    assert isinstance(result, Success) and result.value.cleared == 0
+    assert (await service.list())[0].state == "disabled"
+
+
+async def test_cleanup_keeps_oauth_target_accounting_after_restart(tmp_path):
+    from account_pool.onboarding_models import OnboardingCleanup
+
+    service, tasks, environments, runtime, _, environment_service = setup_service(tmp_path)
+    item = (await service.submit(oauth_request(prepare=False))).items[0]
+    await service.action(item.id, OnboardingAction(action="start"))
+    await service.run_once()
+    record = (await environments.get(item.card_id)).model_copy(
+        update={
+            "status": EnvironmentStatus.READY,
+            "auth_file_name": "account.json",
+            "oauth_state": None,
+            "oauth_expires_at": None,
+            "available_models": ("example-model",),
+            "enabled_models": ("example-model",),
+        }
+    )
+    await environments.save(record)
+    await service._complete(tasks.rows[item.id], record)
+    await tasks.save_target(OnboardingTarget(supplier="openai_codex", enabled=True, count=1))
+    ciphertext = tasks.rows[item.id].ciphertext
+    result = await service.cleanup(OnboardingCleanup(source="oauth"))
+    assert isinstance(result, Success) and result.value.cleared == 1
+    assert tasks.rows[item.id].ciphertext == ciphertext
+
+    restarted = OnboardingService(tasks, environments, environment_service, EnvironmentSecretDeriver("s" * 32))
+
+    assert await restarted.list() == ()
+    target = (await restarted.targets())[0]
+    assert target.ready == 1 and target.shortage == 0
+    assert isinstance(await restarted.reveal(item.id), Failure)
+    await restarted.submit(
+        oauth_request(prepare=False).model_copy(
+            update={"entries": (oauth_request().entries[0].model_copy(update={"label": "standby@example.com"}),)}
+        )
+    )
+    await restarted.run_once()
+    assert len(runtime.provisioned) == 1
+    assert (await restarted.list())[0].state == "standby"
+
+
+async def test_cleanup_metadata_round_trip_and_legacy_pause_compatibility(tmp_path):
+    from account_pool.onboarding_models import OnboardingCleanup
+    from account_pool.onboarding_repository import PostgresOnboardingRepository, persisted_item
+
+    service, tasks, _, _, _, _ = setup_service(tmp_path)
+    item = (await service.submit(file_request())).items[0]
+    await service.run_once()
+    await service.cleanup(OnboardingCleanup())
+    row = tasks.rows[item.id]
+    stored = {
+        "payload": persisted_item(row).model_dump(mode="json"),
+        "ciphertext": row.ciphertext,
+        "fingerprints": list(row.fingerprints),
+    }
+
+    decoded = PostgresOnboardingRepository._decode(stored)
+
+    assert decoded.history_cleared and decoded.ciphertext == ""
+    assert decoded.fingerprints == row.fingerprints
+    assert decoded.item.completed_at == row.item.completed_at
+    assert "history_cleared" not in decoded.item.model_dump()
+    legacy = PostgresOnboardingRepository._decode(
+        {**stored, "payload": {**row.item.model_dump(mode="json"), "state": "disabled"}}
+    )
+    assert legacy.paused
+    assert not legacy.history_cleared

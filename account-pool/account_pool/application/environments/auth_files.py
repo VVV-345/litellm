@@ -19,6 +19,7 @@ from account_pool.application.environments.contracts import (
     RefreshIfNeededOperation,
     WaitForDirectCredentialOperation,
 )
+from account_pool.config import validate_proxy_profile_url
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
 from account_pool.domain import (
     ChannelKind,
@@ -33,6 +34,7 @@ from account_pool.domain import (
 from account_pool.ports import (
     CLIProxyClient,
     EnvironmentRepository,
+    ProxyProfileRepository,
 )
 from account_pool.shared.error_safety import safe_error as _safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
@@ -50,6 +52,7 @@ class EnvironmentAuthFiles:
     _ownership: CredentialOwnership
     _refresh_if_needed: RefreshIfNeededOperation
     _repository: EnvironmentRepository
+    _proxy_profiles: ProxyProfileRepository
     _secrets: EnvironmentSecretDeriver
     _wait_for_direct_credential: WaitForDirectCredentialOperation
 
@@ -278,10 +281,37 @@ class EnvironmentAuthFiles:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
             if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
                 return Failure(FailureCode.INVALID, "this card has no auth file")
-            if not fields or not set(fields).issubset({"priority", "prefix", "proxy_url"}):
+            if record.status is EnvironmentStatus.DELETING:
+                return Failure(FailureCode.CONFLICT, "environment is being deleted")
+            if not fields or not set(fields).issubset({"priority", "prefix", "proxy_url", "proxy_profile_id"}):
                 return Failure(FailureCode.INVALID, "auth file fields are required")
+            priority: Final = fields.get("priority", 0)
+            prefix: Final = fields.get("prefix", "")
+            if type(priority) is not int or not -2147483648 <= priority <= 2147483647:
+                return Failure(FailureCode.INVALID, "priority must be a 32-bit integer")
+            if not isinstance(prefix, str) or len(prefix) > 256:
+                return Failure(FailureCode.INVALID, "prefix must be a string up to 256 characters")
+            profile_id: Final = fields.get("proxy_profile_id")
+            if "proxy_profile_id" in fields and (not isinstance(profile_id, str) or "proxy_url" in fields):
+                return Failure(FailureCode.INVALID, "select one proxy profile only")
+            selected_url: Final = (
+                await self._proxy_profiles.get_url(profile_id) if isinstance(profile_id, str) and profile_id else ""
+            )
+            if selected_url is None:
+                return Failure(FailureCode.INVALID, "selected proxy profile is unavailable")
+            proxy_url: Final = selected_url if "proxy_profile_id" in fields else fields.get("proxy_url", "")
+            if not isinstance(proxy_url, str):
+                return Failure(FailureCode.INVALID, "proxy URL must be a string")
             try:
-                await self._cli_proxy.patch_auth_file_fields(record, record.auth_file_name, fields)
+                validated_proxy_url: Final = validate_proxy_profile_url(proxy_url) if proxy_url else ""
+            except ValueError:
+                return Failure(FailureCode.INVALID, "selected proxy URL is invalid")
+            updates: Final = {
+                **{key: value for key, value in fields.items() if key not in {"proxy_profile_id", "proxy_url"}},
+                **({"proxy_url": validated_proxy_url} if "proxy_profile_id" in fields or "proxy_url" in fields else {}),
+            }
+            try:
+                await self._cli_proxy.patch_auth_file_fields(record, record.auth_file_name, updates)
             except Exception as error:
                 await self._log_event(record, "authentication", error)
                 return Failure(FailureCode.UPSTREAM, "auth file fields update failed")

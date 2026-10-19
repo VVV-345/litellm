@@ -15,6 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
+from starlette.websockets import WebSocket
 
 from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware, session_hash
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError
@@ -40,6 +41,7 @@ from litellm.proxy.management_endpoints.account_pool_routing import Rejected, pl
 from litellm.proxy.management_endpoints.account_pool_websocket import (
     UpstreamWebSocket,
     WebSocketDialRequest,
+    forward_websocket,
 )
 
 _KEY: Final = "cpk_" + "test-only-" * 5
@@ -1284,6 +1286,132 @@ def test_websocket_model_change_releases_the_lease_and_closes_the_connection() -
     assert len(control.finished) == 1
     assert control.finished[0].http_status == 400
     assert control.finished[0].message == "WebSocket frame changes the routed model"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["connection", "relay", "cancellation"])
+async def test_websocket_lifetime_releases_capacity_and_stops_both_directions(monkeypatch, phase: str) -> None:
+    from litellm.proxy.management_endpoints import account_pool_websocket
+
+    policy: Final = AccountPolicy(transport=TransportPolicy(websocket="enabled", request_timeout_seconds=5))
+    account: Final = candidate(uuid4()).model_copy(update={"policy": policy, "websocket_enabled": True})
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=policy,
+        candidates=(account,),
+        websocket_enabled=True,
+    )
+
+    class CapacityControl(Control):
+        active: UUID | None = None
+
+        async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected:
+            if self.active is not None:
+                return AcquireRejected(reason="concurrency")
+            result = await super().acquire(request)
+            assert isinstance(result, Lease)
+            self.active = result.lease_id
+            return result
+
+        async def finish(self, request: FinishRequest) -> None:
+            assert self.active == request.lease_id
+            self.active = None
+            await super().finish(request)
+
+    control: Final = CapacityControl(resolution)
+    connected: Final = asyncio.Event()
+    upstream_closed: Final = asyncio.Event()
+    relay_cancelled: Final = asyncio.Event()
+    downstream_cancelled: Final = asyncio.Event()
+    upstream: Final = FakeUpstreamWebSocket()
+
+    class Connection(AbstractAsyncContextManager[UpstreamWebSocket]):
+        async def __aenter__(self) -> UpstreamWebSocket:
+            if phase == "connection":
+                connected.set()
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    upstream_closed.set()
+            return upstream
+
+        async def __aexit__(self, exc_type, exc_value, traceback) -> None:
+            upstream_closed.set()
+
+    class Dialer:
+        def connect(self, request: WebSocketDialRequest) -> AbstractAsyncContextManager[UpstreamWebSocket]:
+            return Connection()
+
+    original_recv: Final = upstream.recv
+
+    async def upstream_recv() -> str | bytes:
+        try:
+            return await original_recv()
+        finally:
+            relay_cancelled.set()
+
+    upstream.recv = upstream_recv
+    inbound: Final[asyncio.Queue[dict[str, object]]] = asyncio.Queue()
+    await inbound.put({"type": "websocket.connect"})
+    sent: Final[list[dict[str, object]]] = []
+
+    async def receive():
+        try:
+            return await inbound.get()
+        finally:
+            if connected.is_set():
+                downstream_cancelled.set()
+
+    async def send(message):
+        sent.append(message)
+        if message["type"] == "websocket.accept":
+            connected.set()
+
+    socket: Final = WebSocket(
+        {"type": "websocket", "path": "/v1/responses", "query_string": b"model=model-a", "headers": [], "scheme": "ws"},
+        receive,
+        send,
+    )
+    real_timeout_at: Final = asyncio.timeout_at
+    deadlines: Final[list[float]] = []
+
+    def accelerated_deadline(deadline: float):
+        remaining: Final = deadline - asyncio.get_running_loop().time()
+        assert 0 < remaining <= 5
+        deadlines.append(remaining)
+        return real_timeout_at(asyncio.get_running_loop().time() + (5 if phase == "cancellation" else 0.05))
+
+    monkeypatch.setattr(account_pool_websocket.asyncio, "timeout_at", accelerated_deadline)
+    selected: Final = routes(resolution, "model-a", "/v1/responses", Headers(), websocket=True)
+    assert not isinstance(selected, Rejected)
+    task: Final = asyncio.create_task(
+        forward_websocket(socket, _KEY, "model-a", None, resolution, selected, control, Dialer())
+    )
+    try:
+        await asyncio.wait_for(connected.wait(), timeout=1)
+        assert isinstance(await control.acquire(control.acquisitions[0]), AcquireRejected)
+        if phase == "cancellation":
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await asyncio.wait_for(asyncio.shield(task), timeout=1)
+            assert len(deadlines) == 1
+            assert sent[-1] == {"type": "websocket.close", "code": 1001, "reason": "WebSocket request timed out"}
+        assert upstream_closed.is_set()
+        if phase != "connection":
+            assert relay_cancelled.is_set()
+            assert downstream_cancelled.is_set()
+        assert len(control.finished) == 1
+        assert control.finished[0].http_status == (499 if phase == "cancellation" else 504)
+        assert not control.finished[0].retryable
+        assert isinstance(await control.acquire(control.acquisitions[0]), Lease)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 def test_http_debug_detail_records_structure_without_secret_values() -> None:

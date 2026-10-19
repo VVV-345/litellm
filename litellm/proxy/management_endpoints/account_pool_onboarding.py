@@ -15,6 +15,8 @@ from litellm.proxy.management_endpoints.account_pool_management import Managemen
 from litellm.proxy.management_endpoints.account_pool_onboarding_models import (
     OnboardingAction,
     OnboardingAuthorization,
+    OnboardingCleanup,
+    OnboardingCleanupResult,
     OnboardingImport,
     OnboardingImportResult,
     OnboardingItem,
@@ -73,6 +75,13 @@ def create_onboarding_router(
     @router.get("/items")
     async def items() -> tuple[OnboardingItem, ...]:
         return parse_response(await call("GET", "/items"), TypeAdapter(tuple[OnboardingItem, ...]))
+
+    @router.post("/items/cleanup")
+    async def cleanup(request: OnboardingCleanup) -> OnboardingCleanupResult:
+        return parse_response(
+            await call("POST", "/items/cleanup", request.model_dump_json().encode()),
+            TypeAdapter(OnboardingCleanupResult),
+        )
 
     @router.post("/items/{item_id}/action")
     async def action(item_id: UUID, request: OnboardingAction) -> OnboardingItem:

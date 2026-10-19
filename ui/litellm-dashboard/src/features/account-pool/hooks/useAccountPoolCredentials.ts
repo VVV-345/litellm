@@ -14,7 +14,6 @@ import {
   getAccountPoolAuthFileRefreshStatus,
   listAccountPoolCredentials,
   patchAccountPoolAuthFileStatus,
-  patchAccountPoolAuthFileFields,
   refreshAccountPoolAuthFiles,
   setAccountPoolAuthFileRefreshInterval,
   type AccountPoolAuthFileRefreshStatus,
@@ -35,8 +34,6 @@ export const useAccountPoolCredentials = (
   const [uploadCardId, setUploadCardId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [replaceCredential, setReplaceCredential] = useState<(typeof credentials)[number] | null>(null);
-  const [editCredential, setEditCredential] = useState<(typeof credentials)[number] | null>(null);
-  const [editFields, setEditFields] = useState("{}");
   const query = useQuery({
     queryKey: accountPoolQueryKeys.credentials(accessToken),
     queryFn: () => listAccountPoolCredentials(accessToken!),
@@ -139,27 +136,6 @@ export const useAccountPoolCredentials = (
       toast.fromError(error);
     }
   };
-  const saveAuthFileFields = async () => {
-    if (!editCredential) return;
-    let fields: Record<string, unknown>;
-    try {
-      const parsed: unknown = JSON.parse(editFields);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed))
-        throw new Error("fields must be an object");
-      fields = parsed as Record<string, unknown>;
-    } catch (error) {
-      toast.fromError(error);
-      return;
-    }
-    try {
-      await patchAccountPoolAuthFileFields(accessToken!, editCredential.card_id, fields);
-      toast.success(t("accountPool.credentials.fieldsUpdated"));
-      setEditCredential(null);
-      invalidateCredentials();
-    } catch (error) {
-      toast.fromError(error);
-    }
-  };
   const removeCredential = (credential: (typeof credentials)[number]) => {
     const environment = environments.find((item) => item.id === credential.card_id);
     const index = Number.parseInt(credential.auth_index ?? "", 10) - 1;
@@ -194,11 +170,7 @@ export const useAccountPoolCredentials = (
     toggleMutation,
     downloadCredential,
     deleteAuthFile,
-    editCredential,
-    setEditCredential,
-    editFields,
-    setEditFields,
-    saveAuthFileFields,
+    invalidateCredentials,
     removeCredential,
   };
 };

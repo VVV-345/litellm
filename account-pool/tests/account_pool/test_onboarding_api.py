@@ -42,6 +42,8 @@ def test_manager_and_proxy_onboarding_contracts_match():
         "OnboardingImport",
         "OnboardingImportResult",
         "OnboardingItem",
+        "OnboardingCleanup",
+        "OnboardingCleanupResult",
         "OnboardingAction",
         "OnboardingSecrets",
         "OnboardingTarget",
@@ -63,3 +65,19 @@ async def test_supplier_catalog_matches_registered_capabilities(tmp_path):
         assert set(items) == {family.supplier.value for family in PROVIDER_FAMILIES}
         assert items["openai_codex"]["oauth"] and items["kimi"]["oauth"]
         assert not items["vertex"]["oauth"] and not items["gemini"]["oauth"]
+
+
+async def test_manager_cleanup_requires_auth_and_rejects_naive_cutoffs(tmp_path):
+    service, _, _, _, _, environment_service = setup_service(tmp_path)
+    app = FastAPI()
+    app.include_router(create_router(environment_service, "manager-test", onboarding_service=service))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        denied = await client.post("/api/onboarding/items/cleanup", json={})
+        assert denied.status_code == 401
+        headers = {"Authorization": "Bearer manager-test"}
+        bad = await client.post(
+            "/api/onboarding/items/cleanup", headers=headers, json={"completed_before": "2026-10-01T00:00:00"}
+        )
+        assert bad.status_code == 422
+        good = await client.post("/api/onboarding/items/cleanup", headers=headers, json={"source": "auth_file"})
+        assert good.status_code == 200 and good.json() == {"cleared": 0}

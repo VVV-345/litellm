@@ -298,6 +298,7 @@ async def _sync_settings_or_restore(
     previous: AccountPoolSettingsView,
 ) -> bool:
     local_fields: Final = {
+        "auth_file_template",
         "full_logging_enabled",
         "full_log_skip_failed",
         "daily_log_retention_days",

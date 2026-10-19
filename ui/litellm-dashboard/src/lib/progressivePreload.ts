@@ -32,11 +32,11 @@ const emptyProgress = (total: number): PreloadProgress => ({ completed: 0, total
 
 const defaultYield = (signal?: AbortSignal) => new Promise<void>((resolve) => {
   const finish = () => {
-    stop();
+    window.clearTimeout(timer);
     signal?.removeEventListener("abort", finish);
     resolve();
   };
-  const stop = schedulePreloads([finish]);
+  const timer = window.setTimeout(finish, 250);
   signal?.addEventListener("abort", finish, { once: true });
   if (signal?.aborted) finish();
 });
@@ -79,7 +79,6 @@ export async function runPreloadStages(
 
   const runTask = async (task: PreloadTask, target: "primary" | "background") => {
     if (options.signal?.aborted) return;
-    if (target === "background") await yieldBetweenTasks();
     await waitUntilVisible();
     if (options.signal?.aborted) return;
     let failed = false;
@@ -100,6 +99,7 @@ export async function runPreloadStages(
     else background = next;
     progress = { primary, background, stage: progress.stage };
     options.onProgress?.(progress);
+    await yieldBetweenTasks();
   };
 
   await Promise.all(primaryTasks.map((task) => runTask(task, "primary")));
@@ -123,9 +123,10 @@ export async function runPreloadStages(
 
   for (const batch of [...backgroundBatches, ...additionalBatches]) {
     if (options.signal?.aborted) return progress;
-    for (const task of batch) await runTask(task, "background");
+    await Promise.all(batch.map((task) => runTask(task, "background")));
   }
 
+  if (options.signal?.aborted) return progress;
   progress = { primary, background, stage: "complete" };
   options.onProgress?.(progress);
   return progress;

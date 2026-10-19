@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileJson, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,18 +25,19 @@ import {
 } from "../../api/AccountPoolOnboardingApi";
 import { getAccountPoolSettings } from "../../api/AccountPoolManagementApi";
 import { AccountPoolOnboardingTasks } from "./AccountPoolOnboardingTasks";
+import { AccountPoolOnboardingCleanup } from "./AccountPoolOnboardingCleanup";
+import { mergeAuthFileTemplate } from "../../utils/AuthFileTemplate";
 import { AccountPoolOnboardingTarget } from "./AccountPoolOnboardingTarget";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { accountPoolEnvironmentOptions, accountPoolProxyProfileOptions } from "../../hooks/accountPoolOptions";
 import { proxyGatewayQueryOptions } from "../../hooks/useProxyGateways";
-import type {
-  AccountPoolProxyProfile,
-} from "../../utils/AccountPoolTypes";
+import type { AccountPoolProxyProfile } from "../../utils/AccountPoolTypes";
 
 import { proxyOptionLabel } from "../../utils/AccountPoolProxyOptions";
 
 interface OnboardingProxySelectorProps {
   accessToken: string;
+  optional: boolean;
   profiles: readonly AccountPoolProxyProfile[];
   profilesLoading: boolean;
   profilesError: boolean;
@@ -47,6 +49,7 @@ interface OnboardingProxySelectorProps {
 
 const OnboardingProxySelector = ({
   accessToken,
+  optional,
   profiles,
   profilesLoading,
   profilesError,
@@ -70,26 +73,33 @@ const OnboardingProxySelector = ({
   const defaultProxyUnavailable =
     settingsQuery.isSuccess && defaultProxyProfileConfigured && !defaultProxyProfileExists;
   const gateways = gatewaysQuery.data ?? [];
-  const profileOptions = profiles.map((profile) => ({
-    value: profile.id,
-    label: proxyOptionLabel(
-      profile,
-      gatewaysQuery.isError ? [] : gateways,
-      environmentsQuery.isError ? undefined : environmentsQuery.data,
-      defaultProxyProfileId,
-    ),
-  }));
+  const profileOptions = [
+    ...(optional ? [{ value: "__keep__", label: "沿用文件 / 默认配置" }] : []),
+    ...profiles.map((profile) => ({
+      value: profile.id,
+      label: proxyOptionLabel(
+        profile,
+        gatewaysQuery.isError ? [] : gateways,
+        environmentsQuery.isError ? undefined : environmentsQuery.data,
+        defaultProxyProfileId,
+      ),
+    })),
+  ];
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="onboarding-proxy-profile">OAuth 出站代理</Label>
+      <Label htmlFor="onboarding-proxy-profile">{optional ? "认证文件出站代理" : "OAuth 出站代理"}</Label>
       <Select
         items={profileOptions}
-        value={value}
-        onValueChange={(nextValue) => onChange(nextValue ?? "")}
-        disabled={disabled || profilesLoading || profiles.length === 0}
+        value={optional && !value ? "__keep__" : value}
+        onValueChange={(nextValue) => onChange(nextValue === "__keep__" ? "" : nextValue ?? "")}
+        disabled={disabled || profilesLoading || (!optional && profiles.length === 0)}
       >
-        <SelectTrigger id="onboarding-proxy-profile" aria-label="OAuth 出站代理" className="w-full">
+        <SelectTrigger
+          id="onboarding-proxy-profile"
+          aria-label={optional ? "认证文件出站代理" : "OAuth 出站代理"}
+          className="w-full min-w-0"
+        >
           <SelectValue placeholder="选择代理节点" />
         </SelectTrigger>
         <SelectContent align="start" className="min-w-[min(24rem,calc(100vw-2rem))]">
@@ -128,6 +138,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
   const [mailbox, setMailbox] = useState<"outlook" | "gmail" | "mail">("outlook");
   const [proxyProfileId, setProxyProfileId] = useState("");
   const [prepareMailbox, setPrepareMailbox] = useState(true);
+  const [useTemplate, setUseTemplate] = useState(false);
   const [request, setRequest] = useState<OnboardingImport | null>(null);
   const [preview, setPreview] = useState<OnboardingPreview[]>([]);
   const [busy, setBusy] = useState(false);
@@ -137,16 +148,40 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
   });
   const proxyProfilesQuery = useQuery({
     ...accountPoolProxyProfileOptions(accessToken),
-    enabled: source === "oauth",
+    enabled: true,
   });
+  const settingsQuery = useQuery({
+    queryKey: accountPoolQueryKeys.settings(accessToken),
+    queryFn: () => getAccountPoolSettings(accessToken),
+    retry: false,
+  });
+  const template = settingsQuery.data?.values.auth_file_template;
+  const effectiveProxyId =
+    proxyProfileId || (source === "auth_file" && useTemplate ? template?.proxy_profile_id : "") || "";
   const proxyProfiles = proxyProfilesQuery.data ?? [];
+  const templateProxyLabel = () => {
+    if (proxyProfileId) return "使用本次选择";
+    if (template?.proxy_profile_id === "") return "沿用卡片代理";
+    if (!template?.proxy_profile_id) return "保留";
+    return proxyProfiles.find((profile) => profile.id === template.proxy_profile_id)?.name ?? "原节点不可用";
+  };
   const proxyProfileSelected = proxyProfiles.some((profile) => profile.id === proxyProfileId);
   const supported =
     suppliersQuery.data?.some(
       (item) => item.supplier === supplier && item[source === "oauth" ? "oauth" : "auth_file"],
     ) ?? false;
   const missingOAuthProxy = source === "oauth" && !proxyProfileSelected;
-  const fileInputDisabled = busy || !supported || missingOAuthProxy;
+  const missingTemplateProxy =
+    source === "auth_file" &&
+    useTemplate &&
+    Boolean(effectiveProxyId) &&
+    !proxyProfiles.some((profile) => profile.id === effectiveProxyId);
+  const fileInputDisabled =
+    busy ||
+    !supported ||
+    missingOAuthProxy ||
+    missingTemplateProxy ||
+    (source === "auth_file" && useTemplate && !template);
   const queryKey = accountPoolQueryKeys.onboarding(accessToken);
   const query = useQuery({ queryKey, queryFn: () => listOnboarding(accessToken), refetchInterval: 5000 });
   const reset = () => {
@@ -162,6 +197,8 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     try {
       if (!supported) throw new Error("当前供应商不支持此上号方式，请选择其他供应商");
       if (source === "oauth" && !proxyProfileSelected) throw new Error("请选择有效的 OAuth 出站代理");
+      if (source === "auth_file" && useTemplate && !template) throw new Error("请先保存默认认证模板");
+      if (missingTemplateProxy) throw new Error("默认模板的代理不可用，请重新选择节点");
       if (files.length === 0 || files.length > (source === "oauth" ? 1 : 100))
         throw new Error("认证文件每批最多 100 个，邮箱账号表每批选择一个文件");
       if (
@@ -175,7 +212,8 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
           ? await Promise.all(
               files.map(async (file) => ({
                 label: file.name,
-                content: await file.text(),
+                content:
+                  useTemplate && template ? mergeAuthFileTemplate(await file.text(), template) : await file.text(),
                 mailbox_password: "",
                 supplier_password: "",
               })),
@@ -188,7 +226,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
         mailbox,
         prepare_mailbox: prepareMailbox,
         entries,
-        ...(source === "oauth" ? { proxy_profile_id: proxyProfileId } : {}),
+        ...(effectiveProxyId ? { proxy_profile_id: effectiveProxyId } : {}),
       };
       const checked = await previewOnboarding(accessToken, body);
       setRequest(body);
@@ -229,6 +267,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
           if (value === "oauth" || value === "auth_file") {
             setSource(value);
             setProxyProfileId("");
+            setUseTemplate(false);
             reset();
           }
         }}
@@ -281,21 +320,20 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     ))}
                   </select>
                 </div>
-                {source === "oauth" && (
-                  <OnboardingProxySelector
-                    accessToken={accessToken}
-                    profiles={proxyProfiles}
-                    profilesLoading={proxyProfilesQuery.isPending}
-                    profilesError={proxyProfilesQuery.isError}
-                    profilesSuccess={proxyProfilesQuery.isSuccess}
-                    value={proxyProfileId}
-                    disabled={busy}
-                    onChange={(value) => {
-                      setProxyProfileId(value);
-                      reset();
-                    }}
-                  />
-                )}
+                <OnboardingProxySelector
+                  optional={source === "auth_file"}
+                  accessToken={accessToken}
+                  profiles={proxyProfiles}
+                  profilesLoading={proxyProfilesQuery.isPending}
+                  profilesError={proxyProfilesQuery.isError}
+                  profilesSuccess={proxyProfilesQuery.isSuccess}
+                  value={proxyProfileId}
+                  disabled={busy}
+                  onChange={(value) => {
+                    setProxyProfileId(value);
+                    reset();
+                  }}
+                />
                 {source === "oauth" && (
                   <div className="space-y-2">
                     <Label htmlFor="onboarding-mailbox">邮箱类型</Label>
@@ -333,6 +371,40 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                   />
                 </div>
               </div>
+              {source === "auth_file" && (
+                <div className="grid gap-2 text-sm">
+                  <label className="flex items-center gap-2">
+                    <Checkbox
+                      checked={useTemplate}
+                      disabled={busy || !template}
+                      onCheckedChange={(checked) => {
+                        setUseTemplate(checked === true);
+                        reset();
+                      }}
+                    />
+                    使用默认认证模板
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    在“认证文件”的“认证模板”中用表单保存默认值。勾选后仅修改模板选中的字段，账号身份和令牌保持不变；显式选择节点优先于模板
+                  </p>
+                  {useTemplate && template && (
+                    <p className="text-xs text-muted-foreground">
+                      模板预览：优先级 {template.priority ?? "保留"}，前缀{" "}
+                      {template.prefix === "" ? "清空" : template.prefix ?? "保留"}，代理 {templateProxyLabel()}
+                    </p>
+                  )}
+                  {missingTemplateProxy && (
+                    <p role="alert" className="text-sm text-destructive">
+                      默认模板的代理不可用，请重新选择节点
+                    </p>
+                  )}
+                  {settingsQuery.isError && (
+                    <p role="status" className="text-xs text-destructive">
+                      默认模板读取失败，仍可不使用模板导入
+                    </p>
+                  )}
+                </div>
+              )}
               {source === "oauth" && (
                 <div className="rounded-lg bg-muted/40 p-4 text-sm space-y-3">
                   <p>
@@ -413,12 +485,15 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
         </TabsContent>
       </Tabs>
       {source === "oauth" && <AccountPoolOnboardingTarget accessToken={accessToken} supplier={supplier} />}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold">{source === "oauth" ? "OAuth 账号汇总与任务" : "认证文件任务"}</h3>
-        <Button variant="outline" size="sm" onClick={() => void refresh()}>
-          <RefreshCw className="size-4" />
-          刷新
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <AccountPoolOnboardingCleanup key={source} accessToken={accessToken} source={source} onChange={refresh} />
+          <Button variant="outline" size="sm" onClick={() => void refresh()}>
+            <RefreshCw className="size-4" />
+            刷新
+          </Button>
+        </div>
       </div>
       {query.isError && (
         <p role="alert" className="text-sm text-destructive">

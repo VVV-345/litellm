@@ -50,3 +50,34 @@ def test_oauth_preview_requires_and_forwards_proxy_profile(proxy_profile_id: str
     forwarded_body: Final = manager.await_args.args[2]
     assert isinstance(forwarded_body, bytes)
     assert json.loads(forwarded_body)["proxy_profile_id"] == proxy_profile_id
+
+
+@pytest.mark.parametrize(
+    ("body", "expected_status"),
+    (
+        ({"source": "oauth", "completed_before": "2026-10-01T00:00:00+08:00"}, 200),
+        ({}, 200),
+        ({"completed_before": "2026-10-01T00:00:00"}, 422),
+        ({"source": "other"}, 422),
+    ),
+)
+def test_cleanup_validates_and_forwards_admin_request(body: dict[str, str], expected_status: int) -> None:
+    manager: Final = AsyncMock(
+        return_value=httpx.Response(
+            200, json={"cleared": 3}, request=httpx.Request("POST", "http://manager.test/api/onboarding/items/cleanup")
+        )
+    )
+    app: Final = FastAPI()
+    app.include_router(create_onboarding_router(manager, lambda _user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/onboarding/items/cleanup", json=body)
+    assert response.status_code == expected_status
+    if expected_status != 200:
+        manager.assert_not_awaited()
+        return
+    assert response.json() == {"cleared": 3}
+    assert manager.await_args.args[:2] == ("POST", "/api/onboarding/items/cleanup")
+    forwarded: Final = json.loads(manager.await_args.args[2])
+    assert forwarded["source"] == body.get("source")
+    assert forwarded["completed_before"] == body.get("completed_before")

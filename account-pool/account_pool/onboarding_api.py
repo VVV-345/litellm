@@ -12,6 +12,8 @@ from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistr
 from account_pool.domain import AuthorizationFlow, AuthorizationView
 from account_pool.onboarding_models import (
     OnboardingAction,
+    OnboardingCleanup,
+    OnboardingCleanupResult,
     OnboardingImport,
     OnboardingImportResult,
     OnboardingItem,
@@ -75,6 +77,13 @@ def create_onboarding_router(service: OnboardingService, authorize: Callable[...
     @router.get("/items")
     async def items() -> tuple[OnboardingItem, ...]:
         return await service.list()
+
+    @router.post("/items/cleanup")
+    async def cleanup(request: OnboardingCleanup) -> OnboardingCleanupResult:
+        result: Final = await service.cleanup(request)
+        if isinstance(result, Failure):
+            raise HTTPException(409, result.message)
+        return result.value
 
     @router.post("/items/{item_id}/action")
     async def action(item_id: UUID, request: OnboardingAction) -> OnboardingItem:

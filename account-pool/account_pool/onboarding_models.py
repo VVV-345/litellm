@@ -73,6 +73,18 @@ class OnboardingItem(BaseModel):
     attempts: int = 0
     created_at: AwareDatetime
     updated_at: AwareDatetime
+    completed_at: AwareDatetime | None = None
+
+
+class OnboardingCleanup(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    source: Literal["auth_file", "oauth"] | None = None
+    completed_before: AwareDatetime | None = None
+
+
+class OnboardingCleanupResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    cleared: int = Field(ge=0)
 
 
 class OnboardingImportResult(BaseModel):

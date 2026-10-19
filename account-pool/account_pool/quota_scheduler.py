@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Final, TypeVar
@@ -11,6 +12,7 @@ from account_pool.domain import utc_now
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsRepository
 
 T = TypeVar("T")
+_LOGGER: Final = logging.getLogger(__name__)
 
 
 class RefreshStatus(BaseModel):
@@ -62,6 +64,9 @@ class RefreshScheduler:
             self._last_started_at = utc_now()
             try:
                 result: Final = await operation()
+            except asyncio.CancelledError:
+                self._running = False
+                raise
             except Exception:
                 self._last_completed_at = utc_now()
                 self._last_failed_count = None
@@ -75,25 +80,36 @@ class RefreshScheduler:
             return result
 
     async def run_until_cancelled(self, stopped: asyncio.Event) -> None:
-        await self._schedule_next()
         while not stopped.is_set():
-            now: Final = utc_now()
-            timeout: Final = max(0.0, (self._next_refresh_at - now).total_seconds()) if self._next_refresh_at else 0.0
-            stop_task: Final = asyncio.create_task(stopped.wait())
-            wake_task: Final = asyncio.create_task(self._wake.wait())
-            done, pending = await asyncio.wait(
-                (stop_task, wake_task), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
-            )
-            for task in pending:
-                task.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
-            if stop_task in done and stop_task.result():
-                return
-            if wake_task in done and wake_task.result():
-                self._wake.clear()
+            try:
                 await self._schedule_next()
-                continue
-            await self.track(self._refresh, len)
+                now: Final = utc_now()
+                timeout: Final = (
+                    max(0.0, (self._next_refresh_at - now).total_seconds()) if self._next_refresh_at else 0.0
+                )
+                stop_task: Final = asyncio.create_task(stopped.wait())
+                wake_task: Final = asyncio.create_task(self._wake.wait())
+                try:
+                    done, _ = await asyncio.wait(
+                        (stop_task, wake_task), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+                    )
+                finally:
+                    stop_task.cancel()
+                    wake_task.cancel()
+                    await asyncio.gather(stop_task, wake_task, return_exceptions=True)
+                if stop_task in done and stop_task.result():
+                    return
+                if wake_task in done and wake_task.result():
+                    self._wake.clear()
+                    continue
+                await self.track(self._refresh, len)
+            except Exception as error:
+                _LOGGER.warning("Periodic refresh failed: %s", error.__class__.__name__)
+                # 设置读取失败也必须退避，避免后台任务退出或紧循环重试。
+                try:
+                    await asyncio.wait_for(stopped.wait(), timeout=30)
+                except TimeoutError:
+                    continue
 
     async def _schedule_next(self) -> None:
         interval: Final = self._interval((await self._settings.get()).values)

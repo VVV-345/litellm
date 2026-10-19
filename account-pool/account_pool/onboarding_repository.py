@@ -19,6 +19,17 @@ class StoredOnboarding(BaseModel):
     item: OnboardingItem
     ciphertext: str = Field(repr=False)
     fingerprints: tuple[str, ...] = Field(repr=False)
+    history_cleared: bool = False
+    paused: bool = False
+
+
+class PersistedOnboardingItem(OnboardingItem):
+    history_cleared: bool = False
+    paused: bool = False
+
+
+def persisted_item(row: StoredOnboarding) -> PersistedOnboardingItem:
+    return PersistedOnboardingItem(**row.item.model_dump(), history_cleared=row.history_cleared, paused=row.paused)
 
 
 class OnboardingRepository(Protocol):
@@ -66,10 +77,13 @@ class PostgresOnboardingRepository:
 
     @staticmethod
     def _decode(values: Mapping[str, object]) -> StoredOnboarding:
+        payload: Final = PersistedOnboardingItem.model_validate(values["payload"])
         return StoredOnboarding(
-            item=OnboardingItem.model_validate(values["payload"]),
+            item=OnboardingItem.model_validate(payload.model_dump()),
             ciphertext=TypeAdapter(str).validate_python(values["ciphertext"]),
             fingerprints=TypeAdapter(tuple[str, ...]).validate_python(values["fingerprints"]),
+            history_cleared=payload.history_cleared,
+            paused=payload.paused if "paused" in payload.model_fields_set else payload.state == "disabled",
         )
 
     async def insert(self, row: StoredOnboarding) -> bool:
@@ -83,7 +97,7 @@ class PostgresOnboardingRepository:
                 "ON CONFLICT (id) DO NOTHING RETURNING id",
                 (
                     row.item.id,
-                    Jsonb(row.item.model_dump(mode="json")),
+                    Jsonb(persisted_item(row).model_dump(mode="json")),
                     row.ciphertext,
                     list(row.fingerprints),
                     row.item.created_at,
@@ -96,7 +110,7 @@ class PostgresOnboardingRepository:
         async with database_connection(self._database_url) as connection:
             await connection.execute(
                 "UPDATE account_pool_onboarding SET payload = %s, ciphertext = %s WHERE id = %s",
-                (Jsonb(row.item.model_dump(mode="json")), row.ciphertext, row.item.id),
+                (Jsonb(persisted_item(row).model_dump(mode="json")), row.ciphertext, row.item.id),
             )
 
     async def targets(self) -> tuple[OnboardingTarget, ...]:

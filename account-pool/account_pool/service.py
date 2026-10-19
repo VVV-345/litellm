@@ -144,6 +144,7 @@ class EnvironmentService:
             _ownership=self._ownership,
             _refresh_if_needed=self._refresh_if_needed,
             _repository=self._repository,
+            _proxy_profiles=self._proxy_profiles,
             _secrets=self._secrets,
             _wait_for_direct_credential=self._wait_for_direct_credential,
         )

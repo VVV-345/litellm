@@ -7,15 +7,23 @@ import { registerResponseCache } from "@/lib/http/responseCache";
 import { registerAuthTokenGetter } from "@/lib/http/runtime";
 import { initialLogsRange, requestLogsQueryOptions, DEFAULT_LOGS_SORTING } from "./view_logs/log_filter_logic";
 
+const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {} }));
+
 vi.mock("@/app/(dashboard)/api-keys/page", () => ({}));
 vi.mock("@/app/(dashboard)/models-and-endpoints/page", () => ({}));
 vi.mock("@/app/(dashboard)/account-pool/page", () => ({}));
 vi.mock("@/app/(dashboard)/usage/page", () => ({}));
 vi.mock("@/app/(dashboard)/models-and-endpoints/preloadModels", () => ({ preloadModelsModules: async () => {} }));
-vi.mock("@/features/account-pool/preloadModules", () => ({
-  ACCOUNT_POOL_MODULE_LOADERS: [],
-  preloadAccountPoolModules: async () => {},
-}));
+vi.mock("@/features/account-pool/preloadModules", () => {
+  const loaders = Array.from({ length: 12 }, (_, index) => async () => {
+    await modules.wait();
+    modules.loaded.add(index);
+  });
+  return {
+    ACCOUNT_POOL_MODULE_LOADERS: loaders,
+    preloadAccountPoolModules: () => Promise.all(loaders.map((load) => load())),
+  };
+});
 vi.mock("@/components/view_logs", () => ({
   preloadFullLogModule: async () => {},
   preloadOtherLogModules: async () => {},
@@ -53,6 +61,8 @@ describe("dashboard warmup wiring", () => {
     unregister = registerResponseCache(client);
     registerAuthTokenGetter(() => "test");
     urls.length = 0;
+    modules.loaded.clear();
+    modules.wait = async () => {};
     controller = new AbortController();
     fetch.mockReset().mockImplementation(async (input) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
@@ -74,7 +84,7 @@ describe("dashboard warmup wiring", () => {
     vi.useRealTimers();
   });
 
-  it("renders immediately and starts primary warmup without waiting for idle", async () => {
+  it("blocks the initial page while primary warmup starts without waiting for idle", async () => {
     vi.useFakeTimers();
     const idle = vi.fn(() => 1);
     vi.stubGlobal("requestIdleCallback", idle);
@@ -86,14 +96,17 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.getByRole("textbox", { name: "Current form" })).toHaveValue("draft");
+    expect(screen.queryByRole("textbox", { name: "Current form" })).not.toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "主要模块加载进度" })).toHaveAttribute("aria-valuenow", "0");
     await act(() => vi.advanceTimersByTimeAsync(100));
     expect(fetch).toHaveBeenCalled();
     unmount();
   });
 
-  it("reveals secondary navigation only after the primary stage settles", async () => {
+  it("reveals the initial page only after every required account-pool module is loaded", async () => {
     vi.useFakeTimers();
+    const pending = Promise.withResolvers<void>();
+    modules.wait = () => pending.promise;
     const { unmount } = render(
       <QueryClientProvider client={client}>
         <DashboardWarmup>
@@ -101,10 +114,51 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.getByText("warming")).toBeInTheDocument();
+    expect(screen.queryByText("warm")).not.toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(screen.queryByText("warm")).not.toBeInTheDocument();
+    expect(modules.loaded.size).toBe(0);
+    pending.resolve();
     await act(() => vi.advanceTimersByTimeAsync(10_000));
     expect(screen.getByText("warm")).toBeInTheDocument();
+    expect(modules.loaded.size).toBe(12);
     unmount();
+  });
+
+  it("finishes all twelve account-pool modules in primary before discovering background work", async () => {
+    vi.useFakeTimers();
+    const loadedAtBackground: number[] = [];
+    const context = {
+      queryClient: client, router, accessToken: "test", userId: "user", userRole: "Admin", token: "session",
+    };
+    const finished = runDashboardWarmup(
+      context,
+      (state) => {
+        if (state.stage === "background") loadedAtBackground.push(modules.loaded.size);
+      },
+      controller.signal,
+    );
+    await vi.runAllTimersAsync();
+    expect((await finished).primary.failed).toBe(0);
+    expect(loadedAtBackground).not.toHaveLength(0);
+    expect(loadedAtBackground.every((count) => count === 12)).toBe(true);
+  });
+
+  it("does not preload protected account-pool modules or data for an internal viewer", async () => {
+    vi.useFakeTimers();
+    const context = {
+      queryClient: client, router, accessToken: "test", userId: "user", userRole: "Internal Viewer", token: "session",
+    };
+    const finished = runDashboardWarmup(
+      context,
+      () => {},
+      controller.signal,
+    );
+    await vi.runAllTimersAsync();
+    expect((await finished).stage).toBe("complete");
+    expect(modules.loaded.size).toBe(0);
+    expect(urls.some((url) => url.pathname.startsWith("/account_pool/"))).toBe(false);
+    expect(urls.some((url) => url.pathname === "/logs/full/sessions")).toBe(false);
   });
 
   it("preloads only the first log pages even with fifty thousand historical records", async () => {
@@ -152,7 +206,7 @@ describe("dashboard warmup wiring", () => {
     expect(fetch).toHaveBeenCalledTimes(count);
   });
 
-  it("keeps the current page usable when a preload fails", async () => {
+  it("keeps the initial page blocked and offers retry when a required preload fails", async () => {
     fetch.mockRejectedValue(new Error("offline"));
     render(
       <QueryClientProvider client={client}>
@@ -161,9 +215,9 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
+    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "重试加载" }, { timeout: 10_000 })).toBeInTheDocument();
-    expect(screen.getByText("Dashboard content")).toBeInTheDocument();
+    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
   });
 
   it("continues loading other log pages when the full-log service is unavailable", async () => {

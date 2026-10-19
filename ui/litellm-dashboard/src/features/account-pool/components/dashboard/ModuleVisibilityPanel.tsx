@@ -94,6 +94,7 @@ export function ModuleVisibilityPanel({ accessToken }: { accessToken: string }) 
                     <Checkbox
                       id={checkboxId}
                       checked={!disabled.includes(option.page)}
+                      disabled={saving}
                       onCheckedChange={(checked) => toggle(option.page, checked === true)}
                     />
                     <span className="text-sm">{option.label}</span>

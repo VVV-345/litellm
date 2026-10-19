@@ -455,3 +455,32 @@ def test_full_log_settings_save_without_upstream_synchronization() -> None:
         restored: Final = client.post("/api/settings/rollback", json={"expected_version": 1, "target_version": 0})
         assert restored.status_code == 200
         assert restored.json()["values"]["full_log_skip_failed"] is False
+
+
+def test_auth_file_template_saves_without_reconfiguring_existing_accounts() -> None:
+    repository: Final = MemorySettingsRepository()
+
+    async def unavailable(values: AccountPoolSettings) -> tuple[UUID, ...]:
+        pytest.fail("Saving an import template must not reconfigure existing accounts")
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(), object(), MemoryEnvironments(), lambda: None, object(), repository, sync_settings=unavailable
+        )
+    )
+    template: Final = {"priority": 0, "prefix": "team", "proxy_profile_id": "node-a"}
+    with TestClient(app) as client:
+        saved: Final = client.put("/api/settings", json={"version": 0, "values": {"auth_file_template": template}})
+        assert saved.status_code == 200
+        assert client.get("/api/settings").json()["values"]["auth_file_template"] == template
+        stale: Final = client.put("/api/settings", json={"version": 0, "values": {"auth_file_template": template}})
+        assert stale.status_code == 409
+
+
+@pytest.mark.parametrize("template", [{"priority": True}, {"priority": 1.5}, {"access_token": "secret"}, {"proxy_url": "http://user:pass@proxy:80"}])
+def test_auth_file_template_accepts_only_non_secret_typed_fields(template) -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        AccountPoolSettings.model_validate({"auth_file_template": template})

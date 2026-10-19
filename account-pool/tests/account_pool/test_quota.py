@@ -1,6 +1,8 @@
 """验证 CLIProxy 额度解析模块保持窗口和冷却语义。"""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
+from itertools import count
 from typing import Final
 from uuid import uuid4
 
@@ -117,6 +119,94 @@ async def test_auth_refresh_scheduler_uses_the_authentication_interval() -> None
 
 async def _empty_refresh() -> tuple[object, ...]:
     return ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["refresh", "settings"])
+async def test_periodic_refresh_recovers_after_transient_failure_without_busy_retry(monkeypatch, failure: str) -> None:
+    stopped: Final = asyncio.Event()
+    failed: Final = asyncio.Event()
+    retrying: Final = asyncio.Event()
+    retry_allowed: Final = asyncio.Event()
+    ticks: Final = count()
+    monkeypatch.setattr(
+        "account_pool.quota_scheduler.utc_now",
+        lambda: datetime(2026, 10, 19, tzinfo=timezone.utc) + timedelta(minutes=5 * next(ticks)),
+    )
+    real_wait_for: Final = asyncio.wait_for
+
+    async def retry_wait(awaitable, timeout):
+        assert timeout >= 1
+        retrying.set()
+        await retry_allowed.wait()
+        awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr("account_pool.quota_scheduler.asyncio.wait_for", retry_wait)
+
+    class Settings:
+        calls = 0
+
+        async def get(self) -> AccountPoolSettingsView:
+            self.calls += 1
+            if failure == "settings" and self.calls == 1:
+                failed.set()
+                raise OSError("temporary database failure")
+            return AccountPoolSettingsView(version=0, values=AccountPoolSettings(quota_refresh_interval_minutes=5))
+
+    settings: Final = Settings()
+    results: Final[list[str]] = []
+
+    async def refresh() -> tuple[object, ...]:
+        if failure == "refresh" and not failed.is_set():
+            failed.set()
+            raise OSError("temporary upstream failure")
+        results.append("refreshed")
+        stopped.set()
+        return ()
+
+    scheduler: Final = QuotaRefreshScheduler(settings, refresh)
+    task: Final = asyncio.create_task(scheduler.run_until_cancelled(stopped))
+    try:
+        await real_wait_for(failed.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not task.done(), "a temporary failure must not terminate the periodic task"
+        await real_wait_for(retrying.wait(), timeout=1)
+        calls_before_retry: Final = settings.calls
+        await asyncio.sleep(0)
+        assert settings.calls == calls_before_retry
+        assert results == []
+        retry_allowed.set()
+        await real_wait_for(task, timeout=1)
+        assert results == ["refreshed"]
+        assert not (await scheduler.status()).running
+    finally:
+        retry_allowed.set()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_periodic_refresh_cancellation_clears_running_state(monkeypatch) -> None:
+    entered: Final = asyncio.Event()
+    ticks: Final = count()
+    monkeypatch.setattr(
+        "account_pool.quota_scheduler.utc_now",
+        lambda: datetime(2026, 10, 19, tzinfo=timezone.utc) + timedelta(minutes=5 * next(ticks)),
+    )
+
+    async def refresh() -> tuple[object, ...]:
+        entered.set()
+        await asyncio.Event().wait()
+        return ()
+
+    scheduler: Final = QuotaRefreshScheduler(_AuthRefreshSettings(), refresh, interval=lambda _: 5)
+    task: Final = asyncio.create_task(scheduler.run_until_cancelled(asyncio.Event()))
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not (await scheduler.status()).running
 
 
 def test_parse_quota_keeps_valid_windows_and_ignores_invalid_values() -> None:

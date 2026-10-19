@@ -237,6 +237,7 @@ async def _forward_candidate(
     debug_detail: Final = (
         _safe_debug_detail(websocket, route) if resolution.policy.transport.debug_log_enabled else None
     )
+    deadline: Final = asyncio.get_running_loop().time() + seconds
     lease: Final = await control.acquire(acquisition)
     if isinstance(lease, AcquireRejected):
         return await _forward_candidate(
@@ -270,20 +271,26 @@ async def _forward_candidate(
         and route_index + 1 < len(selected)
     )
     try:
-        completed: Final = await _connect_and_relay(
-            websocket,
-            public_model,
-            resolution,
-            selected,
-            dialer,
-            request_id,
-            route_index,
-            seconds,
-            route,
-            fallback,
-            attempt,
-            log,
-        )
+        # 总时限覆盖建连与转发，必须在 Manager 的租约到期前停止占用上游。
+        async with asyncio.timeout_at(deadline):
+            completed: Final = await _connect_and_relay(
+                websocket,
+                public_model,
+                resolution,
+                selected,
+                dialer,
+                request_id,
+                route_index,
+                seconds,
+                route,
+                fallback,
+                attempt,
+                log,
+            )
+    except TimeoutError:
+        attempt.outcome(504, "WebSocket request timed out", stage="response")
+        await websocket.close(code=1001, reason="WebSocket request timed out")
+        return True, frozenset[AcquireRejectionReason]()
     except asyncio.CancelledError:
         attempt.outcome(499, "WebSocket request cancelled", stage="response")
         raise
@@ -405,10 +412,13 @@ async def _relay(
     upstream_task: Final = asyncio.create_task(
         _upstream_to_downstream(websocket, upstream, public_model, upstream_model, log)
     )
-    done, pending = await asyncio.wait((downstream_task, upstream_task), return_when=asyncio.FIRST_COMPLETED)
-    for task in pending:
-        task.cancel()
-    await asyncio.gather(*pending, return_exceptions=True)
+    try:
+        done, _ = await asyncio.wait((downstream_task, upstream_task), return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        # 超时和取消同样要终止两个方向，不能在归还租约后继续转发。
+        downstream_task.cancel()
+        upstream_task.cancel()
+        await asyncio.gather(downstream_task, upstream_task, return_exceptions=True)
     results: Final = await asyncio.gather(*done, return_exceptions=True)
     error: Final = next((item for item in results if isinstance(item, BaseException)), None)
     if error is not None:

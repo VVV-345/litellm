@@ -36,6 +36,24 @@ def test_streaming_save_preserves_quota_provider_proxy_logs_and_payload():
     assert error.value.status_code == 409
 
 
+def test_common_save_roundtrips_auth_file_template_without_touching_network():
+    from account_pool.settings import AccountPoolSettings as ManagerSettings
+
+    current = AccountPoolSettingsView(version=2, values=AccountPoolSettings(default_proxy_profile_id="keep"))
+    template = {"priority": 0, "prefix": "team", "proxy_profile_id": "node-a"}
+    patch = AccountPoolSettingsUpdate.model_validate({"version": 2, "values": {"auth_file_template": template}})
+    merged = merge_runtime_settings(current, patch, "common")
+    restored = ManagerSettings.model_validate_json(merged.values.model_dump_json())
+    assert restored.model_dump()["auth_file_template"] == template
+    assert restored.default_proxy_profile_id == "keep"
+
+
+def test_common_save_without_template_preserves_previously_saved_template():
+    current = AccountPoolSettingsView.model_validate({"version": 2, "values": {"auth_file_template": {"prefix": "keep"}}})
+    patch = AccountPoolSettingsUpdate(version=2, values=AccountPoolSettings(default_concurrency_limit=3))
+    assert merge_runtime_settings(current, patch, "common").values.auth_file_template == current.values.auth_file_template
+
+
 @pytest.mark.parametrize("interval", [None, 0, 15, 300])
 def test_heartbeat_runtime_save_and_roundtrip(interval):
     from account_pool.settings import AccountPoolSettings as ManagerSettings

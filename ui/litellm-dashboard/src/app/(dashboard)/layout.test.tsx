@@ -7,11 +7,12 @@ import Layout from "./layout";
 const { replaceMock } = vi.hoisted(() => ({ replaceMock: vi.fn() }));
 
 let searchParamsValue = new URLSearchParams();
+let pathnameValue = "/ui/api-keys";
 
 vi.mock("next/navigation", () => ({
   useRouter: vi.fn(() => ({ push: vi.fn(), replace: replaceMock })),
   useSearchParams: vi.fn(() => searchParamsValue),
-  usePathname: vi.fn(() => "/ui/guardrails"),
+  usePathname: vi.fn(() => pathnameValue),
 }));
 
 vi.mock("@/components/DashboardHeader", () => ({
@@ -72,6 +73,7 @@ describe("(dashboard) Layout", () => {
     vi.clearAllMocks();
     pendingUiConfig = createDeferred();
     searchParamsValue = new URLSearchParams();
+    pathnameValue = "/ui/api-keys";
   });
 
   it("does not mount route content until getUiConfig has resolved", async () => {
@@ -95,6 +97,25 @@ describe("(dashboard) Layout", () => {
     expect(await screen.findByTestId("page-content")).toBeInTheDocument();
     expect(screen.getByTestId("dashboard-header")).toBeInTheDocument();
     expect(screen.queryByTestId("loading-screen")).not.toBeInTheDocument();
+  });
+
+  it("keeps disabled guardrails hidden after getUiConfig resolves", async () => {
+    const queryClient = new QueryClient();
+    pathnameValue = "/ui/guardrails";
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <Layout>
+            <div data-testid="page-content" />
+          </Layout>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+
+    pendingUiConfig.resolve();
+
+    expect(await screen.findByText("此模块未启用")).toBeInTheDocument();
+    expect(screen.queryByTestId("page-content")).not.toBeInTheDocument();
   });
 
   it("redirects an invitation link to the onboarding route instead of rendering the dashboard shell", async () => {
