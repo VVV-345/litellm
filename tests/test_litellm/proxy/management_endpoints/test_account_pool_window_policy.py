@@ -3,12 +3,16 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
+from account_pool.policies import RoutingPolicy as ManagerPolicy
 from pydantic import ValidationError
 from starlette.datastructures import Headers
 
-from account_pool.policies import RoutingPolicy as ManagerPolicy
-from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, RoutingPolicy, TransportPolicy
-from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, RoutingSnapshot, available
+from litellm.proxy.management_endpoints.account_pool_management_models import (
+    AccountPolicy,
+    RoutingPolicy,
+    TransportPolicy,
+)
+from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingSnapshot, available
 from litellm.proxy.management_endpoints.account_pool_reconciler import QuotaSnapshot
 from litellm.proxy.management_endpoints.account_pool_routing import protocol_policy
 
@@ -66,8 +70,27 @@ def test_explicit_zero_override_does_not_inherit_general_reserve(five, week, exp
     assert available(RoutingSnapshot(quota=quota(five,week), quota_reserve_percent=50, quota_reserve_5h_percent=0, quota_reserve_weekly_percent=20), "shared", NOW) is expected
 
 
-def test_stale_and_unknown_quota_require_fresh_observation_when_reserve_is_positive():
-    stale = quota(50,50).model_copy(update={"observed_at": NOW - timedelta(seconds=301)})
-    assert not available(RoutingSnapshot(quota=stale, quota_reserve_5h_percent=10), "shared", NOW)
-    expired = quota(50,50).model_copy(update={"windows": tuple(w.model_copy(update={"resets_at": NOW}) for w in quota(50,50).windows)})
-    assert not available(RoutingSnapshot(quota=expired, quota_reserve_weekly_percent=10), "shared", NOW)
+def test_stale_snapshot_stays_usable_within_the_grace_window() -> None:
+    stale = quota(50, 50).model_copy(update={"observed_at": NOW - timedelta(seconds=301)})
+    expired = quota(50, 50).model_copy(update={"observed_at": NOW - timedelta(seconds=901)})
+
+    assert available(RoutingSnapshot(quota=stale, quota_reserve_5h_percent=10), "shared", NOW)
+    assert not available(RoutingSnapshot(quota=expired, quota_reserve_5h_percent=10), "shared", NOW)
+
+
+def test_window_past_its_reset_does_not_invalidate_a_fresh_snapshot() -> None:
+    value = QuotaSnapshot.model_validate({"observed_at": NOW, "windows": [
+        {"name": "primary", "window_minutes": 300, "remaining_percent": 90, "resets_at": NOW - timedelta(minutes=1)},
+        {"name": "secondary", "window_minutes": 10080, "remaining_percent": 90, "resets_at": NOW + timedelta(days=4)},
+    ]}).routing_quota()
+
+    assert available(RoutingSnapshot(quota=value, quota_reserve_percent=10), "shared", NOW)
+
+
+def test_missing_observation_is_unavailable_only_when_reserve_is_positive() -> None:
+    value = QuotaSnapshot.model_validate({"windows": [
+        {"name": "primary", "window_minutes": 300, "remaining_percent": 90, "resets_at": NOW + timedelta(hours=1)},
+    ]}).routing_quota()
+
+    assert not available(RoutingSnapshot(quota=value, quota_reserve_percent=10), "shared", NOW)
+    assert available(RoutingSnapshot(quota=value, quota_reserve_percent=0), "shared", NOW)

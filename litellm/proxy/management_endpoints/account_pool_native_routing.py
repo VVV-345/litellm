@@ -6,7 +6,7 @@ import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Final, Literal, TypeAlias, TypeVar, cast
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -247,6 +247,23 @@ def quota_depleted(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool
     return quota.remaining_percent is not None and quota.remaining_percent <= snapshot.quota_reserve_percent
 
 
+QuotaFreshness: TypeAlias = Literal["missing", "fresh", "stale", "expired"]
+STALE_GRACE_FACTOR: Final = 3
+
+
+def quota_freshness(snapshot: RoutingSnapshot, model: str, now: datetime) -> QuotaFreshness:
+    target: Final = snapshot.model_aliases.get(model, model)
+    observed: Final = snapshot.model_quotas.get(target, snapshot.quota).observed_at
+    if observed is None:
+        return "missing"
+    age: Final = (now - observed).total_seconds()
+    if age <= snapshot.quota_snapshot_max_age:
+        return "fresh"
+    if age <= snapshot.quota_snapshot_max_age * STALE_GRACE_FACTOR:
+        return "stale"
+    return "expired"
+
+
 def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     target: Final = snapshot.model_aliases.get(model, model)
     cooldown: Final = snapshot.model_cooldowns.get(target)
@@ -255,17 +272,13 @@ def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     if snapshot.subscription_active_until is not None and snapshot.subscription_active_until <= now:
         return False
     quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
-    remaining, observed = quota.effective(now)
+    remaining, _ = quota.effective(now)
     if quota_depleted(snapshot, model, now):
         return False
     reserves: Final = tuple(window_reserve(snapshot, window.window_minutes) for window in quota.windows)
     if max(reserves, default=snapshot.quota_reserve_percent) == 0:
         return True
-    return (
-        remaining is not None
-        and observed is not None
-        and (now - observed).total_seconds() <= snapshot.quota_snapshot_max_age
-    )
+    return remaining is not None and quota_freshness(snapshot, model, now) in ("fresh", "stale")
 
 
 def protocol_available(snapshot: RoutingSnapshot) -> bool:
