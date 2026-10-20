@@ -266,6 +266,8 @@ class PolicyRepository(Protocol):
 
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None: ...
 
+    async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None: ...
+
     async def set_runtime_status(
         self,
         card_id: UUID,
@@ -377,6 +379,15 @@ class PostgresPolicyRepository:
                 )
             )
             row: Final = await saved.fetchone()
+        return None if row is None else PolicyView.model_validate(row)
+
+    async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "DELETE FROM account_pool_policies WHERE card_id = %s AND version = %s RETURNING *",
+                (card_id, expected_version),
+            )
+            row: Final = await cursor.fetchone()
         return None if row is None else PolicyView.model_validate(row)
 
     async def set_runtime_status(

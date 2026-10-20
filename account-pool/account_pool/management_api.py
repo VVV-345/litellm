@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from account_pool.application.effective_policy import effective_policy
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
 from account_pool.domain import EnvironmentRecord, utc_now
 from account_pool.error_logs import (
@@ -38,6 +39,7 @@ from account_pool.settings import (
     AccountPoolSettingsRepository,
     AccountPoolSettingsUpdate,
     AccountPoolSettingsView,
+    settings_for_card,
     settings_preview,
 )
 from account_pool.shared.result import Failure, Result
@@ -161,6 +163,29 @@ def create_management_router(
             runtime_saved: Final = await _set_policy_runtime_status(policies, saved, "synced")
             return runtime_saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
         return saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
+
+    @router.delete("/environments/{card_id}/policy")
+    async def reset_policy(card_id: UUID) -> PolicyView:
+        record: Final = await card(card_id)
+        current: Final = await policies.get(card_id)
+        if current.version == 0:
+            return current.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
+        if sync_policy is not None:
+            global_settings: Final = None if settings is None else await settings.get()
+            default_policy: Final = effective_policy(
+                AccountPolicy(),
+                None if global_settings is None else settings_for_card(global_settings.values, card_id),
+                inherit=True,
+            )
+            try:
+                await sync_policy(record, default_policy)
+            except Exception as error:
+                raise HTTPException(status_code=502, detail="policy runtime synchronization failed") from error
+        deleted: Final = await policies.delete(card_id, current.version)
+        if deleted is None:
+            raise HTTPException(409, "Policy has changed; refresh before retrying")
+        return PolicyView(card_id=card_id, capabilities=policy_capabilities(record.supplier))
+
 
     @router.get("/logs/{event_id}")
     async def log_detail(event_id: UUID) -> ErrorLogDetail:

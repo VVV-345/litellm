@@ -142,6 +142,13 @@ def create_management_router(
             TypeAdapter(PolicyView),
         )
 
+    @router.delete("/environments/{card_id}/policy")
+    async def reset_policy(card_id: UUID) -> PolicyView:
+        return parse_response(
+            await call("DELETE", f"/api/environments/{card_id}/policy"),
+            TypeAdapter(PolicyView),
+        )
+
     @router.get("/settings/history")
     async def settings_history() -> tuple[AccountPoolSettingsHistoryEntry, ...]:
         return parse_response(

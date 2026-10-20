@@ -708,6 +708,13 @@ class RecordingPolicies:
         self.policy = saved
         return saved
 
+    async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None:
+        if self.policy.card_id != card_id or self.policy.version != expected_version:
+            return None
+        previous: Final = self.policy
+        self.policy = PolicyView(card_id=card_id)
+        return previous
+
     async def set_runtime_status(
         self,
         card_id: UUID,

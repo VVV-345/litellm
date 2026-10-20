@@ -24,7 +24,7 @@ from account_pool.error_logs import (
     ErrorStats,
 )
 from account_pool.management_api import create_management_router
-from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView
+from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView, RoutingPolicy
 from account_pool.quota import ProviderEndpointFailure, ProviderQuotaError
 from account_pool.quota_scheduler import QuotaRefreshScheduler
 from account_pool.result import Failure, Success
@@ -185,6 +185,12 @@ class MemoryPolicies:
         saved: Final = PolicyView(card_id=card_id, version=current.version + 1, policy=request.policy)
         self.records[card_id] = saved
         return saved
+
+    async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None:
+        current: Final = self.records.get(card_id)
+        if current is None or current.version != expected_version:
+            return None
+        return self.records.pop(card_id)
 
     async def set_runtime_status(
         self,
@@ -634,3 +640,79 @@ async def test_log_total_uses_the_same_filters_even_when_page_is_empty(monkeypat
     assert calls[0][0].split(" WHERE ")[1].split(" ORDER BY ")[0] == calls[1][0].split(" WHERE ")[1]
     assert calls[0][1][0].obj == calls[1][1][0].obj == {"model": "model", "http_status": 400}
     assert calls[0][1][-2:] == (26, 250)
+
+
+def test_policy_reset_deletes_the_row_and_restores_global_defaults() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(record)
+    policies: Final = MemoryPolicies()
+    policies.records[record.id] = PolicyView(
+        card_id=record.id,
+        version=3,
+        policy=AccountPolicy(
+            routing=RoutingPolicy(strategy="random", quota_reserve_percent=90, quota_snapshot_max_age=60)
+        ),
+    )
+    applied: list[AccountPolicy] = []
+
+    class StoredSettings:
+        async def get(self) -> AccountPoolSettingsView:
+            return AccountPoolSettingsView(
+                version=1,
+                values=AccountPoolSettings(quota_reserve_percent=75, quota_snapshot_max_age=1800),
+            )
+
+    async def sync_policy(_: EnvironmentRecord, policy: AccountPolicy) -> None:
+        applied.append(policy)
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(),
+            object(),
+            environments,
+            lambda: None,
+            policies,
+            settings=StoredSettings(),
+            sync_policy=sync_policy,
+        )
+    )
+
+    with TestClient(app) as client:
+        response: Final = client.delete(f"/api/environments/{record.id}/policy")
+        repeated: Final = client.delete(f"/api/environments/{record.id}/policy")
+
+    assert response.status_code == 200
+    assert response.json()["version"] == 0
+    assert record.id not in policies.records
+    assert applied[0].routing.strategy == "auto"
+    assert applied[0].routing.quota_reserve_percent == 75
+    assert applied[0].routing.quota_snapshot_max_age == 1800
+    assert repeated.status_code == 200
+    assert repeated.json()["version"] == 0
+    assert len(applied) == 1
+
+
+def test_policy_reset_keeps_the_row_when_runtime_synchronization_fails() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(record)
+    policies: Final = MemoryPolicies()
+    policies.records[record.id] = PolicyView(card_id=record.id, version=2, policy=AccountPolicy())
+
+    async def sync_policy(_: EnvironmentRecord, __: AccountPolicy) -> None:
+        raise RuntimeError("runtime synchronization failed")
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(), object(), environments, lambda: None, policies, sync_policy=sync_policy
+        )
+    )
+
+    with TestClient(app) as client:
+        response: Final = client.delete(f"/api/environments/{record.id}/policy")
+
+    assert response.status_code == 502
+    assert policies.records[record.id].version == 2
+
+
