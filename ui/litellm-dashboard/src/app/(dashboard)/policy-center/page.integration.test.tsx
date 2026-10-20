@@ -22,8 +22,10 @@ const cardIndependent = {
   enabled_models: ["gpt-5"],
 };
 
+const authorized = { accessToken: "token", userId: "user", userRole: "Admin", isViewOnly: false };
+
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
-  default: () => ({ accessToken: "token", userId: "user", userRole: "admin" }),
+  default: () => authorized,
 }));
 
 vi.mock("@/features/account-pool/hooks/useAccountPoolQuery", () => ({
@@ -96,6 +98,8 @@ const settingsView = {
 };
 
 beforeEach(() => {
+  authorized.userRole = "Admin";
+  authorized.isViewOnly = false;
   getSettings.mockResolvedValue(settingsView);
   listPolicies.mockResolvedValue([
     { card_id: cardIndependent.id, version: 2, policy: { routing: { strategy: "plan" } } },
@@ -142,6 +146,15 @@ describe("policy center", () => {
       }),
       "policy",
     );
+  });
+
+  it("hides the policy center from non-admin roles", () => {
+    authorized.userRole = "viewer";
+
+    renderPage();
+
+    expect(screen.getByText(/only available to admin users/i)).toBeInTheDocument();
+    expect(screen.queryByText("跨卡调度")).not.toBeInTheDocument();
   });
 
   it("opens the independent policy editor from the card list", async () => {

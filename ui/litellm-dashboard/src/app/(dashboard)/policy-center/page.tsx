@@ -1,5 +1,6 @@
 "use client";
 
+import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +26,7 @@ import {
 import { accountPoolPolicyOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import { toast } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -345,23 +347,26 @@ function RoutingStatusPanel({
 }
 
 export default function PolicyCenterPage() {
-  const { accessToken, userId, userRole } = useAuthorized();
+  const { accessToken, userId, userRole, isViewOnly } = useAuthorized();
+  const canManage = canManageAccountPool(userRole, isViewOnly);
   const queryClient = useQueryClient();
   const [routing, setRouting] = useState<ReturnType<typeof accountPoolRoutingValue> | null>(null);
   const [policyCard, setPolicyCard] = useState<AccountPoolEnvironment | null>(null);
   const [runtimeCard, setRuntimeCard] = useState<AccountPoolEnvironment | null>(null);
-  const environments = useAccountPoolQuery(accessToken, true, false);
-  const policies = useQuery(accountPoolPolicyOptions(accessToken));
+  const environments = useAccountPoolQuery(accessToken, canManage, false);
+  const policies = useQuery({ ...accountPoolPolicyOptions(accessToken), enabled: Boolean(accessToken && canManage) });
+  const hasIdentity = Boolean(accessToken && userId && userRole);
+  const routerConfigEnabled = hasIdentity && canManage;
   const settingsQuery = {
     queryKey: [...accountPoolQueryKeys.settings(accessToken), "policy-center"],
     queryFn: () => getAccountPoolSettings(accessToken as string),
-    enabled: Boolean(accessToken),
+    enabled: Boolean(accessToken && canManage),
     retry: false,
   };
   const routerConfigQuery = {
     queryKey: ["router-config", accessToken],
     queryFn: () => getCallbacksCall(accessToken as string, userId as string, userRole as string),
-    enabled: Boolean(accessToken && userId && userRole),
+    enabled: routerConfigEnabled,
     retry: false,
   };
   const settings = useQuery(settingsQuery);
@@ -412,6 +417,7 @@ export default function PolicyCenterPage() {
     }
   };
 
+  if (!canManage) return <AdminOnlyNotice pageTitle="策略中心" />;
   if (!accessToken) return null;
 
   return (
