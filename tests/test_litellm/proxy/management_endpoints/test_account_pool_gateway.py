@@ -24,6 +24,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRequest,
     Candidate,
     CandidateModelQuota,
+    CandidateQuotaWindow,
     FinishRequest,
     GatewayCredential,
     Lease,
@@ -1092,6 +1093,34 @@ def test_plan_routing_prefers_verified_higher_tiers_and_uses_quota_as_a_tiebreak
 def test_plan_rank_supports_verified_non_codex_tiers(plan_type: str, expected: int) -> None:
     assert plan_rank(candidate(uuid4(), plan_type=plan_type)) == expected
 
+
+def test_rejection_reports_expired_quota_snapshot() -> None:
+    now: Final = datetime.now(timezone.utc)
+    account: Final = candidate(uuid4()).model_copy(
+        update={
+            "remaining_percent": 90,
+            "quota_observed_at": now - timedelta(seconds=901),
+            "quota_windows": (
+                CandidateQuotaWindow(
+                    window_minutes=300, remaining_percent=90, resets_at=now + timedelta(hours=1)
+                ),
+            ),
+        }
+    )
+    resolution: Final = Resolution(
+        card_id=uuid4(),
+        key_id=uuid4(),
+        card_version=1,
+        policy_version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(quota_reserve_percent=10)),
+        candidates=(account,),
+    )
+
+    assert routes(resolution, "model-a", "/v1/responses", Headers()) == Rejected(
+        503,
+        "No bound account currently supports this model and policy",
+        "account_pool_quota_snapshot_expired",
+    )
 
 def test_model_quota_applies_only_to_the_routed_model() -> None:
     observed_at: Final = datetime.now(timezone.utc)

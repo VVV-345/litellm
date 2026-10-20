@@ -12,7 +12,11 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     RoutingPolicy,
     TransportPolicy,
 )
-from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingSnapshot, available
+from litellm.proxy.management_endpoints.account_pool_native_routing import (
+    RoutingSnapshot,
+    available,
+    unavailable_reason,
+)
 from litellm.proxy.management_endpoints.account_pool_reconciler import QuotaSnapshot
 from litellm.proxy.management_endpoints.account_pool_routing import protocol_policy
 
@@ -94,3 +98,32 @@ def test_missing_observation_is_unavailable_only_when_reserve_is_positive() -> N
 
     assert not available(RoutingSnapshot(quota=value, quota_reserve_percent=10), "shared", NOW)
     assert available(RoutingSnapshot(quota=value, quota_reserve_percent=0), "shared", NOW)
+
+@pytest.mark.parametrize(
+    ("snapshot", "expected"),
+    (
+        (RoutingSnapshot(quota_reserve_percent=10, model_cooldowns={"shared": NOW + timedelta(seconds=30)}), "model_cooldown"),
+        (
+            RoutingSnapshot(quota_reserve_percent=10, subscription_active_until=NOW - timedelta(seconds=1)),
+            "subscription_expired",
+        ),
+        (RoutingSnapshot(quota=quota(5, 90), quota_reserve_percent=10), "quota_exhausted"),
+        (
+            RoutingSnapshot(
+                quota=quota(90, 90).model_copy(update={"observed_at": NOW - timedelta(seconds=901)}),
+                quota_reserve_percent=10,
+            ),
+            "quota_snapshot_expired",
+        ),
+        (
+            RoutingSnapshot(
+                quota=quota(90, 90).model_copy(update={"observed_at": None}),
+                quota_reserve_percent=10,
+            ),
+            "quota_snapshot_missing",
+        ),
+        (RoutingSnapshot(quota=quota(90, 90), quota_reserve_percent=10), None),
+    ),
+)
+def test_unavailable_reason_names_the_blocking_gate(snapshot: RoutingSnapshot, expected: str | None) -> None:
+    assert unavailable_reason(snapshot, "shared", NOW) == expected

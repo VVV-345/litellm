@@ -182,15 +182,23 @@ def routes(
     active: Final = tuple(route for route in compatible if subscription_active(route.account, now))
     eligible: Final = tuple(route for route in active if quota_available(route.account, resolution.policy, route.model))
     if not eligible:
-        from litellm.proxy.management_endpoints.account_pool_native_routing import quota_depleted
+        from litellm.proxy.management_endpoints.account_pool_native_routing import unavailable_reason
 
-        depleted: Final = bool(active) and all(
-            quota_depleted(quota_snapshot(route.account, resolution.policy, route.model), route.model, now)
+        reasons: Final = tuple(
+            unavailable_reason(quota_snapshot(route.account, resolution.policy, route.model), route.model, now)
             for route in active
+        )
+        depleted: Final = bool(active) and all(reason == "quota_exhausted" for reason in reasons)
+        quota_snapshot_expired: Final = (
+            bool(active)
+            and not depleted
+            and all(reason in ("quota_exhausted", "quota_snapshot_expired") for reason in reasons)
         )
         reason: Final = (
             "quota_exhausted"
             if depleted
+            else "quota_snapshot_expired"
+            if quota_snapshot_expired
             else "account_unavailable"
             if active
             else "subscription_expired"

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Final, Literal, TypeAlias, TypeVar, cast
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from litellm._logging import verbose_router_logger
 from litellm.constants import SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY
 from litellm.proxy.management_endpoints.account_pool_failover import exception_failure, exception_header
 from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
@@ -264,21 +265,41 @@ def quota_freshness(snapshot: RoutingSnapshot, model: str, now: datetime) -> Quo
     return "expired"
 
 
-def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
+UnavailableReason: TypeAlias = Literal[
+    "model_cooldown",
+    "subscription_expired",
+    "quota_exhausted",
+    "quota_snapshot_missing",
+    "quota_snapshot_expired",
+]
+
+
+def unavailable_reason(snapshot: RoutingSnapshot, model: str, now: datetime) -> UnavailableReason | None:
     target: Final = snapshot.model_aliases.get(model, model)
     cooldown: Final = snapshot.model_cooldowns.get(target)
     if cooldown is not None and cooldown > now:
-        return False
+        return "model_cooldown"
     if snapshot.subscription_active_until is not None and snapshot.subscription_active_until <= now:
-        return False
+        return "subscription_expired"
     quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
-    remaining, _ = quota.effective(now)
     if quota_depleted(snapshot, model, now):
-        return False
+        return "quota_exhausted"
     reserves: Final = tuple(window_reserve(snapshot, window.window_minutes) for window in quota.windows)
     if max(reserves, default=snapshot.quota_reserve_percent) == 0:
-        return True
-    return remaining is not None and quota_freshness(snapshot, model, now) in ("fresh", "stale")
+        return None
+    remaining, _ = quota.effective(now)
+    if remaining is None:
+        return "quota_snapshot_missing"
+    freshness: Final = quota_freshness(snapshot, model, now)
+    if freshness == "missing":
+        return "quota_snapshot_missing"
+    if freshness == "expired":
+        return "quota_snapshot_expired"
+    return None
+
+
+def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
+    return unavailable_reason(snapshot, model, now) is None
 
 
 def protocol_available(snapshot: RoutingSnapshot) -> bool:
@@ -287,15 +308,37 @@ def protocol_available(snapshot: RoutingSnapshot) -> bool:
             or identity.protocol in snapshot.supported_protocols)
 
 
+def exclusion_reason(
+    deployment: Deployment, model: str, values: Mapping[str, RoutingSnapshot], now: datetime
+) -> str | None:
+    snapshot: Final = snapshot_for(deployment, values)
+    if snapshot is None:
+        return None
+    if not protocol_available(snapshot):
+        return "protocol"
+    return unavailable_reason(snapshot, model, now)
+
+
 def eligible_deployments(
     deployments: Sequence[Deployment], model: str, values: Mapping[str, RoutingSnapshot], now: datetime
 ) -> list[Deployment]:
-    return [
+    eligible: Final = [
         deployment
         for deployment in deployments
         if (snapshot := snapshot_for(deployment, values)) is None
         or (protocol_available(snapshot) and available(snapshot, model, now))
     ]
+    if deployments and not eligible:
+        verbose_router_logger.info(
+            "account pool excluded every candidate for model %s: %s",
+            model,
+            tuple(
+                reason
+                for deployment in deployments
+                if (reason := exclusion_reason(deployment, model, values, now)) is not None
+            ),
+        )
+    return eligible
 
 
 def rank(snapshot: RoutingSnapshot, model: str, selection: str, now: datetime) -> tuple[float, float]:
