@@ -3456,7 +3456,12 @@ async def test_read_idle_timeout_uses_real_socket_and_keeps_parallel_streams(cou
     (True, False, 10, 1), (False, True, 2, 1), (False, False, 2, 2),
 ])
 def test_signed_test_and_migration_attempt_limits(monkeypatch, model_test, migrated, limit, expected):
-    from litellm.proxy.management_endpoints.account_pool_integration import INTERNAL_PREFIX, PoolIdentity, create_ticket, conversation_replay
+    from litellm.proxy.management_endpoints.account_pool_integration import (
+        INTERNAL_PREFIX,
+        PoolIdentity,
+        conversation_replay,
+        create_ticket,
+    )
     monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-manager-key-" * 3)
     calls = []
     def upstream(request):
@@ -3545,3 +3550,29 @@ def test_passthrough_does_not_bypass_quota(monkeypatch):
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "account_pool_quota_exhausted"
     assert not control.acquisitions
+
+
+@pytest.mark.parametrize("with_tools", [False, True])
+def test_final_lease_rejection_must_not_claim_zero_upstream_calls(with_tools):
+    calls = []
+
+    def upstream(request):
+        calls.append(str(request.url))
+        control.exhausted = True
+        return httpx.Response(503, json={"error": {"type": "server_error", "code": "server_error", "message": "failed"}})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=2)
+    payload = {"model": "model-a", "input": "hello"}
+    if with_tools:
+        payload["tools"] = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    with client:
+        response = client.post("/v1/responses", json=payload, headers={"Authorization": "Bearer " + _KEY})
+    print(json.dumps({  # noqa: T201  # Transaction probe records the literal preflight behavior.
+        "probe": "mixed-upstream-then-lease-rejection", "with_tools": with_tools,
+        "upstream_calls": len(calls), "acquisitions": len(control.acquisitions),
+        "status": response.status_code, "preflight": response.headers.get("x-account-pool-preflight"),
+        "upstream_statuses_recorded": [item.http_status for item in control.finished],
+    }))
+    assert len(calls) == 1
+    assert response.status_code == 503
+    assert "x-account-pool-preflight" not in response.headers

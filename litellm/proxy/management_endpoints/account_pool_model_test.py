@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from typing import Annotated, Final, Literal, Protocol
@@ -16,6 +17,7 @@ from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_management import ManagementRequest
+from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolSettings
 from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
 from litellm.types.router import RetryPolicy, UpdateRouterConfig
 
@@ -42,6 +44,10 @@ class AccountPoolModelTestResult(BaseModel):
 class _Card(BaseModel):
     enabled: bool
     enabled_models: tuple[str, ...]
+
+
+class _Settings(BaseModel):
+    values: AccountPoolSettings
 
 
 class _ModelInfo(BaseModel):
@@ -146,6 +152,7 @@ def create_model_test_router(
     request_manager: ManagementRequest,
     require_admin: Callable[[UserAPIKeyAuth], None],
     router_provider: Callable[[], ModelTestRouter | None] = configured_router,
+    choose_greeting: Callable[[tuple[str, ...]], str] = random.choice,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -177,6 +184,14 @@ def create_model_test_router(
         )
         if selected is None:
             raise HTTPException(409, "This account's model is not synchronized with the router")
+        settings_response: Final = await request_manager("GET", "/api/settings", None)
+        if settings_response.is_error:
+            raise HTTPException(502, "Model test settings are unavailable")
+        try:
+            settings: Final = _Settings.model_validate_json(settings_response.content).values
+        except ValueError:
+            raise HTTPException(502, "Model test settings are unavailable") from None
+        greeting: Final = choose_greeting(settings.model_test_greetings or ("Hello. Reply briefly with Hello.",))
         started: Final = time.perf_counter()
         identity: Final = PoolIdentity(
             key_hash=user.api_key or "master", request_id=uuid4(), card_id=card_id, model_test=True,
@@ -198,12 +213,12 @@ def create_model_test_router(
             async with asyncio.timeout(30):
                 result: Final = (
                     await llm_router.acompletion(
-                        **parameters, messages=[{"role": "user", "content": "Hello. Reply briefly with Hello."}],
+                        **parameters, messages=[{"role": "user", "content": greeting}],
                         max_completion_tokens=256,
                     )
                     if request.mode == "chat"
                     else await llm_router.aresponses(
-                        **parameters, input="Hello. Reply briefly with Hello.", max_output_tokens=256, store=False,
+                        **parameters, input=greeting, max_output_tokens=256, store=False,
                     )
                 )
                 success: Final = await _completed(result, request)

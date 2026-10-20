@@ -44,6 +44,7 @@ const defaults: AccountPoolSettings = {
   default_route: "auto",
   default_concurrency_limit: 1,
   default_model_discovery: true,
+  model_test_greetings: [],
   default_proxy_profile_id: null,
   max_attempts: 3,
   request_timeout_seconds: 120,
@@ -142,6 +143,7 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
   const [draft, setDraft] = useState<AccountPoolSettings | null>(null);
   const [busy, setBusy] = useState(false);
   const [heartbeatText, setHeartbeatText] = useState<string | null>(null);
+  const [greetingsText, setGreetingsText] = useState<string | null>(null);
   const [jsonTexts, setJsonTexts] = useState<Record<string, string>>({});
   const [invalidEditorIds, setInvalidEditorIds] = useState<string[]>([]);
 
@@ -194,6 +196,11 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
     ...(values.payload_profiles ?? []),
   ];
   const save = async () => {
+    const greetings = greetingsText === null ? (values.model_test_greetings ?? []) : greetingsText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (greetings.length > 50 || greetings.some((line) => line.length > 1000)) {
+      toast.error("问候语最多 50 条，每条最多 1000 字符");
+      return;
+    }
     const heartbeat = heartbeatText === null ? values.sse_heartbeat_interval_seconds : Number(heartbeatText);
     if (heartbeatText !== null && (!heartbeatText.trim() || heartbeat == null || heartbeat <= 0)) {
       toast.error("开启 SSE 心跳时，间隔必须大于 0 秒");
@@ -213,10 +220,11 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
     }
     setBusy(true);
     try {
-      const saved = await updateAccountPoolSettings(accessToken, { version, values: { ...values, sse_heartbeat_interval_seconds: heartbeat } }, category);
+      const saved = await updateAccountPoolSettings(accessToken, { version, values: { ...values, sse_heartbeat_interval_seconds: heartbeat, model_test_greetings: greetings } }, category);
       await settingsQuery.refetch();
       setDraft(null);
       setHeartbeatText(null);
+      setGreetingsText(null);
       setJsonTexts({});
       setInvalidEditorIds([]);
       toast.success(
@@ -623,6 +631,24 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
 
       <Card>
         <CardContent className="pt-6">
+          {category === "common" && (
+            <div className="mb-6 grid gap-3 rounded-md border p-4">
+              <Label htmlFor="model-test-greetings">模型测试问候语</Label>
+              <Textarea
+                id="model-test-greetings"
+                value={greetingsText ?? (values.model_test_greetings ?? []).join("\n")}
+                onChange={(event) => setGreetingsText(event.target.value)}
+                disabled={busy}
+                rows={4}
+                placeholder="你好，请简短回复。"
+                aria-describedby="model-test-greetings-help"
+              />
+              <p id="model-test-greetings-help" className="text-sm text-muted-foreground">
+                全局生效，每行一条，每次模型测试随机选一条。忽略空行，留空使用默认问候语；最多 50 条，每条 1000 字符。
+              </p>
+              <Button type="button" className="w-fit" disabled={busy} onClick={() => void save()}>保存问候语</Button>
+            </div>
+          )}
           {category === "common" && (
             <RuntimeSettingsProfileSection
               moduleName={t("accountPool.settings.categories.common")}

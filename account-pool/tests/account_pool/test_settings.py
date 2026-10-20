@@ -457,11 +457,15 @@ def test_full_log_settings_save_without_upstream_synchronization() -> None:
         assert restored.json()["values"]["full_log_skip_failed"] is False
 
 
-def test_auth_file_template_saves_without_reconfiguring_existing_accounts() -> None:
+@pytest.mark.parametrize("field,value", [
+    ("auth_file_template", {"priority": 0, "prefix": "team", "proxy_profile_id": "node-a"}),
+    ("model_test_greetings", ["你好", "Hello"]),
+])
+def test_auth_file_template_saves_without_reconfiguring_existing_accounts(field: str, value: object) -> None:
     repository: Final = MemorySettingsRepository()
 
     async def unavailable(values: AccountPoolSettings) -> tuple[UUID, ...]:
-        pytest.fail("Saving an import template must not reconfigure existing accounts")
+        raise AssertionError("Saving local settings must not reconfigure existing accounts")
 
     app: Final = FastAPI()
     app.include_router(
@@ -469,13 +473,37 @@ def test_auth_file_template_saves_without_reconfiguring_existing_accounts() -> N
             object(), object(), MemoryEnvironments(), lambda: None, object(), repository, sync_settings=unavailable
         )
     )
-    template: Final = {"priority": 0, "prefix": "team", "proxy_profile_id": "node-a"}
     with TestClient(app) as client:
-        saved: Final = client.put("/api/settings", json={"version": 0, "values": {"auth_file_template": template}})
+        saved: Final = client.put("/api/settings", json={"version": 0, "values": {field: value}})
         assert saved.status_code == 200
-        assert client.get("/api/settings").json()["values"]["auth_file_template"] == template
-        stale: Final = client.put("/api/settings", json={"version": 0, "values": {"auth_file_template": template}})
+        assert client.get("/api/settings").json()["values"][field] == value
+        stale: Final = client.put("/api/settings", json={"version": 0, "values": {field: value}})
         assert stale.status_code == 409
+
+
+@pytest.mark.parametrize("patch,expected_greetings", [
+    ({"full_logging_enabled": True}, ["你好", "Hello"]),
+    ({"model_test_greetings": []}, []),
+])
+def test_settings_api_preserves_omitted_greetings_but_allows_explicit_clear(
+    patch: dict[str, object], expected_greetings: list[str],
+) -> None:
+    repository: Final = MemorySettingsRepository()
+    app: Final = FastAPI()
+    app.include_router(create_management_router(
+        object(), object(), MemoryEnvironments(), lambda: None, object(), repository,
+    ))
+    with TestClient(app) as client:
+        initial: Final = client.put("/api/settings", json={
+            "version": 0, "values": {"model_test_greetings": ["你好", "Hello"]},
+        })
+        assert initial.status_code == 200
+        preview: Final = client.post("/api/settings/preview", json={"version": 1, "values": patch})
+        assert preview.status_code == 200
+        assert {item["key"] for item in preview.json()["changes"]} == set(patch)
+        saved: Final = client.put("/api/settings", json={"version": 1, "values": patch})
+        assert saved.status_code == 200
+        assert client.get("/api/settings").json()["values"]["model_test_greetings"] == expected_greetings
 
 
 @pytest.mark.parametrize("template", [{"priority": True}, {"priority": 1.5}, {"access_token": "secret"}, {"proxy_url": "http://user:pass@proxy:80"}])

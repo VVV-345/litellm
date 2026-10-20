@@ -54,6 +54,20 @@ def test_common_save_without_template_preserves_previously_saved_template():
     assert merge_runtime_settings(current, patch, "common").values.auth_file_template == current.values.auth_file_template
 
 
+def test_common_greetings_roundtrip_preserves_other_sections_and_older_clients():
+    from account_pool.settings import AccountPoolSettings as ManagerSettings
+    current = AccountPoolSettingsView(version=2, values=AccountPoolSettings(default_proxy_profile_id="keep"))
+    patch = AccountPoolSettingsUpdate(version=2, values=AccountPoolSettings(model_test_greetings=["Hello", "你好"]))
+    merged = merge_runtime_settings(current, patch, "common")
+    assert ManagerSettings.model_validate_json(merged.values.model_dump_json()).model_test_greetings == ("Hello", "你好")
+    assert merged.values.default_proxy_profile_id == "keep"
+    saved = AccountPoolSettingsView(version=3, values=merged.values)
+    older_client = AccountPoolSettingsUpdate(version=3, values=AccountPoolSettings(default_concurrency_limit=2))
+    assert merge_runtime_settings(saved, older_client, "common").values.model_test_greetings == ("Hello", "你好")
+    cleared = older_client.model_copy(update={"values": AccountPoolSettings(model_test_greetings=[])})
+    assert merge_runtime_settings(saved, cleared, "common").values.model_test_greetings == ()
+
+
 @pytest.mark.parametrize("interval", [None, 0, 15, 300])
 def test_heartbeat_runtime_save_and_roundtrip(interval):
     from account_pool.settings import AccountPoolSettings as ManagerSettings

@@ -8,7 +8,16 @@ from typing import Annotated, Final, Literal, Protocol, TypeVar
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    StringConstraints,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from account_pool.repository import database_connection
 
@@ -203,6 +212,7 @@ class AccountPoolSettings(BaseModel):
     default_route: Literal["auto", "priority", "random", "quota"] = "auto"
     default_concurrency_limit: int = Field(default=1, ge=0, le=1000)
     default_model_discovery: bool = True
+    model_test_greetings: tuple[Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)], ...] = Field(default=(), max_length=50)
     auth_file_template: AuthFileTemplate | None = None
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
     max_attempts: int = Field(default=3, ge=1, le=5)
@@ -258,6 +268,11 @@ class AccountPoolSettings(BaseModel):
     advanced_profiles: tuple[AdvancedSettingsProfile, ...] = Field(default=(), max_length=100)
     payload_profiles: tuple[PayloadSettingsProfile, ...] = Field(default=(), max_length=100)
     streaming_rules: tuple[StreamingRule, ...] = Field(default=(), max_length=100)
+
+    @field_validator("model_test_greetings")
+    @classmethod
+    def nonempty_greetings(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return tuple(value for value in values if value)
 
     @model_validator(mode="after")
     def unique_profile_cards(self) -> AccountPoolSettings:

@@ -1,9 +1,8 @@
+import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-
-import json
 
 import litellm
 from litellm.caching.dual_cache import DualCache
@@ -647,3 +646,125 @@ async def test_session_affinity_forgets_pin_when_pinned_deployment_disappears() 
     assert [item["model_info"]["id"] for item in filtered] == ["deployment-2"]
     assert await cache.async_get_cache(cache_key) is None
 
+
+class SharedPinRedis:
+    def __init__(self):
+        self.values = {}
+        self.stale_read_started = asyncio.Event()
+        self.resume_stale_read = asyncio.Event()
+
+    async def async_get_cache(self, key, **kwargs):
+        value = self.values.get(key)
+        if asyncio.current_task().get_name() == "stale-session-reader":
+            self.stale_read_started.set()
+            await self.resume_stale_read.wait()
+        return value
+
+    async def async_delete_cache(self, key):
+        self.values.pop(key, None)
+
+    def async_register_script(self, script):
+        async def claim(keys, args):
+            key = keys[0]
+            if "redis.call('DEL'" in script:
+                current = self.values.get(key)
+                owner = current.get("model_id") if isinstance(current, dict) else current
+                if owner == args[0]:
+                    self.values.pop(key, None)
+                    return ["", -2]
+                return [json.dumps(current) if current is not None else "", 45000]
+            if key not in self.values:
+                self.values[key] = json.loads(args[0])
+            return json.dumps(self.values[key])
+        return claim
+
+
+@pytest.mark.asyncio
+async def test_stale_reader_must_not_delete_another_workers_rebound_session():
+    redis = SharedPinRedis()
+    caches = [DualCache(), DualCache()]
+    for cache in caches:
+        cache.redis_cache = redis
+    callbacks = [
+        DeploymentAffinityCheck(
+            cache=cache, ttl_seconds=90, enable_user_key_affinity=False,
+            enable_responses_api_affinity=False, enable_session_id_affinity=True,
+        )
+        for cache in caches
+    ]
+    group, session, user = "review-group", "review-session", "review-user"
+    key = DeploymentAffinityCheck.get_session_affinity_cache_key(group, session, user_key=user)
+    redis.values[key] = {"model_id": "old-A"}
+    healthy = [
+        {"model_name": group, "litellm_params": {"model": value}, "model_info": {"id": value}}
+        for value in ("healthy-B", "healthy-C")
+    ]
+    payload = {"metadata": {"user_api_key_hash": user, "session_id": session}}
+
+    async def select(callback):
+        return await callback.async_filter_deployments(
+            model=group, healthy_deployments=healthy, messages=[], request_kwargs=payload,
+        )
+
+    async def bind(callback, model_id):
+        await callback.async_pre_call_deployment_hook(
+            kwargs={
+                "metadata": {"deployment_model_name": group, "session_id": session, "user_api_key_hash": user},
+                "model_info": {"id": model_id},
+            },
+            call_type=None,
+        )
+
+    stale = asyncio.create_task(select(callbacks[1]), name="stale-session-reader")
+    await asyncio.wait_for(redis.stale_read_started.wait(), timeout=10)
+    await select(callbacks[0])
+    await bind(callbacks[0], "healthy-B")
+    first_binding = redis.values.get(key)
+    assert first_binding == {"model_id": "healthy-B"}
+    redis.resume_stale_read.set()
+    await stale
+    after_stale_filter = redis.values.get(key)
+    await bind(callbacks[1], "healthy-C")
+    final_binding = redis.values.get(key)
+    print(json.dumps({  # noqa: T201  # Transaction probe records the actual race winner.
+        "probe": "concurrent-session-rebind",
+        "first_rebound": first_binding, "after_stale_filter": after_stale_filter,
+        "final_binding": final_binding,
+    }))
+    assert final_binding == {"model_id": "healthy-B"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored", [{"model_id": "old-A"}, "old-A", {"model_id": "new-B"}, "new-B"])
+async def test_forget_pin_only_clears_the_expected_local_owner(stored):
+    cache = DualCache()
+    callback = DeploymentAffinityCheck(cache, 90, False, False, True)
+    cache.in_memory_cache.set_cache("pin", stored, ttl=45)
+    expiry = cache.in_memory_cache.ttl_dict["pin"]
+    winner = await callback._forget_pin("pin", "old-A")
+    owner = stored.get("model_id") if isinstance(stored, dict) else stored
+    if owner == "old-A":
+        assert cache.in_memory_cache.get_cache("pin") is None
+        assert winner is None
+    else:
+        assert cache.in_memory_cache.get_cache("pin") == stored
+        assert cache.in_memory_cache.ttl_dict["pin"] == expiry
+        assert winner == "new-B"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stored", [{"model_id": "old-A"}, "old-A", {"model_id": "new-B"}, "new-B", None])
+async def test_forget_pin_compares_shared_owner_and_preserves_remaining_ttl(stored):
+    cache = DualCache()
+    redis = SharedPinRedis()
+    cache.redis_cache = redis
+    if stored is not None:
+        redis.values["pin"] = stored
+    callback = DeploymentAffinityCheck(cache, 3600, False, False, True)
+    winner = await callback._forget_pin("pin", "old-A")
+    owner = stored.get("model_id") if isinstance(stored, dict) else stored
+    assert redis.values.get("pin") == (stored if owner == "new-B" else None)
+    assert winner == ("new-B" if owner == "new-B" else None)
+    if winner:
+        import time
+        assert cache.in_memory_cache.ttl_dict["pin"] == pytest.approx(time.time() + 45, abs=1)

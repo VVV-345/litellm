@@ -451,8 +451,10 @@ async def forward(
                 if status == 503
                 else _EMPTY_HEADERS
             ),
-            # 租约被拒时上游一次都没被调用，Router 可以安全地换一张卡重试。
-            **({"x-account-pool-preflight": "rejected"} if status in (429, 503) else {}),
+            # 整个请求均未尝试发送上游时，才能承诺执行前拒绝。
+            **({"x-account-pool-preflight": "rejected"} if status in (429, 503) and not getattr(
+                request.state, "account_pool_upstream_attempted", False
+            ) else {}),
         }
     )
     await JSONResponse(
@@ -770,6 +772,7 @@ async def execute(
                 timeout=httpx.Timeout(seconds, read=read_seconds),
             )
             with attempt.timing.phase("upstream_headers"):
+                request.state.account_pool_upstream_attempted = True
                 response: Final = await selected_client.send(upstream, stream=True)
             try:
                 cost_usd: Final = upstream_response_cost(response.headers)

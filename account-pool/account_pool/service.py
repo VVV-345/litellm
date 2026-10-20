@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
 
@@ -113,6 +113,7 @@ class EnvironmentService:
         self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(self._settings, proxy_profiles)
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
+        self._quota_refresh_slots: Final = asyncio.Semaphore(max(1, settings.quota_refresh_max_concurrency))
         self._error_logs: Final = error_logs
         self._global_settings: Final = global_settings
         self._policies: Final = policies
@@ -257,10 +258,26 @@ class EnvironmentService:
         if record is None:
             return Failure(FailureCode.NOT_FOUND, "environment not found")
         try:
-            refreshed: Final = await self._refresh_if_needed(record, refresh_quota=True)
+            async with self._quota_refresh_slots:
+                refreshed: Final = await self._refresh_if_needed(record, refresh_quota=True)
         except Exception:
             return Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
         return Success(to_view(refreshed))
+
+    async def refresh_quota_after_failure(self, environment_id: UUID) -> bool:
+        record: Final = await self._repository.get(environment_id)
+        if record is None or record.channel is not ChannelKind.CLIPROXYAPI or record.supplier not in (
+            SupplierKind.OPENAI_CODEX, SupplierKind.ANTHROPIC_CLAUDE, SupplierKind.XAI, SupplierKind.GOOGLE_ANTIGRAVITY,
+        ):
+            return True
+        try:
+            async with self._quota_refresh_slots:
+                refreshed: Final = await self._refresh_if_needed(
+                    record, refresh_quota=True, wait_for_lock=True, event_refresh=True,
+                )
+            return refreshed.quota_event_refresh_failures == 0
+        except Exception:
+            return False
 
     async def refresh_ready_quotas(self, max_concurrency: int = 3) -> tuple[UUID, ...]:
         records: Final = await self._repository.list()
@@ -733,6 +750,7 @@ class EnvironmentService:
         credential_state_changed: bool = False,
         raise_on_error: bool = False,
         wait_for_lock: bool = False,
+        event_refresh: bool = False,
     ) -> EnvironmentRecord:
         if record.status not in (
             EnvironmentStatus.AWAITING_AUTHORIZATION,
@@ -749,7 +767,10 @@ class EnvironmentService:
         if lock.locked() and not wait_for_lock:
             return record
         async with lock, self._ownership.operation(record.id):
-            current: Final = await self._repository.get(record.id)
+            stored: Final = await self._repository.get(record.id)
+            current: Final = await self._claim_event_refresh(stored) if event_refresh else stored
+            if event_refresh and current is None:
+                return stored or record
             if current is None or current.status is EnvironmentStatus.DELETING:
                 return current or record
             if (
@@ -838,6 +859,11 @@ class EnvironmentService:
                     "configuration_pending": current.configuration_pending,
                     "configuration_last_error": None,
                     "updated_at": utc_now(),
+                    **(
+                        {"quota_event_refresh_failures": 0, "quota_event_refresh_after": utc_now() + timedelta(seconds=60)}
+                        if event_refresh and observed.quota.refresh_status not in ("partial", "failed")
+                        else {}
+                    ),
                 }
             )
             refresh_failures: Final = refreshed.quota.refresh_failures
@@ -855,6 +881,21 @@ class EnvironmentService:
             elif refresh_quota and saved.quota.refresh_status == "complete":
                 await self._log_event(saved, "quota", None)
             return saved
+
+    async def _claim_event_refresh(self, record: EnvironmentRecord | None) -> EnvironmentRecord | None:
+        if record is None or not record.enabled or record.manual_cooldown or record.status not in (
+            EnvironmentStatus.READY, EnvironmentStatus.COOLING_DOWN,
+        ):
+            return None
+        now: Final = utc_now()
+        if record.quota_event_refresh_after is not None and record.quota_event_refresh_after > now:
+            return None
+        failures: Final = min(record.quota_event_refresh_failures + 1, 4)
+        # 在现有账号操作锁内持久化尝试期限，跨 Manager 合并事件，失败也不清空旧额度。
+        return await self._repository.save(record.model_copy(update={
+            "quota_event_refresh_after": now + timedelta(seconds=(60, 120, 240, 300)[failures - 1]),
+            "quota_event_refresh_failures": failures,
+        }))
 
     async def _reloaded_consumed_state(self, record: EnvironmentRecord, state: str) -> EnvironmentRecord | None:
         return await self._authorization_operations.reloaded_consumed_state(record, state)

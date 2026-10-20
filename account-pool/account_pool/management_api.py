@@ -187,7 +187,10 @@ def create_management_router(
         async def update_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsView:
             async with settings_update_lock:
                 previous: Final = await settings.get()
-                saved: Final = await settings.save(request)
+                effective: Final = request.model_copy(update={
+                    "values": _retain_omitted_greetings(previous, request.values),
+                })
+                saved: Final = await settings.save(effective)
                 if saved is None:
                     raise HTTPException(409, "Settings have changed; refresh before retrying")
                 if sync_settings is None:
@@ -199,7 +202,10 @@ def create_management_router(
         @router.post("/settings/preview")
         async def preview_settings(request: AccountPoolSettingsUpdate) -> AccountPoolSettingsPreview:
             current: Final = await settings.get()
-            return settings_preview(current, request.values, tuple(record.id for record in await environments.list()))
+            return settings_preview(
+                current, _retain_omitted_greetings(current, request.values),
+                tuple(record.id for record in await environments.list()),
+            )
 
         @router.post("/settings/rollback")
         async def rollback_settings(request: SettingsRollbackRequest) -> AccountPoolSettingsView:
@@ -291,6 +297,12 @@ def unwrap(result: Result[T]) -> T:
     return result.value
 
 
+def _retain_omitted_greetings(current: AccountPoolSettingsView, values: AccountPoolSettings) -> AccountPoolSettings:
+    if "model_test_greetings" in values.model_fields_set:
+        return values
+    return values.model_copy(update={"model_test_greetings": current.values.model_test_greetings})
+
+
 async def _sync_settings_or_restore(
     settings: AccountPoolSettingsRepository,
     sync_settings: Callable[[AccountPoolSettings], Awaitable[tuple[UUID, ...]]],
@@ -299,6 +311,7 @@ async def _sync_settings_or_restore(
 ) -> bool:
     local_fields: Final = {
         "auth_file_template",
+        "model_test_greetings",
         "full_logging_enabled",
         "full_log_skip_failed",
         "daily_log_retention_days",

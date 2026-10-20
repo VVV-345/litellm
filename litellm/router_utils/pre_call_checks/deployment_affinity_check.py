@@ -17,6 +17,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import Any, Final, cast
 
+from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
 from litellm._logging import verbose_router_logger
@@ -70,6 +71,24 @@ if current == ARGV[1] then
   redis.call('EXPIRE', KEYS[1], ARGV[2])
 end
 return current
+"""
+
+_FORGET_PIN_RESULT: Final = TypeAdapter(tuple[str, int])
+_PIN_VALUE: Final[TypeAdapter[dict[str, object] | str]] = TypeAdapter(dict[str, object] | str)
+_FORGET_PIN_SCRIPT: Final = """
+local current = redis.call('GET', KEYS[1])
+if current == false then return {'', -2} end
+local owner = current
+local ok, value = pcall(cjson.decode, current)
+if ok then
+  if type(value) == 'table' then owner = tostring(value.model_id)
+  elseif type(value) == 'string' then owner = value end
+end
+if owner == ARGV[1] then
+  redis.call('DEL', KEYS[1])
+  return {'', -2}
+end
+return {current, redis.call('PTTL', KEYS[1])}
 """
 
 
@@ -341,16 +360,33 @@ class DeploymentAffinityCheck(CustomLogger):
         self.cache.in_memory_cache.delete_cache(cache_key)
         self.cache.in_memory_cache.set_cache(cache_key, value, ttl=ttl_seconds)
 
-    async def _forget_pin(self, cache_key: str) -> None:
-        """The session can no longer run on the pinned deployment, so drop the pin and let the next success rebind it."""
-        self.cache.in_memory_cache.delete_cache(cache_key)
+    async def _forget_pin(self, cache_key: str, expected_model_id: str) -> str | None:
+        """仅删除读到的旧归属，不能覆盖另一请求刚建立的绑定。"""
+        cached: Final = cast(object, self.cache.in_memory_cache.get_cache(cache_key))  # pyright: ignore[reportUnknownMemberType]  # The legacy cache is untyped; inspect only its opaque value.
+        if self._pinned_model_id(cached) == expected_model_id:
+            self.cache.in_memory_cache.delete_cache(cache_key)  # pyright: ignore[reportUnknownMemberType]  # Legacy cache accepts the validated string key.
         redis_cache: Final = self.cache.redis_cache
-        if redis_cache is None:
-            return
-        try:
-            await redis_cache.async_delete_cache(cache_key)
-        except Exception as e:  # noqa: BLE001  # clearing a stale pin must never block routing
-            verbose_router_logger.debug("DeploymentAffinityCheck: failed to clear session pin. error=%s", e)
+        if redis_cache is not None:
+            try:
+                forget: Final = redis_cache.async_register_script(_FORGET_PIN_SCRIPT)
+                current, ttl_ms = _FORGET_PIN_RESULT.validate_python(
+                    await forget(keys=(cache_key,), args=(expected_model_id,))
+                )
+                if current and (ttl_ms > 0 or ttl_ms == -1):
+                    try:
+                        winner: Final = _PIN_VALUE.validate_json(current)
+                    except ValueError:
+                        self._set_local_pin(cache_key, current, self.ttl_seconds if ttl_ms == -1 else max(1, ttl_ms // 1000))
+                        return current
+                    self._set_local_pin(
+                        cache_key, winner,
+                        self.ttl_seconds if ttl_ms == -1 else max(1, (ttl_ms + 999) // 1000),
+                    )
+                    return self._pinned_model_id(winner)
+            except Exception as e:  # noqa: BLE001  # Redis failure retains only the conditional local fallback.
+                verbose_router_logger.debug("DeploymentAffinityCheck: failed to clear session pin. error=%s", e)
+        latest: Final = cast(object, self.cache.in_memory_cache.get_cache(cache_key))  # pyright: ignore[reportUnknownMemberType]  # Re-read after Redis await without trusting the untyped cache.
+        return self._pinned_model_id(latest)
 
     async def _claim_pin(self, cache_key: str, pin_value: DeploymentAffinityCacheValue, ttl_seconds: int) -> str | None:
         """First-writer-wins pin write: store `pin_value` only when the key is absent and
@@ -518,7 +554,12 @@ class DeploymentAffinityCheck(CustomLogger):
                                 model=model,
                                 llm_provider="account_pool",
                             )
-                        await self._forget_pin(session_cache_key)
+                        winner_id: Final = await self._forget_pin(session_cache_key, session_model_id)
+                        winner_deployment: Final = self._find_deployment_by_model_id(  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]  # Preserve deployment identity from the legacy dict lookup.
+                            healthy_deployments=typed_healthy_deployments, model_id=winner_id
+                        ) if winner_id is not None else None
+                        if winner_deployment is not None:
+                            return [winner_deployment]  # pyright: ignore[reportUnknownVariableType]  # The existing hook contract returns unchanged legacy deployment dicts.
                         verbose_router_logger.debug(
                             "DeploymentAffinityCheck: session-id pinned deployment=%s not found in healthy_deployments",
                             session_model_id,

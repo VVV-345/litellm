@@ -3,6 +3,56 @@ from uuid import uuid4
 
 import pytest
 
+
+@pytest.mark.asyncio
+async def test_missing_history_has_actionable_error_only_when_migration_is_needed(pool):
+    import httpx
+
+    from litellm.exceptions import BadRequestError, ServiceUnavailableError
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationUnavailableError
+
+    router, (first, second) = pool
+    payload = {"model": "shared", "input": "Continue", "previous_response_id": response(first).id}
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+    async def invoke(value):
+        calls.append(value)
+    error = ServiceUnavailableError(
+        message="quota exhausted", model="shared", llm_provider="openai",
+        response=httpx.Response(503, headers={"x-account-pool-failure": "quota_exhausted"},
+                                request=httpx.Request("POST", "http://local/v1/responses")),
+    )
+    error.failed_deployment_id = str(first)
+    with pytest.raises(ConversationUnavailableError) as failure:
+        await conversation.recover(router, payload, error, invoke)
+    assert failure.value.openai_code == "account_pool_conversation_unavailable"
+    assert "完整对话历史" in str(failure.value)
+    from unittest.mock import AsyncMock
+
+    from starlette.requests import Request
+
+    from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+    from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+    from litellm.proxy.proxy_server import openai_exception_handler
+    logging = AsyncMock()
+    logging.post_call_failure_hook.return_value = None
+    logging.post_call_response_headers_hook.return_value = {}
+    with pytest.raises(ProxyException) as public:
+        await ProxyBaseLLMRequestProcessing(data={})._handle_llm_api_exception(
+            failure.value, UserAPIKeyAuth(), logging,
+        )
+    request = Request({"type": "http", "method": "POST", "path": "/v1/responses", "headers": []})
+    result = await openai_exception_handler(request, public.value)
+    import json
+    assert result.status_code == 503
+    assert json.loads(result.body)["error"]["code"] == "account_pool_conversation_unavailable"
+    assert calls == []
+    invalid = BadRequestError(message="invalid parameter", model="shared", llm_provider="openai")
+    with pytest.raises(BadRequestError) as unchanged:
+        await conversation.recover(router, payload, invalid, invoke)
+    assert unchanged.value is invalid
+
 from litellm import Router
 from litellm.exceptions import RateLimitError
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
@@ -479,6 +529,7 @@ async def test_pre_call_unavailable_origin_rebuilds_with_nonempty_quota(pool, re
 @pytest.mark.asyncio
 async def test_rebuilt_second_card_failure_reaches_third_with_same_context(pool):
     import httpx
+
     from litellm.exceptions import ServiceUnavailableError
     router, (first, second) = pool
     third = uuid4()

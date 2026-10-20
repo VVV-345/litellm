@@ -46,6 +46,7 @@ const settings: AccountPoolSettings = {
   debug_logging_enabled: false,
   default_concurrency_limit: 1,
   default_model_discovery: true,
+  model_test_greetings: [],
   default_proxy_profile_id: null,
   default_route: "auto",
   error_logs_max_files: 10,
@@ -108,7 +109,7 @@ const reloadRequiredSettingsView = {
   requires_reload: true,
 };
 
-const renderPanel = (category: "streaming" | "network" | "quota" = "streaming") =>
+const renderPanel = (category: "streaming" | "network" | "quota" | "common" = "streaming") =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <RuntimeSettingsSection accessToken="token" environments={[card]} category={category} />
@@ -116,6 +117,15 @@ const renderPanel = (category: "streaming" | "network" | "quota" = "streaming") 
   );
 
 describe("RuntimeSettingsSection", () => {
+  it("saves custom model test greetings as nonempty lines", async () => {
+    renderPanel("common");
+    const greeting = await screen.findByRole("textbox", { name: "模型测试问候语" });
+    fireEvent.change(greeting, { target: { value: "  你好  \n\nHello\n" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存问候语" }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+    expect(updateSettings.mock.calls[0][1].values.model_test_greetings).toEqual(["你好", "Hello"]);
+    expect(updateSettings.mock.calls[0][2]).toBe("common");
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     getSettings.mockResolvedValue({ version: 4, values: settings, requires_reload: false });

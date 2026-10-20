@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import math
 from collections.abc import Awaitable, Callable
 from typing import Final, Literal
@@ -51,6 +52,7 @@ class GatewayService:
         settings: AccountPoolSettingsRepository | None = None,
         ownership: CredentialOwnership | None = None,
         model_cooldowns: Callable[[EnvironmentRecord], Awaitable[tuple[ModelCooldown, ...]]] | None = None,
+        on_quota_exhausted: Callable[[UUID], None] | None = None,
     ) -> None:
         self.keys: Final = keys
         self.environments: Final = environments
@@ -61,6 +63,7 @@ class GatewayService:
         self.settings: Final = settings
         self.ownership: Final = ownership
         self.model_cooldowns: Final = model_cooldowns
+        self.on_quota_exhausted: Final = on_quota_exhausted
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         key: Final = await self.keys.authenticate(request.card_key) if request.card_key else None
@@ -375,6 +378,11 @@ class GatewayService:
                 model_succeeded=not failed,
                 clear_sessions=request.failure_reason in ("quota_exhausted", "account_unavailable"),
             )
+            if request.failure_reason == "quota_exhausted" and self.on_quota_exhausted is not None:
+                try:
+                    self.on_quota_exhausted(lease.account_id)
+                except Exception as error:
+                    logging.getLogger(__name__).warning("Quota refresh enqueue failed: %s", type(error).__name__)
 
     async def cooldown_delay(self, lease: Lease) -> int:
         if self.model_cooldowns is None or lease.channel != ChannelKind.CLIPROXYAPI:

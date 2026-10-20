@@ -39,10 +39,13 @@ from account_pool.onboarding_service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
-from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.proxy_catalog_repository import PostgresProxyCatalogRepository, ProxyCatalogCipher
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_expiry import ISPExpiryScheduler
+from account_pool.proxy_gateways import ProxyGatewayService
+from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissingTypeStubs]  # The local Manager package does not publish PEP 561 stubs.
+    QuotaRefreshTrigger,
+)
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,
@@ -128,6 +131,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings_repository,
         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
     )
+    quota_trigger: Final = QuotaRefreshTrigger(service.refresh_quota_after_failure, resolved.quota_refresh_max_concurrency)
     auth_refresh_scheduler: Final = RefreshScheduler(
         settings_repository,
         service.refresh_auth_files,
@@ -190,6 +194,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _restore_control_plane_connections_until_cancelled(channels, environments, retry_stopped)
         )
         quota_refresh_task: Final = asyncio.create_task(quota_scheduler.run_until_cancelled(retry_stopped))
+        quota_event_task: Final = asyncio.create_task(quota_trigger.run_until_cancelled(retry_stopped))
         auth_refresh_task: Final = asyncio.create_task(auth_refresh_scheduler.run_until_cancelled(retry_stopped))
         browser_cleanup_task: Final = asyncio.create_task(
             _reap_oauth_browser_sessions_until_cancelled(browser_sessions, browser_runtime, retry_stopped)
@@ -205,6 +210,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             batch_task.cancel()
             onboarding_task.cancel()
             quota_refresh_task.cancel()
+            quota_event_task.cancel()
             auth_refresh_task.cancel()
             browser_cleanup_task.cancel()
             proxy_expiry_task.cancel()
@@ -212,6 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
+            await asyncio.gather(quota_event_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
             await asyncio.gather(browser_cleanup_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)
@@ -253,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 settings_repository,
                 ownership,
                 model_cooldowns=cooldown_client.read_model_cooldowns,
+                on_quota_exhausted=quota_trigger.submit,
             ),
             batch_service=batch_service,
             onboarding_service=onboarding_service,

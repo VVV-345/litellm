@@ -4639,3 +4639,62 @@ async def test_auth_fields_cannot_edit_deleting_card(tmp_path):
     result = await _service(record, cli, tmp_path).patch_auth_file_fields(record.id, {"prefix": "team"})
     assert isinstance(result, Failure)
     assert not cli.fields_calls
+
+
+
+@pytest.mark.asyncio
+async def test_failure_quota_refresh_debounces_and_preserves_snapshot_on_error(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    cli: Final = FakeCLIProxy(read_error=RuntimeError("provider unavailable"))
+    service: Final = _service(record, cli, tmp_path)
+    assert await service.refresh_quota_after_failure(record.id) is False
+    assert await service.refresh_quota_after_failure(record.id) is False
+    assert cli.refresh_quota_calls == [True]
+    saved: Final = await service._repository.get(record.id)
+    assert saved is not None
+    assert saved.quota == record.quota
+    assert saved.quota_event_refresh_after > utc_now()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("supplier", [SupplierKind.OPENAI_COMPATIBLE, SupplierKind.KIMI, SupplierKind.GEMINI, SupplierKind.VERTEX])
+async def test_failure_quota_refresh_skips_unsupported_provider(tmp_path: Path, supplier: SupplierKind) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"supplier": supplier})
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    assert await service.refresh_quota_after_failure(record.id) is True
+    assert cli.refresh_quota_calls == []
+
+
+@pytest.mark.asyncio
+async def test_event_quota_refresh_shared_guard_survives_service_restart(tmp_path: Path) -> None:
+    from account_pool.credential_ownership import CredentialOwnership
+    record = _record(status=EnvironmentStatus.READY)
+    repository = MemoryRepository(record)
+    ownership = CredentialOwnership()
+    cli = FakeCLIProxy()
+    runtime = FakeRuntime()
+    def service():
+        return EnvironmentService(
+            _settings(tmp_path), repository, runtime, cli, StaticProfiles(None), EnvironmentSecretDeriver("s" * 32),
+            channels=_fake_channels(runtime, cli), ownership=ownership,
+        )
+    await asyncio.gather(service().refresh_quota_after_failure(record.id), service().refresh_quota_after_failure(record.id))
+    assert cli.refresh_quota_calls == [True]
+    assert await service().refresh_quota_after_failure(record.id) is True
+    assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_event_quota_refresh_waits_for_inflight_refresh(tmp_path: Path) -> None:
+    record = _record(status=EnvironmentStatus.READY)
+    cli = FakeCLIProxy()
+    service = _service(record, cli, tmp_path)
+    lock = await service._lock_for(record.id)
+    await lock.acquire()
+    pending = asyncio.create_task(service.refresh_quota_after_failure(record.id))
+    await asyncio.sleep(0)
+    assert not pending.done()
+    lock.release()
+    assert await pending is True
+    assert cli.refresh_quota_calls == [True]

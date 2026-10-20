@@ -18,6 +18,7 @@ from litellm._logging import verbose_proxy_logger
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import ServiceUnavailableError
 from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
+from litellm.proxy._types import ProxyException
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
 from litellm.proxy.management_endpoints.account_pool_failover import exception_header
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
@@ -60,6 +61,18 @@ class ConversationRecord(BaseModel):
     expires_at: float
 
 
+class ConversationUnavailableError(ProxyException):
+    def __init__(self) -> None:
+        super().__init__(  # pyright: ignore[reportUnknownMemberType]  # The existing ProxyException constructor has an untyped optional field.
+            message="原账号暂不可用，无法安全重建完整对话历史；请重新发送完整历史或开启新会话。",
+            type="account_pool_error", param="previous_response_id", code=503,
+            openai_code="account_pool_conversation_unavailable",
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return {"message": self.message, "type": self.type, "param": self.param, "code": self.openai_code}
+
+
 class ConversationStore:
     def __init__(self, cache: DualCache, secret: str) -> None:
         self.cache: Final = cache
@@ -78,11 +91,15 @@ class ConversationStore:
                 await self.cache.async_get_cache(self.key(identity, model, response_id)),  # pyright: ignore[reportUnknownMemberType]  # Validate untyped DualCache output below.
             )
             if not isinstance(cached, str) or len(cached) > _MAX_BYTES * 2:
+                verbose_proxy_logger.debug("Account pool conversation unavailable; reason=missing_or_invalid_record")
                 return None
             record: Final = ConversationRecord.model_validate_json(
                 decrypt_value(base64.b64decode(cached, validate=True), self.secret)
             )
-            return record if record.expires_at > time.time() else None
+            if record.expires_at <= time.time():
+                verbose_proxy_logger.debug("Account pool conversation unavailable; reason=expired_record")
+                return None
+            return record
         except Exception:
             verbose_proxy_logger.warning("Account pool conversation cache unavailable; recovery disabled")
             return None
@@ -90,6 +107,7 @@ class ConversationStore:
     async def save(self, identity: PoolIdentity, model: str, response_id: str, record: ConversationRecord) -> None:
         serialized: Final = record.model_dump_json()
         if len(serialized.encode()) > _MAX_BYTES:
+            verbose_proxy_logger.warning("Account pool conversation not retained; reason=history_too_large")
             return
         try:
             encrypted: Final = base64.b64encode(encrypt_value(serialized, self.secret)).decode()
@@ -272,8 +290,6 @@ class Conversation:
     def rebuild(
         self, router: Router, payload: Mapping[str, object], error: Exception, *, migrated: bool = False
     ) -> Mapping[str, object] | None:
-        if not migrated and not self.can_replay(router, payload):
-            return None
         deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
         failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
         if not isinstance(failed, str):
@@ -299,6 +315,11 @@ class Conversation:
                 or retry_exhausted(error) or unavailable_snapshot(error, deployments) is not None
             )
         ):
+            return None
+        if not migrated and not self.can_replay(router, payload):
+            verbose_proxy_logger.info("Account pool conversation migration blocked; reason=incomplete_or_unsupported_history")
+            if payload.get("previous_response_id") and not payload.get("disable_fallbacks") and payload.get("max_fallbacks", router.max_fallbacks) != 0:
+                raise ConversationUnavailableError() from error
             return None
         previous_excluded: Final = payload.get("_excluded_deployment_ids")
         excluded: Final = quota_failover_exclusions(

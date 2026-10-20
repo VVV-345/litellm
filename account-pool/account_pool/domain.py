@@ -467,6 +467,8 @@ class EnvironmentRecord(BaseModel):
     credential_email: str | None = None
     credential_account_id: str | None = None
     quota: QuotaSnapshot
+    quota_event_refresh_after: datetime | None = None
+    quota_event_refresh_failures: int = Field(default=0, ge=0)
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
     model_cooldowns: tuple[ModelCooldown, ...] = ()
     cooldown_until: datetime | None

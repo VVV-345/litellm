@@ -31,8 +31,10 @@ class RouterDouble:
     aresponses = acompletion
 
 
-def client_for(router, admin=True):
+def client_for(router, admin=True, greetings=(), chooser=None, settings_status=200):
     async def manager(method, path, body):
+        if path == "/api/settings":
+            return httpx.Response(settings_status, json={"values": {"model_test_greetings": greetings}})
         assert method == "GET" and path == f"/api/environments/{CARD}"
         return httpx.Response(200, json={"enabled": True, "enabled_models": ["test-model"]})
     def require_admin(user):
@@ -40,8 +42,46 @@ def client_for(router, admin=True):
             raise HTTPException(403)
     app = FastAPI()
     app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(api_key="hashed-admin")
-    app.include_router(create_model_test_router(manager, require_admin, lambda: router), prefix="/account_pool")
+    options = {"choose_greeting": chooser} if chooser is not None else {}
+    app.include_router(create_model_test_router(manager, require_admin, lambda: router, **options), prefix="/account_pool")
     return TestClient(app)
+
+
+@pytest.mark.parametrize("mode", ["chat", "responses"])
+@pytest.mark.parametrize("stream", [False, True])
+def test_custom_greeting_chosen_once_for_each_model_test(mode, stream):
+    choices = []
+    def choose(values):
+        choices.append(values)
+        return values[-1]
+    router = RouterDouble({})
+    client = client_for(router, greetings=["你好", "请简短问候"], chooser=choose)
+    response = client.post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model", "mode": mode, "stream": stream})
+    assert response.status_code == 200
+    assert choices == [("你好", "请简短问候")]
+    assert len(router.calls) == 1
+    kwargs = router.calls[0][0]
+    assert (kwargs["messages"][0]["content"] if mode == "chat" else kwargs["input"]) == "请简短问候"
+
+
+def test_greeting_settings_unavailable_does_not_silently_test_default():
+    router = RouterDouble({})
+    response = client_for(router, settings_status=503).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model"})
+    assert response.status_code == 502
+    assert router.calls == []
+
+
+def test_greeting_contract_strips_blanks_and_limits_input():
+    from account_pool.settings import AccountPoolSettings as ManagerSettings
+    from pydantic import ValidationError
+
+    from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolSettings
+    for model in (ManagerSettings, AccountPoolSettings):
+        assert model(model_test_greetings=["  你好  ", "", "  ", "Hello"]).model_test_greetings == ("你好", "Hello")
+        with pytest.raises(ValidationError):
+            model(model_test_greetings=["x" * 1001])
+        with pytest.raises(ValidationError):
+            model(model_test_greetings=["hello"] * 51)
 
 @pytest.mark.parametrize("mode,result", [
     ("chat", {"choices": [{"message": {"content": "Hello"}, "finish_reason": "stop"}]}),
@@ -58,6 +98,7 @@ def test_selected_card_only_and_no_retry(mode, result):
     assert identity.card_id == CARD and identity.router_settings.num_retries == 0
     assert identity.router_settings.retry_policy.InternalServerErrorRetries == 0
     assert len(router.calls) == 1
+    assert (kwargs["messages"][0]["content"] if mode == "chat" else kwargs["input"]) == "Hello. Reply briefly with Hello."
     assert pool_identity.get() is None
 
 @pytest.mark.parametrize("mode,result", [

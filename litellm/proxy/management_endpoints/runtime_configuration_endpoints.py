@@ -18,7 +18,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
 
 RuntimeSection = Literal["common", "access", "network", "quota", "streaming", "advanced", "payload"]
 _FIELDS: Final = {
-    "common": ("default_concurrency_limit", "default_model_discovery", "common_profiles", "auth_file_template"),
+    "common": ("default_concurrency_limit", "default_model_discovery", "common_profiles", "auth_file_template", "model_test_greetings"),
     "access": ("oauth_excluded_models", "oauth_model_aliases", "oauth_request_scoped_errors", "access_profiles"),
     "network": (
         "default_proxy_profile_id",
@@ -42,7 +42,7 @@ def merge_runtime_settings(
     updates: Final = {
         field: getattr(patch.values, field)
         for field in _FIELDS[section]
-        if field != "auth_file_template" or field in patch.values.model_fields_set
+        if field not in ("auth_file_template", "model_test_greetings") or field in patch.values.model_fields_set
     }
     return AccountPoolSettingsUpdate(
         version=current.version,

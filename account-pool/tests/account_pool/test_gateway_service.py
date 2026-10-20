@@ -1082,3 +1082,68 @@ async def test_only_unusable_card_failures_release_session_bindings(
 
     assert len(leases.bindings) == expected_bindings
 
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason,http_status,expected_bindings", [
+    ("quota_exhausted", 503, 0), ("account_unavailable", 403, 0),
+    ("rate_limit", 429, 1), ("upstream_unavailable", 503, 1), ("request_rejected", 400, 1),
+])
+async def test_only_explicit_quota_failures_enqueue_refresh_after_release(
+    reason: str, http_status: int, expected_bindings: int
+) -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    policies: Final = MemoryPolicies()
+    policies.records[card.id] = PolicyView(
+        card_id=card.id,
+        version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(session_affinity=True)),
+    )
+    leases: Final = MemoryLeases()
+    refreshes: Final[list[UUID]] = []
+    def enqueue(card_id: UUID) -> None:
+        assert leases.leases == {}
+        refreshes.append(card_id)
+    service: Final = GatewayService(
+        keys,
+        MemoryRepository(card),
+        policies,
+        leases,
+        ErrorLogService(MemoryLogs()),
+        gateway,
+        on_quota_exhausted=enqueue,
+    )
+    session: Final = "ab" * 32
+    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key, session_hash=session))
+    candidate: Final = resolution.candidates[0]
+    lease: Final = await service.acquire(
+        AcquireRequest(
+            card_key=issued.value.key,
+            session_hash=session,
+            account_id=candidate.id,
+            request_id=uuid4(),
+            model="gpt-5",
+            card_version=resolution.card_version,
+            policy_version=resolution.policy_version,
+            account_version=candidate.environment_version,
+            account_policy_version=candidate.policy_version,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+    assert leases.bindings == {binding_hash(resolution.key_id, session): candidate.id}
+
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=http_status,
+            message="Upstream rejected the request",
+            failure_reason=reason,
+            endpoint="/v1/responses",
+        )
+    )
+
+    assert len(leases.bindings) == expected_bindings
+    assert refreshes == ([card.id] if reason == "quota_exhausted" else [])
