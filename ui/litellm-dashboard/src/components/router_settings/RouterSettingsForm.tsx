@@ -1,9 +1,10 @@
+import Link from "next/link";
 import React from "react";
 import LatencyBasedConfiguration from "./LatencyBasedConfiguration";
 import ReliabilityRetriesSection from "./ReliabilityRetriesSection";
 import RoutingStrategySelector from "./RoutingStrategySelector";
 import TagFilteringToggle from "./TagFilteringToggle";
-import { AccountPoolRoutingFields } from "./AccountPoolRoutingFields";
+import { migratedHref } from "@/utils/migratedPages";
 import { useTranslation } from "react-i18next";
 
 export interface RouterSettingsFormValue {
@@ -81,12 +82,15 @@ const RouterSettingsForm: React.FC<RouterSettingsFormProps> = ({
       )}
 
       {/* Other Settings */}
-      <AccountPoolRoutingFields
-        value={value.routerSettings.account_pool_routing}
-        onChange={(account_pool_routing) =>
-          onChange({ ...value, routerSettings: { ...value.routerSettings, account_pool_routing } })
-        }
-      />
+      <section className="space-y-2 rounded-xl border bg-muted/20 p-5">
+        <h3 className="text-sm font-semibold">号池账号选择</h3>
+        <p className="text-xs leading-5 text-muted-foreground">
+          选卡策略、指定卡片顺序和会话粘性已统一到策略中心，这里不再重复编辑。
+        </p>
+        <Link href={migratedHref("policy-center")} className="text-sm underline">
+          前往策略中心
+        </Link>
+      </section>
       <ReliabilityRetriesSection routerSettings={value.routerSettings} routerFieldsMetadata={routerFieldsMetadata} />
     </div>
   );

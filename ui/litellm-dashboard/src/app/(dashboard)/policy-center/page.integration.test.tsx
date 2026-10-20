@@ -8,6 +8,7 @@ const getSettings = vi.fn();
 const updateSettings = vi.fn();
 const resetPolicy = vi.fn();
 const listPolicies = vi.fn();
+const setCallbacks = vi.fn();
 
 const cardInheriting = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -52,7 +53,10 @@ vi.mock("@/components/networking", async (importOriginal) => {
     ...original,
     getCallbacksCall: () =>
       Promise.resolve({ router_settings: { account_pool_routing: { selection: "native" } } }),
-    setCallbacksCall: () => Promise.resolve({}),
+    setCallbacksCall: (...args: unknown[]) => {
+      setCallbacks(...args);
+      return Promise.resolve({});
+    },
   };
 });
 
@@ -120,6 +124,20 @@ describe("policy center", () => {
       }),
       "policy",
     );
+  });
+
+  it("saves cross-card routing through the router settings payload", async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("switch", { name: "同一会话优先使用同一卡片" }));
+    fireEvent.click(screen.getByRole("button", { name: "保存跨卡调度" }));
+
+    await waitFor(() => expect(setCallbacks).toHaveBeenCalled());
+    expect(setCallbacks).toHaveBeenCalledWith("token", {
+      router_settings: expect.objectContaining({
+        account_pool_routing: expect.objectContaining({ session_affinity: false }),
+      }),
+    });
   });
 
   it("resets an independent card after confirmation", async () => {
