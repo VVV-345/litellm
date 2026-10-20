@@ -1,6 +1,7 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
-import { PlugZap, KeyRound, SlidersHorizontal, Trash2, Settings2 } from "lucide-react";
+import { PlugZap, KeyRound, Trash2, Settings2 } from "lucide-react";
+import Link from "next/link";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import { migratedHref } from "@/utils/migratedPages";
 
 import {
   canAuthorizeEnvironment,
@@ -40,7 +42,6 @@ interface AccountPoolCardProps {
   onAuthorize: (environment: AccountPoolEnvironment) => void;
   onDelete: (environment: AccountPoolEnvironment) => void;
   onManageKey: (environment: AccountPoolEnvironment) => void;
-  onManagePolicy: (environment: AccountPoolEnvironment) => void;
   onTest?: (environment: AccountPoolEnvironment) => void;
   onViewLogs?: (environment: AccountPoolEnvironment) => void;
   requestStats?: ErrorStats;
@@ -60,7 +61,6 @@ const AccountPoolCardComponent = ({
   onAuthorize,
   onDelete,
   onManageKey,
-  onManagePolicy,
   onViewLogs,
   onTest,
   requestStats,
@@ -138,8 +138,6 @@ const AccountPoolCardComponent = ({
     <Card
       className="min-w-0 gap-4 [--card-spacing:--spacing(4)]"
       data-testid={`account-pool-card-${environment.id}`}
-      onDoubleClick={() => onManagePolicy(environment)}
-      title={t("accountPool.dashboard.doubleClickToConfigure")}
     >
       <CardHeader className="gap-3">
         <div className="flex min-w-0 items-start justify-between gap-3 pr-8">
@@ -168,7 +166,14 @@ const AccountPoolCardComponent = ({
               )}
             </div>
           </div>
-          <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
+            <Link href={migratedHref("policy-center")} className="text-xs text-muted-foreground underline">
+              {(policy?.version ?? 0) > 0
+                ? t("accountPool.policy.independentBadge", { version: policy?.version })
+                : t("accountPool.policy.inheritedBadge")}
+            </Link>
+          </div>
         </div>
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -204,17 +209,6 @@ const AccountPoolCardComponent = ({
               title={t("accountPool.keys.manageShort")}
             >
               <KeyRound />
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onManagePolicy(environment)}
-              disabled={disabled}
-              aria-label={t("accountPool.policy.manage", { name: environment.name })}
-              title={t("accountPool.policy.manageShort")}
-            >
-              <SlidersHorizontal />
             </Button>
             <Button
               type="button"

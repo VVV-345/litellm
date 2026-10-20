@@ -33,8 +33,6 @@ export const loadAccountPoolFeedbackPanel = () =>
   );
 export const loadRuntimeConfigDialog = () =>
   import("@/components/Settings/RuntimeSettings/RuntimeConfigDialog").then((module) => module.RuntimeConfigDialog);
-export const loadRuntimePolicyDialog = () =>
-  import("@/components/Settings/RuntimeSettings/RuntimePolicyDialog").then((module) => module.RuntimePolicyDialog);
 export const loadAccountPoolCreateDialog = () =>
   import("@/features/account-pool/components/cards/AccountPoolCreateDialog").then(
     (module) => module.AccountPoolCreateDialog,
@@ -45,7 +43,6 @@ export const loadProxyManagerPanel = () =>
 export const ACCOUNT_POOL_MODULE_LOADERS = [
   loadAccountPoolCredentialsPanel,
   loadAccountPoolQuotaPanel,
-  loadRuntimePolicyDialog,
   loadRuntimeConfigDialog,
   loadAccountPoolSettingsOverview,
   loadAccountPoolOnboardingPanel,

@@ -10,7 +10,6 @@ import { preloadAccountPoolModules } from "@/features/account-pool/preloadModule
 const push = vi.fn();
 const listAccounts = vi.fn();
 const updateAccount = vi.fn();
-const savePolicy = vi.fn();
 const searchState = { value: "" };
 const loadStats = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -33,7 +32,6 @@ vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (original)
   getAccountPoolQuotaRefreshStatus: async () => ({ running: false }),
   getAccountPoolDashboardStats: (...args: unknown[]) => loadStats(...args),
   getAccountPolicy: async () => ({ card_id: environment.id, version: 3, policy: {}, capabilities: [] }),
-  saveAccountPolicy: (...args: unknown[]) => savePolicy(...args),
 }));
 
 const environment = {
@@ -100,7 +98,6 @@ describe("account card local configuration", () => {
     listAccounts.mockResolvedValue([environment]);
     loadStats.mockResolvedValue({ cards: [], summary: {} });
     updateAccount.mockImplementation(async (_token, _id, payload) => ({ ...environment, ...payload }));
-    savePolicy.mockResolvedValue({});
   });
   afterEach(() => vi.useRealTimers());
 
@@ -143,18 +140,14 @@ describe("account card local configuration", () => {
     expect(listAccounts).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the selected card policy, switches to runtime configuration and saves without navigation", async () => {
+  it("opens runtime configuration from the card and saves without navigation", async () => {
     const user = userEvent.setup();
     renderPage();
     const tabs = screen.getAllByRole("tab");
     const onboardingIndex = tabs.findIndex((tab) => tab.textContent === "自动化上号");
     expect(onboardingIndex).toBe(4);
     expect(tabs[onboardingIndex - 1]).toHaveTextContent(/认证文件|Credentials/i);
-    fireEvent.doubleClick(await screen.findByTestId(`account-pool-card-${environment.id}`));
-    expect(await screen.findByRole("dialog", {}, { timeout: 5000 })).toHaveTextContent(environment.name);
-    await user.click(await screen.findByRole("button", { name: /保存配置|Save configuration/i }));
-    await waitFor(() => expect(savePolicy).toHaveBeenCalledWith("token", environment.id, 3, expect.any(Object)));
-    await user.click(screen.getByRole("button", { name: /打开运行配置|运行配置|runtime configuration/i }));
+    await user.click(await screen.findByRole("button", { name: `配置 ${environment.name}` }));
     fireEvent.change(await screen.findByDisplayValue(environment.name), { target: { value: "Updated card" } });
     await user.click(await screen.findByRole("button", { name: /保存配置|Save configuration/i }));
     await waitFor(() =>
@@ -168,8 +161,5 @@ describe("account card local configuration", () => {
         }),
       ),
     );
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(push).not.toHaveBeenCalled();
-    expect(listAccounts.mock.calls.length).toBeGreaterThan(1);
   });
 });

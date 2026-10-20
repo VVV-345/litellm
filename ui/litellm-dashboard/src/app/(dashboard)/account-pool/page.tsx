@@ -17,7 +17,6 @@ import {
   loadAccountPoolReleasesPanel,
   loadAccountPoolFeedbackPanel,
   loadRuntimeConfigDialog,
-  loadRuntimePolicyDialog,
   loadAccountPoolCreateDialog,
   loadProxyManagerPanel,
   ACCOUNT_POOL_MODULE_LOADERS,
@@ -32,7 +31,6 @@ const AccountPoolPluginsPanel = dynamic(loadAccountPoolPluginsPanel, { loading: 
 const AccountPoolReleasesPanel = dynamic(loadAccountPoolReleasesPanel, { loading: ModuleLoading });
 const AccountPoolFeedbackPanel = dynamic(loadAccountPoolFeedbackPanel, { loading: ModuleLoading });
 const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLoading });
-const RuntimePolicyDialog = dynamic(loadRuntimePolicyDialog, { loading: ModuleLoading });
 const AccountPoolCreateDialog = dynamic(loadAccountPoolCreateDialog, { loading: ModuleLoading });
 const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoading });
 
@@ -140,7 +138,6 @@ export default function AccountPoolPage() {
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [policyEnvironment, setPolicyEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
   const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
   const activeTab = POOL_TABS.includes(selectedTab) ? selectedTab : "dashboard";
@@ -245,11 +242,6 @@ export default function AccountPoolPage() {
       .catch((error: unknown) => toast.fromError(error))
       .finally(() => setRefreshingQuotas(false));
   };
-  const closePolicy = () => {
-    setPolicyEnvironment(null);
-    void policiesQuery.refetch();
-    void environmentsQuery.refetch();
-  };
   const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
   const openCreateDialog = (supplier: AccountPoolSupplier = "openai_codex") => {
@@ -297,7 +289,6 @@ export default function AccountPoolPage() {
           onAuthorize={handleAuthorize}
           onDelete={setDeleteEnvironment}
           onManageKey={handleManageKey}
-          onManagePolicy={setPolicyEnvironment}
           onViewLogs={handleViewLogs}
           onTest={setTestEnvironment}
           tags={policyView?.policy?.tags}
@@ -702,20 +693,7 @@ export default function AccountPoolPage() {
           }}
         />
       )}
-      {policyEnvironment && accessToken && (
-        <RuntimePolicyDialog
-          key={policyEnvironment.id}
-          accessToken={accessToken}
-          environment={policyEnvironment}
-          environments={environments}
-          policies={policies}
-          onOpenRuntimeConfig={() => {
-            setConfigEnvironment(policyEnvironment);
-            setPolicyEnvironment(null);
-          }}
-          onClose={closePolicy}
-        />
-      )}
+
       <AlertDialog
         open={deleteEnvironment !== null}
         onOpenChange={(open) => {

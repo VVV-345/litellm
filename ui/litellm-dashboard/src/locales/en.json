@@ -7313,6 +7313,8 @@
       "description": "Manage account scope, routing, transport, and provider settings for this card",
       "manage": "Edit account policy for {{name}}",
       "manageShort": "Account policy",
+      "inheritedBadge": "Inherits global",
+      "independentBadge": "Independent v{{version}}",
       "loadFailed": "Unable to load policy",
       "version": "Policy version {{version}}",
       "pending": "Each capability shows where it is enforced. Gateway settings apply to card-key requests after saving, while authentication metadata is read by the matching runtime",

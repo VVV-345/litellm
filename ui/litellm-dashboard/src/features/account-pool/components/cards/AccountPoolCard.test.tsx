@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCard } from "./AccountPoolCard";
@@ -50,7 +50,6 @@ const renderCard = (
       onAuthorize={vi.fn()}
       onDelete={vi.fn()}
       onManageKey={vi.fn()}
-      onManagePolicy={vi.fn()}
       policy={policy}
     />,
   );
@@ -195,47 +194,15 @@ describe("AccountPoolCard", () => {
     expect(screen.getByText(/先.*代理|proxy before authorizing/i)).toBeInTheDocument();
   });
 
-  it("opens the policy editor when the card is double-clicked", () => {
-    const onManagePolicy = vi.fn();
-    const environment = {
-      id: "env-double-click",
-      version: 1,
-      name: "Double click account",
-      provider: "openai",
-      channel: "cliproxyapi",
-      supplier: "openai_codex",
-      authorization_flow: "browser_oauth",
-      status: "ready",
-      configuration_pending: false,
-      enabled: true,
-      manual_cooldown: false,
-      concurrency_limit: 2,
-      proxy_mode: "default_gateway",
-      proxy_profile_id: null,
-      available_models: ["codex-model"],
-      enabled_models: ["codex-model"],
-      quota: { observed_at: null, plan_type: null, windows: [], balances: [] },
-      model_quotas: [],
-      cooldown_until: null,
-      automatic_cooldown: false,
-      last_error: null,
-      created_at: "2026-01-01T00:00:00Z",
-      updated_at: "2026-01-01T00:00:00Z",
-    } as unknown as AccountPoolEnvironment;
-    render(
-      <AccountPoolCard
-        environment={environment}
-        onConfigure={vi.fn()}
-        onEnabledChange={vi.fn()}
-        onAuthorize={vi.fn()}
-        onDelete={vi.fn()}
-        onManageKey={vi.fn()}
-        onManagePolicy={onManagePolicy}
-      />,
-    );
+  it("links the inherited policy badge to the policy center", () => {
+    renderCard();
 
-    fireEvent.doubleClick(screen.getByTestId("account-pool-card-env-double-click"));
+    expect(screen.getByRole("link", { name: "继承全局" })).toHaveAttribute("href", "/ui/policy-center");
+  });
 
-    expect(onManagePolicy).toHaveBeenCalledWith(environment);
+  it("shows the independent policy version in the card badge", () => {
+    renderCard({}, undefined, { card_id: "env-claude-1", version: 4, policy: {} } as PolicyView);
+
+    expect(screen.getByRole("link", { name: "独立配置 v4" })).toHaveAttribute("href", "/ui/policy-center");
   });
 });

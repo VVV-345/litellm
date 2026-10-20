@@ -7313,6 +7313,8 @@
       "description": "管理仅作用于当前卡片的账号范围、路由、传输和供应商设置",
       "manage": "编辑 {{name}} 的账号策略",
       "manageShort": "账号策略",
+      "inheritedBadge": "继承全局",
+      "independentBadge": "独立配置 v{{version}}",
       "loadFailed": "策略加载失败",
       "version": "配置版本 {{version}}",
       "pending": "每项能力都标明实际执行位置。网关执行的设置保存后立即用于卡片 Key 请求；认证元数据由对应运行时读取",
