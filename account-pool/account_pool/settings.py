@@ -217,6 +217,10 @@ class AccountPoolSettings(BaseModel):
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
     max_attempts: int = Field(default=3, ge=1, le=5)
     request_timeout_seconds: int = Field(default=120, ge=1, le=3600)
+    quota_reserve_percent: int = Field(default=0, ge=0, le=100)
+    quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_snapshot_max_age: int = Field(default=300, ge=10, le=86400)
     quota_refresh_interval_minutes: Literal[5, 15, 30, 60] = 5
     auth_refresh_interval_minutes: Literal[5, 15, 30, 60] = 15
     full_logging_enabled: bool = False

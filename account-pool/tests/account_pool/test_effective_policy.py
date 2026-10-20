@@ -58,3 +58,30 @@ def test_missing_settings_leave_the_card_policy_untouched() -> None:
 
     assert effective_policy(policy, None, inherit=True) == policy
     assert effective_policy(policy, None, inherit=False) == policy
+
+
+def test_inheriting_card_takes_quota_thresholds_from_settings() -> None:
+    policy = AccountPolicy(routing=RoutingPolicy(quota_reserve_percent=0))
+    settings = AccountPoolSettings(
+        quota_reserve_percent=75,
+        quota_reserve_5h_percent=20,
+        quota_reserve_weekly_percent=30,
+        quota_snapshot_max_age=1800,
+    )
+
+    merged = effective_policy(policy, settings, inherit=True)
+
+    assert merged.routing.quota_reserve_percent == 75
+    assert merged.routing.quota_reserve_5h_percent == 20
+    assert merged.routing.quota_reserve_weekly_percent == 30
+    assert merged.routing.quota_snapshot_max_age == 1800
+
+
+def test_independent_card_keeps_its_own_quota_thresholds() -> None:
+    policy = AccountPolicy(routing=RoutingPolicy(quota_reserve_percent=40, quota_reserve_5h_percent=5))
+    settings = AccountPoolSettings(quota_reserve_percent=75)
+
+    merged = effective_policy(policy, settings, inherit=False)
+
+    assert merged.routing.quota_reserve_percent == 40
+    assert merged.routing.quota_reserve_5h_percent == 5

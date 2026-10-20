@@ -1374,6 +1374,7 @@ async def test_global_settings_reapply_saved_policy_after_cli_runtime_defaults(t
 
 @pytest.mark.asyncio
 async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: Path) -> None:
+    from account_pool.application.effective_policy import minimum_snapshot_max_age
     from account_pool.policies import ModelAlias
 
     quota = QuotaSnapshot(
@@ -1383,6 +1384,7 @@ async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: P
     )
     record = _record(status=EnvironmentStatus.READY).model_copy(update={"quota": quota})
     policy = PolicyView(
+        version=1,
         card_id=record.id,
         policy=AccountPolicy(
             routing=RoutingPolicy(quota_reserve_percent=10, quota_snapshot_max_age=120, fallback_enabled=True),
@@ -1404,7 +1406,7 @@ async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: P
     exported = (await service.list_gateway_environments())[0]
     assert exported.quota == quota
     assert exported.quota_reserve_percent == 10
-    assert exported.quota_snapshot_max_age == 120
+    assert exported.quota_snapshot_max_age == minimum_snapshot_max_age(AccountPoolSettings())
     assert exported.fallback_enabled is True
     assert exported.model_aliases == {"public": record.enabled_models[0]}
 
@@ -1440,6 +1442,42 @@ async def test_gateway_exports_effective_quota_switches_for_global_and_card_prof
     card_view = (await service.list_gateway_environments())[0]
     assert card_view.quota_switch_project is False
     assert card_view.quota_switch_preview_model is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_projection_inherits_global_quota_thresholds(tmp_path: Path) -> None:
+    record = _record(status=EnvironmentStatus.READY)
+    runtime = FakeRuntime()
+    cli = FakeCLIProxy()
+
+    class StoredSettings:
+        values = AccountPoolSettings(
+            quota_reserve_percent=75,
+            quota_reserve_5h_percent=20,
+            quota_reserve_weekly_percent=30,
+            quota_snapshot_max_age=1800,
+        )
+
+        async def get(self):
+            return SimpleNamespace(values=self.values)
+
+    service = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=runtime,
+        cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+        global_settings=StoredSettings(),
+        policies=RecordingPolicies(PolicyView(card_id=record.id)),
+    )
+    exported = (await service.list_gateway_environments())[0]
+
+    assert exported.quota_reserve_percent == 75
+    assert exported.quota_reserve_5h_percent == 20
+    assert exported.quota_reserve_weekly_percent == 30
+    assert exported.quota_snapshot_max_age == 1800
 
 
 def test_parse_quota_supports_multiple_windows_and_ignores_invalid_values() -> None:

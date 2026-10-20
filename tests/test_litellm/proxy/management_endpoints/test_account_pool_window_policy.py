@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 from account_pool.policies import RoutingPolicy as ManagerPolicy
+from account_pool.settings import AccountPoolSettings as ManagerSettings
 from pydantic import ValidationError
 from starlette.datastructures import Headers
 
@@ -11,6 +12,9 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPolicy,
     RoutingPolicy,
     TransportPolicy,
+)
+from litellm.proxy.management_endpoints.account_pool_management_models import (
+    AccountPoolSettings as GatewaySettings,
 )
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingSnapshot,
@@ -127,3 +131,17 @@ def test_missing_observation_is_unavailable_only_when_reserve_is_positive() -> N
 )
 def test_unavailable_reason_names_the_blocking_gate(snapshot: RoutingSnapshot, expected: str | None) -> None:
     assert unavailable_reason(snapshot, "shared", NOW) == expected
+
+
+@pytest.mark.parametrize("model", [ManagerSettings, GatewaySettings])
+def test_global_settings_expose_the_same_quota_thresholds(model) -> None:
+    values = model(
+        quota_reserve_percent=75,
+        quota_reserve_5h_percent=20,
+        quota_reserve_weekly_percent=30,
+        quota_snapshot_max_age=1800,
+    )
+
+    assert values.quota_reserve_percent == 75
+    assert values.quota_snapshot_max_age == 1800
+    assert model.model_validate_json(values.model_dump_json()) == values
