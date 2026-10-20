@@ -383,6 +383,13 @@ class PostgresPolicyRepository:
 
     async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None:
         async with database_connection(self._database_url) as connection:
+            card: Final = await connection.execute(
+                "SELECT id FROM account_pool_environments WHERE id = %s "
+                "AND payload->>'status' <> 'deleting' FOR UPDATE",
+                (card_id,),
+            )
+            if await card.fetchone() is None:
+                return None
             cursor: Final = await connection.execute(
                 "DELETE FROM account_pool_policies WHERE card_id = %s AND version = %s RETURNING *",
                 (card_id, expected_version),

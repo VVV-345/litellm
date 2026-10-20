@@ -183,6 +183,14 @@ def create_management_router(
                 raise HTTPException(status_code=502, detail="policy runtime synchronization failed") from error
         deleted: Final = await policies.delete(card_id, current.version)
         if deleted is None:
+            latest: Final = await policies.get(card_id)
+            if sync_policy is not None and latest.version > 0:
+                try:
+                    await sync_policy(record, latest.policy)
+                except Exception as error:
+                    raise HTTPException(
+                        status_code=502, detail="policy runtime synchronization failed"
+                    ) from error
             raise HTTPException(409, "Policy has changed; refresh before retrying")
         return PolicyView(card_id=card_id, capabilities=policy_capabilities(record.supplier))
 

@@ -716,3 +716,36 @@ def test_policy_reset_keeps_the_row_when_runtime_synchronization_fails() -> None
     assert policies.records[record.id].version == 2
 
 
+def test_policy_reset_reapplies_the_winning_policy_when_the_version_changes() -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    environments: Final = MemoryRepository(record)
+    policies: Final = MemoryPolicies()
+    policies.records[record.id] = PolicyView(card_id=record.id, version=3, policy=AccountPolicy())
+    applied: list[AccountPolicy] = []
+    winning: Final = AccountPolicy(routing=RoutingPolicy(strategy="plan"))
+
+    class RacingPolicies(MemoryPolicies):
+        async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None:
+            await self.save(card_id, PolicyUpdate(version=expected_version, policy=winning))
+            return await super().delete(card_id, expected_version)
+
+    racing: Final = RacingPolicies()
+    racing.records = policies.records
+
+    async def sync_policy(_: EnvironmentRecord, policy: AccountPolicy) -> None:
+        applied.append(policy)
+
+    app: Final = FastAPI()
+    app.include_router(
+        create_management_router(
+            object(), object(), environments, lambda: None, racing, sync_policy=sync_policy
+        )
+    )
+
+    with TestClient(app) as client:
+        response: Final = client.delete(f"/api/environments/{record.id}/policy")
+
+    assert response.status_code == 409
+    assert racing.records[record.id].version == 4
+    assert applied[0].routing.strategy == "auto"
+    assert applied[-1].routing.strategy == "plan"
