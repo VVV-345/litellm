@@ -16,13 +16,14 @@ from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationEr
 
 from litellm._logging import verbose_proxy_logger
 from litellm.caching.dual_cache import DualCache
-from litellm.exceptions import ServiceUnavailableError
+from litellm.exceptions import RateLimitError, ServiceUnavailableError
 from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
 from litellm.proxy._types import ProxyException
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
 from litellm.proxy.management_endpoints.account_pool_failover import exception_header
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
+    RoutingSnapshot,
     exhausted_snapshot,
     now_utc,
     quota_depleted,
@@ -52,6 +53,10 @@ _FIELDS: Final = frozenset(("input", "tools", "functions", "background", "conver
 _MAX_BYTES: Final = 256 * 1024
 _TTL: Final = 3600
 _Result = TypeVar("_Result")
+
+
+def _degraded_continuation_enabled() -> bool:
+    return os.getenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "true").strip().lower() not in ("0", "false", "no", "off")
 
 
 class ConversationRecord(BaseModel):
@@ -225,6 +230,8 @@ class Conversation:
         history: tuple[Mapping[str, JsonValue], ...] | None,
         origin: str | None,
         store: ConversationStore,
+        visible: tuple[Mapping[str, JsonValue], ...] | None,
+        complete_history: bool,
     ) -> None:
         self.identity: Final = identity
         self.model: Final = model
@@ -232,6 +239,9 @@ class Conversation:
         self.history: Final = history
         self.origin: Final = origin
         self.store: Final = store
+        self.visible: Final = visible
+        self.complete_history: Final = complete_history
+        self.relaxed: Final = identity.card_id is None and _degraded_continuation_enabled()
 
     @classmethod
     async def start(cls, router: Router, payload: Mapping[str, object]) -> Conversation | None:
@@ -240,13 +250,15 @@ class Conversation:
         secret: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
         if identity is None or not isinstance(model, str) or len(secret) < 32 or payload.get("extra_body"):
             return None
-        deployments: Final = router.get_model_list(model_name=model) or ()
-        if not any(
-            (snapshot := snapshot_for(item, quota_snapshots.values)) is not None
-            and (snapshot.quota_switch_project or snapshot.fallback_enabled)
-            for item in deployments
-        ):
-            return None
+        relaxed: Final = identity.card_id is None and _degraded_continuation_enabled()
+        if not relaxed:
+            deployments: Final = router.get_model_list(model_name=model) or ()
+            if not any(
+                (snapshot := snapshot_for(item, quota_snapshots.values)) is not None
+                and (snapshot.quota_switch_project or snapshot.fallback_enabled)
+                for item in deployments
+            ):
+                return None
         try:
             request: Final = _JSON.validate_python(
                 MappingProxyType({key: value for key, value in payload.items() if key in _FIELDS})
@@ -264,12 +276,21 @@ class Conversation:
             if isinstance(previous, str)
             else EncryptedContentAffinityCheck._extract_model_id_from_input(payload.get("input"))  # pyright: ignore[reportPrivateUsage]  # Share the native affinity marker parser.
         )
+        prior: Final = any(
+            item.get("role") == "assistant"
+            or item.get("type") in ("function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output")
+            for item in (current or ())
+        )
         history: Final = (
             None
-            if current is None or previous and record is None
-            else (*(record.input if record is not None else ()), *current)
+            if current is None
+            else (*record.input, *current)
+            if record is not None
+            else current
+            if prior or previous is None
+            else None
         )
-        return cls(identity, model, request, history, origin, store)
+        return cls(identity, model, request, history, origin, store, current, record is not None or prior)
 
     def can_replay(self, router: Router, payload: Mapping[str, object]) -> bool:
         if (
@@ -278,7 +299,7 @@ class Conversation:
             or payload.get("max_fallbacks", router.max_fallbacks) == 0
         ):
             return False
-        if not has_signed_history(payload):
+        if not has_signed_history(payload) and not self.relaxed:
             return False
         if self.request.get("truncation") == "auto":
             return False
@@ -288,17 +309,49 @@ class Conversation:
         return signature_recovery_reason(restored) is None
 
     def rebuild(
-        self, router: Router, payload: Mapping[str, object], error: Exception, *, migrated: bool = False
+        self,
+        router: Router,
+        payload: Mapping[str, object],
+        error: Exception,
+        *,
+        migrated: bool = False,
     ) -> Mapping[str, object] | None:
         deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
         failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
-        if not isinstance(failed, str):
-            return None
-        origin: Final = next((item for item in deployments if deployment_id(item) == failed), None)
-        if origin is None:
-            return None
-        snapshot: Final = snapshot_for(origin, quota_snapshots.values)
-        if snapshot is None:
+        origin: Final = (
+            next((item for item in deployments if deployment_id(item) == failed), None)
+            if isinstance(failed, str)
+            else None
+        )
+        snapshot: Final = snapshot_for(origin, quota_snapshots.values) if origin is not None else None
+
+        if self.relaxed:
+            if payload.get("disable_fallbacks") or payload.get("max_fallbacks", router.max_fallbacks) == 0:
+                return None
+            if not self._relaxed_trigger(error, snapshot, payload):
+                return None
+            input_items: Final = self.history if self.complete_history else self.visible
+            if input_items is None:
+                return None
+            excluded: Final = self._excluded(payload, deployments, failed)
+            if not any(deployment_id(item) not in excluded for item in deployments):
+                return None
+            verbose_proxy_logger.warning(
+                "Account pool conversation degraded migration; request_id=%s degraded=%s",
+                self.identity.request_id,
+                not self.complete_history,
+            )
+            return MappingProxyType(
+                {
+                    **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
+                    "input": _INPUT.validate_python(input_items),
+                    "_excluded_deployment_ids": excluded,
+                    "disable_fallbacks": True,
+                    "num_retries": 0,
+                }
+            )
+
+        if origin is None or snapshot is None:
             return None
         depleted_before_call: Final = (
             isinstance(error, (RouterRateLimitError, RouterRateLimitErrorBasic, ServiceUnavailableError))
@@ -340,6 +393,36 @@ class Conversation:
                 "num_retries": 0,
             }
         )
+
+    def _relaxed_trigger(
+        self,
+        error: Exception,
+        snapshot: RoutingSnapshot | None,
+        payload: Mapping[str, object],
+    ) -> bool:
+        if exception_header(error, "x-account-pool-preflight") == "rejected":
+            return payload.get("previous_response_id") is None
+        if isinstance(
+            error,
+            (EncryptedContentOriginUnavailableError, RateLimitError, RouterRateLimitError, RouterRateLimitErrorBasic),
+        ):
+            return True
+        return snapshot is not None and quota_depleted(snapshot, self.model, now_utc())
+
+    def _excluded(
+        self,
+        payload: Mapping[str, object],
+        deployments: tuple[Mapping[str, object], ...],
+        failed: object,
+    ) -> tuple[str, ...]:
+        previous_excluded: Final = payload.get("_excluded_deployment_ids")
+        base: Final = _EXCLUSIONS.validate_python(previous_excluded) if previous_excluded is not None else ()
+        if not isinstance(failed, str):
+            return base
+        origin: Final = next((item for item in deployments if deployment_id(item) == failed), None)
+        if origin is None:
+            return (*base, failed) if failed not in base else base
+        return quota_failover_exclusions(deployments, failed, base, self.model)
 
     async def recover(
         self,

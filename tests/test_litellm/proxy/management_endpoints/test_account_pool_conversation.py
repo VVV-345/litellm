@@ -64,6 +64,7 @@ from litellm.types.llms.openai import ResponsesAPIResponse
 @pytest.fixture
 def pool(monkeypatch):
     monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-conversation-secret-" * 2)
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "0")
     cards = (uuid4(), uuid4())
     router = Router(
         model_list=[
@@ -572,3 +573,137 @@ async def test_mixed_reasoning_is_cleaned_at_real_router_dispatch(pool):
         return response(first)
     result = await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input=[{"role": "user", "content": "hello"}, {"type": "reasoning", "encrypted_content": first_state}, {"type": "reasoning", "encrypted_content": second_state}])
     assert result.status == "completed"
+
+@pytest.fixture
+def degraded(pool, monkeypatch):
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1")
+    return pool
+
+@pytest.mark.asyncio
+async def test_full_history_replays_without_encrypted_reasoning(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
+        EncryptedContentOriginUnavailableError,
+    )
+
+    router, (first, second) = degraded
+    payload = {
+        "model": "shared",
+        "input": [
+            {"type": "message", "role": "user", "content": "Budget 5000"},
+            {"type": "reasoning", "summary": [{"type": "summary_text", "text": "plan"}], "encrypted_content": "gAAAA"},
+            {"type": "message", "role": "assistant", "content": "ok"},
+            {"type": "message", "role": "user", "content": "Continue"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = EncryptedContentOriginUnavailableError(message="origin unavailable", model="shared", llm_provider="openai")
+    error.failed_deployment_id = str(first)
+    await conversation.recover(router, payload, error, invoke)
+
+    assert len(calls) == 1
+    rebuilt = calls[0]
+    assert "previous_response_id" not in rebuilt
+    assert all("encrypted_content" not in item for item in rebuilt["input"])
+    assert any(item.get("role") == "assistant" for item in rebuilt["input"])
+
+@pytest.mark.asyncio
+async def test_partial_history_degrades_to_visible_turn(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
+        EncryptedContentOriginUnavailableError,
+    )
+
+    router, _ = degraded
+    payload = {"model": "shared", "input": "Continue", "previous_response_id": "resp_unknown"}
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    await conversation.recover(router, payload, EncryptedContentOriginUnavailableError(message="gone", model="shared", llm_provider="openai"), invoke)
+
+    assert len(calls) == 1
+    assert "previous_response_id" not in calls[0]
+    assert calls[0]["input"] == [{"role": "user", "content": "Continue"}]
+
+@pytest.mark.asyncio
+async def test_generic_server_error_does_not_degrade(degraded):
+    from litellm.exceptions import InternalServerError
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+
+    router, _ = degraded
+    payload = {"model": "shared", "input": "Continue", "previous_response_id": "resp_unknown"}
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = InternalServerError(message="boom", model="shared", llm_provider="openai")
+    with pytest.raises(InternalServerError):
+        await conversation.recover(router, payload, error, invoke)
+    assert calls == []
+
+@pytest.mark.asyncio
+async def test_card_bound_key_keeps_switch_gate(degraded, monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
+
+    router, cards = degraded
+    snapshots.replace({str(card): RoutingSnapshot() for card in cards})
+    token = pool_identity.set(PoolIdentity(key_hash="bound", request_id=uuid4(), card_id=uuid4()))
+    try:
+        assert await Conversation.start(router, {"model": "shared", "input": "hello"}) is None
+    finally:
+        pool_identity.reset(token)
+
+@pytest.mark.asyncio
+async def test_quota_depleted_snapshot_degrades_full_history(degraded):
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+
+    router, (first, second) = degraded
+    snapshots.replace(
+        {
+            str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0)),
+            str(second): RoutingSnapshot(quota_switch_project=True),
+        }
+    )
+    payload = {
+        "model": "shared",
+        "input": [
+            {"type": "message", "role": "user", "content": "first"},
+            {"type": "message", "role": "assistant", "content": "second"},
+            {"type": "message", "role": "user", "content": "third"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = ServiceUnavailableError(
+        message="quota exhausted",
+        model="shared",
+        llm_provider="openai",
+        response=httpx.Response(503, request=httpx.Request("POST", "http://local/v1/responses")),
+    )
+    error.failed_deployment_id = str(first)
+    await conversation.recover(router, payload, error, invoke)
+
+    assert len(calls) == 1
+    assert "previous_response_id" not in calls[0]
