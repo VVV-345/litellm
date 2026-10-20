@@ -199,7 +199,7 @@ async def test_cancelled_session_cannot_be_activated_or_consume_its_ticket() -> 
     assert consumed is None
 
 
-@pytest.mark.asyncio(loop_factories=["selector"])
+@pytest.mark.asyncio
 async def test_postgres_repository_enforces_active_session_and_ticket_uniqueness() -> None:
     database_url: Final[str | None] = os.getenv("ACCOUNT_POOL_TEST_DATABASE_URL")
     if database_url is None:
