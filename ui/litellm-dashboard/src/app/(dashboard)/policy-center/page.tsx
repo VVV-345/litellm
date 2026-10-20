@@ -7,6 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getCallbacksCall, setCallbacksCall } from "@/components/networking";
+import RuntimeConfigDialog from "@/components/Settings/RuntimeSettings/RuntimeConfigDialog";
+import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
+import { RuntimePolicyDialog } from "@/components/Settings/RuntimeSettings/RuntimePolicyDialog";
+import type { RuntimeSettingsCategory } from "@/components/Settings/RuntimeSettings/RuntimeSettingsSection";
 import { AccountPoolRoutingFields, accountPoolRoutingValue } from "@/components/router_settings/AccountPoolRoutingFields";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import {
@@ -21,6 +25,7 @@ import {
 import { accountPoolPolicyOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import { toast } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -41,9 +46,6 @@ const gateLabels: Record<string, string> = {
 };
 
 type DefaultsDraft = {
-  default_route: string;
-  max_attempts: string;
-  request_timeout_seconds: string;
   quota_reserve_percent: string;
   quota_reserve_5h_percent: string;
   quota_reserve_weekly_percent: string;
@@ -51,9 +53,6 @@ type DefaultsDraft = {
 };
 
 const draftFrom = (view: AccountPoolSettingsView): DefaultsDraft => ({
-  default_route: view.values.default_route,
-  max_attempts: String(view.values.max_attempts),
-  request_timeout_seconds: String(view.values.request_timeout_seconds),
   quota_reserve_percent: String(view.values.quota_reserve_percent ?? 0),
   quota_reserve_5h_percent:
     view.values.quota_reserve_5h_percent === null || view.values.quota_reserve_5h_percent === undefined
@@ -72,6 +71,56 @@ const integer = (value: string, fallback: number): number => {
 };
 
 const optionalInteger = (value: string): number | null => (value.trim() === "" ? null : integer(value, 0));
+
+type SettingsCategory = { value: RuntimeSettingsCategory; label: string };
+
+const routingCategories: readonly SettingsCategory[] = [
+  { value: "common", label: "新卡片默认值" },
+  { value: "access", label: "模型访问" },
+  { value: "network", label: "网络与重试" },
+  { value: "quota", label: "配额回退" },
+];
+
+const runtimeCategories: readonly SettingsCategory[] = [
+  { value: "streaming", label: "流式传输" },
+  { value: "advanced", label: "高级运行" },
+  { value: "payload", label: "请求改写" },
+];
+
+function RuntimeSettingsGroup({
+  id,
+  categories,
+}: {
+  id: string;
+  categories: readonly SettingsCategory[];
+}) {
+  const [category, setCategory] = useState<RuntimeSettingsCategory>(categories[0].value);
+  const selectCategory = (value: string) => {
+    const next = categories.find((item) => item.value === value);
+    if (next) setCategory(next.value);
+  };
+
+  return (
+    <div className="grid gap-3">
+      <div className="space-y-2">
+        <Label htmlFor={id}>设置分组</Label>
+        <Select value={category} onValueChange={selectCategory}>
+          <SelectTrigger id={id} className="w-full md:w-80">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {categories.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <RuntimeSettings category={category} />
+    </div>
+  );
+}
 
 function PolicyDefaultsForm({ view, accessToken }: { view: AccountPoolSettingsView; accessToken: string }) {
   const [draft, setDraft] = useState<DefaultsDraft>(() => draftFrom(view));
@@ -109,42 +158,6 @@ function PolicyDefaultsForm({ view, accessToken }: { view: AccountPoolSettingsVi
   return (
     <div className="grid gap-4">
       <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-2">
-          <Label htmlFor="default-route">卡内路由策略</Label>
-          <Select value={draft.default_route} onValueChange={(value) => value && update("default_route", value)}>
-            <SelectTrigger id="default-route" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="auto">自动</SelectItem>
-              <SelectItem value="priority">按优先级</SelectItem>
-              <SelectItem value="random">随机</SelectItem>
-              <SelectItem value="quota">额度优先</SelectItem>
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">仅对继承全局的卡片生效，独立配置的卡片不受影响</p>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="max-attempts">卡内重试次数</Label>
-          <Input
-            id="max-attempts"
-            type="number"
-            min={1}
-            max={5}
-            value={draft.max_attempts}
-            onChange={(event) => update("max_attempts", event.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="request-timeout">请求超时（秒）</Label>
-          <Input
-            id="request-timeout"
-            type="number"
-            min={1}
-            value={draft.request_timeout_seconds}
-            onChange={(event) => update("request_timeout_seconds", event.target.value)}
-          />
-        </div>
         <div className="space-y-2">
           <Label htmlFor="quota-reserve">额度预留（%）</Label>
           <Input
@@ -326,6 +339,8 @@ export default function PolicyCenterPage() {
   const { accessToken, userID, userRole } = useAuthorized();
   const queryClient = useQueryClient();
   const [routing, setRouting] = useState<ReturnType<typeof accountPoolRoutingValue> | null>(null);
+  const [policyCard, setPolicyCard] = useState<AccountPoolEnvironment | null>(null);
+  const [runtimeCard, setRuntimeCard] = useState<AccountPoolEnvironment | null>(null);
   const environments = useAccountPoolQuery(accessToken, true, false);
   const policies = useQuery(accountPoolPolicyOptions(accessToken));
   const settingsQuery = {
@@ -446,12 +461,23 @@ export default function PolicyCenterPage() {
             当前 {inherited} 张卡片继承全局，{independent.length} 张卡片独立配置
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-6">
           {settings.data ? (
             <PolicyDefaultsForm key={settings.data.version} view={settings.data} accessToken={accessToken} />
           ) : (
             <p className="text-sm text-muted-foreground">加载中</p>
           )}
+          <RuntimeSettingsGroup id="policy-routing-category" categories={routingCategories} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>运行参数</CardTitle>
+          <CardDescription>流式、插件与请求改写，保存后由号池运行时同步</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <RuntimeSettingsGroup id="policy-runtime-category" categories={runtimeCategories} />
         </CardContent>
       </Card>
 
@@ -475,11 +501,16 @@ export default function PolicyCenterPage() {
                     {independentCard ? `独立配置 v${policy?.version}` : "继承全局"}
                   </Badge>
                 </div>
-                {independentCard && (
-                  <Button variant="outline" onClick={() => resetPolicy(card.id, card.name)}>
-                    回归全局
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" onClick={() => setPolicyCard(card)}>
+                    {independentCard ? "编辑独立配置" : "设为独立配置"}
                   </Button>
-                )}
+                  {independentCard && (
+                    <Button variant="outline" onClick={() => resetPolicy(card.id, card.name)}>
+                      回归全局
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -487,6 +518,35 @@ export default function PolicyCenterPage() {
       </Card>
 
       <RoutingStatusPanel cards={routingCards} accessToken={accessToken} />
+
+      {policyCard && (
+        <RuntimePolicyDialog
+          accessToken={accessToken}
+          environment={policyCard}
+          environments={cards}
+          policies={policies.data ?? []}
+          onOpenRuntimeConfig={() => {
+            setRuntimeCard(policyCard);
+            setPolicyCard(null);
+          }}
+          onClose={() => setPolicyCard(null)}
+        />
+      )}
+      {runtimeCard && (
+        <RuntimeConfigDialog
+          accessToken={accessToken}
+          environment={runtimeCard}
+          open
+          onOpenChange={(open) => !open && setRuntimeCard(null)}
+          onRefresh={async () => {
+            await queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
+          }}
+          onSaved={async () => {
+            setRuntimeCard(null);
+            await queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
+          }}
+        />
+      )}
     </div>
   );
 }

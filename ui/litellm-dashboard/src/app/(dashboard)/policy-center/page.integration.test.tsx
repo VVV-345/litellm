@@ -60,6 +60,22 @@ vi.mock("@/components/networking", async (importOriginal) => {
   };
 });
 
+vi.mock("@/components/Settings/RuntimeSettings/RuntimePolicyDialog", () => ({
+  RuntimePolicyDialog: ({ environment }: { environment: { name: string } }) => (
+    <div data-testid="policy-dialog">{environment.name}</div>
+  ),
+}));
+
+vi.mock("@/components/Settings/RuntimeSettings/RuntimeConfigDialog", () => ({
+  default: ({ environment }: { environment: { name: string } }) => (
+    <div data-testid="runtime-config-dialog">{environment.name}</div>
+  ),
+}));
+
+vi.mock("@/components/Settings/RuntimeSettings/RuntimeSettings", () => ({
+  default: ({ category }: { category: string }) => <div data-testid={`runtime-settings-${category}`} />,
+}));
+
 vi.mock("@/lib/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn(), fromError: vi.fn() },
 }));
@@ -106,6 +122,8 @@ describe("policy center", () => {
     expect(screen.getByText("独立配置 v2")).toBeInTheDocument();
     expect(screen.getByText("当前 1 张卡片继承全局，1 张卡片独立配置")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "回归全局" })).toHaveLength(1);
+    expect(screen.getByTestId("runtime-settings-common")).toBeInTheDocument();
+    expect(screen.getByTestId("runtime-settings-streaming")).toBeInTheDocument();
   });
 
   it("saves quota thresholds through the policy runtime section", async () => {
@@ -124,6 +142,14 @@ describe("policy center", () => {
       }),
       "policy",
     );
+  });
+
+  it("opens the independent policy editor from the card list", async () => {
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "设为独立配置" }));
+
+    expect(await screen.findByTestId("policy-dialog")).toHaveTextContent("继承卡片");
   });
 
   it("saves cross-card routing through the router settings payload", async () => {
