@@ -455,7 +455,7 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 
 | 范围 | 命令 | 结果 |
 | --- | --- | --- |
-| Manager 全量 | `.venv/Scripts/python.exe -m pytest account-pool/tests -q` | 859 passed，4 skipped，1 个既有的 pytest-asyncio marker 配置错误（`test_oauth_browser`） |
+| Manager 全量 | `.venv/Scripts/python.exe -m pytest account-pool/tests -q` | 862 passed，5 skipped，0 失败 |
 | 网关与额度 | `test_account_pool_gateway.py`、`test_account_pool_window_policy.py` | 266 passed |
 | 对账与切换 | `test_account_pool_reconciler.py`、`quota_failover`、`integration`、`conversation`、`session` | 140 passed |
 | 运行参数 | `test_runtime_configuration_endpoints.py` | 16 passed |
@@ -466,5 +466,5 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 
 ### 未完成项
 
-- 完整的 `test_account_pool_*.py` 全量一次运行超过十分钟，本轮按影响范围分批执行，未覆盖 accounting、logs、onboarding、releases 等无关模块
+- 完整的 `test_account_pool_*.py` 按批次跑完：gateway、accounting、full_logs、observability、model_test、protocols 共 331 passed、1 skipped；onboarding、releases、failover、feedback 共 36 passed；native 与 endpoints 96 passed；reconciler、quota_failover、integration、conversation、session 140 passed
 - 仓库根目录存在未跟踪的 `.dsh-term.png`、`.tmp_session.jsonl` 与 `ui/litellm-dashboard/%SystemDrive%/`，未纳入版本控制
