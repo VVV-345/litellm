@@ -1,6 +1,7 @@
 """验证额度预筛选、套餐偏好和原生会话亲和性不扩大卡片范围。"""
 
 from datetime import datetime, timedelta, timezone
+from typing import Final
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from litellm import Router
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingQuota,
+    RoutingQuotaWindow,
     RoutingSnapshot,
     eligible_deployments,
     preferred_deployments,
@@ -240,7 +242,6 @@ async def test_preflight_rejection_does_not_switch_server_state_requests(monkeyp
     import httpx
 
     from litellm.exceptions import ServiceUnavailableError
-    from litellm.types.llms.openai import ResponsesAPIResponse
 
     monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
     first, second = uuid4(), uuid4()
@@ -820,3 +821,51 @@ def test_refreshed_quota_above_manual_reserve_reenables_routing():
     refreshed = RoutingSnapshot(quota=RoutingQuota(remaining_percent=90, observed_at=now), quota_reserve_percent=10)
     assert not available(exhausted, "shared", now)
     assert available(refreshed, "shared", now)
+
+
+def test_explain_reports_the_tripped_window_and_its_threshold() -> None:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import explain
+
+    now = datetime.now(timezone.utc)
+    quota = RoutingQuota(
+        remaining_percent=74,
+        observed_at=now - timedelta(seconds=901),
+        windows=(
+            RoutingQuotaWindow(
+                window_minutes=10080, remaining_percent=74, resets_at=now + timedelta(days=3)
+            ),
+        ),
+    )
+    status = explain(uuid4(), RoutingSnapshot(quota=quota, quota_reserve_percent=75), "shared", now)
+
+    assert status.eligible is False
+    assert status.reason == "quota_exhausted"
+    assert status.windows[0].threshold_percent == 75
+    assert status.windows[0].tripped is True
+    assert status.age_seconds == 901
+    assert status.stale_grace_seconds == 900
+
+
+def test_explain_separates_expired_snapshot_from_quota_exhaustion() -> None:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import explain
+
+    now = datetime.now(timezone.utc)
+    quota = RoutingQuota(remaining_percent=90, observed_at=now - timedelta(seconds=901))
+    status = explain(uuid4(), RoutingSnapshot(quota=quota, quota_reserve_percent=10), "shared", now)
+
+    assert status.reason == "quota_snapshot_expired"
+    assert status.eligible is False
+    assert tuple(gate.passed for gate in status.gates) == (True, True, True, False)
+    assert status.gates[3].detail == "expired"
+
+
+def test_explain_marks_a_fresh_card_within_the_reserve_as_eligible() -> None:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import explain
+
+    now = datetime.now(timezone.utc)
+    quota = RoutingQuota(remaining_percent=90, observed_at=now)
+    status = explain(uuid4(), RoutingSnapshot(quota=quota, quota_reserve_percent=10), "shared", now)
+
+    assert status.eligible is True
+    assert status.reason is None
+    assert all(gate.passed for gate in status.gates)

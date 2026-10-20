@@ -972,3 +972,50 @@ class ErrorLogDetail(BaseModel):
     event: ErrorLogRecord
     attempts: tuple[ErrorLogRecord, ...]
     has_more: bool
+
+
+RoutingUnavailableReason: TypeAlias = Literal[
+    "model_cooldown",
+    "subscription_expired",
+    "quota_exhausted",
+    "quota_snapshot_missing",
+    "quota_snapshot_expired",
+]
+
+
+class RoutingQuotaWindowStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    window_minutes: int | None = Field(default=None, ge=1)
+    remaining_percent: float = Field(ge=0, le=100, allow_inf_nan=False)
+    threshold_percent: float = Field(ge=0, le=100, allow_inf_nan=False)
+    resets_at: AwareDatetime | None = None
+    tripped: bool
+
+
+class RoutingGateStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    gate: Literal["model_cooldown", "subscription", "quota", "freshness"]
+    passed: bool
+    detail: str | None = None
+
+
+class AccountPoolRoutingStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    card_id: UUID
+    model: str
+    resolved_model: str
+    evaluated_at: AwareDatetime
+    eligible: bool
+    reason: RoutingUnavailableReason | None = None
+    observed_at: AwareDatetime | None = None
+    age_seconds: float | None = None
+    max_age_seconds: int = Field(ge=0)
+    stale_grace_seconds: int = Field(ge=0)
+    quota_reserve_percent: float = Field(ge=0, le=100)
+    quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
+    quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
+    windows: tuple[RoutingQuotaWindowStatus, ...] = ()
+    gates: tuple[RoutingGateStatus, ...] = ()

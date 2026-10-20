@@ -25,6 +25,11 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     create_account_pool_router,
 )
 from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ErrorLogRecord, ErrorStats
+from litellm.proxy.management_endpoints.account_pool_native_routing import (
+    RoutingQuota,
+    RoutingSnapshot,
+    snapshots,
+)
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats
 
 _MANAGER_TOKEN: Final = "m" * 32
@@ -1253,3 +1258,28 @@ def test_browser_start_has_timeout_for_worker_health_gate() -> None:
         await manager.request("POST", f"/api/environments/{_ENVIRONMENT_ID}/oauth-browser-sessions")
 
     asyncio.run(run())
+
+
+def test_routing_status_reports_the_snapshot_and_rejects_unknown_cards() -> None:
+    card: Final = uuid4()
+    previous: Final = snapshots.values
+    snapshots.replace(
+        {
+            str(card): RoutingSnapshot(
+                quota=RoutingQuota(remaining_percent=90, observed_at=datetime.now(timezone.utc)),
+                quota_reserve_percent=10,
+            )
+        }
+    )
+    user: Final = UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    try:
+        with TestClient(_app(user, _manager_factory)) as client:
+            found: Final = client.get(f"/account_pool/routing-status?card_id={card}&model=shared")
+            missing: Final = client.get(f"/account_pool/routing-status?card_id={uuid4()}&model=shared")
+    finally:
+        snapshots.replace(previous)
+
+    assert found.status_code == 200
+    assert found.json()["eligible"] is True
+    assert found.json()["resolved_model"] == "shared"
+    assert missing.status_code == 404

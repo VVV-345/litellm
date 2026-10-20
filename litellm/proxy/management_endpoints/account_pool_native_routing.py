@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, Literal, TypeAlias, TypeVar, cast
+from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
@@ -14,6 +15,12 @@ from litellm._logging import verbose_router_logger
 from litellm.constants import SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY
 from litellm.proxy.management_endpoints.account_pool_failover import exception_failure, exception_header
 from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
+from litellm.proxy.management_endpoints.account_pool_management_models import (
+    AccountPoolRoutingStatus,
+    RoutingGateStatus,
+    RoutingQuotaWindowStatus,
+    RoutingUnavailableReason,
+)
 from litellm.proxy.management_endpoints.account_pool_session import has_signed_history, session_identifier
 from litellm.responses.utils import ResponsesAPIRequestUtils
 from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import EncryptedContentAffinityCheck
@@ -265,16 +272,8 @@ def quota_freshness(snapshot: RoutingSnapshot, model: str, now: datetime) -> Quo
     return "expired"
 
 
-UnavailableReason: TypeAlias = Literal[
-    "model_cooldown",
-    "subscription_expired",
-    "quota_exhausted",
-    "quota_snapshot_missing",
-    "quota_snapshot_expired",
-]
 
-
-def unavailable_reason(snapshot: RoutingSnapshot, model: str, now: datetime) -> UnavailableReason | None:
+def unavailable_reason(snapshot: RoutingSnapshot, model: str, now: datetime) -> RoutingUnavailableReason | None:
     target: Final = snapshot.model_aliases.get(model, model)
     cooldown: Final = snapshot.model_cooldowns.get(target)
     if cooldown is not None and cooldown > now:
@@ -300,6 +299,58 @@ def unavailable_reason(snapshot: RoutingSnapshot, model: str, now: datetime) -> 
 
 def available(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     return unavailable_reason(snapshot, model, now) is None
+
+
+def explain(card_id: UUID, snapshot: RoutingSnapshot, model: str, now: datetime) -> AccountPoolRoutingStatus:
+    target: Final = snapshot.model_aliases.get(model, model)
+    quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
+    observed: Final = quota.observed_at
+    cooldown: Final = snapshot.model_cooldowns.get(target)
+    freshness: Final = quota_freshness(snapshot, model, now)
+    windows: Final = tuple(
+        RoutingQuotaWindowStatus(
+            window_minutes=window.window_minutes,
+            remaining_percent=window.remaining_percent,
+            threshold_percent=window_reserve(snapshot, window.window_minutes),
+            resets_at=window.resets_at,
+            tripped=(window.resets_at is None or window.resets_at > now)
+            and window.remaining_percent <= window_reserve(snapshot, window.window_minutes),
+        )
+        for window in quota.windows
+    )
+    reason: Final = unavailable_reason(snapshot, model, now)
+    return AccountPoolRoutingStatus(
+        card_id=card_id,
+        model=model,
+        resolved_model=target,
+        evaluated_at=now,
+        eligible=reason is None,
+        reason=reason,
+        observed_at=observed,
+        age_seconds=None if observed is None else (now - observed).total_seconds(),
+        max_age_seconds=snapshot.quota_snapshot_max_age,
+        stale_grace_seconds=snapshot.quota_snapshot_max_age * STALE_GRACE_FACTOR,
+        quota_reserve_percent=snapshot.quota_reserve_percent,
+        quota_reserve_5h_percent=snapshot.quota_reserve_5h_percent,
+        quota_reserve_weekly_percent=snapshot.quota_reserve_weekly_percent,
+        windows=windows,
+        gates=(
+            RoutingGateStatus(
+                gate="model_cooldown",
+                passed=cooldown is None or cooldown <= now,
+                detail=None if cooldown is None else f"cooldown until {cooldown.isoformat()}",
+            ),
+            RoutingGateStatus(
+                gate="subscription",
+                passed=snapshot.subscription_active_until is None or snapshot.subscription_active_until > now,
+                detail=None
+                if snapshot.subscription_active_until is None
+                else f"active until {snapshot.subscription_active_until.isoformat()}",
+            ),
+            RoutingGateStatus(gate="quota", passed=not quota_depleted(snapshot, model, now)),
+            RoutingGateStatus(gate="freshness", passed=freshness in ("fresh", "stale"), detail=freshness),
+        ),
+    )
 
 
 def protocol_available(snapshot: RoutingSnapshot) -> bool:

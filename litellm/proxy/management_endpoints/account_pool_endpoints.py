@@ -25,6 +25,7 @@ from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
+from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus
 from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
@@ -660,6 +661,20 @@ def create_account_pool_router(
     ) -> ReconcilerStatus:
         _require_proxy_admin(user_api_key_dict)
         return reconciler_status()
+
+    @router.get("/routing-status", response_model=AccountPoolRoutingStatus)
+    async def routing_status(
+        card_id: UUID,
+        model: str,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolRoutingStatus:
+        from litellm.proxy.management_endpoints.account_pool_native_routing import explain, now_utc, snapshots
+
+        _require_proxy_admin(user_api_key_dict)
+        snapshot: Final = snapshots.values.get(str(card_id))
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Routing snapshot is not available for this card")
+        return explain(card_id, snapshot, model, now_utc())
 
     @router.post("/quotas/refresh", response_model=AccountPoolQuotaRefreshResult)
     async def refresh_quotas(
