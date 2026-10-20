@@ -16,7 +16,6 @@ import {
   loadAccountPoolPluginsPanel,
   loadAccountPoolReleasesPanel,
   loadAccountPoolFeedbackPanel,
-  loadRuntimeSettingsSection,
   loadRuntimeConfigDialog,
   loadRuntimePolicyDialog,
   loadAccountPoolCreateDialog,
@@ -32,12 +31,12 @@ const AccountPoolUpstreamSyncPanel = dynamic(loadAccountPoolUpstreamSyncPanel, {
 const AccountPoolPluginsPanel = dynamic(loadAccountPoolPluginsPanel, { loading: ModuleLoading });
 const AccountPoolReleasesPanel = dynamic(loadAccountPoolReleasesPanel, { loading: ModuleLoading });
 const AccountPoolFeedbackPanel = dynamic(loadAccountPoolFeedbackPanel, { loading: ModuleLoading });
-const RuntimeSettingsSection = dynamic(loadRuntimeSettingsSection, { loading: ModuleLoading });
 const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLoading });
 const RuntimePolicyDialog = dynamic(loadRuntimePolicyDialog, { loading: ModuleLoading });
 const AccountPoolCreateDialog = dynamic(loadAccountPoolCreateDialog, { loading: ModuleLoading });
 const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoading });
 
+import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
@@ -508,15 +507,12 @@ export default function AccountPoolPage() {
             visited={isTabVisited("providers")}
           >
             <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
-            {accessToken && (
-              <details
-                className="my-4 rounded-lg border p-4"
-                open={searchParams?.get("section") === "common" || undefined}
-              >
-                <summary>新卡片默认配置</summary>
-                <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="common" />
-              </details>
-            )}
+            <div className="my-4 rounded-lg border bg-muted/20 p-4 text-sm">
+              新卡片默认配置已统一到策略中心，包括路由、重试、超时、并发与模型访问。
+              <Link href={migratedHref("policy-center")} className="ml-1 underline">
+                前往策略中心
+              </Link>
+            </div>
             {accessToken && environments.length > 0 && (
               <div className="mb-4">
                 <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
@@ -606,15 +602,12 @@ export default function AccountPoolPage() {
             active={activeTab === "quotas"}
             visited={isTabVisited("quotas")}
           >
-            {accessToken && (
-              <details
-                className="mb-4 rounded-lg border p-4"
-                open={searchParams?.get("section") === "quota" || undefined}
-              >
-                <summary>配额耗尽策略</summary>
-                <RuntimeSettingsSection accessToken={accessToken} environments={environments} category="quota" />
-              </details>
-            )}
+            <div className="mb-4 rounded-lg border bg-muted/20 p-4 text-sm">
+              配额回退与额度阈值已统一到策略中心。
+              <Link href={migratedHref("policy-center")} className="ml-1 underline">
+                前往策略中心
+              </Link>
+            </div>
             <AccountPoolQuotaPanel
               accessToken={accessToken}
               environments={environments}

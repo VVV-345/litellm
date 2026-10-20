@@ -12,8 +12,6 @@ vi.mock("./panels/AutoRoutersTabPanel", () => ({ default: () => <div data-testid
 vi.mock("./panels/LlmCredentialsPanel", () => ({ default: () => <div data-testid="panel-credentials" /> }));
 vi.mock("./panels/PassThroughPanel", () => ({ default: () => <div data-testid="panel-pass-through" /> }));
 vi.mock("./panels/HealthStatusPanel", () => ({ default: () => <div data-testid="panel-health" /> }));
-vi.mock("./panels/ModelRetrySettingsPanel", () => ({ default: () => <div data-testid="panel-retry" /> }));
-vi.mock("./panels/ModelGroupAliasPanel", () => ({ default: () => <div data-testid="panel-alias" /> }));
 vi.mock("./panels/PriceDataPanel", () => ({ default: () => <div data-testid="panel-price" /> }));
 
 const searchState = { value: "" };
@@ -77,10 +75,10 @@ describe("ModelsAndEndpointsPage", () => {
     expect(getByTestId("panel-all-models")).toBeInTheDocument();
   });
 
-  it("opens the requested settings tab and ignores unsupported legacy modal parameters", async () => {
+  it("falls back to All Models for retired tabs and ignores legacy modal parameters", async () => {
     searchState.value = "tab=retry-settings&account_policy=true";
     renderPage();
-    expect(await screen.findByTestId("panel-retry")).toBeInTheDocument();
+    expect(await screen.findByTestId("panel-all-models")).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 

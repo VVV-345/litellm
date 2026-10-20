@@ -64,9 +64,9 @@ describe("global settings overview", () => {
     expect(await screen.findByText("simple-shuffle")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute(
       "href",
-      "/ui/models-and-endpoints?tab=model-group-alias",
+      "/ui/policy-center",
     );
-    expect(screen.getByRole("link", { name: "流式传输" })).toHaveAttribute("href", "/ui/router-settings?tab=streaming");
+    expect(screen.getByRole("link", { name: "流式传输" })).toHaveAttribute("href", "/ui/policy-center");
     expect(screen.getByRole("link", { name: "日常日志与完整日志" })).toHaveAttribute(
       "href",
       "/ui/logs?log_view=settings",

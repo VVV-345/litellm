@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { migratedHref } from "@/utils/migratedPages";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -13,7 +15,6 @@ import { getGeneralSettingsCall, updateConfigFieldSetting, deleteConfigFieldSett
 import { Trash2 } from "lucide-react";
 import { toast } from "@/lib/toast";
 import { StatusBadge } from "@/components/shared/table_cells";
-import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 
 import RouterSettings from "@/components/router_settings";
@@ -361,13 +362,22 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
               </Table>
             </CardContent>
           </Card>
-          <RuntimeSettings category="advanced" />
+          <p className="text-sm text-muted-foreground">
+  流式、插件与请求改写设置已统一到策略中心。
+  <Link href={migratedHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
+</p>
         </TabsContent>
         <TabsContent value="streaming" className="px-8 py-6">
-          <RuntimeSettings category="streaming" />
+          <p className="text-sm text-muted-foreground">
+  流式、插件与请求改写设置已统一到策略中心。
+  <Link href={migratedHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
+</p>
         </TabsContent>
         <TabsContent value="payload" className="px-8 py-6">
-          <RuntimeSettings category="payload" />
+          <p className="text-sm text-muted-foreground">
+  流式、插件与请求改写设置已统一到策略中心。
+  <Link href={migratedHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
+</p>
         </TabsContent>
       </Tabs>
     </div>

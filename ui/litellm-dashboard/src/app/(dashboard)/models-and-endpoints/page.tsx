@@ -11,8 +11,6 @@ import {
   loadLlmCredentialsPanel,
   loadPassThroughPanel,
   loadHealthStatusPanel,
-  loadModelRetrySettingsPanel,
-  loadModelGroupAliasPanel,
   loadAccessGroupBudgetsPanel,
   loadPriceDataPanel,
   loadModelRuntimeConfiguration,
@@ -35,8 +33,6 @@ const PassThroughPanel = dynamic(loadPassThroughPanel, {
 const HealthStatusPanel = dynamic(loadHealthStatusPanel, {
   loading: ModuleLoading,
 });
-const ModelRetrySettingsPanel = dynamic(loadModelRetrySettingsPanel, { loading: ModuleLoading });
-const ModelGroupAliasPanel = dynamic(loadModelGroupAliasPanel, { loading: ModuleLoading });
 const AccessGroupBudgetsPanel = dynamic(loadAccessGroupBudgetsPanel, { loading: ModuleLoading });
 const PriceDataPanel = dynamic(loadPriceDataPanel, {
   loading: ModuleLoading,
@@ -67,8 +63,6 @@ type ModelTabSlug =
   | "llm-credentials"
   | "pass-through"
   | "health"
-  | "retry-settings"
-  | "model-group-alias"
   | "access-group-budgets"
   | "price-data";
 
@@ -80,8 +74,6 @@ const TAB_LABEL_KEYS: Record<ModelTabSlug, string> = {
   "llm-credentials": "models.llmCredentials",
   "pass-through": "models.passThrough",
   health: "models.health",
-  "retry-settings": "models.retrySettings",
-  "model-group-alias": "models.modelGroupAlias",
   "access-group-budgets": "models.accessGroupBudgets",
   "price-data": "models.priceDataReload",
 };
@@ -100,10 +92,6 @@ const renderPanel = (key: string) => {
       return <PassThroughPanel />;
     case "health":
       return <HealthStatusPanel />;
-    case "retry-settings":
-      return <ModelRetrySettingsPanel />;
-    case "model-group-alias":
-      return <ModelGroupAliasPanel />;
     case "access-group-budgets":
       return <AccessGroupBudgetsPanel />;
     case "price-data":
@@ -151,8 +139,6 @@ export default function ModelsAndEndpointsPage() {
             "llm-credentials",
             "pass-through",
             "health",
-            "retry-settings",
-            "model-group-alias",
             "access-group-budgets",
             "price-data",
           ] as const)
