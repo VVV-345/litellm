@@ -903,7 +903,8 @@ export interface paths {
         /** Save Policy */
         put: operations["save_policy_account_pool_environments__card_id__policy_put"];
         post?: never;
-        delete?: never;
+        /** Reset Policy */
+        delete: operations["reset_policy_account_pool_environments__card_id__policy_delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2178,6 +2179,23 @@ export interface paths {
         };
         /** Commands */
         get: operations["commands_account_pool_releases__version_id__commands_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/routing-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Routing Status */
+        get: operations["routing_status_account_pool_routing_status_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -25374,6 +25392,47 @@ export interface components {
              */
             session_affinity_ttl_seconds: number;
         };
+        /** AccountPoolRoutingStatus */
+        AccountPoolRoutingStatus: {
+            /** Age Seconds */
+            age_seconds?: number | null;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Eligible */
+            eligible: boolean;
+            /**
+             * Evaluated At
+             * Format: date-time
+             */
+            evaluated_at: string;
+            /**
+             * Gates
+             * @default []
+             */
+            gates: components["schemas"]["RoutingGateStatus"][];
+            /** Max Age Seconds */
+            max_age_seconds: number;
+            /** Model */
+            model: string;
+            /** Observed At */
+            observed_at?: string | null;
+            /** Quota Reserve Percent */
+            quota_reserve_percent: number;
+            /** Reason */
+            reason?: ("model_cooldown" | "subscription_expired" | "quota_exhausted" | "quota_snapshot_missing" | "quota_snapshot_expired") | null;
+            /** Resolved Model */
+            resolved_model: string;
+            /** Stale Grace Seconds */
+            stale_grace_seconds: number;
+            /**
+             * Windows
+             * @default []
+             */
+            windows: components["schemas"]["RoutingQuotaWindowStatus"][];
+        };
         /** AccountPoolSettings */
         AccountPoolSettings: {
             /**
@@ -25554,6 +25613,20 @@ export interface components {
              * @enum {integer}
              */
             quota_refresh_interval_minutes: 5 | 15 | 30 | 60;
+            /** Quota Reserve 5H Percent */
+            quota_reserve_5h_percent?: number | null;
+            /**
+             * Quota Reserve Percent
+             * @default 0
+             */
+            quota_reserve_percent: number;
+            /** Quota Reserve Weekly Percent */
+            quota_reserve_weekly_percent?: number | null;
+            /**
+             * Quota Snapshot Max Age
+             * @default 300
+             */
+            quota_snapshot_max_age: number;
             /**
              * Quota Switch Preview Model
              * @default false
@@ -40196,6 +40269,18 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** RoutingGateStatus */
+        RoutingGateStatus: {
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Gate
+             * @enum {string}
+             */
+            gate: "model_cooldown" | "subscription" | "quota" | "freshness";
+            /** Passed */
+            passed: boolean;
+        };
         /**
          * RoutingGroup
          * @description A group of models that share a routing strategy.
@@ -40296,6 +40381,19 @@ export interface components {
              * @default 1
              */
             weight: number;
+        };
+        /** RoutingQuotaWindowStatus */
+        RoutingQuotaWindowStatus: {
+            /** Remaining Percent */
+            remaining_percent: number;
+            /** Resets At */
+            resets_at?: string | null;
+            /** Threshold Percent */
+            threshold_percent: number;
+            /** Tripped */
+            tripped: boolean;
+            /** Window Minutes */
+            window_minutes?: number | null;
         };
         /**
          * Run
@@ -46018,6 +46116,37 @@ export interface operations {
             };
         };
     };
+    reset_policy_account_pool_environments__card_id__policy_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                card_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     test_model_account_pool_environments__card_id__test_post: {
         parameters: {
             query?: never;
@@ -48655,6 +48784,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReleaseCommands"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    routing_status_account_pool_routing_status_get: {
+        parameters: {
+            query: {
+                card_id: string;
+                model: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolRoutingStatus"];
                 };
             };
             /** @description Validation Error */
@@ -52568,7 +52729,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                section: "common" | "access" | "network" | "quota" | "streaming" | "advanced" | "payload";
+                section: "common" | "access" | "network" | "quota" | "policy" | "streaming" | "advanced" | "payload";
             };
             cookie?: never;
         };

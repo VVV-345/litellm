@@ -55,6 +55,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
+  SlidersHorizontal,
   Tags,
   Terminal,
   User,
@@ -145,6 +146,13 @@ const menuGroups: MenuGroup[] = [
         page: "account-pool",
         label: "Account Pool",
         icon: <Layers3 {...ICON} />,
+        roles: proxyAdminRoles,
+      },
+      {
+        key: "policy-center",
+        page: "policy-center",
+        label: "Policy Center",
+        icon: <SlidersHorizontal {...ICON} />,
         roles: proxyAdminRoles,
       },
       {

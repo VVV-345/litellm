@@ -43,6 +43,7 @@ export const pageDescriptions: Record<string, string> = {
   "logging-and-alerts": "Set up logging and alert configurations",
   "admin-panel": "Access admin panel and settings",
   "account-pool": "Manage provider accounts, authorization, routing, quotas, and card settings",
+  "policy-center": "One place for cross-card routing, in-card defaults, and card exceptions",
 };
 
 export interface PageMetadata {

@@ -6,6 +6,7 @@ import type { components } from "@/lib/http/schema";
 import { serverRootPath } from "@/lib/serverRootPath";
 
 export type PolicyView = components["schemas"]["PolicyView"];
+export type AccountPoolRoutingStatus = components["schemas"]["AccountPoolRoutingStatus"];
 export type AccountPolicy = components["schemas"]["AccountPolicy"];
 export type ErrorStats = Omit<
   components["schemas"]["ErrorStats"],
@@ -17,7 +18,7 @@ export type ErrorStats = Omit<
   cache_rate?: number | null;
 };
 export type AccountPoolSettings = components["schemas"]["AccountPoolSettingsView"]["values"];
-type AccountPoolSettingsView = components["schemas"]["AccountPoolSettingsView"];
+export type AccountPoolSettingsView = components["schemas"]["AccountPoolSettingsView"];
 type AccountPoolSettingsUpdate = components["schemas"]["AccountPoolSettingsUpdate"];
 export type AccessSettingsValues = components["schemas"]["AccessSettingsValues"];
 export type AdvancedSettingsValues = components["schemas"]["AdvancedSettingsValues"];
@@ -83,6 +84,14 @@ export const listAccountPolicies = (accessToken: string) =>
 
 export const saveAccountPolicy = (accessToken: string, cardId: string, version: number, policy: AccountPolicy) =>
   apiClient.put<PolicyView>(policyPath(cardId), { accessToken, body: { version, policy } });
+
+export const resetAccountPolicy = (accessToken: string, cardId: string) =>
+  apiClient.delete<PolicyView>(policyPath(cardId), { accessToken });
+
+export const getAccountPoolRoutingStatus = (accessToken: string, cardId: string, model: string) => {
+  const params = new URLSearchParams({ card_id: cardId, model });
+  return apiClient.get<AccountPoolRoutingStatus>(`/account_pool/routing-status?${params.toString()}`, { accessToken });
+};
 
 export const getAccountPoolDashboardStats = (accessToken: string): Promise<AccountPoolDashboardStats> =>
   apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });
@@ -268,7 +277,7 @@ export const getAccountPoolSettings = (accessToken: string) =>
 export const updateAccountPoolSettings = (
   accessToken: string,
   request: AccountPoolSettingsUpdate,
-  section: "common" | "access" | "network" | "quota" | "streaming" | "advanced" | "payload",
+  section: "common" | "access" | "network" | "quota" | "policy" | "streaming" | "advanced" | "payload",
 ) => apiClient.put<AccountPoolSettingsView>(`/config/runtime/${section}`, { accessToken, body: request });
 
 export const listAccountPoolBatches = (accessToken: string) =>

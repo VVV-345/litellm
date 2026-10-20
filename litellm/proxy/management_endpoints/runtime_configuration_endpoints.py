@@ -16,7 +16,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolSettingsView,
 )
 
-RuntimeSection = Literal["common", "access", "network", "quota", "streaming", "advanced", "payload"]
+RuntimeSection = Literal["common", "access", "network", "quota", "policy", "streaming", "advanced", "payload"]
 _FIELDS: Final = {
     "common": ("default_concurrency_limit", "default_model_discovery", "common_profiles", "auth_file_template", "model_test_greetings"),
     "access": ("oauth_excluded_models", "oauth_model_aliases", "oauth_request_scoped_errors", "access_profiles"),
@@ -26,6 +26,15 @@ _FIELDS: Final = {
         "request_timeout_seconds",
         "websocket_enabled",
         "network_profiles",
+    ),
+    "policy": (
+        "default_route",
+        "max_attempts",
+        "request_timeout_seconds",
+        "quota_reserve_percent",
+        "quota_reserve_5h_percent",
+        "quota_reserve_weekly_percent",
+        "quota_snapshot_max_age",
     ),
     "quota": (
         "quota_switch_project",
