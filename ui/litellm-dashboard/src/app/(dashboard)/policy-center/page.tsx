@@ -453,7 +453,7 @@ export default function PolicyCenterPage() {
       <Card>
         <CardHeader>
           <CardTitle>跨卡调度</CardTitle>
-          <CardDescription>写入 LiteLLM Router 的 account_pool_routing，对所有卡片生效</CardDescription>
+          <CardDescription>写入 LiteLLM Router 的 account_pool_routing，对所有卡片生效；保存会回写整份 Router 设置，多标签同时编辑请先刷新</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           {routerConfig.isLoading ? (
@@ -473,7 +473,7 @@ export default function PolicyCenterPage() {
         <CardHeader>
           <CardTitle>卡内默认</CardTitle>
           <CardDescription>
-            当前 {inherited} 张卡片继承全局，{independent.length} 张卡片独立配置
+            当前 {inherited} 张卡片继承全局，{independent.length} 张卡片独立配置；额度阈值只自动作用于继承卡，分组档只能覆盖回退开关
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-6">
@@ -506,7 +506,7 @@ export default function PolicyCenterPage() {
       <Card>
         <CardHeader>
           <CardTitle>卡片独立配置</CardTitle>
-          <CardDescription>独立配置的卡片不跟随上面的默认值</CardDescription>
+          <CardDescription>独立配置的卡片不跟随上面的默认值，包括额度预留与快照有效期</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-2">
           {cards.map((card) => {

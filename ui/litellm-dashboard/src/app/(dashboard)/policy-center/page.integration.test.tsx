@@ -124,7 +124,7 @@ describe("policy center", () => {
 
     expect(await screen.findByText("继承全局")).toBeInTheDocument();
     expect(screen.getByText("独立配置 v2")).toBeInTheDocument();
-    expect(screen.getByText("当前 1 张卡片继承全局，1 张卡片独立配置")).toBeInTheDocument();
+    expect(screen.getByText(/当前 1 张卡片继承全局，1 张卡片独立配置/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "回归全局" })).toHaveLength(1);
     expect(screen.getByTestId("runtime-settings-common")).toBeInTheDocument();
     expect(screen.getByTestId("runtime-settings-streaming")).toBeInTheDocument();
