@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
 
+from account_pool.application.effective_policy import effective_policy
 from account_pool.application.environment_state import (
     _AutomaticCooldownState,
     _cooldown_active,
@@ -511,7 +512,7 @@ class EnvironmentService:
         settings: Final = await self._account_pool_settings()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         policies: Final = () if self._policies is None else await self._policies.list()
-        by_card: Final = {entry.card_id: entry.policy for entry in policies}
+        by_card: Final = {entry.card_id: entry for entry in policies}
         return tuple(
             endpoint.model_copy(
                 update={
@@ -550,8 +551,9 @@ class EnvironmentService:
             )
             for record in refreshed
             for endpoint in (self._gateway_environment(record),)
-            for policy in (by_card.get(record.id, AccountPolicy()),)
+            for stored in (by_card.get(record.id) or PolicyView(card_id=record.id),)
             for effective in (settings_for_card(settings, record.id),)
+            for policy in (effective_policy(stored.policy, effective, inherit=stored.version == 0),)
         )
 
     def gateway_environment(self, record: EnvironmentRecord) -> GatewayEnvironment:

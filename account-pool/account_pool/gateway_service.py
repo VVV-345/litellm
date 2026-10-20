@@ -12,6 +12,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 
+from account_pool.application.effective_policy import effective_policy
 from account_pool.application.quota_state import routing_quota_state
 from account_pool.card_keys import CardKeyService
 from account_pool.credential_ownership import CredentialOwnership
@@ -30,7 +31,7 @@ from account_pool.gateway_contracts import (
     ResolveRequest,
 )
 from account_pool.gateway_repository import LeaseRepository
-from account_pool.policies import AccountPolicy, PolicyRepository
+from account_pool.policies import PolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.settings import (
     AccountPoolSettings,
@@ -90,9 +91,10 @@ class GatewayService:
         policy: Final = await self.policies.get(card.id)
         global_settings: Final = None if self.settings is None else (await self.settings.get()).values
         effective_settings: Final = None if global_settings is None else settings_for_card(global_settings, card.id)
-        effective_card_policy: Final = _policy_with_settings(
+        effective_card_policy: Final = effective_policy(
             policy.policy,
-            effective_settings if policy.version == 0 else None,
+            effective_settings,
+            inherit=policy.version == 0,
         )
         cooling: Final = await self.leases.cooling()
         scope: Final = (
@@ -151,15 +153,15 @@ class GatewayService:
     ) -> Candidate:
         endpoint: Final = self.gateway(record)
         policy: Final = await self.policies.get(record.id)
-        configured_policy: Final = _policy_with_settings(
-            policy.policy,
-            (
-                settings_for_card(global_settings, record.id)
-                if global_settings is not None and policy.version == 0
-                else None
-            ),
+        effective_settings: Final = (
+            settings_for_card(global_settings, record.id) if global_settings is not None else None
         )
-        effective_policy: Final = (
+        configured_policy: Final = effective_policy(
+            policy.policy,
+            effective_settings,
+            inherit=policy.version == 0,
+        )
+        candidate_policy: Final = (
             configured_policy.model_copy(
                 update={
                     "routing": configured_policy.routing.model_copy(
@@ -169,9 +171,6 @@ class GatewayService:
             )
             if policy.version == 0 and record.openai_compatible is not None
             else configured_policy
-        )
-        effective_settings: Final = (
-            settings_for_card(global_settings, record.id) if global_settings is not None else None
         )
         now: Final = utc_now()
         remaining, observed = routing_quota_state(record.quota, now)
@@ -189,7 +188,7 @@ class GatewayService:
             headers=endpoint.headers,
             model_prefix=endpoint.model_prefix,
             concurrency_limit=endpoint.concurrency_limit,
-            policy=effective_policy,
+            policy=candidate_policy,
             remaining_percent=remaining,
             quota_observed_at=observed,
             quota_windows=tuple(CandidateQuotaWindow.model_validate(w.model_dump()) for w in record.quota.windows),
@@ -416,21 +415,6 @@ def binding_hash(key_id: UUID, session_hash: str | None) -> str | None:
     if session_hash is None:
         return None
     return hashlib.sha256(f"{key_id}:{session_hash}".encode()).hexdigest()
-
-
-def _policy_with_settings(policy: AccountPolicy, settings: AccountPoolSettings | None) -> AccountPolicy:
-    if settings is None:
-        return policy
-    return policy.model_copy(
-        update={
-            "routing": policy.routing.model_copy(
-                update={"strategy": settings.default_route, "max_attempts": settings.max_attempts}
-            ),
-            "transport": policy.transport.model_copy(
-                update={"request_timeout_seconds": settings.request_timeout_seconds}
-            ),
-        }
-    )
 
 
 def _websocket_enabled(mode: Literal["inherit", "enabled", "disabled"], inherited: bool) -> bool:
