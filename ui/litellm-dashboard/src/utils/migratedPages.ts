@@ -69,6 +69,14 @@ export function migratedHref(routeSegment: string): string {
   return `${uiBase()}/${routeSegment.replace(/^\/+/, "")}`;
 }
 
+/** Sidebar navigation href, matching the trailing-slash route output. */
+export function pageHref(pageKey: string): string {
+  const route = MIGRATED_PAGES[pageKey];
+  if (!route) return legacyPageHref(pageKey);
+  const href = migratedHref(route);
+  return href.endsWith("/") ? href : `${href}/`;
+}
+
 /** Href for a not-yet-migrated page, served by the legacy `?page=` switch at the UI root. */
 export function legacyPageHref(pageKey: string): string {
   return `${uiBase()}/?page=${pageKey}`;

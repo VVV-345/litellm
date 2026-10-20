@@ -12,7 +12,7 @@ import { DebugWarningBanner } from "@/components/DebugWarningBanner";
 import { NoRedisWarningBanner } from "@/components/NoRedisWarningBanner";
 import { LicenseExpiryBanner } from "@/components/LicenseExpiryBanner";
 import { UserBanner } from "@/components/UserBanner";
-import { MIGRATED_PAGES, migratedHref, legacyPageHref, legacyKeyForPathname } from "@/utils/migratedPages";
+import { legacyKeyForPathname, migratedHref, pageHref } from "@/utils/migratedPages";
 import { PluginModeProvider, usePluginMode } from "@/contexts/PluginModeContext";
 import { createApiClient } from "@/lib/http/client";
 import { getProxyBaseUrl, getUISettings } from "@/components/networking";
@@ -129,8 +129,7 @@ function DashboardShell({
   const pageDisabled = isPageDisabled(page, disabledUiPages);
 
   const navigateToPage = (newPage: string) => {
-    const migratedRoute = MIGRATED_PAGES[newPage];
-    router.push(migratedRoute ? migratedHref(migratedRoute) : legacyPageHref(newPage));
+    router.push(pageHref(newPage));
   };
 
   // Non-gateway (agent control plane) mode keeps the original full-width Navbar,
@@ -194,7 +193,8 @@ function LayoutContent({ children }: { children: React.ReactNode }) {
   // /onboarding route. Redirect once ui-config has loaded so migratedHref resolves the SERVER_ROOT_PATH base.
   useEffect(() => {
     if (!authLoading && isInvitationFlow) {
-      router.replace(`${migratedHref("onboarding")}?${searchParams.toString()}`);
+      const onboarding = migratedHref("onboarding");
+      router.replace(`${onboarding.endsWith("/") ? onboarding : `${onboarding}/`}?${searchParams.toString()}`);
     }
   }, [authLoading, isInvitationFlow, router, searchParams]);
 

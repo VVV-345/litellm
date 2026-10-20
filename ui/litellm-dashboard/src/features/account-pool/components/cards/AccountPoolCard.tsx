@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { migratedHref } from "@/utils/migratedPages";
+import { pageHref } from "@/utils/migratedPages";
 
 import {
   canAuthorizeEnvironment,
@@ -168,7 +168,7 @@ const AccountPoolCardComponent = ({
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1">
             <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
-            <Link href={migratedHref("policy-center")} className="text-xs text-muted-foreground underline">
+            <Link href={pageHref("policy-center")} className="text-xs text-muted-foreground underline">
               {(policy?.version ?? 0) > 0
                 ? t("accountPool.policy.independentBadge", { version: policy?.version })
                 : t("accountPool.policy.inheritedBadge")}

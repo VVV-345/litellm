@@ -135,7 +135,7 @@ describe("(dashboard) Layout", () => {
     pendingUiConfig.resolve();
 
     await waitFor(() =>
-      expect(replaceMock).toHaveBeenCalledWith(expect.stringContaining("/onboarding?invitation_id=abc123")),
+      expect(replaceMock).toHaveBeenCalledWith(expect.stringContaining("/onboarding/?invitation_id=abc123")),
     );
     expect(screen.queryByTestId("page-content")).not.toBeInTheDocument();
     expect(screen.queryByTestId("dashboard-header")).not.toBeInTheDocument();

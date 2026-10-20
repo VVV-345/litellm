@@ -82,7 +82,7 @@ import {
 import BetaBadge from "./BetaBadge";
 import SidebarAccountMenu from "./SidebarAccountMenu/SidebarAccountMenu";
 import SidebarUsageCard from "./SidebarUsageCard";
-import { MIGRATED_PAGES, migratedHref, legacyPageHref } from "@/utils/migratedPages";
+import { migratedHref, pageHref } from "@/utils/migratedPages";
 
 const ICON = { strokeWidth: 1.75 } as const;
 
@@ -621,7 +621,7 @@ const Sidebar_: React.FC<SidebarProps> = ({
       );
     }
 
-    const href = MIGRATED_PAGES[item.page] ? migratedHref(MIGRATED_PAGES[item.page]) : legacyPageHref(item.page);
+    const href = pageHref(item.page);
     return (
       <Link
         key={item.key}

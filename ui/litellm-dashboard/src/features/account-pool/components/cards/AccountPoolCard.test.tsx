@@ -197,12 +197,12 @@ describe("AccountPoolCard", () => {
   it("links the inherited policy badge to the policy center", () => {
     renderCard();
 
-    expect(screen.getByRole("link", { name: "继承全局" })).toHaveAttribute("href", "/ui/policy-center");
+    expect(screen.getByRole("link", { name: "继承全局" }).getAttribute("href")).toMatch(/^\/ui\/policy-center\/?$/);
   });
 
   it("shows the independent policy version in the card badge", () => {
     renderCard({}, undefined, { card_id: "env-claude-1", version: 4, policy: {} } as PolicyView);
 
-    expect(screen.getByRole("link", { name: "独立配置 v4" })).toHaveAttribute("href", "/ui/policy-center");
+    expect(screen.getByRole("link", { name: "独立配置 v4" }).getAttribute("href")).toMatch(/^\/ui\/policy-center\/?$/);
   });
 });

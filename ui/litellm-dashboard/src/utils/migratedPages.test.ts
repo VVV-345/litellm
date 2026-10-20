@@ -237,3 +237,29 @@ describe("legacyKeyForPathname", () => {
     expect(legacyKeyForPathname("/ui/api-reference")).toBeNull();
   });
 });
+
+describe("pageHref", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    vi.stubEnv("NODE_ENV", "test");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("adds the trailing slash expected by the static export", async () => {
+    vi.doMock("@/components/networking", () => ({ serverRootPath: "/" }));
+    const { pageHref } = await import("./migratedPages");
+
+    expect(pageHref("policy-center")).toBe("/ui/policy-center/");
+    expect(pageHref("api-keys")).toBe("/ui/api-keys/");
+  });
+
+  it("keeps legacy pages on the query route", async () => {
+    vi.doMock("@/components/networking", () => ({ serverRootPath: "/" }));
+    const { pageHref } = await import("./migratedPages");
+
+    expect(pageHref("some-legacy-page")).toBe("/ui/?page=some-legacy-page");
+  });
+});
