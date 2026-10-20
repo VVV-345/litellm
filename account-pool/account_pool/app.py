@@ -26,6 +26,8 @@ from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
+from account_pool.feedback import FeedbackService
+from account_pool.feedback_repository import PostgresFeedbackRepository
 from account_pool.gateway_repository import PostgresLeaseRepository
 from account_pool.gateway_service import GatewayService
 from account_pool.management_repository import (
@@ -71,6 +73,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     keys: Final = CardKeyService(PostgresCardKeyRepository(resolved.database_url))
     policies: Final = PostgresPolicyRepository(resolved.database_url)
+    feedback_repository: Final = PostgresFeedbackRepository(resolved.database_url)
+    feedback: Final = FeedbackService(feedback_repository)
     leases: Final = PostgresLeaseRepository(resolved.database_url)
     batches: Final = PostgresBatchRepository(resolved.database_url)
     settings_repository: Final = PostgresAccountPoolSettingsRepository(resolved.database_url)
@@ -154,6 +158,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await environments.initialize()
         await ownership.initialize()
         await initialize_management_schema(resolved.database_url)
+        await feedback_repository.initialize()
         await proxy_catalog_repository.initialize()
         await proxy_gateways.initialize_saved_configuration()
         await policies.initialize()
@@ -276,6 +281,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             proxy_catalog=proxy_catalog,
             browser_sessions=browser_sessions,
             browser_runtime=browser_runtime,
+            feedback=feedback,
         )
     )
     return app

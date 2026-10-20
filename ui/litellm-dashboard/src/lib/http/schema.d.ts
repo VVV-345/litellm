@@ -1201,6 +1201,197 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/feedback/agent/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Page */
+        get: operations["agent_page_account_pool_feedback_agent_issues_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/agent/issues/{issue_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Get */
+        get: operations["agent_get_account_pool_feedback_agent_issues__issue_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/agent/issues/{issue_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agent Act */
+        post: operations["agent_act_account_pool_feedback_agent_issues__issue_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/agent/issues/{issue_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Attachment */
+        get: operations["agent_attachment_account_pool_feedback_agent_issues__issue_id__attachments__attachment_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/issues": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Page */
+        get: operations["page_account_pool_feedback_issues_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_account_pool_feedback_issues_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/issues/{issue_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get */
+        get: operations["get_account_pool_feedback_issues__issue_id__get"];
+        /** Edit */
+        put: operations["edit_account_pool_feedback_issues__issue_id__put"];
+        post?: never;
+        /** Delete */
+        delete: operations["delete_account_pool_feedback_issues__issue_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/issues/{issue_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Act */
+        post: operations["act_account_pool_feedback_issues__issue_id__actions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/issues/{issue_id}/attachments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload Attachment */
+        post: operations["upload_attachment_account_pool_feedback_issues__issue_id__attachments_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/issues/{issue_id}/attachments/{attachment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download Attachment */
+        get: operations["download_attachment_account_pool_feedback_issues__issue_id__attachments__attachment_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tokens */
+        get: operations["tokens_account_pool_feedback_tokens_get"];
+        put?: never;
+        /** Issue Token */
+        post: operations["issue_token_account_pool_feedback_tokens_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/feedback/tokens/{token_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke Token */
+        delete: operations["revoke_token_account_pool_feedback_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-browser-sessions/": {
         parameters: {
             query?: never;
@@ -27104,6 +27295,13 @@ export interface components {
             /** Scope */
             scope?: string | null;
         };
+        /** Body_upload_attachment_account_pool_feedback_issues__issue_id__attachments_post */
+        Body_upload_attachment_account_pool_feedback_issues__issue_id__attachments_post: {
+            /** Expected Revision */
+            expected_revision: number;
+            /** File */
+            file: string;
+        };
         /** Body_upload_auth_file_account_pool_auth_files_post */
         Body_upload_auth_file_account_pool_auth_files_post: {
             /**
@@ -30496,6 +30694,313 @@ export interface components {
              * @description The model name
              */
             model: string;
+        };
+        /** FeedbackAttachmentInfo */
+        FeedbackAttachmentInfo: {
+            /**
+             * Content Type
+             * @enum {string}
+             */
+            content_type: "image/png" | "image/jpeg" | "image/webp" | "application/pdf" | "text/plain";
+            /** Filename */
+            filename: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Size */
+            size: number;
+        };
+        /** FeedbackCreate */
+        FeedbackCreate: {
+            /** Description */
+            description: string;
+            /**
+             * Discovered Version
+             * @default
+             */
+            discovered_version: string;
+            /**
+             * Module
+             * @default
+             */
+            module: string;
+            /**
+             * Page Path
+             * @default
+             */
+            page_path: string;
+            /**
+             * Priority
+             * @default normal
+             * @enum {string}
+             */
+            priority: "high" | "normal" | "low";
+            /**
+             * Steps
+             * @default
+             */
+            steps: string;
+            /** Title */
+            title: string;
+        };
+        /** FeedbackEdit */
+        FeedbackEdit: {
+            /** Description */
+            description: string;
+            /**
+             * Discovered Version
+             * @default
+             */
+            discovered_version: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Module
+             * @default
+             */
+            module: string;
+            /**
+             * Page Path
+             * @default
+             */
+            page_path: string;
+            /**
+             * Priority
+             * @default normal
+             * @enum {string}
+             */
+            priority: "high" | "normal" | "low";
+            /**
+             * Steps
+             * @default
+             */
+            steps: string;
+            /** Title */
+            title: string;
+        };
+        /** FeedbackEvent */
+        FeedbackEvent: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "create" | "edit" | "attachment" | "claim" | "submit_fix" | "resolve" | "reopen" | "release" | "note";
+            /** Actor */
+            actor: string;
+            /**
+             * At
+             * Format: date-time
+             */
+            at: string;
+            /**
+             * Commit
+             * @default
+             */
+            commit: string;
+            /**
+             * Deployed Version
+             * @default
+             */
+            deployed_version: string;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Verification
+             * @default
+             */
+            verification: string;
+        };
+        /** FeedbackIssue */
+        FeedbackIssue: {
+            /** Assigned To */
+            assigned_to?: string | null;
+            /**
+             * Attachments
+             * @default []
+             */
+            attachments: components["schemas"]["FeedbackAttachmentInfo"][];
+            /**
+             * Commit
+             * @default
+             */
+            commit: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Deployed Version
+             * @default
+             */
+            deployed_version: string;
+            /** Description */
+            description: string;
+            /**
+             * Discovered Version
+             * @default
+             */
+            discovered_version: string;
+            /**
+             * Events
+             * @default []
+             */
+            events: components["schemas"]["FeedbackEvent"][];
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Module
+             * @default
+             */
+            module: string;
+            /**
+             * Page Path
+             * @default
+             */
+            page_path: string;
+            /**
+             * Priority
+             * @default normal
+             * @enum {string}
+             */
+            priority: "high" | "normal" | "low";
+            /**
+             * Resolution
+             * @default
+             */
+            resolution: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Status
+             * @default pending
+             * @enum {string}
+             */
+            status: "pending" | "in_progress" | "pending_verification" | "resolved";
+            /**
+             * Steps
+             * @default
+             */
+            steps: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Verification
+             * @default
+             */
+            verification: string;
+        };
+        /** FeedbackMutation */
+        FeedbackMutation: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "claim" | "submit_fix" | "resolve" | "reopen" | "release" | "note";
+            /**
+             * Commit
+             * @default
+             */
+            commit: string;
+            /**
+             * Deployed Version
+             * @default
+             */
+            deployed_version: string;
+            /** Expected Revision */
+            expected_revision: number;
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
+            /**
+             * Verification
+             * @default
+             */
+            verification: string;
+        };
+        /** FeedbackPage */
+        FeedbackPage: {
+            /** Items */
+            items: components["schemas"]["FeedbackIssue"][];
+            stats: components["schemas"]["FeedbackStats"];
+            /** Total */
+            total: number;
+        };
+        /** FeedbackStats */
+        FeedbackStats: {
+            /**
+             * In Progress
+             * @default 0
+             */
+            in_progress: number;
+            /**
+             * Pending
+             * @default 0
+             */
+            pending: number;
+            /**
+             * Pending Verification
+             * @default 0
+             */
+            pending_verification: number;
+            /**
+             * Resolved
+             * @default 0
+             */
+            resolved: number;
+        };
+        /** FeedbackTokenCreate */
+        FeedbackTokenCreate: {
+            /**
+             * Expires In Days
+             * @default 30
+             */
+            expires_in_days: number;
+            /** Name */
+            name: string;
+        };
+        /** FeedbackTokenIssue */
+        FeedbackTokenIssue: {
+            record: components["schemas"]["FeedbackTokenView"];
+            /** Token */
+            token: string;
+        };
+        /** FeedbackTokenView */
+        FeedbackTokenView: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Revoked At */
+            revoked_at?: string | null;
         };
         /** FieldDetail */
         FieldDetail: {
@@ -46176,6 +46681,494 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AccountPoolEnvironment"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_page_account_pool_feedback_agent_issues_get: {
+        parameters: {
+            query?: {
+                status?: "all" | "unresolved" | "pending" | "in_progress" | "pending_verification" | "resolved";
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "x-feedback-token"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_get_account_pool_feedback_agent_issues__issue_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-feedback-token"?: string | null;
+            };
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_act_account_pool_feedback_agent_issues__issue_id__actions_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-feedback-token"?: string | null;
+            };
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackMutation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_attachment_account_pool_feedback_agent_issues__issue_id__attachments__attachment_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-feedback-token"?: string | null;
+            };
+            path: {
+                issue_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    page_account_pool_feedback_issues_get: {
+        parameters: {
+            query?: {
+                status?: "all" | "unresolved" | "pending" | "in_progress" | "pending_verification" | "resolved";
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_account_pool_feedback_issues_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_account_pool_feedback_issues__issue_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    edit_account_pool_feedback_issues__issue_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackEdit"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_account_pool_feedback_issues__issue_id__delete: {
+        parameters: {
+            query: {
+                revision: number;
+            };
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    act_account_pool_feedback_issues__issue_id__actions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackMutation"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_attachment_account_pool_feedback_issues__issue_id__attachments_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_attachment_account_pool_feedback_issues__issue_id__attachments_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_attachment_account_pool_feedback_issues__issue_id__attachments__attachment_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                issue_id: string;
+                attachment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    tokens_account_pool_feedback_tokens_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackTokenView"][];
+                };
+            };
+        };
+    };
+    issue_token_account_pool_feedback_tokens_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackTokenCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackTokenIssue"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_token_account_pool_feedback_tokens__token_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

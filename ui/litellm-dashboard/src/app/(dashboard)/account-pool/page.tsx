@@ -15,6 +15,7 @@ import {
   loadAccountPoolUpstreamSyncPanel,
   loadAccountPoolPluginsPanel,
   loadAccountPoolReleasesPanel,
+  loadAccountPoolFeedbackPanel,
   loadRuntimeSettingsSection,
   loadRuntimeConfigDialog,
   loadRuntimePolicyDialog,
@@ -30,6 +31,7 @@ const AccountPoolQuotaPanel = dynamic(loadAccountPoolQuotaPanel, { loading: Modu
 const AccountPoolUpstreamSyncPanel = dynamic(loadAccountPoolUpstreamSyncPanel, { loading: ModuleLoading });
 const AccountPoolPluginsPanel = dynamic(loadAccountPoolPluginsPanel, { loading: ModuleLoading });
 const AccountPoolReleasesPanel = dynamic(loadAccountPoolReleasesPanel, { loading: ModuleLoading });
+const AccountPoolFeedbackPanel = dynamic(loadAccountPoolFeedbackPanel, { loading: ModuleLoading });
 const RuntimeSettingsSection = dynamic(loadRuntimeSettingsSection, { loading: ModuleLoading });
 const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLoading });
 const RuntimePolicyDialog = dynamic(loadRuntimePolicyDialog, { loading: ModuleLoading });
@@ -111,6 +113,7 @@ const POOL_TABS = [
   "proxy-layer",
   "upstream-sync",
   "releases",
+  "feedback",
   "settings-overview",
 ];
 const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "oauth", "credentials", "quotas", "releases"]);
@@ -468,6 +471,9 @@ export default function AccountPoolPage() {
             <TabsTrigger value="releases" className="flex-none rounded-none px-4 py-2">
               版本管理
             </TabsTrigger>
+            <TabsTrigger value="feedback" className="flex-none rounded-none px-4 py-2">
+              {t("feedback.title")}
+            </TabsTrigger>
             <TabsTrigger value="settings-overview" className="flex-none rounded-none px-4 py-2">
               全局设置总览
             </TabsTrigger>
@@ -634,6 +640,14 @@ export default function AccountPoolPage() {
                 </details>
               </>
             )}
+          </DeferredTabPanel>
+          <DeferredTabPanel
+            value="feedback"
+            className="pt-4"
+            active={activeTab === "feedback"}
+            visited={isTabVisited("feedback")}
+          >
+            {accessToken && <AccountPoolFeedbackPanel accessToken={accessToken} active={activeTab === "feedback"} />}
           </DeferredTabPanel>
           <DeferredTabPanel
             value="upstream-sync"

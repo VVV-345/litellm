@@ -23,17 +23,18 @@ from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
+from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
+from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     ReconcilerStatus,
     reconcile_configured_account_pool,
     reconciler_status,
 )
 from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
-from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
 from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
 from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router
 
@@ -624,6 +625,11 @@ def create_account_pool_router(
 
     async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
         return await _manager_request(client_factory, method, path, body)
+
+    async def feedback_multipart(
+        path: str, fields: dict[str, str], filename: str, content: bytes, content_type: str | None,
+    ) -> httpx.Response:
+        return await _manager_request_multipart(client_factory, path, fields, filename, content, content_type)
 
     @router.get("/environments", response_model=tuple[AccountPoolEnvironment, ...])
     async def list_environments(
@@ -1308,6 +1314,7 @@ def create_account_pool_router(
 
     router.include_router(create_proxy_catalog_router(management_request, _require_proxy_admin))
     router.include_router(create_management_router(management_request, _require_proxy_admin))
+    router.include_router(create_feedback_router(management_request, _require_proxy_admin, feedback_multipart))
     router.include_router(create_model_test_router(management_request, _require_proxy_admin))
     router.include_router(create_onboarding_router(management_request, _require_proxy_admin))
     router.include_router(create_release_router(_require_proxy_admin, release_client_factory))

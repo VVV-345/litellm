@@ -39,6 +39,8 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_logs import ErrorLogService, ErrorStats
+from account_pool.feedback import FeedbackService
+from account_pool.feedback_api import create_feedback_router
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.isp_probe import ISPProbeResult
 from account_pool.management_api import create_management_router
@@ -297,6 +299,7 @@ def create_router(
     proxy_catalog: ProxyCatalogService | None = None,
     browser_sessions: OAuthBrowserSessionService | None = None,
     browser_runtime: OAuthBrowserRuntime | None = None,
+    feedback: FeedbackService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -1092,6 +1095,8 @@ def create_router(
         router.include_router(create_onboarding_router(onboarding_service, require_manager))
     if batch_service is not None:
         router.include_router(create_batch_router(batch_service, require_manager))
+    if feedback is not None:
+        router.include_router(create_feedback_router(feedback, require_manager))
     return router
 
 

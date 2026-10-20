@@ -27,6 +27,10 @@ export const loadAccountPoolReleasesPanel = () =>
   import("@/features/account-pool/components/releases/AccountPoolReleasesPanel").then(
     (module) => module.AccountPoolReleasesPanel,
   );
+export const loadAccountPoolFeedbackPanel = () =>
+  import("@/features/account-pool/components/feedback/AccountPoolFeedbackPanel").then(
+    (module) => module.AccountPoolFeedbackPanel,
+  );
 export const loadRuntimeSettingsSection = () =>
   import("@/components/Settings/RuntimeSettings/RuntimeSettingsSection").then(
     (module) => module.RuntimeSettingsSection,
@@ -53,6 +57,7 @@ export const ACCOUNT_POOL_MODULE_LOADERS = [
   loadAccountPoolUpstreamSyncPanel,
   loadAccountPoolPluginsPanel,
   loadAccountPoolReleasesPanel,
+  loadAccountPoolFeedbackPanel,
   loadRuntimeSettingsSection,
   loadAccountPoolCreateDialog,
 ];

@@ -4,6 +4,10 @@ const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
 
 export const accountPoolQueryKeys = {
   all: ACCOUNT_POOL_ROOT,
+  feedbackRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback", accessToken] as const,
+  feedback: (accessToken: string, filter: { status: string; q: string; limit: number; offset: number }) =>
+    [...ACCOUNT_POOL_ROOT, "feedback", accessToken, filter] as const,
+  feedbackTokens: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback-tokens", accessToken] as const,
   environmentsRoot: [...ACCOUNT_POOL_ROOT, "environments"] as const,
   environments: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "environments", accessToken] as const,
   providerFamilies: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "provider-families", accessToken] as const,

@@ -22,6 +22,7 @@ import { useDisableShowPrompts } from "@/app/(dashboard)/hooks/useDisableShowPro
 import { clearTokenCookies } from "@/utils/cookieUtils";
 import { clearStoredReturnUrl, getLoginUrl } from "@/utils/returnUrlUtils";
 import { useTranslation } from "react-i18next";
+import { FeedbackHeaderButton } from "@/features/account-pool/components/feedback/FeedbackHeaderButton";
 
 interface DashboardHeaderProps {
   page: string;
@@ -59,6 +60,7 @@ export function DashboardHeader({ page }: DashboardHeaderProps) {
       </Breadcrumb>
 
       <div className="flex flex-none items-center gap-1">
+        <FeedbackHeaderButton />
         {showWorkerSwitch && (
           <>
             <WorkerDropdown onWorkerSwitch={handleWorkerSwitch} />
