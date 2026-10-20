@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
+import i18n from "@/i18n";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import TagFilteringToggle from "./TagFilteringToggle";
@@ -12,6 +13,10 @@ const baseMetadata = {
 };
 
 describe("TagFilteringToggle", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
+  });
+
   it("should render", () => {
     render(<TagFilteringToggle enabled={false} routerFieldsMetadata={{}} onToggle={vi.fn()} />);
     expect(screen.getByRole("switch")).toBeInTheDocument();

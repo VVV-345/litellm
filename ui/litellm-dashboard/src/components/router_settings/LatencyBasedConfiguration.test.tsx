@@ -1,8 +1,13 @@
-import { describe, it, expect } from "vitest";
+import i18n from "@/i18n";
+import { beforeEach, describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import LatencyBasedConfiguration from "./LatencyBasedConfiguration";
 
 describe("LatencyBasedConfiguration", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
+  });
+
   it("should render the section heading", () => {
     render(<LatencyBasedConfiguration routingStrategyArgs={{}} />);
     expect(screen.getByText("Latency-Based Configuration")).toBeInTheDocument();

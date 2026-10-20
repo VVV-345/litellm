@@ -426,3 +426,45 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 ## 上游更新与模块说明
 
 两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署与浏览器工作器也有独立说明
+## 2026-10-20 额度判定与策略中心
+
+本轮先修额度可用性，再把分散的设置有损收口到策略中心。全部改动落在 `CLIProxyAPI分支`，按包提交，便于单独回退。
+
+### 额度判定
+
+- `account_pool/application/effective_policy.py` 统一计算全局设置合并后的卡片策略，网关判定、候选投影和 LiteLLM 对账投影共用；快照有效期下限为两个刷新周期加一分钟，避免默认 300 秒与 15/30/60 分钟档位互相踩线
+- 快照过期改为降级可用：超过有效期仍用最后已知值参与判定与排序，超过三个有效期才排除；窗口重置时间已过但快照未刷新时不再整卡不可用
+- 拒绝原因拆分 `quota_exhausted`、`quota_snapshot_expired`、`quota_snapshot_missing`，全部候选被过滤时按卡片记录拦截门
+- 新增 `GET /account_pool/routing-status?card_id=&model=`，返回准入结果、每个窗口的剩余与阈值、快照年龄与宽限、策略来源（继承全局或独立版本）
+
+### 全局默认与卡片例外
+
+- `AccountPoolSettings` 新增 `quota_reserve_percent`、`quota_reserve_5h_percent`、`quota_reserve_weekly_percent`、`quota_snapshot_max_age`，`version == 0` 的卡片继承
+- 新增 `DELETE /api/environments/{card_id}/policy` 与 LiteLLM 代理路由；先下发全局默认到 CLIProxyAPI，成功后再删策略行，失败保留原策略
+- 运行参数新增 `policy` 分区，一次保存路由、重试、超时与额度阈值
+
+### 策略中心
+
+- 新页面 `ui/litellm-dashboard/src/app/(dashboard)/policy-center/page.tsx`，聚合跨卡调度、卡内默认、卡片例外与路由判定
+- 卡内默认与运行参数直接复用 `RuntimeSettingsSection` 的 common/access/network/quota/streaming/advanced/payload 分组
+- 卡片行显示继承或独立徽标，可打开现有策略弹窗或回归全局
+- 删除 models 页的重试设置与模型组别名面板；号池页默认配置块、配额块和路由设置三个运行参数 tab 改为跳转说明；设置地图同步指向策略中心
+- 卡片上的策略按钮改为徽标链接，号池页不再挂载策略弹窗
+
+### 验证
+
+| 范围 | 命令 | 结果 |
+| --- | --- | --- |
+| Manager 全量 | `.venv/Scripts/python.exe -m pytest account-pool/tests -q` | 859 passed，4 skipped，1 个既有的 pytest-asyncio marker 配置错误（`test_oauth_browser`） |
+| 网关与额度 | `test_account_pool_gateway.py`、`test_account_pool_window_policy.py` | 266 passed |
+| 对账与切换 | `test_account_pool_reconciler.py`、`quota_failover`、`integration`、`conversation`、`session` | 140 passed |
+| 运行参数 | `test_runtime_configuration_endpoints.py` | 16 passed |
+| 诊断接口 | `test_account_pool_native_routing.py`、`test_account_pool_endpoints.py` | 96 passed |
+| 前端 | 策略中心、号池页、卡片、设置地图、路由设置、models 页 | 全部通过（路由设置目录 49 项） |
+
+未执行真实代理的 curl 验证，环境内没有运行中的 4000 端口实例；上线前需按 `## 验证命令与诊断` 补一次额度阈值、继承与回归全局的实链路检查。
+
+### 未完成项
+
+- 完整的 `test_account_pool_*.py` 全量一次运行超过十分钟，本轮按影响范围分批执行，未覆盖 accounting、logs、onboarding、releases 等无关模块
+- 仓库根目录存在未跟踪的 `.dsh-term.png`、`.tmp_session.jsonl` 与 `ui/litellm-dashboard/%SystemDrive%/`，未纳入版本控制

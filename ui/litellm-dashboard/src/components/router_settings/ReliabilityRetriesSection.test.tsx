@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import i18n from "@/i18n";
+import { beforeEach, describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import ReliabilityRetriesSection from "./ReliabilityRetriesSection";
 
@@ -14,6 +15,10 @@ const baseSettings = {
 };
 
 describe("ReliabilityRetriesSection", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
+  });
+
   it("should render the section heading", () => {
     render(<ReliabilityRetriesSection routerSettings={{}} routerFieldsMetadata={{}} />);
     expect(screen.getByText("Reliability & Retries")).toBeInTheDocument();
