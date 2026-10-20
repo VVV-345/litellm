@@ -68,6 +68,7 @@ class GatewayEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
+    policy_version: int = Field(default=0, ge=0)
     routable: bool
     concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]
@@ -291,6 +292,7 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
     snapshots.replace(
         {
             str(environment.id): RoutingSnapshot(
+                policy_version=environment.policy_version,
                 quota=environment.quota.routing_quota(),
                 model_quotas={
                     item.model: item.quota.routing_quota() for item in environment.model_quotas if item.quota.windows

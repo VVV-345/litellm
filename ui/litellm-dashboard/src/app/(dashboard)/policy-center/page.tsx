@@ -301,6 +301,9 @@ function RoutingStatusPanel({
                 模型 {status.resolved_model}，观测年龄 {status.age_seconds === null ? "未知" : `${Math.round(status.age_seconds)} 秒`}
               </span>
               <span className="text-muted-foreground">
+                策略来源：{status.inherits_global ? "继承全局" : `独立配置 v${status.policy_version}`}
+              </span>
+              <span className="text-muted-foreground">
                 有效期 {status.max_age_seconds} 秒，宽限至 {status.stale_grace_seconds} 秒
               </span>
             </div>

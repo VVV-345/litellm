@@ -25413,12 +25413,22 @@ export interface components {
              * @default []
              */
             gates: components["schemas"]["RoutingGateStatus"][];
+            /**
+             * Inherits Global
+             * @default true
+             */
+            inherits_global: boolean;
             /** Max Age Seconds */
             max_age_seconds: number;
             /** Model */
             model: string;
             /** Observed At */
             observed_at?: string | null;
+            /**
+             * Policy Version
+             * @default 0
+             */
+            policy_version: number;
             /** Quota Reserve Percent */
             quota_reserve_percent: number;
             /** Reason */

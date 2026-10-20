@@ -516,6 +516,7 @@ class EnvironmentService:
         return tuple(
             endpoint.model_copy(
                 update={
+                    "policy_version": stored.version,
                     "quota": record.quota,
                     "model_quotas": record.model_quotas,
                     "model_cooldowns": record.model_cooldowns,

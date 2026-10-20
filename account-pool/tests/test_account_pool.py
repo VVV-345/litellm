@@ -1413,6 +1413,7 @@ async def test_gateway_exports_quota_and_policy_for_native_selection(tmp_path: P
     exported = (await service.list_gateway_environments())[0]
     assert exported.quota == quota
     assert exported.quota_reserve_percent == 10
+    assert exported.policy_version == 1
     assert exported.quota_snapshot_max_age == minimum_snapshot_max_age(AccountPoolSettings())
     assert exported.fallback_enabled is True
     assert exported.model_aliases == {"public": record.enabled_models[0]}
@@ -1482,6 +1483,7 @@ async def test_gateway_projection_inherits_global_quota_thresholds(tmp_path: Pat
     exported = (await service.list_gateway_environments())[0]
 
     assert exported.quota_reserve_percent == 75
+    assert exported.policy_version == 0
     assert exported.quota_reserve_5h_percent == 20
     assert exported.quota_reserve_weekly_percent == 30
     assert exported.quota_snapshot_max_age == 1800

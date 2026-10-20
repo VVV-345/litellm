@@ -532,6 +532,7 @@ class GatewayEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID
+    policy_version: int = Field(default=0, ge=0)
     routable: bool
     concurrency_limit: int = Field(ge=0, le=1000)
     enabled_models: tuple[str, ...]

@@ -15,6 +15,7 @@ from litellm.proxy.management_endpoints.account_pool_reconciler import (
     reconcile,
 )
 
+
 def test_reconciler_status_reports_snapshot_age_and_staleness() -> None:
     from datetime import datetime, timedelta, timezone
 
@@ -85,6 +86,7 @@ class FakeDeploymentStore:
 def _environment(*, routable: bool, models: tuple[str, ...] = ("gpt-5",)) -> GatewayEnvironment:
     return GatewayEnvironment(
         id=uuid4(),
+        policy_version=2,
         routable=routable,
         concurrency_limit=4,
         enabled_models=models,
@@ -213,6 +215,7 @@ async def test_quota_refresh_updates_selection_without_reloading_deployments():
         snapshot = snapshots.values[str(environment.id)]
         assert snapshot.quota.remaining_percent == 0
         assert snapshot.quota_reserve_percent == 10
+        assert snapshot.policy_version == 2
         assert snapshot.model_aliases == {"public": "actual"}
         assert snapshot.plan_rank is not None
         assert store.reload_count == 0

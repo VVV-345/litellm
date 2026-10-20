@@ -59,6 +59,7 @@ class RoutingSnapshot(BaseModel):
     model_quotas: dict[str, RoutingQuota] = Field(default_factory=dict)
     model_aliases: dict[str, str] = Field(default_factory=dict)
     model_cooldowns: dict[str, AwareDatetime] = Field(default_factory=dict)
+    policy_version: int = Field(default=0, ge=0)
     quota_reserve_percent: float = 0
     quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
     quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
@@ -326,6 +327,8 @@ def explain(card_id: UUID, snapshot: RoutingSnapshot, model: str, now: datetime)
         evaluated_at=now,
         eligible=reason is None,
         reason=reason,
+        policy_version=snapshot.policy_version,
+        inherits_global=snapshot.policy_version == 0,
         observed_at=observed,
         age_seconds=None if observed is None else (now - observed).total_seconds(),
         max_age_seconds=snapshot.quota_snapshot_max_age,

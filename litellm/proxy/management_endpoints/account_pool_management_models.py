@@ -1014,6 +1014,8 @@ class AccountPoolRoutingStatus(BaseModel):
     evaluated_at: AwareDatetime
     eligible: bool
     reason: RoutingUnavailableReason | None = None
+    policy_version: int = Field(default=0, ge=0)
+    inherits_global: bool = True
     observed_at: AwareDatetime | None = None
     age_seconds: float | None = None
     max_age_seconds: int = Field(ge=0)
