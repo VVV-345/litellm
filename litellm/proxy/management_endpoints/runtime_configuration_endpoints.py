@@ -16,6 +16,16 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolSettingsView,
 )
 
+_PRESERVED_UNLESS_SET: Final = (
+    "auth_file_template",
+    "model_test_greetings",
+    "quota_reserve_percent",
+    "quota_reserve_5h_percent",
+    "quota_reserve_weekly_percent",
+    "quota_snapshot_max_age",
+)
+
+
 RuntimeSection = Literal["common", "access", "network", "quota", "policy", "streaming", "advanced", "payload"]
 _FIELDS: Final = {
     "common": ("default_concurrency_limit", "default_model_discovery", "common_profiles", "auth_file_template", "model_test_greetings"),
@@ -59,7 +69,7 @@ def merge_runtime_settings(
     updates: Final = {
         field: getattr(patch.values, field)
         for field in _FIELDS[section]
-        if field not in ("auth_file_template", "model_test_greetings") or field in patch.values.model_fields_set
+        if field not in _PRESERVED_UNLESS_SET or field in patch.values.model_fields_set
     }
     return AccountPoolSettingsUpdate(
         version=current.version,

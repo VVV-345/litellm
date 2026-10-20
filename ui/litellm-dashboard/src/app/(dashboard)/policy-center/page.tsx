@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { getCallbacksCall, setCallbacksCall } from "@/components/networking";
-import RuntimeConfigDialog from "@/components/Settings/RuntimeSettings/RuntimeConfigDialog";
+import { RuntimeConfigDialog } from "@/components/Settings/RuntimeSettings/RuntimeConfigDialog";
 import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
 import { RuntimePolicyDialog } from "@/components/Settings/RuntimeSettings/RuntimePolicyDialog";
 import type { RuntimeSettingsCategory } from "@/components/Settings/RuntimeSettings/RuntimeSettingsSection";
@@ -95,7 +95,7 @@ function RuntimeSettingsGroup({
   categories: readonly SettingsCategory[];
 }) {
   const [category, setCategory] = useState<RuntimeSettingsCategory>(categories[0].value);
-  const selectCategory = (value: string) => {
+  const selectCategory = (value: string | null) => {
     const next = categories.find((item) => item.value === value);
     if (next) setCategory(next.value);
   };
@@ -122,7 +122,15 @@ function RuntimeSettingsGroup({
   );
 }
 
-function PolicyDefaultsForm({ view, accessToken }: { view: AccountPoolSettingsView; accessToken: string }) {
+function PolicyDefaultsForm({
+  view,
+  accessToken,
+  onSaved,
+}: {
+  view: AccountPoolSettingsView;
+  accessToken: string;
+  onSaved: () => Promise<void>;
+}) {
   const [draft, setDraft] = useState<DefaultsDraft>(() => draftFrom(view));
   const [saving, setSaving] = useState(false);
   const update = (field: keyof DefaultsDraft, value: string) => setDraft((current) => ({ ...current, [field]: value }));
@@ -136,9 +144,6 @@ function PolicyDefaultsForm({ view, accessToken }: { view: AccountPoolSettingsVi
           version: view.version,
           values: {
             ...view.values,
-            default_route: draft.default_route as AccountPoolSettingsView["values"]["default_route"],
-            max_attempts: integer(draft.max_attempts, view.values.max_attempts),
-            request_timeout_seconds: integer(draft.request_timeout_seconds, view.values.request_timeout_seconds),
             quota_reserve_percent: integer(draft.quota_reserve_percent, 0),
             quota_reserve_5h_percent: optionalInteger(draft.quota_reserve_5h_percent),
             quota_reserve_weekly_percent: optionalInteger(draft.quota_reserve_weekly_percent),
@@ -147,6 +152,7 @@ function PolicyDefaultsForm({ view, accessToken }: { view: AccountPoolSettingsVi
         },
         "policy",
       );
+      await onSaved();
       toast.success("卡内默认策略已保存");
     } catch {
       toast.error("保存失败，请刷新后重试");
@@ -231,7 +237,7 @@ function RoutingStatusPanel({
   const selected = cards.find((card) => card.id === cardId);
   const models = selected?.enabled_models ?? [];
 
-  const selectCard = (value: string) => {
+  const selectCard = (value: string | null) => {
     if (!value) return;
     setCardId(value);
     setStatus(null);
@@ -298,7 +304,7 @@ function RoutingStatusPanel({
                 {status.eligible ? "可用" : reasonLabels[status.reason ?? ""] ?? status.reason}
               </Badge>
               <span className="text-muted-foreground">
-                模型 {status.resolved_model}，观测年龄 {status.age_seconds === null ? "未知" : `${Math.round(status.age_seconds)} 秒`}
+                模型 {status.resolved_model}，观测年龄 {status.age_seconds == null ? "未知" : `${Math.round(status.age_seconds)} 秒`}
               </span>
               <span className="text-muted-foreground">
                 策略来源：{status.inherits_global ? "继承全局" : `独立配置 v${status.policy_version}`}
@@ -339,7 +345,7 @@ function RoutingStatusPanel({
 }
 
 export default function PolicyCenterPage() {
-  const { accessToken, userID, userRole } = useAuthorized();
+  const { accessToken, userId, userRole } = useAuthorized();
   const queryClient = useQueryClient();
   const [routing, setRouting] = useState<ReturnType<typeof accountPoolRoutingValue> | null>(null);
   const [policyCard, setPolicyCard] = useState<AccountPoolEnvironment | null>(null);
@@ -354,8 +360,8 @@ export default function PolicyCenterPage() {
   };
   const routerConfigQuery = {
     queryKey: ["router-config", accessToken],
-    queryFn: () => getCallbacksCall(accessToken as string, userID as string, userRole as string),
-    enabled: Boolean(accessToken && userID && userRole),
+    queryFn: () => getCallbacksCall(accessToken as string, userId as string, userRole as string),
+    enabled: Boolean(accessToken && userId && userRole),
     retry: false,
   };
   const settings = useQuery(settingsQuery);
@@ -466,7 +472,14 @@ export default function PolicyCenterPage() {
         </CardHeader>
         <CardContent className="grid gap-6">
           {settings.data ? (
-            <PolicyDefaultsForm key={settings.data.version} view={settings.data} accessToken={accessToken} />
+            <PolicyDefaultsForm
+              key={settings.data.version}
+              view={settings.data}
+              accessToken={accessToken}
+              onSaved={() =>
+                queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.settings(accessToken) })
+              }
+            />
           ) : (
             <p className="text-sm text-muted-foreground">加载中</p>
           )}

@@ -160,3 +160,29 @@ def test_policy_section_rejects_stale_versions() -> None:
         merge_runtime_settings(current, patch, "policy")
 
     assert error.value.status_code == 409
+
+def test_partial_quota_patch_preserves_unset_reserve_thresholds() -> None:
+    current: AccountPoolSettingsView = AccountPoolSettingsView(
+        version=5,
+        values=AccountPoolSettings(quota_reserve_percent=75, quota_snapshot_max_age=1800),
+    )
+    patch: AccountPoolSettingsUpdate = AccountPoolSettingsUpdate(
+        version=5, values=AccountPoolSettings(quota_switch_project=True)
+    )
+
+    merged: AccountPoolSettingsUpdate = merge_runtime_settings(current, patch, "quota")
+
+    assert merged.values.quota_switch_project is True
+    assert merged.values.quota_reserve_percent == 75
+    assert merged.values.quota_snapshot_max_age == 1800
+
+
+def test_explicit_zero_reserve_overrides_the_stored_value() -> None:
+    current: AccountPoolSettingsView = AccountPoolSettingsView(
+        version=5, values=AccountPoolSettings(quota_reserve_percent=75)
+    )
+    patch: AccountPoolSettingsUpdate = AccountPoolSettingsUpdate.model_validate(
+        {"version": 5, "values": {"quota_reserve_percent": 0}}
+    )
+
+    assert merge_runtime_settings(current, patch, "quota").values.quota_reserve_percent == 0

@@ -23,7 +23,7 @@ const cardIndependent = {
 };
 
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
-  default: () => ({ accessToken: "token", userID: "user", userRole: "admin" }),
+  default: () => ({ accessToken: "token", userId: "user", userRole: "admin" }),
 }));
 
 vi.mock("@/features/account-pool/hooks/useAccountPoolQuery", () => ({
@@ -156,7 +156,9 @@ describe("policy center", () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole("switch", { name: "同一会话优先使用同一卡片" }));
-    fireEvent.click(screen.getByRole("button", { name: "保存跨卡调度" }));
+    const saveRouting = screen.getByRole("button", { name: "保存跨卡调度" });
+    await waitFor(() => expect(saveRouting).toBeEnabled());
+    fireEvent.click(saveRouting);
 
     await waitFor(() => expect(setCallbacks).toHaveBeenCalled());
     expect(setCallbacks).toHaveBeenCalledWith("token", {
