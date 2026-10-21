@@ -13,6 +13,7 @@ export type AccountPoolEnvironment = Omit<
   version: number;
   configuration_pending: boolean;
   model_cooldowns?: GeneratedAccountPoolEnvironment["model_cooldowns"];
+  spend_usd?: number;
 };
 export type AccountPoolAuthorization = Omit<GeneratedAccountPoolAuthorization, "environment"> & {
   environment: AccountPoolEnvironment;

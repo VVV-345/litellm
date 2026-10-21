@@ -234,10 +234,16 @@ class EnvironmentService:
         if self._error_logs is not None:
             await self._error_logs.record(record, stage, error, retryable=retryable)
 
+    async def _spend_by_environment(self) -> dict[UUID, float]:
+        return {} if self._error_logs is None else await self._error_logs.spend_by_environment()
+
     async def list_environments(self) -> tuple[EnvironmentView, ...]:
         records: Final = await self._repository.list()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
-        return tuple(to_view(record) for record in refreshed)
+        spends: Final = await self._spend_by_environment()
+        return tuple(
+            to_view(record).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}) for record in refreshed
+        )
 
     def _channel(self, record: EnvironmentRecord) -> EnvironmentChannel:
         try:
@@ -252,7 +258,8 @@ class EnvironmentService:
         if record is None:
             return Failure(FailureCode.NOT_FOUND, "environment not found")
         refreshed: Final = await self._refresh_if_needed(record)
-        return Success(to_view(refreshed))
+        spends: Final = await self._spend_by_environment()
+        return Success(to_view(refreshed).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}))
 
     async def refresh_environment(self, environment_id: UUID) -> Result[EnvironmentView]:
         record: Final = await self._repository.get(environment_id)
@@ -263,7 +270,8 @@ class EnvironmentService:
                 refreshed: Final = await self._refresh_if_needed(record, refresh_quota=True)
         except Exception:
             return Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
-        return Success(to_view(refreshed))
+        spends: Final = await self._spend_by_environment()
+        return Success(to_view(refreshed).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}))
 
     async def refresh_quota_after_failure(self, environment_id: UUID) -> bool:
         record: Final = await self._repository.get(environment_id)

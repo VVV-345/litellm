@@ -331,6 +331,23 @@ class PostgresErrorLogRepository:
             recent_errors=tuple(ErrorLogRecord.model_validate(row["payload"]) for row in errors),
         )
 
+    async def spend_by_environment(self) -> dict[UUID, float]:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT payload->>'environment_id' AS environment_id, "
+                "sum((payload->>'cost_usd')::double precision) AS spend_usd "
+                "FROM account_pool_error_log "
+                "WHERE payload->>'operation' = %s AND payload->>'cost_usd' IS NOT NULL "
+                "GROUP BY 1",
+                (MODEL_REQUEST_OPERATION,),
+            )
+            rows: Final = await cursor.fetchall()
+        return {
+            UUID(row["environment_id"]): float(row["spend_usd"])
+            for row in rows
+            if row["environment_id"]
+        }
+
     async def prune(self, before: datetime, limit: int | None = None) -> int:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(

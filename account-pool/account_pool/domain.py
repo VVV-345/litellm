@@ -516,6 +516,7 @@ class EnvironmentView(BaseModel):
     cooldown_until: datetime | None
     automatic_cooldown: bool = False
     last_error: str | None
+    spend_usd: float = Field(default=0, ge=0, allow_inf_nan=False)
     created_at: datetime
     updated_at: datetime
 

@@ -11,6 +11,9 @@
     "save": "Save Feedback",
     "refresh": "Refresh",
     "stats": "Feedback Stats",
+    "hints": {
+      "description": "Describe the symptom and impact so it can be reproduced"
+    },
     "filter": "Status Filter",
     "searchLabel": "Search Feedback",
     "search": "Search",
@@ -23,6 +26,7 @@
     "action": "Action",
     "applyAction": "Apply {{action}}",
     "attachments": {
+      "remove": "Remove",
       "label": "Attachments",
       "title": "Attachments",
       "formats": "PNG, JPEG, WebP, PDF, TXT and LOG, up to 10 MiB per file",
@@ -6543,6 +6547,7 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused"
   },
   "accountPool": {
+    "spendUsed": "Used {{amount}}",
     "modelTest": {
       "title": "Test model connection for {{name}}",
       "short": "Test connection",
@@ -7669,6 +7674,7 @@
     }
   },
   "nav": {
+    "feedback": "Feedback Center",
     "groups": {
       "aiGateway": "AI Gateway",
       "observability": "Observability",

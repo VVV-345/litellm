@@ -205,4 +205,10 @@ describe("AccountPoolCard", () => {
 
     expect(screen.getByRole("link", { name: "独立配置 v4" }).getAttribute("href")).toMatch(/^\/ui\/policy-center\/?$/);
   });
+
+  it("shows the card spend", () => {
+    renderCard({ spend_usd: 12.34 });
+
+    expect(screen.getByText(/\$12\.34/)).toBeInTheDocument();
+  });
 });

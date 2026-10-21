@@ -11,6 +11,9 @@
     "save": "保存反馈",
     "refresh": "刷新",
     "stats": "反馈统计",
+    "hints": {
+      "description": "说明现象和影响，便于复现"
+    },
     "filter": "状态筛选",
     "searchLabel": "搜索反馈",
     "search": "搜索",
@@ -23,6 +26,7 @@
     "action": "处理动作",
     "applyAction": "执行{{action}}",
     "attachments": {
+      "remove": "移除",
       "label": "附件",
       "title": "附件",
       "formats": "PNG、JPEG、WebP、PDF、TXT、LOG，每个文件最多 10 MiB",
@@ -6543,6 +6547,7 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "整个组可支出的总额。共享支出达到上限后，所有使用该组的密钥都会被拒绝"
   },
   "accountPool": {
+    "spendUsed": "已用 {{amount}}",
     "modelTest": {
       "title": "测试 {{name}} 的模型连接",
       "short": "测试连接",
@@ -7669,6 +7674,7 @@
     }
   },
   "nav": {
+    "feedback": "反馈中心",
     "groups": {
       "aiGateway": "AI 网关",
       "observability": "可观测性",

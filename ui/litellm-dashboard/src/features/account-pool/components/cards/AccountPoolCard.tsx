@@ -148,6 +148,9 @@ const AccountPoolCardComponent = ({
               <p className="mt-1 text-xs text-muted-foreground">
                 {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${environment.supplier}`)}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("accountPool.spendUsed", { amount: `$${(environment.spend_usd ?? 0).toFixed(2)}` })}
+              </p>
               {environment.configuration_pending && (
                 <p className="mt-1 text-xs text-muted-foreground" role="status">
                   {t("accountPool.configurationSyncing")}

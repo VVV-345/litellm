@@ -13,6 +13,7 @@ export const MIGRATED_PAGES: Record<string, string> = {
   models: "models-and-endpoints",
   "account-pool": "account-pool",
   "policy-center": "policy-center",
+  feedback: "feedback",
   api_ref: "api-reference",
   // Legacy alias: older bookmarks used the hyphenated ?page=api-reference form.
   "api-reference": "api-reference",
