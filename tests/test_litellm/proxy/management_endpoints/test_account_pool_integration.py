@@ -16,6 +16,7 @@ import pytest
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from openai import APIError
 from starlette.requests import Request
 
 from litellm import Router
@@ -529,6 +530,7 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("degraded_continuation", [False, True], ids=["strict", "default"])
 @pytest.mark.parametrize(
     "protocol,catalog_pricing",
     [
@@ -572,9 +574,14 @@ def test_pool_correlation_survives_standard_spend_metadata_filtering():
     + [("stream_usage", True), ("responses_stream", True)],
 )
 async def test_real_router_http_request_enters_pool_before_upstream(
-    signing_secret, monkeypatch, protocol, catalog_pricing
+    signing_secret, monkeypatch, protocol, catalog_pricing, degraded_continuation
 ):
     import litellm
+
+    if degraded_continuation:
+        monkeypatch.delenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", raising=False)
+    else:
+        monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "0")
 
     rates = {
         "input_cost_per_token": 0.0000002,
@@ -966,7 +973,9 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             else:
                 initial_id = initial.id
             continuation = {"input": "Video editing", "previous_response_id": initial_id}
-            if protocol == "responses_conversation_preflight_bound":
+            if protocol == "responses_conversation_preflight_bound" or (
+                degraded_continuation and protocol.startswith("responses_conversation_preflight")
+            ):
                 from litellm.exceptions import ServiceUnavailableError
 
                 with pytest.raises(ServiceUnavailableError):
@@ -983,13 +992,21 @@ async def test_real_router_http_request_enters_pool_before_upstream(
                     {"role": "assistant", "content": "What use?"},
                     {"role": "user", "content": "Video editing"},
                 ]}
-            if fault_blocked:
-                with pytest.raises(Exception):
+            if fault_blocked or (degraded_continuation and fault_recovery):
+                with pytest.raises(APIError) as failure:
                     await router.aresponses(model="model-a", stream=streaming, **continuation)
+                if (
+                    degraded_continuation
+                    and not protocol.endswith(("_read_timeout", "_signature"))
+                    and "_signature_" not in protocol
+                ):
+                    assert getattr(failure.value, "status_code", None) == (502 if protocol.endswith("_connect") else 503)
                 expected = (2 if protocol.endswith("_read_timeout") else 3 if "_signature" in protocol
-                            else 5 if protocol.endswith("_backup_error") else 4)
+                            else 5 if protocol.endswith("_backup_error") and not degraded_continuation else 4)
                 assert len(conversation_requests) == expected
-                assert len({host for host, _ in conversation_requests}) == (2 if protocol.endswith("_backup_error") else 1)
+                assert len({host for host, _ in conversation_requests}) == (
+                    2 if protocol.endswith("_backup_error") and not degraded_continuation else 1
+                )
                 return
             migrated = await router.aresponses(model="model-a", stream=streaming, **continuation)
             if streaming:
