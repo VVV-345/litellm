@@ -189,16 +189,9 @@ def routes(
             for route in active
         )
         depleted: Final = bool(active) and all(reason == "quota_exhausted" for reason in reasons)
-        quota_snapshot_expired: Final = (
-            bool(active)
-            and not depleted
-            and all(reason in ("quota_exhausted", "quota_snapshot_expired") for reason in reasons)
-        )
         reason: Final = (
             "quota_exhausted"
             if depleted
-            else "quota_snapshot_expired"
-            if quota_snapshot_expired
             else "account_unavailable"
             if active
             else "subscription_expired"

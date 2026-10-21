@@ -7384,7 +7384,7 @@
         "weight": "With the random strategy, higher values increase the account's selection probability",
         "session_affinity_ttl": "How long session affinity keeps the previously selected account before selecting again",
         "quota_reserve_percent": "Stop assigning new requests when remaining quota reaches this percentage or lower",
-        "quota_snapshot_max_age": "Treat older quota data as stale. With a reserve enabled, stale values keep routing in degraded mode and are excluded after three windows; the effective value is never below two refresh cycles",
+        "quota_snapshot_max_age": "Older quota data is marked stale but does not block routing by itself. Known quota exhaustion still triggers failover; the effective value is never below two refresh cycles",
         "token_budget_limit": "Limit tokens used by one account during a budget window, including estimates for active requests",
         "token_budget_window_seconds": "The fixed accounting period for the local token budget",
         "max_attempts": "Maximum attempts for one request, including same-card retries and failover attempts, capped at 5. Stop on success; never replay after output or for stateful requests",

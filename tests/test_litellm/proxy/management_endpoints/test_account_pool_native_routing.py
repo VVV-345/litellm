@@ -238,10 +238,11 @@ async def test_preflight_quota_rejection_strips_reasoning_before_switching(monke
         router.discard()
 
 @pytest.mark.asyncio
-async def test_preflight_rejection_switches_server_state_requests(monkeypatch) -> None:
+async def test_preflight_rejection_does_not_switch_missing_server_history(monkeypatch) -> None:
     import httpx
 
     from litellm.exceptions import ServiceUnavailableError
+    from litellm.proxy.management_endpoints.account_pool_conversation import ConversationUnavailableError
 
     monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
     first, second = uuid4(), uuid4()
@@ -268,14 +269,14 @@ async def test_preflight_rejection_switches_server_state_requests(monkeypatch) -
         raise error
 
     try:
-        with pytest.raises(ServiceUnavailableError):
+        with pytest.raises(ConversationUnavailableError):
             await router._aresponses_with_streaming_fallbacks(
                 original_function=provider,
                 model="shared",
                 input="hello",
                 previous_response_id="resp_old",
             )
-        assert attempts == [str(first), str(second)]
+        assert attempts == [str(first)]
     finally:
         pool_identity.reset(reset)
         snapshots.replace(previous)
@@ -366,7 +367,7 @@ def test_quota_alias_staleness_and_expiry_are_checked_without_network():
             model_aliases={"shared": "actual"}, model_quotas={"actual": RoutingQuota(remaining_percent=0)}
         ),
     }
-    assert eligible_deployments(models, "shared", values, now) == [models[0]]
+    assert eligible_deployments(models, "shared", values, now) == [models[0], models[2]]
 
 
 def test_preference_keeps_ties_and_unmanaged_deployments():
@@ -408,7 +409,7 @@ def test_elapsed_quota_window_allows_probe_without_claiming_fresh_quota():
         {"remaining_percent": 65, "resets_at": now + timedelta(days=1)},
     ]}).routing_quota()
     assert available(RoutingSnapshot(model_quotas={"shared": quota}), "shared", now)
-    assert not available(RoutingSnapshot(model_quotas={"shared": quota}, quota_reserve_percent=10), "shared", now)
+    assert available(RoutingSnapshot(model_quotas={"shared": quota}, quota_reserve_percent=10), "shared", now)
     assert not available(RoutingSnapshot(model_quotas={"shared": quota}), "shared", now - timedelta(seconds=2))
 
 
@@ -856,9 +857,9 @@ def test_explain_separates_expired_snapshot_from_quota_exhaustion() -> None:
     quota = RoutingQuota(remaining_percent=90, observed_at=now - timedelta(seconds=901))
     status = explain(uuid4(), RoutingSnapshot(quota=quota, quota_reserve_percent=10), "shared", now)
 
-    assert status.reason == "quota_snapshot_expired"
-    assert status.eligible is False
-    assert tuple(gate.passed for gate in status.gates) == (True, True, True, False)
+    assert status.reason is None
+    assert status.eligible is True
+    assert tuple(gate.passed for gate in status.gates) == (True, True, True, True)
     assert status.gates[3].detail == "expired"
 
 

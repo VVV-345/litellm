@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -12,12 +13,16 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Final, TypeVar, cast
 
 import httpx
-from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, ValidationError
 
 from litellm._logging import verbose_proxy_logger
 from litellm.caching.dual_cache import DualCache
 from litellm.exceptions import RateLimitError, ServiceUnavailableError
-from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
+from litellm.litellm_core_utils.signature_recovery import (
+    image_history_message,
+    signature_recovery_reason,
+    visible_reasoning,
+)
 from litellm.proxy._types import ProxyException
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
 from litellm.proxy.management_endpoints.account_pool_failover import exception_header
@@ -28,7 +33,6 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     now_utc,
     quota_depleted,
     quota_failover_exclusions,
-    quota_freshness,
     snapshot_for,
     unavailable_snapshot,
 )
@@ -39,6 +43,7 @@ from litellm.proxy.management_endpoints.account_pool_session import (
 )
 from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
 from litellm.responses.utils import ResponsesAPIRequestUtils
+from litellm.router_utils.add_retry_fallback_headers import get_hidden_params_dict
 from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
     EncryptedContentAffinityCheck,
     EncryptedContentOriginUnavailableError,
@@ -50,10 +55,11 @@ if TYPE_CHECKING:
     from litellm import Router
 
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
+_METADATA: Final = TypeAdapter(dict[str, object])
 _INPUT: Final = TypeAdapter(list[dict[str, JsonValue]])
 _EXCLUSIONS: Final = TypeAdapter(tuple[str, ...])
 _DEPLOYMENTS: Final = TypeAdapter(tuple[Mapping[str, object], ...])
-_FIELDS: Final = frozenset(("input", "tools", "functions", "background", "conversation", "store", "truncation"))
+_FIELDS: Final = frozenset(("input", "tools", "functions", "background", "conversation", "store", "truncation", "instructions", "extra_body"))
 _MAX_BYTES: Final = 256 * 1024
 _TTL: Final = 3600
 _Result = TypeVar("_Result")
@@ -68,6 +74,7 @@ class ConversationRecord(BaseModel):
     input: tuple[Mapping[str, JsonValue], ...]
     deployment_id: str
     expires_at: float
+    context: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class ConversationUnavailableError(ProxyException):
@@ -136,38 +143,20 @@ def _visible_item(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | No
 def visible_input(value: object, *, lenient: bool = False) -> tuple[Mapping[str, JsonValue], ...] | None:
     if isinstance(value, str):
         return (MappingProxyType({"role": "user", "content": value}),) if value else None
-    if lenient:
-        if not isinstance(value, list):
-            return None
-        try:
-            candidates: Final = tuple(_JSON.validate_python(item) for item in value if isinstance(item, dict))
-        except ValidationError:
-            return None
-        return tuple(
-            kept
-            for item in candidates
-            if portable_item(item) and (kept := _visible_item(item)) is not None
-        ) or None
     try:
         items: Final = _INPUT.validate_python(value)
     except ValidationError:
         return None
-    if any(not portable_item(item) for item in items):
+    normalized: Final = tuple(
+        image_history_message(item) if item.get("type") == "image_generation_call" else item for item in items
+    )
+    if any(item is None or not portable_item(item) for item in normalized):
         return None
-    return tuple(kept for item in items if (kept := _visible_item(item)) is not None)
+    return tuple(kept for item in normalized if item is not None and (kept := _visible_item(item)) is not None)
 
 
 def readable_reasoning(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
-    readable: Final = any(
-        isinstance(value, str) and bool(value.strip())
-        or isinstance(value, list) and any(isinstance(block, dict) and bool(block.get("text")) for block in value)
-        for key in ("summary", "content")
-        if (value := item.get(key)) is not None
-    )
-    return MappingProxyType({
-        key: value for key, value in item.items()
-        if key not in ("id", "encrypted_content", "status", "signature", "thought_signature", "thoughtSignature", "thinking_blocks")
-    }) if readable else None
+    return visible_reasoning(item)
 
 
 def compatible_reasoning_input(router: Router, payload: Mapping[str, object], selected: str) -> list[dict[str, JsonValue]] | None:
@@ -218,35 +207,15 @@ def portable_item(item: Mapping[str, JsonValue]) -> bool:
             and (
                 block.get("type") in ("input_text", "output_text", "text")
                 and isinstance(block.get("text"), str)
+                or block.get("type") == "input_image"
+                and isinstance(block.get("image_url"), str)
+                and not block.get("file_id")
                 or block.get("type") == "refusal"
                 and isinstance(block.get("refusal"), str)
             )
             and not block.get("annotations")
             for block in content
         )
-    )
-
-
-_TOOL_CALL_TYPES: Final = frozenset(("function_call", "custom_tool_call"))
-_TOOL_OUTPUT_TYPES: Final = frozenset(("function_call_output", "custom_tool_call_output"))
-
-
-def complete_tool_calls(items: tuple[Mapping[str, JsonValue], ...]) -> tuple[Mapping[str, JsonValue], ...]:
-    calls: Final = {
-        call_id
-        for item in items
-        if item.get("type") in _TOOL_CALL_TYPES and isinstance(call_id := item.get("call_id"), str)
-    }
-    outputs: Final = {
-        call_id
-        for item in items
-        if item.get("type") in _TOOL_OUTPUT_TYPES and isinstance(call_id := item.get("call_id"), str)
-    }
-    paired: Final = calls & outputs
-    return tuple(
-        item
-        for item in items
-        if item.get("type") not in _TOOL_CALL_TYPES | _TOOL_OUTPUT_TYPES or item.get("call_id") in paired
     )
 
 
@@ -324,6 +293,7 @@ class Conversation:
             if isinstance(previous, str)
             else EncryptedContentAffinityCheck._extract_model_id_from_input(payload.get("input"))  # pyright: ignore[reportPrivateUsage]  # Share the native affinity marker parser.
         )
+        cached: Final = visible_input(_INPUT.validate_python(record.input)) if record is not None else None
         prior: Final = any(
             item.get("role") == "assistant"
             or item.get("type") in ("function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output")
@@ -331,14 +301,24 @@ class Conversation:
         )
         history: Final = (
             None
-            if current is None
-            else (*record.input, *current)
+            if current is None or record is not None and cached is None
+            else (*(cached or ()), *current)
             if record is not None
             else current
             if prior or previous is None
             else None
         )
-        return cls(identity, model, request, history, origin, store, current, record is not None or prior)
+        context: Final = {**(record.context if record is not None else {}), **request}
+        return cls(identity, model, context, history, origin, store, current, record is not None or prior or previous is None)
+
+    def _history_replayable(self) -> bool:
+        extra: Final = self.request.get("extra_body")
+        if isinstance(extra, dict) and any(key in extra for key in (*_FIELDS, "previous_response_id")):
+            return False
+        if self.history is None or not self.complete_history or self.request.get("truncation") == "auto":
+            return False
+        restored: Final = _JSON.validate_python({**self.request, "input": _INPUT.validate_python(self.history)})
+        return signature_recovery_reason(restored) is None
 
     def can_replay(self, router: Router, payload: Mapping[str, object]) -> bool:
         if (
@@ -349,12 +329,7 @@ class Conversation:
             return False
         if not has_signed_history(payload) and not self.relaxed:
             return False
-        if self.request.get("truncation") == "auto":
-            return False
-        restored: Final = _JSON.validate_python(
-            MappingProxyType({**self.request, "input": _INPUT.validate_python(self.history)})
-        )
-        return signature_recovery_reason(restored) is None
+        return self._history_replayable()
 
     def preempt(self, router: Router, payload: Mapping[str, object]) -> Mapping[str, object] | None:
         if not self.relaxed or self.origin is None:
@@ -366,16 +341,13 @@ class Conversation:
         if origin is None:
             return None
         snapshot: Final = snapshot_for(origin, quota_snapshots.values)
-        if snapshot is None or quota_freshness(snapshot, self.model, now_utc()) != "fresh":
+        if snapshot is None:
             return None
         if not quota_depleted(snapshot, self.model, now_utc()):
             return None
-        selected: Final = self.history if self.complete_history else self.visible
-        if selected is None:
-            return None
-        input_items: Final = complete_tool_calls(selected)
-        if not input_items:
-            return None
+        if not self._history_replayable() or self.history is None:
+            raise ConversationUnavailableError()
+        input_items: Final = self.history
         excluded: Final = self._excluded(payload, deployments, self.origin)
         if not any(deployment_id(item) not in excluded for item in deployments):
             return None
@@ -393,13 +365,8 @@ class Conversation:
         excluded: tuple[str, ...],
     ) -> Mapping[str, object]:
         raw_metadata: Final = payload.get("litellm_metadata")
-        metadata: Final = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+        metadata: Final = _METADATA.validate_python(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         metadata["account_pool_signed_continuation"] = False
-        raw_headers: Final = payload.get("headers")
-        headers: Final = dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
-        if not self.complete_history:
-            metadata["account_pool_degraded_continuation"] = "partial-history"
-            headers["x-account-pool-degraded-continuation"] = "partial-history"
         return MappingProxyType(
             {
                 **MappingProxyType({
@@ -408,7 +375,7 @@ class Conversation:
                     if key not in ("previous_response_id", "_encrypted_content_affinity_pinned")
                 }),
                 **({"litellm_metadata": metadata} if metadata else {}),
-                **({"headers": headers} if headers else {}),
+                **{key: value for key, value in self.request.items() if key in ("instructions", "tools")},
                 "input": _INPUT.validate_python(input_items),
                 "_excluded_deployment_ids": excluded,
                 "disable_fallbacks": True,
@@ -440,23 +407,20 @@ class Conversation:
                 return None
             if not self._relaxed_trigger(error, snapshot):
                 return None
-            selected: Final = self.history if self.complete_history else self.visible
-            if selected is None:
-                return None
-            input_items: Final = complete_tool_calls(selected)
-            if not input_items:
-                return None
-            excluded: Final = self._excluded(payload, deployments, failed)
-            if not any(deployment_id(item) not in excluded for item in deployments):
+            if not self._history_replayable() or self.history is None:
+                raise ConversationUnavailableError() from error
+            input_items: Final = self.history
+            relaxed_excluded: Final = self._excluded(payload, deployments, failed)
+            if not any(deployment_id(item) not in relaxed_excluded for item in deployments):
                 return None
             verbose_proxy_logger.warning(
                 "Account pool conversation degraded migration; request_id=%s degraded=%s",
                 self.identity.request_id,
                 not self.complete_history,
             )
-            return self._rebuilt(payload, input_items, excluded)
+            return self._rebuilt(payload, input_items, relaxed_excluded)
 
-        if origin is None or snapshot is None:
+        if origin is None or snapshot is None or not isinstance(failed, str):
             return None
         depleted_before_call: Final = (
             isinstance(error, (RouterRateLimitError, RouterRateLimitErrorBasic, ServiceUnavailableError))
@@ -488,19 +452,11 @@ class Conversation:
         )
         if not any(deployment_id(item) not in excluded for item in deployments):
             return None
-        history: Final = complete_tool_calls(self.history) if self.history is not None else ()
+        history: Final = self.history if self._history_replayable() else ()
         if not history:
             return None
         verbose_proxy_logger.info("Account pool conversation migration; request_id=%s", self.identity.request_id)
-        return MappingProxyType(
-            {
-                **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
-                "input": _INPUT.validate_python(history),
-                "_excluded_deployment_ids": excluded,
-                "disable_fallbacks": True,
-                "num_retries": 0,
-            }
-        )
+        return self._rebuilt(payload, history, excluded)
 
     def _relaxed_trigger(
         self,
@@ -522,7 +478,10 @@ class Conversation:
             return True
         if exception_header(error, "x-account-pool-failure") in ("quota_exhausted", "rate_limited", "budget_exhausted"):
             return True
-        return snapshot is not None and quota_depleted(snapshot, self.model, now_utc())
+        return (
+            isinstance(error, ServiceUnavailableError)
+            and snapshot is not None and quota_depleted(snapshot, self.model, now_utc())
+        )
 
     def _excluded(
         self,
@@ -588,15 +547,38 @@ class Conversation:
             self.model,
             response.id,
             ConversationRecord(
-                input=(*self.history, *output), deployment_id=deployment_id, expires_at=time.time() + _TTL
+                input=(*self.history, *output), deployment_id=deployment_id, expires_at=time.time() + _TTL,
+                context={key: value for key, value in self.request.items() if key in ("instructions", "tools")},
             ),
         )
 
 
 class ConversationStream(BaseResponsesAPIStreamingIterator):
-    def __init__(self, source: BaseResponsesAPIStreamingIterator, conversation: Conversation) -> None:
+    def __init__(self, source: AsyncIterator[ResponsesAPIStreamingResponse], conversation: Conversation) -> None:
         self.source: Final = source
         self.conversation: Final = conversation
+        self.buffer: tuple[ResponsesAPIStreamingResponse, ...] = ()
+
+    async def prepare(self) -> None:
+        try:
+            for _ in range(32):
+                event = await asyncio.wait_for(
+                    anext(self.source), timeout=max(0, self.conversation.identity.retry_deadline - time.time())
+                )
+                self.buffer = (*self.buffer, event)
+                if getattr(event, "type", None) not in ("response.created", "response.in_progress"):
+                    return
+        except StopAsyncIteration:
+            return
+        except asyncio.CancelledError:
+            await self.aclose()
+            raise
+        except Exception as error:
+            model_id: Final = get_hidden_params_dict(self.source).get("model_id")
+            if isinstance(model_id, str) and not getattr(error, "failed_deployment_id", None):
+                error.failed_deployment_id = model_id  # pyright: ignore[reportAttributeAccessIssue]  # Router failure contract stamps the selected deployment on provider exceptions.
+            await self.aclose()
+            raise
 
     def __getattr__(self, name: str) -> object:
         value: Final = cast(  # cast-ok: Delegate native stream attributes as opaque objects.
@@ -608,11 +590,11 @@ class ConversationStream(BaseResponsesAPIStreamingIterator):
         return self
 
     async def __anext__(self) -> ResponsesAPIStreamingResponse:
-        event: Final = await anext(
-            cast(  # cast-ok: Native streams implement iteration, absent on base annotations.
-                AsyncIterator[ResponsesAPIStreamingResponse], self.source
-            )
-        )
+        if self.buffer:
+            event = self.buffer[0]
+            self.buffer = self.buffer[1:]
+        else:
+            event = await anext(self.source)
         if isinstance(event, ResponseCompletedEvent):
             await self.conversation.complete(event.response)
         return event
@@ -624,8 +606,10 @@ class ConversationStream(BaseResponsesAPIStreamingIterator):
         )
         if close is not None:
             await close()
-        elif getattr(self.source, "response", None) is not None:
-            await self.source.response.aclose()
+        else:
+            response: Final = getattr(self.source, "response", None)
+            if isinstance(response, httpx.Response):
+                await response.aclose()
 
 
 def deployment_id(deployment: Mapping[str, object]) -> str | None:

@@ -83,7 +83,7 @@ def test_stale_snapshot_stays_usable_within_the_grace_window() -> None:
     expired = quota(50, 50).model_copy(update={"observed_at": NOW - timedelta(seconds=901)})
 
     assert available(RoutingSnapshot(quota=stale, quota_reserve_5h_percent=10), "shared", NOW)
-    assert not available(RoutingSnapshot(quota=expired, quota_reserve_5h_percent=10), "shared", NOW)
+    assert available(RoutingSnapshot(quota=expired, quota_reserve_5h_percent=10), "shared", NOW)
 
 
 def test_window_past_its_reset_does_not_invalidate_a_fresh_snapshot() -> None:
@@ -95,12 +95,12 @@ def test_window_past_its_reset_does_not_invalidate_a_fresh_snapshot() -> None:
     assert available(RoutingSnapshot(quota=value, quota_reserve_percent=10), "shared", NOW)
 
 
-def test_missing_observation_is_unavailable_only_when_reserve_is_positive() -> None:
+def test_missing_observation_does_not_block_a_positive_reserve() -> None:
     value = QuotaSnapshot.model_validate({"windows": [
         {"name": "primary", "window_minutes": 300, "remaining_percent": 90, "resets_at": NOW + timedelta(hours=1)},
     ]}).routing_quota()
 
-    assert not available(RoutingSnapshot(quota=value, quota_reserve_percent=10), "shared", NOW)
+    assert available(RoutingSnapshot(quota=value, quota_reserve_percent=10), "shared", NOW)
     assert available(RoutingSnapshot(quota=value, quota_reserve_percent=0), "shared", NOW)
 
 @pytest.mark.parametrize(
@@ -117,14 +117,14 @@ def test_missing_observation_is_unavailable_only_when_reserve_is_positive() -> N
                 quota=quota(90, 90).model_copy(update={"observed_at": NOW - timedelta(seconds=901)}),
                 quota_reserve_percent=10,
             ),
-            "quota_snapshot_expired",
+            None,
         ),
         (
             RoutingSnapshot(
                 quota=quota(90, 90).model_copy(update={"observed_at": None}),
                 quota_reserve_percent=10,
             ),
-            "quota_snapshot_missing",
+            None,
         ),
         (RoutingSnapshot(quota=quota(90, 90), quota_reserve_percent=10), None),
     ),
@@ -145,3 +145,10 @@ def test_global_settings_expose_the_same_quota_thresholds(model) -> None:
     assert values.quota_reserve_percent == 75
     assert values.quota_snapshot_max_age == 1800
     assert model.model_validate_json(values.model_dump_json()) == values
+
+
+@pytest.mark.parametrize("observed", [None, NOW - timedelta(hours=2)])
+def test_reserve_does_not_reject_missing_or_old_observation(observed):
+    value = quota(100, 100).model_copy(update={"observed_at": observed})
+    snapshot = RoutingSnapshot(quota=value, quota_reserve_5h_percent=98)
+    assert unavailable_reason(snapshot, "shared", NOW) is None

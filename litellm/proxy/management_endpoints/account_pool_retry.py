@@ -36,6 +36,9 @@ def same_card_replay_safe(payload: Mapping[str, JsonValue]) -> bool:
         return False
     history: Final = payload.get("messages", payload.get("input"))
     if isinstance(history, list) and history:
+        declared: Final = payload.get("tools")
+        if isinstance(declared, list) and not all(client_tool(tool) for tool in declared):
+            return False
         return signature_recovery_reason(payload) is None
     tools: Final = payload.get("tools")
     return (

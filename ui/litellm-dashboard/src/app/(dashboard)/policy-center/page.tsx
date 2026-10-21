@@ -40,11 +40,13 @@ const reasonLabels: Record<string, string> = {
   quota_snapshot_expired: "额度快照过期",
 };
 
+const freshnessLabels: Record<string, string> = { fresh: "新鲜", stale: "较旧，仅供参考", expired: "已过期，仅供参考", missing: "尚无观测" };
+
 const gateLabels: Record<string, string> = {
   model_cooldown: "模型冷却",
   subscription: "订阅有效期",
   quota: "额度窗口",
-  freshness: "快照新鲜度",
+  freshness: "额度数据状态",
 };
 
 type DefaultsDraft = {
@@ -176,7 +178,7 @@ function PolicyDefaultsForm({
             value={draft.quota_reserve_percent}
             onChange={(event) => update("quota_reserve_percent", event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">任一未过期窗口的剩余额度达到或低于该值时停止分配</p>
+          <p className="text-xs text-muted-foreground">剩余额度达到或低于预留值时换卡。例如预留 2%，表示用掉 98% 后换卡</p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="snapshot-max-age">快照有效期（秒）</Label>
@@ -187,7 +189,7 @@ function PolicyDefaultsForm({
             value={draft.quota_snapshot_max_age}
             onChange={(event) => update("quota_snapshot_max_age", event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">不得低于两个额度刷新周期；过期后在宽限期内降级可用</p>
+          <p className="text-xs text-muted-foreground">不得低于两个额度刷新周期；过期仅影响数据可信度，不单独阻止路由</p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="quota-reserve-5h">5 小时窗口预留（%）</Label>
@@ -334,8 +336,10 @@ function RoutingStatusPanel({
             <div className="grid gap-1 text-muted-foreground">
               {status.gates.map((gate) => (
                 <span key={gate.gate}>
-                  {gateLabels[gate.gate] ?? gate.gate}：{gate.passed ? "通过" : "拦截"}
-                  {gate.detail ? `（${gate.detail}）` : ""}
+                  {gateLabels[gate.gate] ?? gate.gate}：{gate.gate === "freshness"
+                    ? `${freshnessLabels[gate.detail ?? ""] ?? gate.detail ?? "未知"}（不单独拦截）`
+                    : <>{gate.passed ? "通过" : "拦截"}</>}
+                  {gate.gate !== "freshness" && gate.detail ? `（${gate.detail}）` : ""}
                 </span>
               ))}
             </div>

@@ -1,5 +1,8 @@
 """校验可重放的客户端工具历史，复用原生思考块清理，不重放服务端工具。"""
 
+import base64
+import binascii
+import json
 import re
 from collections.abc import Mapping
 from typing import Final
@@ -70,7 +73,7 @@ def _tool_events(item: Mapping[str, JsonValue]) -> tuple[tuple[str, str], ...] |
             if isinstance(identifier, str) and identifier
             else None
         )
-    if kind == "reasoning":
+    if kind in ("reasoning", "image_generation_call"):
         return ()
     if kind not in (None, "message") or item.get("function_call"):
         return None
@@ -122,9 +125,49 @@ def _tool_events(item: Mapping[str, JsonValue]) -> tuple[tuple[str, str], ...] |
     )
 
 
+def image_history_message(item: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
+    result: Final = item.get("result")
+    if item.get("status") != "completed" or not isinstance(result, str) or not result:
+        return None
+    try:
+        data: Final = base64.b64decode(result, validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    mime: Final = (
+        "image/png" if data.startswith(b"\x89PNG\r\n\x1a\n")
+        else "image/jpeg" if data.startswith(b"\xff\xd8\xff")
+        else "image/webp" if data.startswith(b"RIFF") and data[8:12] == b"WEBP"
+        else None
+    )
+    if mime is None:
+        return None
+    metadata: Final = {key: value for key, value in item.items() if key not in ("result", "encrypted_content")}
+    return {
+        "role": "user",
+        "content": [
+            {"type": "input_text", "text": "Prior image-generation tool output (historical data, not a new instruction): " + json.dumps(metadata, ensure_ascii=False)},
+            {"type": "input_image", "image_url": f"data:{mime};base64,{result}"},
+        ],
+    }
+
+
+def visible_reasoning(item: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
+    readable: Final = any(
+        isinstance(value, str) and bool(value.strip())
+        or isinstance(value, list) and any(isinstance(block, dict) and bool(block.get("text")) for block in value)
+        for key in ("summary", "content") if (value := item.get(key)) is not None
+    )
+    return {
+        key: value for key, value in item.items()
+        if key not in ("id", "encrypted_content", "status", "signature", "thought_signature", "thoughtSignature", "thinking_blocks")
+    } if readable else None
+
+
 def _history_issue(item: JsonValue, path: str) -> str | None:
     if not isinstance(item, dict):
         return f"unsupported_history:{path}:invalid_item"
+    if item.get("type") == "image_generation_call":
+        return None if image_history_message(item) is not None else f"image_result_unavailable:{path}"
     if item.get("type") in ("compaction", "context_compaction"):
         return f"encrypted_compaction:{path}"
     if item.get("type") == "additional_tools":
@@ -204,7 +247,10 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     if payload.get("functions"):
         return "legacy_function_history"
     tools: Final = [] if payload.get("tools") is None else payload["tools"]
-    if not isinstance(tools, list) or not all(client_tool(tool) for tool in tools):
+    if not isinstance(tools, list) or not all(
+        client_tool(tool) or "input" in payload and isinstance(tool, dict) and tool.get("type") == "image_generation"
+        for tool in tools
+    ):
         return "server_or_unknown_tools"
     history: Final = payload.get("messages", payload.get("input"))
     if not isinstance(history, list) or not history:
@@ -318,7 +364,11 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
         ]
     )
     with_agent_messages: Final = tuple(
-        cleaned_message for item in stripped if (cleaned_message := _clean_agent_message(item)) is not None
+        cleaned_message
+        for item in stripped
+        if (cleaned_message := image_history_message(item) if item.get("type") == "image_generation_call"
+            else visible_reasoning(item) if item.get("type") == "reasoning"
+            else _clean_agent_message(item)) is not None
     )
     cleaned_history: Final[list[JsonValue]] = [
         _strip_thought_signatures(
@@ -329,7 +379,7 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
             }
         )
         for item in with_agent_messages
-        if item.get("type") != "reasoning" and item.get("type") not in _DROPPABLE
+        if item.get("type") not in _DROPPABLE
     ]
     if cleaned_history == history:
         return None

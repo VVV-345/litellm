@@ -5126,17 +5126,19 @@ class Router:
             if conversation is not None and conversation.can_replay(self, kwargs)
             else "disabled"
         )
+        async def invoke_rebuilt(payload: Mapping[str, object]) -> ResponsesAPIResponse | BaseResponsesAPIStreamingIterator:
+            result: Final = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **payload)
+            if conversation is not None and kwargs.get("stream") and isinstance(result, AsyncIterator):
+                prepared: Final = ConversationStream(result, conversation)
+                await prepared.prepare()
+                return prepared
+            return result
+
         try:
-            response = await self._ageneric_api_call_with_fallbacks(
-                original_function=original_function,
-                **(dict(preempted) if preempted is not None else kwargs),
-            )
+            response = await invoke_rebuilt(dict(preempted) if preempted is not None else kwargs)
         except Exception as error:
             if conversation is None:
                 raise
-
-            async def invoke_rebuilt(payload: Mapping[str, object]) -> ResponsesAPIResponse | BaseResponsesAPIStreamingIterator:
-                return await self._ageneric_api_call_with_fallbacks(original_function=original_function, **payload)
 
             migrated_token: Final = conversation_replay.set("migrated")
             try:
@@ -5155,8 +5157,8 @@ class Router:
         if conversation is not None and isinstance(response, ResponsesAPIResponse):
             await conversation.complete(response)
 
-        if conversation is not None and isinstance(response, BaseResponsesAPIStreamingIterator):
-            return ConversationStream(response, conversation)
+        if isinstance(response, ConversationStream):
+            return response
 
         if (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get("account_pool_attempt"):
             return response
