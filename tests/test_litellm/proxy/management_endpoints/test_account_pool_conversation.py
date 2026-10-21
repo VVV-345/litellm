@@ -855,3 +855,99 @@ async def test_unsupported_item_does_not_block_degraded_replay(degraded):
     await conversation.recover(router, payload, error, invoke)
 
     assert calls[0]["input"] == [{"type": "message", "role": "user", "content": "hi"}]
+
+@pytest.mark.asyncio
+async def test_preempt_switches_fresh_depleted_origin_with_full_history(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
+
+    router, (first, second) = degraded
+    snapshots.replace(
+        {
+            str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc())),
+            str(second): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=100, observed_at=now_utc())),
+        }
+    )
+    payload = {
+        "model": "shared",
+        "previous_response_id": response(first).id,
+        "input": [
+            {"type": "message", "role": "user", "content": "first"},
+            {"type": "message", "role": "assistant", "content": "second"},
+            {"type": "message", "role": "user", "content": "third"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    preempted = conversation.preempt(router, payload)
+    assert preempted is not None
+    assert "previous_response_id" not in preempted
+    assert len(preempted["input"]) == 3
+    assert str(first) in preempted["_excluded_deployment_ids"]
+    assert "x-account-pool-degraded-continuation" not in (preempted.get("headers") or {})
+
+@pytest.mark.asyncio
+async def test_preempt_switches_fresh_depleted_origin_with_partial_history(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
+
+    router, (first, second) = degraded
+    snapshots.replace(
+        {
+            str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc())),
+            str(second): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=100, observed_at=now_utc())),
+        }
+    )
+    payload = {"model": "shared", "previous_response_id": response(first).id, "input": "Continue"}
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    preempted = conversation.preempt(router, payload)
+    assert preempted is not None
+    assert preempted["input"] == [{"role": "user", "content": "Continue"}]
+    assert preempted["headers"]["x-account-pool-degraded-continuation"] == "partial-history"
+
+@pytest.mark.asyncio
+async def test_preempt_skips_stale_snapshot(degraded):
+    from datetime import timedelta
+
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
+
+    router, (first, second) = degraded
+    snapshots.replace(
+        {
+            str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc() - timedelta(hours=2))),
+            str(second): RoutingSnapshot(quota_switch_project=True),
+        }
+    )
+    payload = {"model": "shared", "previous_response_id": response(first).id, "input": "Continue"}
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    assert conversation.preempt(router, payload) is None
+
+@pytest.mark.asyncio
+async def test_router_preempts_before_calling_depleted_origin(degraded):
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
+
+    router, (first, second) = degraded
+    snapshots.replace(
+        {
+            str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc())),
+            str(second): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=100, observed_at=now_utc())),
+        }
+    )
+    calls = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        calls.append(card)
+        return response(card)
+
+    await router._aresponses_with_streaming_fallbacks(
+        original_function=provider,
+        model="shared",
+        input="Continue",
+        previous_response_id=response(first).id,
+    )
+
+    assert calls == [str(second)]

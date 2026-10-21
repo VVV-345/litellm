@@ -238,7 +238,7 @@ async def test_preflight_quota_rejection_strips_reasoning_before_switching(monke
         router.discard()
 
 @pytest.mark.asyncio
-async def test_preflight_rejection_does_not_switch_server_state_requests(monkeypatch) -> None:
+async def test_preflight_rejection_switches_server_state_requests(monkeypatch) -> None:
     import httpx
 
     from litellm.exceptions import ServiceUnavailableError
@@ -252,8 +252,9 @@ async def test_preflight_rejection_does_not_switch_server_state_requests(monkeyp
     attempts = []
 
     async def provider(**kwargs):
-        attempts.append(kwargs["litellm_metadata"]["model_info"]["id"])
-        raise ServiceUnavailableError(
+        card = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(card)
+        error = ServiceUnavailableError(
             message="no bound account",
             model="shared",
             llm_provider="openai",
@@ -263,6 +264,8 @@ async def test_preflight_rejection_does_not_switch_server_state_requests(monkeyp
                 request=httpx.Request("POST", "http://local/v1/responses"),
             ),
         )
+        error.failed_deployment_id = card
+        raise error
 
     try:
         with pytest.raises(ServiceUnavailableError):
@@ -272,7 +275,7 @@ async def test_preflight_rejection_does_not_switch_server_state_requests(monkeyp
                 input="hello",
                 previous_response_id="resp_old",
             )
-        assert attempts == [str(first)]
+        assert attempts == [str(first), str(second)]
     finally:
         pool_identity.reset(reset)
         snapshots.replace(previous)

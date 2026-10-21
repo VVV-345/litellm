@@ -5118,11 +5118,19 @@ class Router:
         from litellm.types.llms.openai import ResponsesAPIResponse
 
         conversation: Final = await Conversation.start(self, kwargs)
+        preempted: Final = conversation.preempt(self, kwargs) if conversation is not None else None
         replay_token: Final = conversation_replay.set(
-            "safe" if conversation is not None and conversation.can_replay(self, kwargs) else "disabled"
+            "migrated"
+            if preempted is not None
+            else "safe"
+            if conversation is not None and conversation.can_replay(self, kwargs)
+            else "disabled"
         )
         try:
-            response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)  # rebind-ok: Select the original or rebuilt response on exclusive branches.
+            response = await self._ageneric_api_call_with_fallbacks(
+                original_function=original_function,
+                **(dict(preempted) if preempted is not None else kwargs),
+            )
         except Exception as error:
             if conversation is None:
                 raise
@@ -5132,7 +5140,13 @@ class Router:
 
             migrated_token: Final = conversation_replay.set("migrated")
             try:
-                response = await conversation.recover(self, fallback_kwargs, error, invoke_rebuilt)
+                response = await conversation.recover(
+                    self,
+                    preempted if preempted is not None else fallback_kwargs,
+                    error,
+                    invoke_rebuilt,
+                    migrated=preempted is not None,
+                )
             finally:
                 conversation_replay.reset(migrated_token)
         finally:

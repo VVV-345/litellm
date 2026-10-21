@@ -28,6 +28,7 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     now_utc,
     quota_depleted,
     quota_failover_exclusions,
+    quota_freshness,
     snapshot_for,
     unavailable_snapshot,
 )
@@ -348,6 +349,61 @@ class Conversation:
         )
         return signature_recovery_reason(restored) is None
 
+    def preempt(self, router: Router, payload: Mapping[str, object]) -> Mapping[str, object] | None:
+        if not self.relaxed or self.origin is None:
+            return None
+        if payload.get("disable_fallbacks") or payload.get("max_fallbacks", router.max_fallbacks) == 0:
+            return None
+        deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
+        origin: Final = next((item for item in deployments if deployment_id(item) == self.origin), None)
+        if origin is None:
+            return None
+        snapshot: Final = snapshot_for(origin, quota_snapshots.values)
+        if snapshot is None or quota_freshness(snapshot, self.model, now_utc()) != "fresh":
+            return None
+        if not quota_depleted(snapshot, self.model, now_utc()):
+            return None
+        selected: Final = self.history if self.complete_history else self.visible
+        if selected is None:
+            return None
+        input_items: Final = complete_tool_calls(selected)
+        if not input_items:
+            return None
+        excluded: Final = self._excluded(payload, deployments, self.origin)
+        if not any(deployment_id(item) not in excluded for item in deployments):
+            return None
+        verbose_proxy_logger.info(
+            "Account pool preemptive migration; request_id=%s degraded=%s",
+            self.identity.request_id,
+            not self.complete_history,
+        )
+        return self._rebuilt(payload, input_items, excluded)
+
+    def _rebuilt(
+        self,
+        payload: Mapping[str, object],
+        input_items: tuple[Mapping[str, JsonValue], ...],
+        excluded: tuple[str, ...],
+    ) -> Mapping[str, object]:
+        raw_metadata: Final = payload.get("litellm_metadata")
+        metadata: Final = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+        raw_headers: Final = payload.get("headers")
+        headers: Final = dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
+        if not self.complete_history:
+            metadata["account_pool_degraded_continuation"] = "partial-history"
+            headers["x-account-pool-degraded-continuation"] = "partial-history"
+        return MappingProxyType(
+            {
+                **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
+                **({"litellm_metadata": metadata} if metadata else {}),
+                **({"headers": headers} if headers else {}),
+                "input": _INPUT.validate_python(input_items),
+                "_excluded_deployment_ids": excluded,
+                "disable_fallbacks": True,
+                "num_retries": 0,
+            }
+        )
+
     def rebuild(
         self,
         router: Router,
@@ -366,9 +422,11 @@ class Conversation:
         snapshot: Final = snapshot_for(origin, quota_snapshots.values) if origin is not None else None
 
         if self.relaxed:
-            if payload.get("disable_fallbacks") or payload.get("max_fallbacks", router.max_fallbacks) == 0:
+            if not migrated and (
+                payload.get("disable_fallbacks") or payload.get("max_fallbacks", router.max_fallbacks) == 0
+            ):
                 return None
-            if not self._relaxed_trigger(error, snapshot, payload):
+            if not self._relaxed_trigger(error, snapshot):
                 return None
             selected: Final = self.history if self.complete_history else self.visible
             if selected is None:
@@ -384,24 +442,7 @@ class Conversation:
                 self.identity.request_id,
                 not self.complete_history,
             )
-            raw_metadata: Final = payload.get("litellm_metadata")
-            metadata: Final = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
-            raw_headers: Final = payload.get("headers")
-            headers: Final = dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
-            if not self.complete_history:
-                metadata["account_pool_degraded_continuation"] = "partial-history"
-                headers["x-account-pool-degraded-continuation"] = "partial-history"
-            return MappingProxyType(
-                {
-                    **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
-                    **({"litellm_metadata": metadata} if metadata else {}),
-                    **({"headers": headers} if headers else {}),
-                    "input": _INPUT.validate_python(input_items),
-                    "_excluded_deployment_ids": excluded,
-                    "disable_fallbacks": True,
-                    "num_retries": 0,
-                }
-            )
+            return self._rebuilt(payload, input_items, excluded)
 
         if origin is None or snapshot is None:
             return None
@@ -453,10 +494,9 @@ class Conversation:
         self,
         error: Exception,
         snapshot: RoutingSnapshot | None,
-        payload: Mapping[str, object],
     ) -> bool:
         if exception_header(error, "x-account-pool-preflight") == "rejected":
-            return payload.get("previous_response_id") is None
+            return True
         if isinstance(
             error,
             (EncryptedContentOriginUnavailableError, RateLimitError, RouterRateLimitError, RouterRateLimitErrorBasic),
