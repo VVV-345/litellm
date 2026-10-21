@@ -207,6 +207,29 @@ def portable_item(item: Mapping[str, JsonValue]) -> bool:
     )
 
 
+_TOOL_CALL_TYPES: Final = frozenset(("function_call", "custom_tool_call"))
+_TOOL_OUTPUT_TYPES: Final = frozenset(("function_call_output", "custom_tool_call_output"))
+
+
+def complete_tool_calls(items: tuple[Mapping[str, JsonValue], ...]) -> tuple[Mapping[str, JsonValue], ...]:
+    calls: Final = {
+        call_id
+        for item in items
+        if item.get("type") in _TOOL_CALL_TYPES and isinstance(call_id := item.get("call_id"), str)
+    }
+    outputs: Final = {
+        call_id
+        for item in items
+        if item.get("type") in _TOOL_OUTPUT_TYPES and isinstance(call_id := item.get("call_id"), str)
+    }
+    paired: Final = calls & outputs
+    return tuple(
+        item
+        for item in items
+        if item.get("type") not in _TOOL_CALL_TYPES | _TOOL_OUTPUT_TYPES or item.get("call_id") in paired
+    )
+
+
 def retry_exhausted(error: BaseException, depth: int = 0) -> bool:
     headers: Final = getattr(error, "headers", None)
     response: Final = getattr(error, "response", None)
@@ -330,8 +353,11 @@ class Conversation:
                 return None
             if not self._relaxed_trigger(error, snapshot, payload):
                 return None
-            input_items: Final = self.history if self.complete_history else self.visible
-            if input_items is None:
+            selected: Final = self.history if self.complete_history else self.visible
+            if selected is None:
+                return None
+            input_items: Final = complete_tool_calls(selected)
+            if not input_items:
                 return None
             excluded: Final = self._excluded(payload, deployments, failed)
             if not any(deployment_id(item) not in excluded for item in deployments):
@@ -341,9 +367,18 @@ class Conversation:
                 self.identity.request_id,
                 not self.complete_history,
             )
+            raw_metadata: Final = payload.get("litellm_metadata")
+            metadata: Final = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+            raw_headers: Final = payload.get("headers")
+            headers: Final = dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
+            if not self.complete_history:
+                metadata["account_pool_degraded_continuation"] = "partial-history"
+                headers["x-account-pool-degraded-continuation"] = "partial-history"
             return MappingProxyType(
                 {
                     **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
+                    **({"litellm_metadata": metadata} if metadata else {}),
+                    **({"headers": headers} if headers else {}),
                     "input": _INPUT.validate_python(input_items),
                     "_excluded_deployment_ids": excluded,
                     "disable_fallbacks": True,
@@ -383,11 +418,14 @@ class Conversation:
         )
         if not any(deployment_id(item) not in excluded for item in deployments):
             return None
+        history: Final = complete_tool_calls(self.history) if self.history is not None else ()
+        if not history:
+            return None
         verbose_proxy_logger.info("Account pool conversation migration; request_id=%s", self.identity.request_id)
         return MappingProxyType(
             {
                 **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
-                "input": _INPUT.validate_python(self.history),
+                "input": _INPUT.validate_python(history),
                 "_excluded_deployment_ids": excluded,
                 "disable_fallbacks": True,
                 "num_retries": 0,

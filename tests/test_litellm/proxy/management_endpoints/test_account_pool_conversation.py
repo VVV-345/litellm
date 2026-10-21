@@ -746,3 +746,38 @@ async def test_plain_quota_503_degrades_before_output(degraded):
 
     assert len(calls) == 1
     assert "previous_response_id" not in calls[0]
+
+@pytest.mark.asyncio
+async def test_dangling_tool_call_is_dropped_from_replay(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
+        EncryptedContentOriginUnavailableError,
+    )
+
+    router, (first, second) = degraded
+    payload = {
+        "model": "shared",
+        "input": [
+            {"type": "message", "role": "user", "content": "first"},
+            {"type": "message", "role": "assistant", "content": "second"},
+            {"type": "function_call", "call_id": "call-1", "name": "tool", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "call-1", "output": "ok"},
+            {"type": "function_call", "call_id": "call-2", "name": "tool", "arguments": "{}"},
+            {"type": "message", "role": "user", "content": "third"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = EncryptedContentOriginUnavailableError(message="origin unavailable", model="shared", llm_provider="openai")
+    error.failed_deployment_id = str(first)
+    await conversation.recover(router, payload, error, invoke)
+
+    assert len(calls) == 1
+    replay = calls[0]["input"]
+    assert any(item.get("call_id") == "call-1" for item in replay)
+    assert all(item.get("call_id") != "call-2" for item in replay)

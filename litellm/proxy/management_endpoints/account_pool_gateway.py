@@ -294,6 +294,12 @@ class AccountPoolGatewayMiddleware:
                     None if isinstance(control, TrustedControl) else await control.resolve(ResolveRequest(card_key=key))
                 )
                 payload: Final = await read_payload(request)
+                metadata: Final = payload.get("litellm_metadata")
+                degraded: Final = request.headers.get("x-account-pool-degraded-continuation") or (
+                    metadata.get("account_pool_degraded_continuation") if isinstance(metadata, dict) else None
+                )
+                if degraded:
+                    request.state.account_pool_degraded_continuation = str(degraded)
                 model: Final = payload.get("model")
                 if not isinstance(model, str) or not model.strip() or len(model) > 256:
                     raise ValueError("Invalid model")
