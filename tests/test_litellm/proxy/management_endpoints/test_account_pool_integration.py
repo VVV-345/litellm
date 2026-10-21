@@ -973,9 +973,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             else:
                 initial_id = initial.id
             continuation = {"input": "Video editing", "previous_response_id": initial_id}
-            if protocol == "responses_conversation_preflight_bound" or (
-                degraded_continuation and protocol.startswith("responses_conversation_preflight")
-            ):
+            if protocol == "responses_conversation_preflight_bound":
                 from litellm.exceptions import ServiceUnavailableError
 
                 with pytest.raises(ServiceUnavailableError):
