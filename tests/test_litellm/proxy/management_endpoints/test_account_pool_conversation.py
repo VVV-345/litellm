@@ -951,3 +951,34 @@ async def test_router_preempts_before_calling_depleted_origin(degraded):
     )
 
     assert calls == [str(second)]
+
+@pytest.mark.asyncio
+async def test_signed_session_unavailable_replays_visible_history(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
+
+    router, (first, second) = degraded
+    payload = {
+        "model": "shared",
+        "input": [
+            {"type": "message", "role": "user", "content": "first"},
+            {"type": "reasoning", "summary": [{"type": "summary_text", "text": "plan"}], "signature": "signed"},
+            {"type": "message", "role": "assistant", "content": "second"},
+            {"type": "message", "role": "user", "content": "third"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = AccountPoolSessionUnavailableError(message="signed state unavailable", model="shared", llm_provider="account_pool")
+    error.failed_deployment_id = str(first)
+    await conversation.recover(router, payload, error, invoke)
+
+    assert len(calls) == 1
+    assert "previous_response_id" not in calls[0]
+    assert calls[0]["litellm_metadata"]["account_pool_signed_continuation"] is False
+    assert all("signature" not in item for item in calls[0]["input"])

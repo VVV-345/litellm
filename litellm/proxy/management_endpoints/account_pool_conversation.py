@@ -33,7 +33,10 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     unavailable_snapshot,
 )
 from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots as quota_snapshots
-from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
+from litellm.proxy.management_endpoints.account_pool_session import (
+    AccountPoolSessionUnavailableError,
+    has_signed_history,
+)
 from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
 from litellm.responses.utils import ResponsesAPIRequestUtils
 from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
@@ -125,7 +128,8 @@ class ConversationStore:
 def _visible_item(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
     return readable_reasoning(item) if item.get("type") == "reasoning" else MappingProxyType({
         key: content for key, content in item.items()
-        if key not in ("id", "status", "encrypted_content") and content is not None
+        if key not in ("id", "status", "encrypted_content", "signature", "thought_signature", "thoughtSignature", "thinking_blocks")
+        and content is not None
     })
 
 
@@ -160,7 +164,10 @@ def readable_reasoning(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue]
         for key in ("summary", "content")
         if (value := item.get(key)) is not None
     )
-    return MappingProxyType({key: value for key, value in item.items() if key not in ("id", "encrypted_content", "status")}) if readable else None
+    return MappingProxyType({
+        key: value for key, value in item.items()
+        if key not in ("id", "encrypted_content", "status", "signature", "thought_signature", "thoughtSignature", "thinking_blocks")
+    }) if readable else None
 
 
 def compatible_reasoning_input(router: Router, payload: Mapping[str, object], selected: str) -> list[dict[str, JsonValue]] | None:
@@ -387,6 +394,7 @@ class Conversation:
     ) -> Mapping[str, object]:
         raw_metadata: Final = payload.get("litellm_metadata")
         metadata: Final = dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+        metadata["account_pool_signed_continuation"] = False
         raw_headers: Final = payload.get("headers")
         headers: Final = dict(raw_headers) if isinstance(raw_headers, Mapping) else {}
         if not self.complete_history:
@@ -394,7 +402,11 @@ class Conversation:
             headers["x-account-pool-degraded-continuation"] = "partial-history"
         return MappingProxyType(
             {
-                **MappingProxyType({key: value for key, value in payload.items() if key != "previous_response_id"}),
+                **MappingProxyType({
+                    key: value
+                    for key, value in payload.items()
+                    if key not in ("previous_response_id", "_encrypted_content_affinity_pinned")
+                }),
                 **({"litellm_metadata": metadata} if metadata else {}),
                 **({"headers": headers} if headers else {}),
                 "input": _INPUT.validate_python(input_items),
@@ -499,7 +511,13 @@ class Conversation:
             return True
         if isinstance(
             error,
-            (EncryptedContentOriginUnavailableError, RateLimitError, RouterRateLimitError, RouterRateLimitErrorBasic),
+            (
+                AccountPoolSessionUnavailableError,
+                EncryptedContentOriginUnavailableError,
+                RateLimitError,
+                RouterRateLimitError,
+                RouterRateLimitErrorBasic,
+            ),
         ):
             return True
         if exception_header(error, "x-account-pool-failure") in ("quota_exhausted", "rate_limited", "budget_exhausted"):

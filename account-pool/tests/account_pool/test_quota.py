@@ -835,3 +835,19 @@ def test_parse_antigravity_onboard_project_reads_operation_and_completion() -> N
 
     assert pending == (None, "operations/setup-1", False)
     assert completed == ("project-new", None, True)
+
+def test_complete_refresh_marks_snapshot_observed_now() -> None:
+    from account_pool.channels.cliproxyapi.quota_state import _merge_quota_snapshots
+    from account_pool.domain import QuotaWindow
+
+    previous_at: Final = datetime(2026, 9, 14, tzinfo=timezone.utc)
+    attempted_at: Final = previous_at + timedelta(minutes=30)
+    previous: Final = QuotaSnapshot(
+        observed_at=previous_at,
+        windows=(QuotaWindow(name="5 hour", used_percent=0, remaining_percent=100, window_minutes=300),),
+    )
+    active: Final = QuotaSnapshot(refresh_status="complete", refresh_attempted_at=attempted_at)
+
+    merged: Final = _merge_quota_snapshots(previous, QuotaSnapshot(), active)
+
+    assert merged.observed_at == attempted_at
