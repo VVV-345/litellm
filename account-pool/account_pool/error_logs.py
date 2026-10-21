@@ -221,7 +221,8 @@ class ErrorLogService:
         self.retention_days: Final = retention_days
 
     async def spend_by_environment(self) -> dict[UUID, float]:
-        return await self.repository.spend_by_environment()
+        spend = getattr(self.repository, "spend_by_environment", None)
+        return await spend() if spend is not None else {}
 
     async def record(
         self,
