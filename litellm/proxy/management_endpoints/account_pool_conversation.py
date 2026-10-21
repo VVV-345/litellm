@@ -407,6 +407,8 @@ class Conversation:
             (EncryptedContentOriginUnavailableError, RateLimitError, RouterRateLimitError, RouterRateLimitErrorBasic),
         ):
             return True
+        if exception_header(error, "x-account-pool-failure") in ("quota_exhausted", "rate_limited", "budget_exhausted"):
+            return True
         return snapshot is not None and quota_depleted(snapshot, self.model, now_utc())
 
     def _excluded(

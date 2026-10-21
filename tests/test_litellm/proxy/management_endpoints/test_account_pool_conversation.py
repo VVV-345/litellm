@@ -707,3 +707,42 @@ async def test_quota_depleted_snapshot_degrades_full_history(degraded):
 
     assert len(calls) == 1
     assert "previous_response_id" not in calls[0]
+
+@pytest.mark.asyncio
+async def test_plain_quota_503_degrades_before_output(degraded):
+    import httpx
+
+    from litellm.exceptions import ServiceUnavailableError
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+
+    router, (first, second) = degraded
+    payload = {
+        "model": "shared",
+        "input": [
+            {"type": "message", "role": "user", "content": "first"},
+            {"type": "message", "role": "assistant", "content": "second"},
+            {"type": "message", "role": "user", "content": "third"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = ServiceUnavailableError(
+        message="quota exhausted",
+        model="shared",
+        llm_provider="openai",
+        response=httpx.Response(
+            503,
+            headers={"x-account-pool-failure": "quota_exhausted"},
+            request=httpx.Request("POST", "http://local/v1/responses"),
+        ),
+    )
+    error.failed_deployment_id = str(first)
+    await conversation.recover(router, payload, error, invoke)
+
+    assert len(calls) == 1
+    assert "previous_response_id" not in calls[0]

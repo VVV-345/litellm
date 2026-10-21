@@ -90,7 +90,7 @@ async def test_typed_gateway_failure_only_switches_within_authorized_scope(kind,
         router.discard()
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("preflight,expected_attempts", [(True, 2), (False, 1)])
+@pytest.mark.parametrize("preflight,expected_attempts", [(True, 2), (False, 2)])
 async def test_preflight_quota_rejection_switches_cards_with_client_tools(
     preflight: bool, expected_attempts: int, monkeypatch
 ) -> None:
