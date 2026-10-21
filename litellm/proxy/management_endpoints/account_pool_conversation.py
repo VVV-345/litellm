@@ -121,23 +121,35 @@ class ConversationStore:
             verbose_proxy_logger.warning("Account pool conversation cache write failed; response not retained")
 
 
-def visible_input(value: object) -> tuple[Mapping[str, JsonValue], ...] | None:
+def _visible_item(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+    return readable_reasoning(item) if item.get("type") == "reasoning" else MappingProxyType({
+        key: content for key, content in item.items()
+        if key not in ("id", "status", "encrypted_content") and content is not None
+    })
+
+
+def visible_input(value: object, *, lenient: bool = False) -> tuple[Mapping[str, JsonValue], ...] | None:
     if isinstance(value, str):
         return (MappingProxyType({"role": "user", "content": value}),) if value else None
+    if lenient:
+        if not isinstance(value, list):
+            return None
+        try:
+            candidates: Final = tuple(_JSON.validate_python(item) for item in value if isinstance(item, dict))
+        except ValidationError:
+            return None
+        return tuple(
+            kept
+            for item in candidates
+            if portable_item(item) and (kept := _visible_item(item)) is not None
+        ) or None
     try:
         items: Final = _INPUT.validate_python(value)
     except ValidationError:
         return None
     if any(not portable_item(item) for item in items):
         return None
-    return tuple(
-        kept
-        for item in items
-        if (kept := readable_reasoning(item) if item.get("type") == "reasoning" else MappingProxyType({
-            key: content for key, content in item.items()
-            if key not in ("id", "status", "encrypted_content") and content is not None
-        })) is not None
-    )
+    return tuple(kept for item in items if (kept := _visible_item(item)) is not None)
 
 
 def readable_reasoning(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
@@ -293,7 +305,7 @@ class Conversation:
             )
         except ValidationError:
             return None
-        current: Final = visible_input(request.get("input"))
+        current: Final = visible_input(request.get("input"), lenient=relaxed)
         store: Final = ConversationStore(router.cache, secret)
         previous: Final = payload.get("previous_response_id")
         record: Final = await store.load(identity, model, previous) if isinstance(previous, str) else None

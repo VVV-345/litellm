@@ -3605,3 +3605,12 @@ def test_final_lease_rejection_must_not_claim_zero_upstream_calls(with_tools):
     assert len(calls) == 1
     assert response.status_code == 503
     assert "x-account-pool-preflight" not in response.headers
+
+def test_degraded_headers_marker():
+    from types import SimpleNamespace
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import degraded_headers
+
+    request = SimpleNamespace(state=SimpleNamespace(account_pool_degraded_continuation="partial-history"))
+
+    assert degraded_headers(request) == {"x-account-pool-degraded-continuation": "partial-history"}

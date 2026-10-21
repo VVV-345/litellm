@@ -827,3 +827,31 @@ async def test_extra_body_is_preserved_in_replay(degraded):
     await conversation.recover(router, payload, error, invoke)
 
     assert calls[0]["extra_body"] == {"include": ["reasoning.encrypted_content"]}
+
+@pytest.mark.asyncio
+async def test_unsupported_item_does_not_block_degraded_replay(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
+        EncryptedContentOriginUnavailableError,
+    )
+
+    router, (first, second) = degraded
+    payload = {
+        "model": "shared",
+        "input": [
+            {"type": "item_reference", "id": "unsupported"},
+            {"type": "message", "role": "user", "content": "hi"},
+        ],
+    }
+    conversation = await Conversation.start(router, payload)
+    assert conversation is not None
+    calls = []
+
+    async def invoke(value):
+        calls.append(value)
+
+    error = EncryptedContentOriginUnavailableError(message="origin unavailable", model="shared", llm_provider="openai")
+    error.failed_deployment_id = str(first)
+    await conversation.recover(router, payload, error, invoke)
+
+    assert calls[0]["input"] == [{"type": "message", "role": "user", "content": "hi"}]
