@@ -271,9 +271,14 @@ class Conversation:
         identity: Final = pool_identity.get()
         model: Final = payload.get("model")
         secret: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
-        if identity is None or not isinstance(model, str) or len(secret) < 32 or payload.get("extra_body"):
+        relaxed: Final = identity is not None and identity.card_id is None and _degraded_continuation_enabled()
+        if (
+            identity is None
+            or not isinstance(model, str)
+            or len(secret) < 32
+            or (payload.get("extra_body") and not relaxed)
+        ):
             return None
-        relaxed: Final = identity.card_id is None and _degraded_continuation_enabled()
         if not relaxed:
             deployments: Final = router.get_model_list(model_name=model) or ()
             if not any(
