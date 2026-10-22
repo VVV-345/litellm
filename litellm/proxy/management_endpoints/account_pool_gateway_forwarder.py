@@ -309,6 +309,11 @@ def rebuild_headers(request: Request, resolution: Resolution, retryable: bool) -
     )
 
 
+def degraded_headers(request: Request) -> dict[str, str]:
+    value = getattr(request.state, "account_pool_degraded_continuation", None)
+    return {"x-account-pool-degraded-continuation": str(value)} if value else {}
+
+
 async def forward(
     request: Request,
     payload: dict[str, JsonValue],
@@ -991,7 +996,7 @@ async def execute(
                     await JSONResponse(
                         public,
                         status_code=response.status_code,
-                        headers=public_response_headers(response.headers),
+                        headers={**public_response_headers(response.headers), **degraded_headers(request)},
                     )(request.scope, request.receive, attempt.emit)
                 return True
             finally:
@@ -1477,6 +1482,7 @@ async def stream_response(
         media_type="text/event-stream",
         headers={
             **public_response_headers(response.headers),
+            **degraded_headers(request),
             "Cache-Control": "no-store",
             "X-Accel-Buffering": "no",
         },

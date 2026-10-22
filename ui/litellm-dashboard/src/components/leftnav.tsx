@@ -55,6 +55,7 @@ import {
   Settings as SettingsIcon,
   Shield,
   ShieldCheck,
+  MessageSquareText,
   SlidersHorizontal,
   Tags,
   Terminal,
@@ -153,6 +154,13 @@ const menuGroups: MenuGroup[] = [
         page: "policy-center",
         label: "Policy Center",
         icon: <SlidersHorizontal {...ICON} />,
+        roles: proxyAdminRoles,
+      },
+      {
+        key: "feedback",
+        page: "feedback",
+        label: "Feedback Center",
+        icon: <MessageSquareText {...ICON} />,
         roles: proxyAdminRoles,
       },
       {

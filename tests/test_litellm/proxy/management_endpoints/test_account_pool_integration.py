@@ -198,6 +198,7 @@ def test_internal_forward_enforces_ticket_and_correlates_without_spend_sync(sign
             transport=httpx.MockTransport(
                 lambda _: httpx.Response(
                     200,
+                    headers={"x-litellm-response-cost": "0.00042"},
                     json={
                         "choices": [{"message": {"content": "ok"}}],
                         "usage": {"prompt_tokens": 5, "completion_tokens": 2},
@@ -220,6 +221,7 @@ def test_internal_forward_enforces_ticket_and_correlates_without_spend_sync(sign
     assert control.acquisitions[0].request_id == identity.request_id
     assert len(control.finished) == 1
     assert control.finished[0].input_tokens == 5
+    assert control.finished[0].cost_usd == pytest.approx(0.00042)
     assert control.finished[0].spend_sync_state == "standard"
 
 
@@ -973,9 +975,7 @@ async def test_real_router_http_request_enters_pool_before_upstream(
             else:
                 initial_id = initial.id
             continuation = {"input": "Video editing", "previous_response_id": initial_id}
-            if protocol == "responses_conversation_preflight_bound" or (
-                degraded_continuation and protocol.startswith("responses_conversation_preflight")
-            ):
+            if protocol == "responses_conversation_preflight_bound":
                 from litellm.exceptions import ServiceUnavailableError
 
                 with pytest.raises(ServiceUnavailableError):

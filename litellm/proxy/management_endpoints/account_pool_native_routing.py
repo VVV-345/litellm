@@ -281,20 +281,8 @@ def unavailable_reason(snapshot: RoutingSnapshot, model: str, now: datetime) -> 
         return "model_cooldown"
     if snapshot.subscription_active_until is not None and snapshot.subscription_active_until <= now:
         return "subscription_expired"
-    quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
     if quota_depleted(snapshot, model, now):
         return "quota_exhausted"
-    reserves: Final = tuple(window_reserve(snapshot, window.window_minutes) for window in quota.windows)
-    if max(reserves, default=snapshot.quota_reserve_percent) == 0:
-        return None
-    remaining, _ = quota.effective(now)
-    if remaining is None:
-        return "quota_snapshot_missing"
-    freshness: Final = quota_freshness(snapshot, model, now)
-    if freshness == "missing":
-        return "quota_snapshot_missing"
-    if freshness == "expired":
-        return "quota_snapshot_expired"
     return None
 
 
@@ -351,7 +339,7 @@ def explain(card_id: UUID, snapshot: RoutingSnapshot, model: str, now: datetime)
                 else f"active until {snapshot.subscription_active_until.isoformat()}",
             ),
             RoutingGateStatus(gate="quota", passed=not quota_depleted(snapshot, model, now)),
-            RoutingGateStatus(gate="freshness", passed=freshness in ("fresh", "stale"), detail=freshness),
+            RoutingGateStatus(gate="freshness", passed=True, detail=freshness),
         ),
     )
 

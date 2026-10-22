@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import PolicyCenterPage from "./page";
 
 const getSettings = vi.fn();
+const getRoutingStatus = vi.fn();
 const updateSettings = vi.fn();
 const resetPolicy = vi.fn();
 const listPolicies = vi.fn();
@@ -43,6 +44,7 @@ vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (importOri
   const original = await importOriginal<typeof import("@/features/account-pool/api/AccountPoolManagementApi")>();
   return {
     ...original,
+    getAccountPoolRoutingStatus: (...args: unknown[]) => getRoutingStatus(...args),
     getAccountPoolSettings: (...args: unknown[]) => getSettings(...args),
     updateAccountPoolSettings: (...args: unknown[]) => updateSettings(...args),
     resetAccountPolicy: (...args: unknown[]) => resetPolicy(...args),
@@ -146,6 +148,20 @@ describe("policy center", () => {
       }),
       "policy",
     );
+  });
+
+  it("shows stale quota data as informational rather than an interception", async () => {
+    const routingStatus = { eligible: true, resolved_model: "gpt-5", age_seconds: 1000,
+      max_age_seconds: 300, stale_grace_seconds: 900, inherits_global: true, windows: [],
+      gates: [{ gate: "freshness", passed: true, detail: "expired" }] };
+    getRoutingStatus.mockResolvedValue(routingStatus);
+    renderPage();
+    const trigger = await screen.findByText("选择卡片");
+    fireEvent.click(trigger);
+    fireEvent.click(await screen.findByRole("option", { name: "继承卡片" }));
+    fireEvent.click(screen.getByRole("button", { name: "查看判定" }));
+    expect(await screen.findByText("额度数据状态：已过期，仅供参考（不单独拦截）")).toBeInTheDocument();
+    expect(screen.getByText("可用")).toBeInTheDocument();
   });
 
   it("hides the policy center from non-admin roles", () => {

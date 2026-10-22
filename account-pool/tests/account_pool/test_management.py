@@ -159,6 +159,13 @@ class MemoryLogs:
             recent_errors=tuple(event for event in matching if event.final_status == "failed")[-10:],
         )
 
+    async def spend_by_environment(self) -> dict[UUID, float]:
+        totals: dict[UUID, float] = {}
+        for event in self.events:
+            if event.operation == MODEL_REQUEST_OPERATION and event.cost_usd is not None:
+                totals[event.environment_id] = totals.get(event.environment_id, 0.0) + event.cost_usd
+        return totals
+
     async def prune(self, before: datetime, limit: int | None = None) -> None:
         self.events = tuple(event for event in self.events if event.occurred_at >= before)
 

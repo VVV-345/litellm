@@ -287,6 +287,13 @@ class HttpCLIProxyClient:
             if passive_model_quotas
             else record.model_quotas
         )
+        if refreshed_quota is not None and refreshed_quota.quota.refresh_status == "complete":
+            observed = datetime.now(timezone.utc)
+            quota = quota.model_copy(update={"observed_at": observed})
+            model_quotas = tuple(
+                item.model_copy(update={"quota": item.quota.model_copy(update={"observed_at": observed})})
+                for item in model_quotas
+            )
         now: Final = datetime.now().astimezone()
         model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
         model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)

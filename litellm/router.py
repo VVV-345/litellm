@@ -5118,21 +5118,37 @@ class Router:
         from litellm.types.llms.openai import ResponsesAPIResponse
 
         conversation: Final = await Conversation.start(self, kwargs)
+        preempted: Final = conversation.preempt(self, kwargs) if conversation is not None else None
         replay_token: Final = conversation_replay.set(
-            "safe" if conversation is not None and conversation.can_replay(self, kwargs) else "disabled"
+            "migrated"
+            if preempted is not None
+            else "safe"
+            if conversation is not None and conversation.can_replay(self, kwargs)
+            else "disabled"
         )
+        async def invoke_rebuilt(payload: Mapping[str, object]) -> ResponsesAPIResponse | BaseResponsesAPIStreamingIterator:
+            result: Final = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **payload)
+            if conversation is not None and kwargs.get("stream") and isinstance(result, AsyncIterator):
+                prepared: Final = ConversationStream(result, conversation)
+                await prepared.prepare()
+                return prepared
+            return result
+
         try:
-            response = await self._ageneric_api_call_with_fallbacks(original_function=original_function, **kwargs)  # rebind-ok: Select the original or rebuilt response on exclusive branches.
+            response = await invoke_rebuilt(dict(preempted) if preempted is not None else kwargs)
         except Exception as error:
             if conversation is None:
                 raise
 
-            async def invoke_rebuilt(payload: Mapping[str, object]) -> ResponsesAPIResponse | BaseResponsesAPIStreamingIterator:
-                return await self._ageneric_api_call_with_fallbacks(original_function=original_function, **payload)
-
             migrated_token: Final = conversation_replay.set("migrated")
             try:
-                response = await conversation.recover(self, fallback_kwargs, error, invoke_rebuilt)
+                response = await conversation.recover(
+                    self,
+                    preempted if preempted is not None else fallback_kwargs,
+                    error,
+                    invoke_rebuilt,
+                    migrated=preempted is not None,
+                )
             finally:
                 conversation_replay.reset(migrated_token)
         finally:
@@ -5141,8 +5157,8 @@ class Router:
         if conversation is not None and isinstance(response, ResponsesAPIResponse):
             await conversation.complete(response)
 
-        if conversation is not None and isinstance(response, BaseResponsesAPIStreamingIterator):
-            return ConversationStream(response, conversation)
+        if isinstance(response, ConversationStream):
+            return response
 
         if (kwargs.get("litellm_metadata") or kwargs.get("metadata") or {}).get("account_pool_attempt"):
             return response

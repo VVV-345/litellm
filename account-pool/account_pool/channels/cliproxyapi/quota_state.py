@@ -35,6 +35,8 @@ def _merge_quota_snapshots(
             if active_failed
             else active.observed_at
             if active is not None and active.observed_at is not None
+            else active.refresh_attempted_at
+            if active is not None and active.refresh_status == "complete" and active.refresh_attempted_at is not None
             else passive.observed_at or previous.observed_at
         ),
         refresh_attempted_at=(

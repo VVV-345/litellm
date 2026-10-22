@@ -549,11 +549,13 @@ class DeploymentAffinityCheck(CustomLogger):
                                 AccountPoolSessionUnavailableError,
                             )
 
-                            raise AccountPoolSessionUnavailableError(
+                            error: Final = AccountPoolSessionUnavailableError(
                                 message="The account holding this conversation's signed state is unavailable. Retry later or start a new conversation.",
                                 model=model,
                                 llm_provider="account_pool",
                             )
+                            error.failed_deployment_id = session_model_id
+                            raise error
                         winner_id: Final = await self._forget_pin(session_cache_key, session_model_id)
                         winner_deployment: Final = self._find_deployment_by_model_id(  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]  # Preserve deployment identity from the legacy dict lookup.
                             healthy_deployments=typed_healthy_deployments, model_id=winner_id

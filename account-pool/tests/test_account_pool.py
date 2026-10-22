@@ -926,7 +926,20 @@ _FAKE_CLIPROXY_DEFINITION: Final = ChannelDefinition(
 )
 
 
-def _service(record: EnvironmentRecord, cli: FakeCLIProxy, tmp_path: Path) -> EnvironmentService:
+class _SpendLogs:
+    def __init__(self, spend: dict[UUID, float]) -> None:
+        self._spend: Final = spend
+
+    async def spend_by_environment(self) -> dict[UUID, float]:
+        return self._spend
+
+
+def _service(
+    record: EnvironmentRecord,
+    cli: FakeCLIProxy,
+    tmp_path: Path,
+    error_logs: ErrorLogService | None = None,
+) -> EnvironmentService:
     runtime: Final = FakeRuntime()
     return EnvironmentService(
         settings=_settings(tmp_path),
@@ -936,7 +949,20 @@ def _service(record: EnvironmentRecord, cli: FakeCLIProxy, tmp_path: Path) -> En
         proxy_profiles=EmptyProfiles(),
         secrets=EnvironmentSecretDeriver("s" * 32),
         channels=_fake_channels(runtime, cli),
+        error_logs=error_logs,
     )
+
+
+@pytest.mark.asyncio
+async def test_environment_listing_includes_card_spend(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    service: Final = _service(
+        record, FakeCLIProxy(), tmp_path, error_logs=_SpendLogs({record.id: 1.25})
+    )
+
+    views: Final = await service.list_environments()
+
+    assert views[0].spend_usd == 1.25
 
 
 @pytest.mark.asyncio

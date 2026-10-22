@@ -358,7 +358,7 @@ def test_stream_quota_switches_but_transient_limit_retries_before_output(quota: 
 
 
 def test_unknown_reserved_quota_is_not_reported_as_confirmed_exhaustion() -> None:
-    client, control = setup_gateway(lambda _: pytest.fail("unknown quota must not pass the reserve policy"))
+    client, control = setup_gateway(lambda _: httpx.Response(200, json={"id": "resp_probe", "output": []}))
     control.resolution = control.resolution.model_copy(
         update={
             "policy": AccountPolicy(routing=RoutingPolicy(quota_reserve_percent=10)),
@@ -366,9 +366,9 @@ def test_unknown_reserved_quota_is_not_reported_as_confirmed_exhaustion() -> Non
     )
     with client:
         result = client.post("/v1/responses", json={"model": "model-a"}, headers={"Authorization": f"Bearer {_KEY}"})
-    assert result.status_code == 503
-    assert result.json()["error"]["code"] == "account_pool_account_unavailable"
-    assert result.headers["x-account-pool-failure"] == "account_unavailable"
+    assert result.status_code == 200
+    assert result.json()["id"] == "resp_probe"
+    assert "x-account-pool-failure" not in result.headers
 
 
 @pytest.mark.parametrize("code,status", [("auth_unavailable", 503), ("model_not_found", 400), ("model_cooldown", 429)])
@@ -1094,7 +1094,7 @@ def test_plan_rank_supports_verified_non_codex_tiers(plan_type: str, expected: i
     assert plan_rank(candidate(uuid4(), plan_type=plan_type)) == expected
 
 
-def test_rejection_reports_expired_quota_snapshot() -> None:
+def test_expired_quota_snapshot_does_not_reject_available_account() -> None:
     now: Final = datetime.now(timezone.utc)
     account: Final = candidate(uuid4()).model_copy(
         update={
@@ -1116,11 +1116,9 @@ def test_rejection_reports_expired_quota_snapshot() -> None:
         candidates=(account,),
     )
 
-    assert routes(resolution, "model-a", "/v1/responses", Headers()) == Rejected(
-        503,
-        "No bound account currently supports this model and policy",
-        "account_pool_quota_snapshot_expired",
-    )
+    selected = routes(resolution, "model-a", "/v1/responses", Headers())
+    assert not isinstance(selected, Rejected)
+    assert selected[0].account.id == account.id
 
 def test_model_quota_applies_only_to_the_routed_model() -> None:
     observed_at: Final = datetime.now(timezone.utc)
@@ -2843,6 +2841,13 @@ def test_signature_recovery_keeps_complete_client_tool_history(stream, style):
     assert "signature_recovery" in control.finished[0].detail
 
 
+def test_image_tool_declaration_does_not_enable_generic_same_card_retry() -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import failover_rebuildable, same_card_replay_safe
+    payload = {"input": [{"role": "user", "content": "Draw a dot"}], "tools": [{"type": "image_generation"}]}
+    assert failover_rebuildable(payload)
+    assert not same_card_replay_safe(payload)
+
+
 def test_signature_recovery_promotes_codex_additional_tools_and_drops_control_items() -> None:
     from litellm.litellm_core_utils.signature_recovery import recover_signature_history
 
@@ -3605,3 +3610,34 @@ def test_final_lease_rejection_must_not_claim_zero_upstream_calls(with_tools):
     assert len(calls) == 1
     assert response.status_code == 503
     assert "x-account-pool-preflight" not in response.headers
+
+def test_degraded_headers_marker():
+    from types import SimpleNamespace
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import degraded_headers
+
+    request = SimpleNamespace(state=SimpleNamespace(account_pool_degraded_continuation="partial-history"))
+
+    assert degraded_headers(request) == {"x-account-pool-degraded-continuation": "partial-history"}
+
+
+@pytest.mark.parametrize("image_tool", [False, True])
+def test_image_history_signature_recovery_preserves_result(image_tool):
+    png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
+    captured = []
+    def upstream(request):
+        captured.append(json.loads(request.content))
+        if len(captured) == 1:
+            return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid", "message": "invalid signature"}})
+        return httpx.Response(200, json={"id": "resp_ok", "object": "response", "output": []})
+    client, _ = setup_gateway(upstream, max_attempts=3)
+    history = [{"role": "user", "content": "hello"} for _ in range(151)] + [
+        {"type": "reasoning", "encrypted_content": "foreign-state"},
+        {"type": "image_generation_call", "id": "ig_original", "status": "completed", "result": png},
+    ]
+    with client:
+        result = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json={"model": "model-a", "input": history, **({"tools": [{"type": "image_generation"}]} if image_tool else {})})
+    assert result.status_code == 200
+    assert len(captured) == 2
+    assert all("encrypted_content" not in item for item in captured[-1]["input"])
+    assert any(block.get("image_url") == "data:image/png;base64,"+png for item in captured[-1]["input"] for block in item.get("content", []) if isinstance(block, dict))

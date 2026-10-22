@@ -71,6 +71,7 @@ def safe_signature_recovery(payload: Mapping[str, JsonValue]) -> dict[str, JsonV
 def signature_recovery_message(reason: str | None) -> str:
     category: Final = (reason or "no_removable_state").split(":", 1)[0]
     explanation: Final = {
+        "image_result_unavailable": "历史图片生成记录缺少可读取的完整图片结果，不能丢弃图片后继续会话",
         "encrypted_compaction": "会话包含加密的压缩上下文，当前上游无法读取，不能直接删除而丢失上下文",
         "server_item_reference": "会话引用了原上游保存的消息，当前上游无法读取这些消息",
         "server_state_required": "请求依赖原上游保存的会话状态，无法在当前上游重建",

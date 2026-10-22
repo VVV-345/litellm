@@ -198,6 +198,8 @@ class ErrorLogRepository(Protocol):
         self, card_id: UUID | None, account_id: UUID | None, model: str | None, query: ErrorLogQuery | None = None
     ) -> ErrorStats: ...
 
+    async def spend_by_environment(self) -> dict[UUID, float]: ...
+
     async def prune(self, before: datetime, limit: int | None = None) -> int: ...
 
     async def limit_rows(self, max_rows: int) -> int: ...
@@ -217,6 +219,10 @@ class ErrorLogService:
         self.settings: Final = settings
         self.repository: Final = repository
         self.retention_days: Final = retention_days
+
+    async def spend_by_environment(self) -> dict[UUID, float]:
+        spend = getattr(self.repository, "spend_by_environment", None)
+        return await spend() if spend is not None else {}
 
     async def record(
         self,

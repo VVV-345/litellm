@@ -11,6 +11,9 @@
     "save": "保存反馈",
     "refresh": "刷新",
     "stats": "反馈统计",
+    "hints": {
+      "description": "说明现象和影响，便于复现"
+    },
     "filter": "状态筛选",
     "searchLabel": "搜索反馈",
     "search": "搜索",
@@ -23,6 +26,7 @@
     "action": "处理动作",
     "applyAction": "执行{{action}}",
     "attachments": {
+      "remove": "移除",
       "label": "附件",
       "title": "附件",
       "formats": "PNG、JPEG、WebP、PDF、TXT、LOG，每个文件最多 10 MiB",
@@ -6543,6 +6547,7 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "整个组可支出的总额。共享支出达到上限后，所有使用该组的密钥都会被拒绝"
   },
   "accountPool": {
+    "spendUsed": "已用 {{amount}}",
     "modelTest": {
       "title": "测试 {{name}} 的模型连接",
       "short": "测试连接",
@@ -7401,7 +7406,7 @@
         "weight": "使用随机策略时的相对概率，数值越大越容易被选中",
         "session_affinity_ttl": "会话粘性保持原账号的时间；到期后会重新选择可用账号",
         "quota_reserve_percent": "剩余额度达到或低于该比例时停止向此账号分配新请求，用于保留安全余量",
-        "quota_snapshot_max_age": "额度数据超过该时间后视为过期；启用额度保留时按最后已知值降级使用，超过三个有效期才排除；实际生效值不低于两个额度刷新周期",
+        "quota_snapshot_max_age": "额度数据超过该时间后标为过期，仅影响数据可信度，不单独停止路由；已知额度触线仍会换卡；实际生效值不低于两个额度刷新周期",
         "token_budget_limit": "限制单个账号在一个预算窗口内可使用的 Token 总量，并计入正在处理请求的预估用量",
         "token_budget_window_seconds": "本地 Token 预算的固定统计周期，周期结束后自动重新计算",
         "max_attempts": "一次请求最多尝试的次数，包含同卡重试和换卡尝试，上限 5；成功即停止，已输出或有状态请求不自动重放",
@@ -7691,6 +7696,7 @@
     }
   },
   "nav": {
+    "feedback": "反馈中心",
     "groups": {
       "aiGateway": "AI 网关",
       "observability": "可观测性",

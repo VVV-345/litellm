@@ -317,7 +317,7 @@ class RequestLog:
     async def finish(self, result: FinishRequest) -> FinishRequest:
         enriched: Final = result.model_copy(
             update={
-                "cost_usd": None if self.standard_accounting else result.cost_usd,
+                "cost_usd": result.cost_usd,
                 "session_id": self.session_id,
                 "proxy_endpoint": self.proxy_endpoint,
                 "input_tokens": self.input_tokens if self.input_tokens is not None else result.input_tokens,
@@ -330,9 +330,19 @@ class RequestLog:
                 else result.cache_creation_input_tokens,
             }
         )
-        estimate: Final = estimate_cost(enriched, self.price, self.usage, self.service_tier)
+        upstream_estimate: Final = estimate_cost(enriched, self.price, self.usage, self.service_tier)
+        estimate: Final = (
+            estimate_cost(enriched.model_copy(update={"cost_usd": None}), self.price, self.usage, self.service_tier)
+            if self.standard_accounting
+            else upstream_estimate
+        )
+        estimate_with_fallback: Final = (
+            upstream_estimate
+            if estimate.cost_usd is None and upstream_estimate.cost_usd is not None
+            else estimate
+        )
         priced: Final = (
-            estimate.model_copy(
+            estimate_with_fallback.model_copy(
                 update={
                     "cost_usd": self.websocket_cost
                     if self.websocket_cost_known and self.responses and not self.websocket_pending
@@ -343,7 +353,7 @@ class RequestLog:
                 }
             )
             if self.transport == "websocket"
-            else estimate
+            else estimate_with_fallback
         )
         synced: Final = await self._sync(priced)
         keep_full: Final = self.enabled and (

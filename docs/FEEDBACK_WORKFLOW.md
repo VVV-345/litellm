@@ -31,6 +31,8 @@ python scripts/feedback.py claim 445f2264-762b-453e-aed9-f7756d04a033 --revision
 
 认领将 pending 变为 in_progress，token 对应服务端 actor。先复现、完成最小修复和测试，再把实际命令、输入、stdout、stderr、退出码和验证范围写入本地 UTF-8 文件。提交修复必须显式给出说明、7..64 位十六进制提交号以及非空验证文件，不凭空填写提交号或测试结果
 
+修复及本地验证通过后先 commit；只有收到用户明确的 push / 推送命令后才推送。回写本地提交时注明“本地已提交，尚未推送”，推送后再记录实际 Actions 结果，不把本地验证当作远端验证
+
 ```sh
 python scripts/feedback.py note 445f2264-762b-453e-aed9-f7756d04a033 --revision 2 --summary "已复现，正在验证修复"
 python scripts/feedback.py submit-fix 445f2264-762b-453e-aed9-f7756d04a033 --revision 3 --summary "修复说明及影响范围" --commit abcdef1234567 --verification-file verification.txt

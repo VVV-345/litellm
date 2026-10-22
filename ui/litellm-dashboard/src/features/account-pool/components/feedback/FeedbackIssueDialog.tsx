@@ -17,7 +17,7 @@ import {
   type FeedbackIssue,
 } from "../../api/AccountPoolFeedbackApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
-import { FEEDBACK_FIELDS, feedbackFormPayload } from "./feedbackFields";
+import { feedbackFormPayload } from "./feedbackFields";
 
 interface Props {
   accessToken: string;
@@ -26,6 +26,8 @@ interface Props {
   onClose: () => void;
   onSaved: () => void;
 }
+
+const formatBytes = (bytes: number): string => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`);
 
 export function FeedbackIssueDialog({ accessToken, issue, pagePath = "", onClose, onSaved }: Props) {
   const { t } = useTranslation();
@@ -68,31 +70,81 @@ export function FeedbackIssueDialog({ accessToken, issue, pagePath = "", onClose
   };
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" aria-describedby={undefined}>
-        <DialogHeader><DialogTitle>{t(issue ? "feedback.edit" : "feedback.create")}</DialogTitle></DialogHeader>
-        <form onSubmit={save} className="grid gap-4">
-          {FEEDBACK_FIELDS.map((field) => (
-            <div key={field.name} className="grid gap-2">
-              <Label htmlFor={`feedback-${field.name}`}>{t(`feedback.fields.${field.name}`)}</Label>
-              {"multiline" in field ? (
-                <Textarea id={`feedback-${field.name}`} name={field.name} maxLength={field.maxLength}
-                  required={"required" in field && field.required} defaultValue={issue?.[field.name] ?? ""} />
-              ) : (
-                <Input id={`feedback-${field.name}`} name={field.name} maxLength={field.maxLength}
-                  required={"required" in field && field.required}
-                  defaultValue={issue?.[field.name] ?? (field.name === "page_path" ? pagePath : "")}
-                  pattern={field.name === "page_path" ? "(/[^?#]*)?" : undefined} />
-              )}
-            </div>
-          ))}
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>{t(issue ? "feedback.edit" : "feedback.create")}</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={save} className="grid gap-5">
           <div className="grid gap-2">
-            <Label htmlFor="feedback-priority">{t("feedback.fields.priority")}</Label>
-            <Select name="priority" defaultValue={issue?.priority ?? "normal"}>
-              <SelectTrigger id="feedback-priority"><SelectValue /></SelectTrigger>
-              <SelectContent>{["high", "normal", "low"].map((value) => (
-                <SelectItem key={value} value={value}>{t(`feedback.priority.${value}`)}</SelectItem>
-              ))}</SelectContent>
-            </Select>
+            <Label htmlFor="feedback-title">{t("feedback.fields.title")}</Label>
+            <Input
+              id="feedback-title"
+              name="title"
+              maxLength={200}
+              required
+              autoFocus
+              defaultValue={issue?.title ?? ""}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="feedback-description">{t("feedback.fields.description")}</Label>
+            <Textarea
+              id="feedback-description"
+              name="description"
+              maxLength={8000}
+              rows={4}
+              required
+              defaultValue={issue?.description ?? ""}
+            />
+            <p className="text-xs text-muted-foreground">{t("feedback.hints.description")}</p>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="feedback-steps">{t("feedback.fields.steps")}</Label>
+            <Textarea
+              id="feedback-steps"
+              name="steps"
+              maxLength={8000}
+              rows={4}
+              defaultValue={issue?.steps ?? ""}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="feedback-module">{t("feedback.fields.module")}</Label>
+              <Input id="feedback-module" name="module" maxLength={80} defaultValue={issue?.module ?? ""} />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="feedback-page_path">{t("feedback.fields.page_path")}</Label>
+              <Input
+                id="feedback-page_path"
+                name="page_path"
+                maxLength={512}
+                pattern="(/[^?#]*)?"
+                defaultValue={issue?.page_path ?? pagePath}
+              />
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="feedback-discovered_version">{t("feedback.fields.discovered_version")}</Label>
+              <Input
+                id="feedback-discovered_version"
+                name="discovered_version"
+                maxLength={160}
+                defaultValue={issue?.discovered_version ?? ""}
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="feedback-priority">{t("feedback.fields.priority")}</Label>
+              <Select name="priority" defaultValue={issue?.priority ?? "normal"}>
+                <SelectTrigger id="feedback-priority"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {["high", "normal", "low"].map((value) => (
+                    <SelectItem key={value} value={value}>{t(`feedback.priority.${value}`)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="grid gap-2">
             <Label htmlFor="feedback-attachments">{t("feedback.attachments.label")}</Label>
@@ -105,11 +157,23 @@ export function FeedbackIssueDialog({ accessToken, issue, pagePath = "", onClose
               multiple
               onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []))}
             />
-            <p className="text-sm text-muted-foreground">{t("feedback.attachments.formats")}</p>
-            {selectedFiles.map((file) => <p key={`${file.name}-${file.lastModified}`}>{file.name} ({file.size} B)</p>)}
+            <p className="text-xs text-muted-foreground">{t("feedback.attachments.formats")}</p>
+            {selectedFiles.map((file) => (
+              <div key={`${file.name}-${file.lastModified}`} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                <span className="truncate">{file.name} ({formatBytes(file.size)})</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedFiles((files) => files.filter((selected) => selected !== file))}
+                >
+                  {t("feedback.attachments.remove")}
+                </Button>
+              </div>
+            ))}
           </div>
           {error && <p role="alert" className="text-destructive">{error}</p>}
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-end gap-2 border-t pt-4">
             <Button type="button" variant="outline" disabled={busy} onClick={onClose}>{t("common.cancel")}</Button>
             <Button type="submit" disabled={busy}>{t("feedback.save")}</Button>
           </div>
