@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "cliproxyapi": {
+    "repository": "https://github.com/VVV-345/CLIProxyAPI.git",
+    "commit": "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
+  },
+  "cockpit": {
+    "repository": "https://github.com/jlcodes99/cockpit-tools.git",
+    "commit": "76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4",
+    "license": "CC-BY-NC-SA-4.0"
+  },
+  "official_upstream_observed_head": "ceb045a129d43f805e93a5e4aef3a59b108f34f7",
+  "observed_date": "2026-10-23"
+}
