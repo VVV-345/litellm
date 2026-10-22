@@ -375,6 +375,7 @@ class GatewayService:
                     else 0,
                 ),
                 model_succeeded=not failed,
+                timeout_failure=request.http_status == 504,
                 clear_sessions=request.failure_reason in ("quota_exhausted", "account_unavailable"),
             )
             if request.failure_reason == "quota_exhausted" and self.on_quota_exhausted is not None:

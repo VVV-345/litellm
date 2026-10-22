@@ -364,6 +364,7 @@ export default function DashboardWarmup({
   const shouldWarmup = Boolean(accessToken && mode === "ai-gateway");
   const warmupKey = shouldWarmup ? `${accessToken}:${userID}:${userRole}:${attempt}` : null;
   const ready = !shouldWarmup || readyKey === warmupKey;
+  const disabledPagesKey = JSON.stringify(disabledPages);
 
   useEffect(() => {
     if (!accessToken || mode !== "ai-gateway") {
@@ -388,13 +389,13 @@ export default function DashboardWarmup({
         if (next.stage !== "primary") setReadyKey(warmupKey);
       },
       controller.signal,
-      disabledPages,
+      JSON.parse(disabledPagesKey) as string[],
     );
     return () => {
       controller.abort();
       window.removeEventListener(SESSION_RESET_EVENT, stop);
     };
-  }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPages]);
+  }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPagesKey]);
 
   const retry = () => setAttempt((value) => value + 1);
   if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} />;

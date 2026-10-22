@@ -506,7 +506,7 @@ class TestChunkTransformation:
             completed_event
         )
         assert len(messages) == 1
-        assert messages[0]["content"][0]["text"] == "Part 1. Part 2."
+        assert messages == completed_event["response"]["output"]
 
     def test_extract_output_messages_with_function_calls(self):
         """Test that function calls are preserved"""
@@ -537,7 +537,7 @@ class TestChunkTransformation:
         assert messages[0]["id"] == "call_123"
         assert messages[0]["name"] == "get_weather"
 
-    def test_extract_output_messages_filters_empty_text(self):
+    def test_extract_output_messages_preserves_empty_text(self):
         """Test that messages with empty text are filtered out"""
         from litellm.responses.streaming_iterator import (
             ManagedResponsesWebSocketHandler,
@@ -565,8 +565,7 @@ class TestChunkTransformation:
         messages = ManagedResponsesWebSocketHandler._extract_output_messages(
             completed_event
         )
-        assert len(messages) == 1
-        assert messages[0]["content"][0]["text"] == "Valid text"
+        assert messages == completed_event["response"]["output"]
 
     def test_extract_output_messages_handles_non_dict_items(self):
         """Test that non-dict items are skipped"""
@@ -955,7 +954,7 @@ class TestMultiTurnSessionHistory:
             completed_event
         )
         assert len(messages) == 1
-        assert messages[0]["content"][0]["text"] == "Part 1Part 2"
+        assert messages == completed_event["response"]["output"]
 
     def test_extract_response_id_from_completed_event(self):
         """Test extraction of response ID from completed event"""
@@ -2461,7 +2460,7 @@ class TestWebSocketChunkTypes:
             completed_event
         )
         assert len(messages) == 1
-        assert messages[0]["content"][0]["text"] == "Part 1Part 2"
+        assert messages == completed_event["response"]["output"]
 
 
 class TestNativeWebSocketUrlConstruction:
@@ -2619,3 +2618,50 @@ class TestNativeWebSocketUrlConstruction:
         mock_config.get_websocket_url.assert_called_once()
         _, call_kwargs = mock_config.get_websocket_url.call_args
         assert call_kwargs["litellm_params"]["api_version"] == "2025-04-01-preview"
+
+
+def handler():
+    from litellm.responses.streaming_iterator import ManagedResponsesWebSocketHandler
+
+    return ManagedResponsesWebSocketHandler(websocket=MagicMock(), model='openai/test-model', logging_obj=MagicMock())
+
+
+@pytest.mark.parametrize('full_replay', [False, True], ids=['delta-control', 'full-reconnect'])
+def test_managed_websocket_reconnect_history_is_not_duplicated(full_replay):
+    ws = handler()
+    prior = [{'type': 'message', 'id': f'm{i}', 'role': 'assistant' if i == 2 else 'user', 'content': str(i)} for i in range(1, 4)]
+    latest = {'type': 'message', 'id': 'm4', 'role': 'user', 'content': '4'}
+    current = [*prior, latest] if full_replay else [latest]
+    kwargs = {'input': current}
+    ws._apply_history(kwargs, 'resp_parent', current, prior)
+    observed = [item['content'] for item in kwargs['input']]
+    assert observed == ['1', '2', '3', '4']
+
+
+def test_managed_websocket_save_does_not_persist_duplicate_history():
+    ws = handler()
+    prior = [{'role': 'user', 'content': str(i)} for i in range(1, 4)]
+    current = [*prior, {'role': 'user', 'content': '4'}]
+    event = {'type': 'response.completed', 'response': {'id': 'resp_reconnected', 'output': []}}
+    ws._save_turn_history(event, prior, current)
+    observed = [item['content'] for item in ws._get_history_messages('resp_reconnected')]
+    assert observed == ['1', '2', '3', '4']
+
+
+def test_managed_websocket_retains_all_output_fields():
+    output = [
+        {"type": "message", "id": "m1", "role": "assistant", "content": [{"type": "refusal", "refusal": "no"}]},
+        {"type": "custom_tool_call", "call_id": "c1", "name": "custom", "input": "raw"},
+        {"type": "image_generation_call", "id": "image", "result": "base64"},
+        {"type": "future_output", "payload": {"x": 1}},
+    ]
+    assert handler()._extract_output_messages({"response": {"output": output}}) == output
+
+
+def test_managed_websocket_preserves_repeated_delta():
+    ws = handler()
+    prior = [{"role": "user", "content": "repeat"}, {"role": "assistant", "content": "repeat"}]
+    current = [{"role": "assistant", "content": "repeat"}]
+    kwargs = {"input": current}
+    ws._apply_history(kwargs, "resp_parent", current, prior)
+    assert kwargs["input"] == prior + current

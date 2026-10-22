@@ -8,6 +8,8 @@ import { registerAuthTokenGetter } from "@/lib/http/runtime";
 import { initialLogsRange, requestLogsQueryOptions, DEFAULT_LOGS_SORTING } from "./view_logs/log_filter_logic";
 
 const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {} }));
+const auth = vi.hoisted(() => ({ accessToken: "test", userID: "user", userRole: "Admin", token: "session" }));
+const initialAuth = { ...auth };
 
 vi.mock("@/app/(dashboard)/api-keys/page", () => ({}));
 vi.mock("@/app/(dashboard)/models-and-endpoints/page", () => ({}));
@@ -42,7 +44,7 @@ const router = {
 };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ accessToken: "test", userID: "user", userRole: "Admin", token: "session" }),
+  useAuth: () => auth,
 }));
 vi.mock("@/contexts/PluginModeContext", () => ({ usePluginMode: () => ({ mode: "ai-gateway" }) }));
 
@@ -57,6 +59,7 @@ describe("dashboard warmup wiring", () => {
   const urls: URL[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>();
   beforeEach(() => {
+    Object.assign(auth, initialAuth);
     client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000, gcTime: Infinity } } });
     unregister = registerResponseCache(client);
     registerAuthTokenGetter(() => "test");
@@ -83,6 +86,84 @@ describe("dashboard warmup wiring", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
+
+  it("does not restart pending warmup when module switches have unchanged contents", async () => {
+    vi.useFakeTimers();
+    router.prefetch.mockClear();
+    const pending = Promise.withResolvers<void>();
+    modules.wait = () => pending.promise;
+    const page = (disabledPages: readonly string[]) => (
+      <QueryClientProvider client={client}>
+        <DashboardWarmup disabledPages={disabledPages}>
+          <ReadinessProbe />
+        </DashboardWarmup>
+      </QueryClientProvider>
+    );
+    const { rerender, unmount } = render(page(["agents"]));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    const initial = router.prefetch.mock.calls.length;
+    expect(initial).toBe(5);
+    rerender(page(["agents"]));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    const repeated = router.prefetch.mock.calls.length - initial;
+    process.stdout.write(`warmup-dispatch-count initial=${initial} unchanged-rerender=${repeated}\n`);
+    expect(repeated).toBe(0);
+    pending.resolve();
+    await act(() => vi.runAllTimersAsync());
+    expect(screen.getByText("warm")).toBeInTheDocument();
+    expect(modules.loaded.size).toBe(12);
+    unmount();
+  });
+
+  it("does not dispatch warmup again when switching rendered content after completion", async () => {
+    vi.useFakeTimers();
+    router.prefetch.mockClear();
+    const page = (label: string) => (
+      <QueryClientProvider client={client}>
+        <DashboardWarmup disabledPages={["agents"]}>
+          <p>{label}</p>
+        </DashboardWarmup>
+      </QueryClientProvider>
+    );
+    const { rerender, unmount } = render(page("Keys page"));
+    await act(() => vi.runAllTimersAsync());
+    const initial = router.prefetch.mock.calls.length;
+    const requests = fetch.mock.calls.length;
+    rerender(page("Logs page"));
+    await act(() => vi.runAllTimersAsync());
+    expect(screen.getByText("Logs page")).toBeInTheDocument();
+    process.stdout.write(`warmup-navigation-count initial=${initial} page-switch=${router.prefetch.mock.calls.length - initial}\n`);
+    expect(router.prefetch).toHaveBeenCalledTimes(initial);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    unmount();
+  });
+
+  it.each(["accessToken", "userID", "userRole", "token", "disabledPages"] as const)(
+    "still restarts warmup when %s changes",
+    async (field) => {
+      vi.useFakeTimers();
+      router.prefetch.mockClear();
+      const pending = Promise.withResolvers<void>();
+      modules.wait = () => pending.promise;
+      const page = (disabledPages: readonly string[]) => (
+        <QueryClientProvider client={client}>
+          <DashboardWarmup disabledPages={disabledPages}>
+            <ReadinessProbe />
+          </DashboardWarmup>
+        </QueryClientProvider>
+      );
+      const { rerender, unmount } = render(page(["agents"]));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      const initial = router.prefetch.mock.calls.length;
+      if (field !== "disabledPages") auth[field] = `${auth[field]}-changed`;
+      rerender(page(field === "disabledPages" ? ["agents", "memory"] : ["agents"]));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(router.prefetch).toHaveBeenCalledTimes(initial + 5);
+      unmount();
+      pending.resolve();
+      await act(() => vi.runAllTimersAsync());
+    },
+  );
 
   it("blocks the initial page while primary warmup starts without waiting for idle", async () => {
     vi.useFakeTimers();

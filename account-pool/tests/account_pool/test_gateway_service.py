@@ -54,6 +54,7 @@ class MemoryLeases:
         self.cooled: tuple[UUID, ...] = ()
         self.model_cooldowns: dict[tuple[UUID, str], int] = {}
         self.settled_tokens: dict[UUID, int] = {}
+        self.timeout_failures: tuple[tuple[UUID, str], ...] = ()
 
     async def sticky(self, binding_hash: str | None) -> UUID | None:
         return self.bindings.get(binding_hash) if binding_hash else None
@@ -124,9 +125,12 @@ class MemoryLeases:
         *,
         model_cooldown_seconds: int = 0,
         model_succeeded: bool = False,
+        timeout_failure: bool = False,
         clear_sessions: bool = False,
     ) -> None:
         self.leases.pop(lease.lease_id, None)
+        if timeout_failure:
+            self.timeout_failures = (*self.timeout_failures, (lease.account_id, lease.model))
         if clear_sessions:
             self.bindings = {
                 key: value for key, value in self.bindings.items() if value != lease.account_id
@@ -155,6 +159,7 @@ class FailingLogs(MemoryLogs):
         (429, "quota_exhausted", "usage_limit_reached", False, 321, 321),
         (429, "rate_limit", "rate_limit_exceeded", False, 0, 55),
         (429, None, None, False, 0, 60),
+        (504, "upstream_unavailable", "timeout", False, 0, 55),
     ],
 )
 async def test_classified_request_failures_do_not_poison_account_cooldown(
@@ -213,6 +218,7 @@ async def test_classified_request_failures_do_not_poison_account_cooldown(
         )
     )
     assert leases.model_cooldowns.get((card.id, "gpt-5"), 0) == expected
+    assert leases.timeout_failures == (((card.id, "gpt-5"),) if status == 504 else ())
     assert leases.cooled == ()
     assert not leases.leases
 

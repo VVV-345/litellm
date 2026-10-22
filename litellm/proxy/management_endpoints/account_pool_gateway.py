@@ -41,6 +41,7 @@ from litellm.proxy.management_endpoints.account_pool_integration import (
 )
 from litellm.proxy.management_endpoints.account_pool_routing import Rejected, routes
 from litellm.proxy.management_endpoints.account_pool_session import session_identifier
+from litellm.proxy.management_endpoints.account_pool_signature import SignatureLineage
 from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
 from litellm.proxy.management_endpoints.account_pool_websocket import (
     DefaultWebSocketDialer,
@@ -151,13 +152,22 @@ class AccountPoolGatewayMiddleware:
         control_factory: Callable[[httpx.AsyncClient], GatewayControl] = manager_control,
         client_factory: Callable[[], httpx.AsyncClient] = http_client,
         websocket_dialer: WebSocketDialer | None = None,
+        signature_lineage: SignatureLineage | None = None,
     ) -> None:
         self.app: Final = app
         self.control_factory: Final = control_factory
         self.client_factory: Final = client_factory
         self.websocket_dialer: Final = websocket_dialer or DefaultWebSocketDialer()
+        self.signature_lineage: Final = signature_lineage or SignatureLineage()
+
+    def _attach_signature_lineage(self, scope: Scope) -> None:
+        state: Final[dict[str, object]] = cast(
+            dict[str, object], scope.setdefault("state", {})
+        )  # cast-ok: ASGI state is a mutable string-keyed mapping.
+        state.setdefault("account_pool_signature_lineage", self.signature_lineage)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        self._attach_signature_lineage(scope)
         ingress_started: Final = time.perf_counter()
         reset: Final = pool_identity.set(None)
         try:
@@ -232,6 +242,7 @@ class AccountPoolGatewayMiddleware:
                 lambda client: TrustedControl(self.control_factory(client), ticket),
                 self.client_factory,
                 self.websocket_dialer,
+                self.signature_lineage,
             )
             if scope["type"] == "websocket":
                 await gateway._dispatch_websocket(forwarded_scope, receive, send, "internal-forward-key")
@@ -268,6 +279,7 @@ class AccountPoolGatewayMiddleware:
         await self.websocket(websocket, key)
 
     async def _dispatch_http(self, scope: Scope, receive: Receive, send: Send, key: str) -> None:
+        self._attach_signature_lineage(scope)
         if not 16 <= len(key) <= 256:
             await error_response(401, "Invalid account pool key")(scope, receive, send)
             return

@@ -194,6 +194,8 @@ class ModelCooldown(BaseModel):
     model: str
     retry_at: datetime
     reason: str = "upstream_error"
+    consecutive_timeouts: int = Field(default=0, ge=0)
+    timeout_state_at: datetime | None = None
 
 
 class EnvironmentConfiguration(BaseModel):

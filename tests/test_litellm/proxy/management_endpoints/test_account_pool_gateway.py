@@ -48,6 +48,139 @@ from litellm.proxy.management_endpoints.account_pool_websocket import (
 _KEY: Final = "cpk_" + "test-only-" * 5
 
 
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("internal", [False, True])
+def test_rejected_reasoning_lineage_skips_only_known_ciphertext_on_later_turns(stream, internal, monkeypatch):
+    captured = []
+
+    def upstream(request):
+        body = json.loads(request.content)
+        captured.append(body)
+        rejected = any(item.get("encrypted_content") == "old-rejected" for item in body["input"])
+        if not stream:
+            return httpx.Response(400, json={"error": {"code": "invalid_encrypted_content"}}) if rejected else httpx.Response(200, json={"id": "ok"})
+        event = {"type": "error", "error": {"code": "invalid_encrypted_content"}} if rejected else {"type": "response.completed", "response": {"id": "ok"}}
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=f"data: {json.dumps(event)}\n\n")
+
+    client, control = setup_gateway(upstream)
+    endpoint = "/v1/responses"
+    authorization = f"Bearer {_KEY}"
+    if internal:
+        from litellm.proxy.management_endpoints.account_pool_integration import (
+            INTERNAL_PREFIX,
+            PoolIdentity,
+            create_ticket,
+        )
+
+        monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+        class InternalControl(Control):
+            async def resolve(self, request):
+                assert request.trusted_card_id == self.resolution.card_id
+                return self.resolution
+
+        control = InternalControl(control.resolution)
+        app = FastAPI()
+        app.add_middleware(
+            AccountPoolGatewayMiddleware, control_factory=lambda _: control,
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+        )
+        client = TestClient(app)
+        endpoint = INTERNAL_PREFIX + str(control.resolution.card_id) + endpoint
+        authorization = "Bearer " + create_ticket(PoolIdentity(key_hash="caller", request_id=uuid4()), control.resolution.card_id)
+    old = {"type": "reasoning", "encrypted_content": "old-rejected"}
+    new = {"type": "reasoning", "encrypted_content": "new-valid"}
+    base = {"model": "model-a", "stream": stream, "store": False, "input": [{"role": "user", "content": "Keep"}, old]}
+    headers = {"Authorization": authorization, "session-id": "lineage-session"}
+    with client:
+        assert client.post(endpoint, headers=headers, json=base).status_code == 200
+        assert client.post(endpoint, headers=headers, json={**base, "input": [*base["input"], new]}).status_code == 200
+        assert len(captured) == 3
+        assert captured[-1]["input"] == [{"role": "user", "content": "Keep"}, new]
+        assert client.post(endpoint, headers={**headers, "session-id": "different-session"}, json=base).status_code == 200
+    assert len(captured) == 5
+    assert captured[-2]["input"] == base["input"]
+
+
+@pytest.mark.parametrize("signed", [False, True])
+def test_gateway_slow_first_event_is_not_limited_by_retry_deadline(signed):
+    import time
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(0.08)
+            yield b'data: {"type":"response.output_text.delta","delta":"within request timeout"}\n\n'
+            yield b'data: {"type":"response.completed","response":{"id":"ok"}}\n\n'
+
+    client, _ = setup_gateway(lambda _: httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=SlowStream()), retry=True)
+
+    @client.app.middleware("http")
+    async def short_retry_budget(request, call_next):
+        request.state.account_pool_retry_deadline = time.time() + 0.04
+        return await call_next(request)
+
+    items = [{"role": "user", "content": "Keep"}]
+    if signed:
+        items.append({"type": "reasoning", "encrypted_content": "valid"})
+    with client:
+        result = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json={"model": "model-a", "stream": True, "input": items})
+    assert "within request timeout" in result.text
+
+
+@pytest.mark.parametrize("param,expected", [(None, None), ("input[1].encrypted_content", "second"), ("input.2.encrypted_content", "first")])
+def test_signature_lineage_records_only_uniquely_identified_ciphertext(param, expected):
+    from litellm.proxy.management_endpoints.account_pool_signature import SignatureLineage
+
+    lineage = SignatureLineage()
+    payload = {"input": [{"role": "user", "content": "Keep"},
+                         {"type": "reasoning", "encrypted_content": "first"},
+                         {"type": "reasoning", "encrypted_content": "second"},
+                         {"type": "compaction", "encrypted_content": "opaque compaction"}]}
+    lineage.remember("scope", payload, {"error": {"code": "invalid_encrypted_content", "param": param}})
+    cleaned = lineage.clean("scope", payload)
+    if expected is None:
+        assert cleaned is None
+        assert not lineage.entries
+    else:
+        assert [item["encrypted_content"] for item in cleaned["input"] if item.get("type") == "reasoning"] == [expected]
+        assert cleaned["input"][-1] == payload["input"][-1]
+        assert lineage.clean("other scope", payload) is None
+        assert "first" not in repr(lineage.entries)
+        assert "second" not in repr(lineage.entries)
+
+
+def test_signature_lineage_expires_and_bounds_hash_only_state():
+    from litellm.proxy.management_endpoints.account_pool_signature import SignatureLineage
+
+    clock = [0.0]
+    lineage = SignatureLineage(lambda: clock[0])
+    error = {"code": "invalid_encrypted_content"}
+    for index in range(1025):
+        lineage.remember("scope", {"input": [{"type": "reasoning", "encrypted_content": f"cipher-{index}"}]}, error)
+    assert len(lineage.entries) == 1024
+    assert lineage.clean("scope", {"input": [{"type": "reasoning", "encrypted_content": "cipher-0"}]}) is None
+    assert all(len(scope) == 5 and len(digest) == 64 for scope, digest in lineage.entries)
+    clock[0] = 3601.0
+    assert lineage.clean("scope", {"input": [{"type": "reasoning", "encrypted_content": "cipher-1024"}]}) is None
+
+
+def test_signature_lineage_without_session_does_not_skip_future_rejections():
+    captured = []
+
+    def upstream(request):
+        body = json.loads(request.content)
+        captured.append(body)
+        rejected = any(item.get("type") == "reasoning" for item in body["input"])
+        return httpx.Response(400, json={"error": {"code": "invalid_encrypted_content"}}) if rejected else httpx.Response(200, json={"id": "ok"})
+
+    client, _ = setup_gateway(upstream)
+    payload = {"model": "model-a", "input": [{"role": "user", "content": "Keep"}, {"type": "reasoning", "encrypted_content": "old"}]}
+    with client:
+        for _ in range(2):
+            assert client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json=payload).status_code == 200
+    assert len(captured) == 4
+    assert captured[0] == captured[2] == payload
+
+
 @pytest.mark.parametrize("reason", ["quota_exhausted", "model_unavailable", "subscription_expired"])
 def test_preflight_reports_typed_account_failure_without_upstream_attempt(reason: str) -> None:
     client, control = setup_gateway(lambda _: pytest.fail("preflight must not call upstream"))
@@ -3040,7 +3173,7 @@ def test_signature_recovery_reports_unknown_item_type() -> None:
             ],
             [],
         ),
-        ([], [{"type": "web_search"}]),
+        ([{"type": "web_search_call", "id": "search-1"}], [{"type": "web_search"}]),
         ([], [{"type": "mcp", "server_url": "https://example.com"}]),
         ([], [{"type": "namespace", "name": "hosted", "tools": [{"type": "web_search"}]}]),
     ],

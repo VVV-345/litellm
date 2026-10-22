@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import math
@@ -57,6 +58,7 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
 from litellm.proxy.management_endpoints.account_pool_signature import (
+    SignatureLineage,
     safe_signature_recovery,
     signature_error,
     signature_recovery_message,
@@ -723,6 +725,17 @@ async def execute(
     )
     forward_session: Final = credential_session is not None and route.account.supplier != "openai_compatible"
     credential: Final = select_gateway_credential(route.account.credentials, credential_identity, route.account.api_key)
+    lineage: Final[object] = getattr(request.state, "account_pool_signature_lineage", None)
+    lineage_scope: Final = hashlib.sha256(json.dumps((
+        str(attempt.key_id), str(resolution.card_id), payload.get("model"), credential_session,
+        str(route.account.id), hashlib.sha256(credential.api_key.encode()).hexdigest(),
+    )).encode()).hexdigest() if credential_session else None
+    filtered: Final = lineage.clean(lineage_scope, payload) if isinstance(lineage, SignatureLineage) and lineage_scope else None
+    if filtered is not None:
+        return await execute(
+            request, filtered, route, resolution, client, attempt, next_id, seconds, deadline,
+            signature_recovered=signature_recovered, alternate_id=alternate_id, failover_ready=failover_ready,
+        )
     selected_client: Final = (
         client
         if credential.proxy_url is None
@@ -784,7 +797,12 @@ async def execute(
                 attempt.record_cost(cost_usd)
                 if response.status_code >= 300:
                     error_payload, code = await upstream_error_payload(response, (credential.api_key,))
-                    if response.status_code == 400 and recovery_payload is not None and signature_error(error_payload):
+                    if response.status_code == 400 and isinstance(lineage, SignatureLineage) and lineage_scope:
+                        lineage.remember(lineage_scope, payload, error_payload)
+                    if (
+                        response.status_code == 400 and recovery_payload is not None and signature_error(error_payload)
+                        and asyncio.get_running_loop().time() < deadline
+                    ):
                         await response.aclose()
                         attempt.outcome(
                             400,
@@ -901,11 +919,18 @@ async def execute(
                             anthropic_messages=request.url.path == "/v1/messages",
                         )
                         try:
-                            await bootstrap.prepare(deadline)
+                            await bootstrap.prepare()
+                            if (
+                                bootstrap.state.failed and not bootstrap.state.meaningful
+                                and bootstrap.state.signature_rejected
+                                and isinstance(lineage, SignatureLineage) and lineage_scope
+                            ):
+                                lineage.remember_stream(lineage_scope, payload, bootstrap.buffer.getvalue())
                             if (
                                 bootstrap.state.failed
                                 and not bootstrap.state.meaningful
                                 and bootstrap.state.signature_rejected
+                                and asyncio.get_running_loop().time() < deadline
                             ):
                                 await bootstrap.close()
                                 await response.aclose()
@@ -1314,7 +1339,7 @@ async def guarded_stream_response(
     )
     try:
         if prepared is None:
-            await bootstrap.prepare(deadline)
+            await bootstrap.prepare()
         if bootstrap.state.failed and not bootstrap.state.meaningful:
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())

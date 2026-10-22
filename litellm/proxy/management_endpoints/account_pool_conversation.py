@@ -17,15 +17,18 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, Valid
 
 from litellm._logging import verbose_proxy_logger
 from litellm.caching.dual_cache import DualCache
-from litellm.exceptions import RateLimitError, ServiceUnavailableError
+from litellm.exceptions import MidStreamFallbackError, RateLimitError, ServiceUnavailableError
 from litellm.litellm_core_utils.signature_recovery import (
     image_history_message,
+    merge_visible_history,
+    portable_history_item,
     signature_recovery_reason,
+    visible_agent_message,
     visible_reasoning,
 )
 from litellm.proxy._types import ProxyException
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
-from litellm.proxy.management_endpoints.account_pool_failover import exception_header
+from litellm.proxy.management_endpoints.account_pool_failover import exception_failure, exception_header
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingSnapshot,
@@ -133,9 +136,11 @@ class ConversationStore:
 
 
 def _visible_item(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+    if item.get("type") == "agent_message":
+        return visible_agent_message(item)
     return readable_reasoning(item) if item.get("type") == "reasoning" else MappingProxyType({
         key: content for key, content in item.items()
-        if key not in ("id", "status", "encrypted_content", "signature", "thought_signature", "thoughtSignature", "thinking_blocks")
+        if key not in ("status", "encrypted_content", "signature", "thought_signature", "thoughtSignature", "thinking_blocks")
         and content is not None
     })
 
@@ -188,35 +193,7 @@ def compatible_reasoning_input(router: Router, payload: Mapping[str, object], se
 
 
 def portable_item(item: Mapping[str, JsonValue]) -> bool:
-    kind: Final = item.get("type")
-    if kind == "reasoning":
-        return True
-    if kind in ("function_call", "custom_tool_call"):
-        return isinstance(item.get("call_id"), str) and isinstance(item.get("name"), str)
-    if kind in ("function_call_output", "custom_tool_call_output"):
-        return isinstance(item.get("call_id"), str) and isinstance(item.get("output"), str)
-    if kind not in (None, "message") or item.get("role") not in ("user", "assistant", "system", "developer"):
-        return False
-    content: Final = item.get("content")
-    return (
-        isinstance(content, str)
-        or isinstance(content, list)
-        and bool(content)
-        and all(
-            isinstance(block, dict)
-            and (
-                block.get("type") in ("input_text", "output_text", "text")
-                and isinstance(block.get("text"), str)
-                or block.get("type") == "input_image"
-                and isinstance(block.get("image_url"), str)
-                and not block.get("file_id")
-                or block.get("type") == "refusal"
-                and isinstance(block.get("refusal"), str)
-            )
-            and not block.get("annotations")
-            for block in content
-        )
-    )
+    return portable_history_item(item)
 
 
 def retry_exhausted(error: BaseException, depth: int = 0) -> bool:
@@ -282,7 +259,6 @@ class Conversation:
             )
         except ValidationError:
             return None
-        current: Final = visible_input(request.get("input"), lenient=relaxed)
         store: Final = ConversationStore(router.cache, secret)
         previous: Final = payload.get("previous_response_id")
         record: Final = await store.load(identity, model, previous) if isinstance(previous, str) else None
@@ -294,22 +270,23 @@ class Conversation:
             else EncryptedContentAffinityCheck._extract_model_id_from_input(payload.get("input"))  # pyright: ignore[reportPrivateUsage]  # Share the native affinity marker parser.
         )
         cached: Final = visible_input(_INPUT.validate_python(record.input)) if record is not None else None
-        prior: Final = any(
-            item.get("role") == "assistant"
-            or item.get("type") in ("function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output")
-            for item in (current or ())
-        )
+        raw_input: Final = request.get("input")
+        replay_input: Final = [
+            item for item in raw_input
+            if not isinstance(item, dict) or item.get("type") not in ("compaction", "context_compaction")
+        ] if cached is not None and isinstance(raw_input, list) else raw_input
+        current: Final = visible_input(replay_input, lenient=relaxed)
         history: Final = (
             None
             if current is None or record is not None and cached is None
-            else (*(cached or ()), *current)
+            else merge_visible_history(cached or (), current)
             if record is not None
             else current
-            if prior or previous is None
+            if previous is None
             else None
         )
         context: Final = {**(record.context if record is not None else {}), **request}
-        return cls(identity, model, context, history, origin, store, current, record is not None or prior or previous is None)
+        return cls(identity, model, context, history, origin, store, current, record is not None or previous is None)
 
     def _history_replayable(self) -> bool:
         extra: Final = self.request.get("extra_body")
@@ -463,6 +440,8 @@ class Conversation:
         error: Exception,
         snapshot: RoutingSnapshot | None,
     ) -> bool:
+        if isinstance(error, MidStreamFallbackError) and (not error.is_pre_first_chunk or error.generated_content):
+            return False
         if exception_header(error, "x-account-pool-preflight") == "rejected":
             return True
         if isinstance(
@@ -476,7 +455,7 @@ class Conversation:
             ),
         ):
             return True
-        if exception_header(error, "x-account-pool-failure") in ("quota_exhausted", "rate_limited", "budget_exhausted"):
+        if exception_failure(error) == "quota_exhausted" or exception_header(error, "x-account-pool-failure") in ("rate_limited", "budget_exhausted"):
             return True
         return (
             isinstance(error, ServiceUnavailableError)
@@ -562,9 +541,7 @@ class ConversationStream(BaseResponsesAPIStreamingIterator):
     async def prepare(self) -> None:
         try:
             for _ in range(32):
-                event = await asyncio.wait_for(
-                    anext(self.source), timeout=max(0, self.conversation.identity.retry_deadline - time.time())
-                )
+                event = await anext(self.source)
                 self.buffer = (*self.buffer, event)
                 if getattr(event, "type", None) not in ("response.created", "response.in_progress"):
                     return
@@ -574,6 +551,8 @@ class ConversationStream(BaseResponsesAPIStreamingIterator):
             await self.aclose()
             raise
         except Exception as error:
+            if isinstance(error, MidStreamFallbackError) and not error.generated_content:
+                error.is_pre_first_chunk = True
             model_id: Final = get_hidden_params_dict(self.source).get("model_id")
             if isinstance(model_id, str) and not getattr(error, "failed_deployment_id", None):
                 error.failed_deployment_id = model_id  # pyright: ignore[reportAttributeAccessIssue]  # Router failure contract stamps the selected deployment on provider exceptions.

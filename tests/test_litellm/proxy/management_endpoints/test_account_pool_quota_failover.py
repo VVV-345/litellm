@@ -10,6 +10,30 @@ from litellm.proxy.management_endpoints.account_pool_integration import PoolIden
 from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingSnapshot, snapshots
 
 
+@pytest.fixture
+def native_responses_pool(monkeypatch):
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-native-conversation-" * 2)
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1")
+    cards = (uuid4(), uuid4(), uuid4())
+    router = Router(
+        model_list=[
+            {**deployment(card), "litellm_params": {**deployment(card)["litellm_params"], "order": index}}
+            for index, card in enumerate(cards)
+        ],
+        num_retries=0,
+        max_fallbacks=3,
+    )
+    before = snapshots.values
+    snapshots.replace({str(card): RoutingSnapshot(quota_switch_project=True) for card in cards})
+    token = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    try:
+        yield router, tuple(f"{card}-shared" for card in cards)
+    finally:
+        pool_identity.reset(token)
+        snapshots.replace(before)
+        router.discard()
+
+
 def deployment(card, model="shared"):
     return {
         "model_name": model,
@@ -136,6 +160,7 @@ async def test_quota_preview_uses_explicit_mapping_and_native_authorization(enab
 @pytest.mark.parametrize("code", ["usage_limit_reached", "quota_exceeded", "quota_exhausted", "insufficient_quota"])
 def test_stream_quota_failure_is_classified_before_output_for_router_failover(code):
     import json
+
     from litellm.proxy.management_endpoints.account_pool_stream import EventStream
 
     state = EventStream(responses_api=True)
@@ -255,3 +280,182 @@ async def test_quota_during_retry_stops_same_card_retries(monkeypatch):
         pool_identity.reset(reset)
         snapshots.replace(previous)
         router.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code", ["insufficient_quota", "usage_limit_reached", "quota_exceeded", "quota_exhausted"])
+async def test_native_responses_stream_quota_switches_before_output(native_responses_pool, code):
+    from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
+    from litellm.types.llms.openai import ErrorEvent, ErrorEventError, OutputTextDeltaEvent
+
+    router, cards = native_responses_pool
+    attempts = []
+
+    class NativeStream(BaseResponsesAPIStreamingIterator):
+        def __init__(self, card):
+            self.card = card
+            self._hidden_params = {"model_id": card}
+            self.custom_llm_provider = "openai"
+            self.model = "shared"
+            self._generated_content = ""
+            self._yielded_first_chunk = False
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.card != cards[-1]:
+                self._maybe_raise_for_error_event(ErrorEvent(
+                    type="error", sequence_number=0,
+                    error=ErrorEventError(type="rate_limit_error", code=code, message="Quota exhausted"),
+                ))
+            return OutputTextDeltaEvent(
+                type="response.output_text.delta", delta="continued", item_id="m", output_index=0, content_index=0,
+            )
+
+        async def aclose(self):
+            self.closed = True
+
+    sources = []
+
+    async def provider(**kwargs):
+        card = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(card)
+        assert kwargs["input"] in ("Keep history", [{"role": "user", "content": "Keep history"}])
+        source = NativeStream(card)
+        sources.append(source)
+        return source
+
+    stream = await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Keep history", stream=True,
+    )
+    assert (await anext(stream)).delta == "continued"
+    assert attempts == list(cards)
+    assert all(source.closed for source in sources[:-1])
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_native_responses_created_status_is_buffered_before_quota_recovery(native_responses_pool):
+    from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
+    from litellm.types.llms.openai import (
+        ErrorEvent,
+        ErrorEventError,
+        OutputTextDeltaEvent,
+        ResponseCreatedEvent,
+        ResponsesAPIResponse,
+    )
+
+    router, cards = native_responses_pool
+    attempts = []
+
+    class NativeStream(BaseResponsesAPIStreamingIterator):
+        def __init__(self, card):
+            self.card = card
+            self._hidden_params = {"model_id": card}
+            self.custom_llm_provider = "openai"
+            self.model = "shared"
+            self._generated_content = ""
+            self._yielded_first_chunk = False
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if self.card != cards[-1] and not self._yielded_first_chunk:
+                self._yielded_first_chunk = True
+                return ResponseCreatedEvent(
+                    type="response.created",
+                    response=ResponsesAPIResponse(id="resp_pending", created_at=1, model="shared", status="in_progress", output=[]),
+                )
+            if self.card != cards[-1]:
+                self._maybe_raise_for_error_event(ErrorEvent(
+                    type="error", sequence_number=0,
+                    error=ErrorEventError(type="rate_limit_error", code="insufficient_quota", message="Quota exhausted"),
+                ))
+            return OutputTextDeltaEvent(
+                type="response.output_text.delta", delta="continued", item_id="m", output_index=0, content_index=0,
+            )
+
+        async def aclose(self):
+            self.closed = True
+
+    sources = []
+
+    async def provider(**kwargs):
+        card = kwargs["litellm_metadata"]["model_info"]["id"]
+        attempts.append(card)
+        source = NativeStream(card)
+        sources.append(source)
+        return source
+
+    stream = await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Keep history", stream=True,
+    )
+    assert (await anext(stream)).delta == "continued"
+    assert attempts == list(cards)
+    assert all(source.closed for source in sources[:-1])
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_normal_first_event_wait_is_not_limited_by_retry_budget(native_responses_pool):
+    import asyncio
+    import time
+
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationStream
+    from litellm.types.llms.openai import OutputTextDeltaEvent
+
+    router, _ = native_responses_pool
+    identity = pool_identity.get()
+    token = pool_identity.set(identity.model_copy(update={"retry_deadline": time.time() + 0.02}))
+    try:
+        conversation = await Conversation.start(router, {"model": "shared", "input": "Hello", "timeout": 1})
+
+        class Source:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                await asyncio.sleep(0.06)
+                return OutputTextDeltaEvent(
+                    type="response.output_text.delta", delta="within request timeout", item_id="m",
+                    output_index=0, content_index=0,
+                )
+
+        stream = ConversationStream(Source(), conversation)
+        await stream.prepare()
+        assert (await anext(stream)).delta == "within request timeout"
+    finally:
+        pool_identity.reset(token)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("code,started", [("rate_limit_exceeded", False), ("insufficient_quota", True)])
+async def test_native_wrapped_error_does_not_replay_ordinary_rate_limit_or_committed_output(
+    native_responses_pool, code, started,
+):
+    from litellm.exceptions import MidStreamFallbackError
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
+    from litellm.types.llms.openai import ErrorEvent, ErrorEventError
+
+    router, cards = native_responses_pool
+    conversation = await Conversation.start(router, {"model": "shared", "input": "Keep history"})
+
+    class Source(BaseResponsesAPIStreamingIterator):
+        def __init__(self):
+            self.custom_llm_provider = "openai"
+            self.model = "shared"
+            self._generated_content = "already delivered" if started else ""
+            self._yielded_first_chunk = started
+
+    with pytest.raises(MidStreamFallbackError) as error:
+        Source()._maybe_raise_for_error_event(ErrorEvent(
+            type="error", sequence_number=0,
+            error=ErrorEventError(type="rate_limit_error", code=code, message="Try later"),
+        ))
+    error.value.failed_deployment_id = cards[0]
+    assert conversation.rebuild(router, {"model": "shared", "input": "Keep history"}, error.value) is None

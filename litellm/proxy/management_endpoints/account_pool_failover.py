@@ -15,6 +15,11 @@ from types import MappingProxyType
 from typing import Final, Literal, TypeAlias, cast
 
 import httpx
+from pydantic import JsonValue, TypeAdapter, ValidationError
+
+from litellm.exceptions import MidStreamFallbackError
+
+_STREAM_ERROR: Final = TypeAdapter(dict[str, JsonValue])
 
 FailureReason: TypeAlias = Literal[
     "quota_exhausted",
@@ -135,7 +140,20 @@ def failure_headers(reason: FailureReason, *, exhausted: bool = False) -> Mappin
 
 def exception_failure(error: BaseException, depth: int = 0) -> FailureReason | None:
     reason: Final = exception_header(error, "x-account-pool-failure", depth)
-    return reason if reason in FAILURE_REASONS else None
+    if reason in FAILURE_REASONS:
+        return reason
+    if (
+        not isinstance(error, MidStreamFallbackError)
+        or not error.is_pre_first_chunk
+        or error.generated_content
+    ):
+        return None
+    try:
+        payload: Final = _STREAM_ERROR.validate_json(error.response.content)
+    except (ValidationError, httpx.ResponseNotRead):
+        return None
+    failure: Final = classify_failure(error.status_code, payload, error.response.headers)
+    return failure.reason if failure.reason == "quota_exhausted" else None
 
 
 def exception_header(error: BaseException, name: str, depth: int = 0) -> str | None:
