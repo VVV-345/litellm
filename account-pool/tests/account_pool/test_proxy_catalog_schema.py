@@ -20,6 +20,10 @@ def test_proxy_catalog_schema_is_additive_and_idempotent() -> None:
     assert any("ACCOUNT_POOL_ISP_PROBE_RESULTS" in statement for statement in statements)
     assert any("ACCOUNT_POOL_PROXY_CONFIGURATION_PROFILES" in statement for statement in statements)
     assert any("ACCOUNT_POOL_PROXY_CONFIGURATION_STATE" in statement for statement in statements)
+    assert any("ACCOUNT_POOL_ISP_SUBSCRIPTION" in statement for statement in statements)
+    assert any("ACCOUNT_POOL_ISP_SUBSCRIPTION_NODES" in statement for statement in statements)
+    assert any("ACCOUNT_POOL_PROXY_GATEWAY_ISP_SUBSCRIPTION_BINDINGS" in statement for statement in statements)
+    assert any("ACCOUNT_POOL_PROXY_GATEWAY_FRONT_BINDINGS" in statement for statement in statements)
     assert any("REFERENCES ACCOUNT_POOL_PROXY_GATEWAYS(PORT)" in statement for statement in statements)
     assert not any(
         statement.startswith(("ALTER ", "DROP ", "INSERT ", "UPDATE ", "DELETE ", "MERGE "))

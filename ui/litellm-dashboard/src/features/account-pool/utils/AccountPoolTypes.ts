@@ -36,6 +36,7 @@ export type AccountPoolProxyGateway = {
   proxy_url: string;
   current_node: string | null;
   isp_profile_id?: string | null;
+  front_node_name?: string | null;
 };
 export type AccountPoolProxyGatewayConfiguration = {
   config_path: string | null;
@@ -48,6 +49,8 @@ export type AccountPoolProxyGatewayConfigurationRequest = {
 export type AccountPoolISPProbe = components["schemas"]["AccountPoolISPProbe"];
 export type AccountPoolISPProxy = components["schemas"]["AccountPoolISPProxy"];
 export type AccountPoolISPProxyUpdateRequest = components["schemas"]["AccountPoolISPUpdate"];
+export type AccountPoolISPSubscription = components["schemas"]["AccountPoolISPSubscription"];
+export type AccountPoolGatewayISPProbe = components["schemas"]["AccountPoolGatewayISPProbe"];
 export type AccountPoolProxyConfigurationProfile = {
   id: string;
   name: string;

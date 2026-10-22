@@ -42,7 +42,7 @@ from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.feedback import FeedbackService
 from account_pool.feedback_api import create_feedback_router
 from account_pool.gateway_service import GatewayService, create_gateway_router
-from account_pool.isp_probe import ISPProbeResult
+from account_pool.isp_probe import GatewayISPProbeResult, ISPProbeResult
 from account_pool.management_api import create_management_router
 from account_pool.oauth_browser import (
     OAuthBrowserCallback,
@@ -58,7 +58,7 @@ from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
 from account_pool.provider_families import PROVIDER_FAMILIES
-from account_pool.proxy_catalog import ISPProxyProfileView, ProxyConfigurationProfileView
+from account_pool.proxy_catalog import ISPProxyProfileView, ISPSubscriptionView, ProxyConfigurationProfileView
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
 from account_pool.quota_scheduler import (
@@ -135,6 +135,18 @@ class GatewayISPBindingRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     profile_id: UUID
+
+
+class GatewayFrontBindingRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_name: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class ISPSubscriptionConfigureRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048, repr=False)
 
 
 class ClashNodeView(BaseModel):
@@ -908,6 +920,30 @@ def create_router(
         async def list_proxy_isps() -> tuple[ISPProxyProfileView, ...]:
             return await proxy_catalog.list_isps()
 
+        @isp_router.get("/api/proxy-isps/subscription", dependencies=[Depends(require_manager)])
+        async def get_proxy_isp_subscription() -> ISPSubscriptionView:
+            return await proxy_catalog.get_isp_subscription()
+
+        @isp_router.put("/api/proxy-isps/subscription", dependencies=[Depends(require_manager)])
+        async def configure_proxy_isp_subscription(request: ISPSubscriptionConfigureRequest) -> ISPSubscriptionView:
+            try:
+                return await proxy_catalog.configure_isp_subscription(request.url)
+            except (ClashError, ValueError) as error:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="ISP subscription import failed; check the URL and subscription content",
+                ) from error
+
+        @isp_router.post("/api/proxy-isps/subscription/refresh", dependencies=[Depends(require_manager)])
+        async def refresh_proxy_isp_subscription() -> ISPSubscriptionView:
+            try:
+                return await proxy_catalog.refresh_isp_subscription()
+            except (ClashError, ValueError) as error:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="ISP subscription refresh failed; verify its URL and content",
+                ) from error
+
         @isp_router.post("/api/proxy-isps/{profile_id}/probe", dependencies=[Depends(require_manager)])
         async def probe_proxy_isp(profile_id: UUID) -> ISPProbeResult:
             try:
@@ -1032,6 +1068,20 @@ def create_router(
     async def bind_proxy_gateway_isp(port: int, request: GatewayISPBindingRequest) -> GatewayView:
         try:
             return await service.bind_proxy_gateway_isp(port, request.profile_id)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    @router.put("/api/proxy-gateways/{port}/front", dependencies=[Depends(require_manager)])
+    async def bind_proxy_gateway_front(port: int, request: GatewayFrontBindingRequest) -> GatewayView:
+        try:
+            return await service.bind_proxy_gateway_front(port, request.node_name)
+        except ClashError as error:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
+
+    @router.post("/api/proxy-gateways/{port}/probe", dependencies=[Depends(require_manager)])
+    async def probe_proxy_gateway_isp(port: int) -> GatewayISPProbeResult:
+        try:
+            return await service.probe_proxy_gateway_isp(port)
         except ClashError as error:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from error
 

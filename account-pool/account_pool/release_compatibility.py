@@ -94,6 +94,36 @@ ISP_PROBE_SCHEMA_ADDITIONS: Final = (
     b"delay_ms integer CHECK (delay_ms >= 0), error text )",
 )
 
+ISP_SUBSCRIPTION_SCHEMA_ADDITIONS: Final = tuple(
+    sorted(
+        (
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_isp_subscription ( singleton boolean PRIMARY KEY "
+                b"DEFAULT true CHECK (singleton), url_ciphertext text NOT NULL, refreshed_at timestamptz NOT NULL, "
+                b"node_count integer NOT NULL CHECK (node_count >= 1) )"
+            ),
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_isp_subscription_nodes ( id uuid PRIMARY KEY, "
+                b"name text NOT NULL UNIQUE, proxy_type text NOT NULL, config_ciphertext text NOT NULL, "
+                b"enabled boolean NOT NULL DEFAULT true )"
+            ),
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_proxy_gateway_isp_subscription_bindings ( port integer "
+                b"PRIMARY KEY REFERENCES account_pool_proxy_gateways(port) ON DELETE CASCADE, isp_profile_id uuid NOT "
+                b"NULL REFERENCES account_pool_isp_subscription_nodes(id) ON DELETE RESTRICT )"
+            ),
+            (
+                b"CREATE INDEX IF NOT EXISTS account_pool_isp_subscription_binding_profile_idx ON "
+                b"account_pool_proxy_gateway_isp_subscription_bindings (isp_profile_id)"
+            ),
+            (
+                b"CREATE TABLE IF NOT EXISTS account_pool_proxy_gateway_front_bindings ( port integer PRIMARY KEY "
+                b"REFERENCES account_pool_proxy_gateways(port) ON DELETE CASCADE, node_name text NOT NULL )"
+            ),
+        )
+    )
+)
+
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     return hashlib.sha256(
@@ -213,6 +243,18 @@ def additive_manager_schema_upgrade(
         PROXY_CATALOG_SCHEMA_ADDITIONS,
         ISP_PROBE_SCHEMA_ADDITIONS,
         tuple(sorted((*PROXY_CATALOG_SCHEMA_ADDITIONS, *ISP_PROBE_SCHEMA_ADDITIONS))),
+        ISP_SUBSCRIPTION_SCHEMA_ADDITIONS,
+        tuple(sorted((*PROXY_CATALOG_SCHEMA_ADDITIONS, *ISP_SUBSCRIPTION_SCHEMA_ADDITIONS))),
+        tuple(sorted((*ISP_PROBE_SCHEMA_ADDITIONS, *ISP_SUBSCRIPTION_SCHEMA_ADDITIONS))),
+        tuple(
+            sorted(
+                (
+                    *PROXY_CATALOG_SCHEMA_ADDITIONS,
+                    *ISP_PROBE_SCHEMA_ADDITIONS,
+                    *ISP_SUBSCRIPTION_SCHEMA_ADDITIONS,
+                )
+            )
+        ),
     ):
         return False
     return all(

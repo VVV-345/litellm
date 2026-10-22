@@ -2,17 +2,91 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date, datetime, timezone
+from importlib import import_module
 from typing import Final, cast
 from uuid import UUID, uuid4
 
 import pytest
-
 from account_pool.isp_probe import ISPProbeResult
 from account_pool.proxy_catalog import ISPProxyInput, ISPProxyProfile, parse_isp_import
 from account_pool.proxy_catalog_repository import ProxyCatalogRepository
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_expiry import ExpiringProxyCatalog, ISPBoundGateways, ISPExpiryScheduler
+
+
+def _subscription_parser() -> Callable[[str], tuple[object, ...]] | None:
+    try:
+        module: Final = import_module("account_pool.isp_subscription")
+    except ModuleNotFoundError as error:
+        if error.name != "account_pool.isp_subscription":
+            raise
+        return None
+    parser: Final = getattr(module, "parse_isp_subscription", None)
+    return cast(Callable[[str], tuple[object, ...]], parser) if callable(parser) else None
+
+
+def test_isp_subscription_parser_preserves_complete_top_level_mihomo_nodes() -> None:
+    parser: Final = _subscription_parser()
+    assert parser is not None
+
+    nodes: Final = parser(
+        "proxies:\n"
+        "  - name: home-vless\n"
+        "    type: vless\n"
+        "    server: edge.example\n"
+        "    port: 443\n"
+        "    uuid: 00000000-0000-0000-0000-000000000001\n"
+        "    tls:\n"
+        "      enabled: true\n"
+        "      server_name: edge.example\n"
+        "    packet-encoding: xudp\n"
+        "  - name: home-ss\n"
+        "    type: ss\n"
+        "    server: edge-two.example\n"
+        "    port: 8388\n"
+        "    cipher: aes-128-gcm\n"
+        "    password: do-not-return-this\n"
+        "proxy-providers:\n"
+        "  ignored:\n"
+        "    type: http\n"
+        "    url: https://provider.example/ignored.yaml\n"
+    )
+
+    assert tuple(getattr(node, "name") for node in nodes) == ("home-vless", "home-ss")
+    first_config: Final = getattr(nodes[0], "config")
+    assert first_config == {
+        "name": "home-vless",
+        "type": "vless",
+        "server": "edge.example",
+        "port": 443,
+        "uuid": "00000000-0000-0000-0000-000000000001",
+        "tls": {"enabled": True, "server_name": "edge.example"},
+        "packet-encoding": "xudp",
+    }
+    assert "do-not-return-this" not in repr(nodes)
+
+
+@pytest.mark.parametrize(
+    "content",
+    (
+        "proxies: []",
+        "proxy-providers:\n  nested:\n    proxies:\n      - name: hidden\n        type: ss\n        server: edge.example\n        port: 443\n",
+        "proxies:\n  - name: duplicate\n    type: ss\n    server: edge.example\n    port: 443\n  - name: duplicate\n    type: vless\n    server: edge-two.example\n    port: 443\n",
+        "proxies:\n  - name: invalid\n    type: selector\n    server: edge.example\n    port: 443\n",
+        "proxies: [unterminated",
+        "x" * (2 * 1024 * 1024 + 1),
+    ),
+)
+def test_isp_subscription_parser_rejects_invalid_documents_without_echoing_input(content: str) -> None:
+    parser: Final = _subscription_parser()
+    assert parser is not None
+
+    with pytest.raises(ValueError) as error:
+        parser(content)
+
+    assert "do-not-return-this" not in str(error.value)
 
 
 def test_parse_isp_import_accepts_uri_and_colon_delimited_rows() -> None:
@@ -225,6 +299,150 @@ async def test_isp_list_includes_persisted_probe_without_exposing_credentials() 
     assert profiles[0].last_probe == probe
     assert "alice" not in repr(profiles)
     assert "secret" not in repr(profiles)
+
+
+@pytest.mark.asyncio
+async def test_manual_isp_view_identifies_its_catalog_source() -> None:
+    profile: Final = ISPProxyProfile(
+        id=uuid4(), name="manual ISP", protocol="http", host="proxy.example", port=8080,
+    )
+
+    class Repository:
+        async def list_isps(self):
+            return (profile,)
+
+        async def list_isp_bindings(self):
+            return ()
+
+        async def list_isp_probes(self):
+            return ()
+
+    views: Final = await ProxyCatalogService(cast(ProxyCatalogRepository, Repository())).list_isps()
+
+    assert getattr(views[0], "source", None) == "manual"
+
+
+@pytest.mark.asyncio
+async def test_isp_subscription_configure_and_refresh_reconcile_saved_nodes() -> None:
+    from account_pool.proxy_catalog import ISPSubscriptionView
+
+    requested_urls: list[str] = []
+    saved: list[tuple[str, tuple[object, ...]]] = []
+    reconciled: list[date] = []
+
+    class Repository:
+        async def get_isp_subscription_view(self) -> ISPSubscriptionView:
+            return ISPSubscriptionView(
+                configured=bool(saved), refreshed_at=None, node_count=len(saved[-1][1]) if saved else 0,
+                enabled_node_count=len(saved[-1][1]) if saved else 0,
+            )
+
+        async def get_isp_subscription_url(self) -> str | None:
+            return None if not saved else saved[-1][0]
+
+        async def save_isp_subscription(self, url: str, nodes: tuple[object, ...]) -> ISPSubscriptionView:
+            saved.append((url, nodes))
+            return ISPSubscriptionView(
+                configured=True, refreshed_at=datetime.now(timezone.utc), node_count=len(nodes),
+                enabled_node_count=len(nodes),
+            )
+
+    async def fetch(url: str) -> str:
+        requested_urls.append(url)
+        return "proxies:\n  - name: home\n    type: ss\n    server: edge.example\n    port: 443\n    cipher: aes-128-gcm\n"
+
+    async def reconcile(today: date) -> None:
+        reconciled.append(today)
+
+    service: Final = ProxyCatalogService(
+        cast(ProxyCatalogRepository, Repository()), reconcile, fetch_subscription=fetch,
+    )
+
+    configured: Final = await service.configure_isp_subscription(" https://isp.example/list.yaml ")
+    refreshed: Final = await service.refresh_isp_subscription()
+
+    assert configured.configured and configured.node_count == 1
+    assert refreshed.configured and refreshed.node_count == 1
+    assert requested_urls == ["https://isp.example/list.yaml", "https://isp.example/list.yaml"]
+    assert len(saved) == 2 and saved[0][1][0].name == "home"
+    assert len(reconciled) == 2
+
+
+@pytest.mark.asyncio
+async def test_manager_isp_subscription_routes_configure_refresh_and_redact_failures() -> None:
+    import httpx
+    from account_pool.api import create_router
+    from account_pool.proxy_catalog import ISPSubscriptionView
+    from account_pool.proxy_catalog_service import ProxyCatalogService
+    from fastapi import FastAPI
+
+    saved: list[tuple[str, tuple[object, ...]]] = []
+    requested: list[str] = []
+
+    class Repository:
+        async def get_isp_subscription_view(self) -> ISPSubscriptionView:
+            return ISPSubscriptionView(
+                configured=bool(saved),
+                refreshed_at=None,
+                node_count=0 if not saved else len(saved[-1][1]),
+                enabled_node_count=0 if not saved else len(saved[-1][1]),
+            )
+
+        async def get_isp_subscription_url(self) -> str | None:
+            return None if not saved else saved[-1][0]
+
+        async def save_isp_subscription(
+            self, url: str, nodes: tuple[object, ...]
+        ) -> ISPSubscriptionView:
+            saved.append((url, nodes))
+            return ISPSubscriptionView(
+                configured=True, refreshed_at=datetime.now(timezone.utc), node_count=len(nodes),
+                enabled_node_count=len(nodes),
+            )
+
+    async def fetch(url: str) -> str:
+        requested.append(url)
+        if "private" in url:
+            raise ValueError("private subscription token must not be returned")
+        return "proxies:\n  - name: home\n    type: ss\n    server: edge.example\n    port: 443\n    cipher: aes-128-gcm\n"
+
+    app = FastAPI()
+    app.include_router(
+        create_router(
+            object(),
+            "manager-test",
+            proxy_catalog=ProxyCatalogService(cast(ProxyCatalogRepository, Repository()), fetch_subscription=fetch),
+        )
+    )
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        unauthorized = await client.put(
+            "/api/proxy-isps/subscription", json={"url": "https://isp.example/sub.yaml"}
+        )
+        headers = {"Authorization": "Bearer manager-test"}
+        status = await client.get("/api/proxy-isps/subscription", headers=headers)
+        configured = await client.put(
+            "/api/proxy-isps/subscription",
+            json={"url": "https://isp.example/sub.yaml"},
+            headers=headers,
+        )
+        refreshed = await client.post("/api/proxy-isps/subscription/refresh", headers=headers)
+        failed = await client.put(
+            "/api/proxy-isps/subscription",
+            json={"url": "https://private.example/sub.yaml"},
+            headers=headers,
+        )
+
+    assert unauthorized.status_code == 401
+    assert status.status_code == 200 and status.json()["configured"] is False
+    assert configured.status_code == 200 and configured.json()["node_count"] == 1
+    assert refreshed.status_code == 200 and refreshed.json()["node_count"] == 1
+    assert failed.status_code == 422
+    assert "private subscription token" not in failed.text
+    assert requested == [
+        "https://isp.example/sub.yaml",
+        "https://isp.example/sub.yaml",
+        "https://private.example/sub.yaml",
+    ]
 
 
 @pytest.mark.asyncio

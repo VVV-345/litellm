@@ -847,6 +847,79 @@ def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: L
         assert "never-return" not in response.text
 
 
+@pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.PROXY_ADMIN_VIEW_ONLY))
+def test_proxy_admin_forwards_isp_subscription_front_binding_and_gateway_probe(role: LitellmUserRoles) -> None:
+    identity: Final = str(uuid4())
+    gateway: Final = {
+        "port": 7891,
+        "profile_id": "clash-gateway-7891",
+        "name": "Clash 端口 7891",
+        "proxy_url": "http://host.docker.internal:7891",
+        "current_node": f"account-pool-isp-7891-{identity.replace('-', '')}",
+        "isp_profile_id": identity,
+        "front_node_name": "airport-a",
+    }
+    subscription: Final = {
+        "configured": True,
+        "refreshed_at": "2026-10-22T00:00:00Z",
+        "node_count": 2,
+        "enabled_node_count": 1,
+        "url": "never-return-subscription-url",
+    }
+    probe: Final = {
+        "port": 7891,
+        "checked_at": "2026-10-22T00:00:00Z",
+        "ip_status": "ok",
+        "exit_ip": "8.8.8.8",
+        "country": "United States",
+        "region": "California",
+        "city": "Mountain View",
+        "isp": "Example operator",
+        "openai_status": "response",
+        "openai_http_status": 401,
+        "error_body": "never-return-upstream-body",
+    }
+    expected: Final = {
+        ("GET", "/api/proxy-isps/subscription"): (None, subscription),
+        ("PUT", "/api/proxy-isps/subscription"): (
+            {"url": "https://isp.example/sub.yaml"}, subscription,
+        ),
+        ("POST", "/api/proxy-isps/subscription/refresh"): (None, subscription),
+        ("PUT", "/api/proxy-gateways/7891/front"): ({"node_name": "airport-a"}, gateway),
+        ("POST", "/api/proxy-gateways/7891/probe"): (None, probe),
+    }
+    received: list[tuple[str, str, dict[str, object] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        key = request.method, request.url.path
+        assert key in expected
+        assert request.headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+        body = None if not request.content else json.loads(request.content)
+        received.append((request.method, request.url.path, body))
+        return httpx.Response(200, json=expected[key][1], request=request)
+
+    app: Final = _app(UserAPIKeyAuth(user_role=role), _gateway_factory(handler))
+    with TestClient(app) as client:
+        responses = (
+            client.get("/account_pool/proxy-isps/subscription"),
+            client.put("/account_pool/proxy-isps/subscription", json={"url": "https://isp.example/sub.yaml"}),
+            client.post("/account_pool/proxy-isps/subscription/refresh"),
+            client.put("/account_pool/proxy-gateways/7891/front", json={"node_name": "airport-a"}),
+            client.post("/account_pool/proxy-gateways/7891/probe"),
+        )
+
+    assert all(response.status_code == (200 if role == LitellmUserRoles.PROXY_ADMIN else 403) for response in responses)
+    assert received == (
+        [(method, path, body) for (method, path), (body, _) in expected.items()]
+        if role == LitellmUserRoles.PROXY_ADMIN else []
+    )
+    if role == LitellmUserRoles.PROXY_ADMIN:
+        assert responses[0].json()["node_count"] == 2
+        assert responses[3].json()["front_node_name"] == "airport-a"
+        assert responses[4].json()["openai_http_status"] == 401
+        assert "never-return" not in "".join(response.text for response in responses)
+
+
 @pytest.mark.parametrize("operation", ("import", "update"))
 def test_invalid_isp_request_never_echoes_credentials(operation: str) -> None:
     secret: Final = "must-not-echo-private-password"
