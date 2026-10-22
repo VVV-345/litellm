@@ -211,4 +211,10 @@ describe("AccountPoolCard", () => {
 
     expect(screen.getByText(/\$12\.34/)).toBeInTheDocument();
   });
+
+  it("shows positive sub-cent spend instead of rounding it to zero", () => {
+    renderCard({ spend_usd: 0.00042 });
+
+    expect(screen.getByText(/\$0\.00042/)).toBeInTheDocument();
+  });
 });

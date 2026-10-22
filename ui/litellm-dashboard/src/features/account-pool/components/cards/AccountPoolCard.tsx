@@ -134,6 +134,11 @@ const AccountPoolCardComponent = ({
     if (environment.status === "error") return t("accountPool.dashboard.unhealthy");
     return t("accountPool.dashboard.checking");
   })();
+  const spendUsd = environment.spend_usd ?? 0;
+  const spendAmount =
+    spendUsd > 0 && spendUsd < 0.01
+      ? spendUsd.toLocaleString("en-US", { maximumSignificantDigits: 6 })
+      : spendUsd.toFixed(2);
   return (
     <Card
       className="min-w-0 gap-4 [--card-spacing:--spacing(4)]"
@@ -149,7 +154,7 @@ const AccountPoolCardComponent = ({
                 {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${environment.supplier}`)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t("accountPool.spendUsed", { amount: `$${(environment.spend_usd ?? 0).toFixed(2)}` })}
+                {t("accountPool.spendUsed", { amount: `$${spendAmount}` })}
               </p>
               {environment.configuration_pending && (
                 <p className="mt-1 text-xs text-muted-foreground" role="status">

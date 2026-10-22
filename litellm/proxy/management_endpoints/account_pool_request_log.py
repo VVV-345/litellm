@@ -317,7 +317,7 @@ class RequestLog:
     async def finish(self, result: FinishRequest) -> FinishRequest:
         enriched: Final = result.model_copy(
             update={
-                "cost_usd": None if self.standard_accounting else result.cost_usd,
+                "cost_usd": result.cost_usd,
                 "session_id": self.session_id,
                 "proxy_endpoint": self.proxy_endpoint,
                 "input_tokens": self.input_tokens if self.input_tokens is not None else result.input_tokens,
