@@ -183,6 +183,35 @@ describe("RuntimePolicyDialog", () => {
     expect((savePolicy.mock.calls[0][3] as AccountPolicy).codex).toBeUndefined();
   });
 
+  it("shows unsupported provider settings instead of claiming runtime sync", async () => {
+    const geminiEnvironment = { ...environment, name: "Gemini", supplier: "gemini" } as AccountPoolEnvironment;
+    const geminiPolicy = {
+      ...policyView,
+      card_id: geminiEnvironment.id,
+      capabilities: [{ name: "provider_settings", status: "unsupported" }],
+    } as PolicyView;
+    getPolicy.mockResolvedValue(geminiPolicy);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={client}>
+        <RuntimePolicyDialog
+          accessToken="token"
+          environment={geminiEnvironment}
+          environments={[geminiEnvironment]}
+          policies={[geminiPolicy]}
+          onOpenRuntimeConfig={vi.fn()}
+          onClose={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("当前适配器不支持")).toBeInTheDocument();
+    expect(screen.queryByText("同步到供应商运行环境，以上方同步结果为准")).not.toBeInTheDocument();
+    expect(screen.getByText("该供应商当前没有可编辑的专属设置；认证后的套餐和额度由卡片自动同步")).toBeInTheDocument();
+    client.clear();
+  });
+
   it("saves separate reserve windows and controlled passthrough without changing inherited protocols", async () => {
     renderDialog();
     fireEvent.change(await screen.findByRole("spinbutton", { name: "5 小时额度保留比例 (%)" }), { target: { value: "10" } });

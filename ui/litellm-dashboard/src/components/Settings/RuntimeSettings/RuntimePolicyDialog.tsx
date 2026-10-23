@@ -562,8 +562,10 @@ function PolicyForm({
                 {t(`accountPool.policy.capabilities.${capability.name}`)}
               </dt>
               <dd className="mt-2 break-words text-xs leading-5 text-muted-foreground">
-                {capabilityDescriptions[capability.name] ??
-                  t(`accountPool.policy.capabilityStatus.${capability.status}`)}
+                {capability.status === "unsupported"
+                  ? t(`accountPool.policy.capabilityStatus.${capability.status}`)
+                  : capabilityDescriptions[capability.name] ??
+                    t(`accountPool.policy.capabilityStatus.${capability.status}`)}
               </dd>
             </div>
           ))}

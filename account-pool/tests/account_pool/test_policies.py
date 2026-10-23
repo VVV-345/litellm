@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from account_pool.policies import AccountPolicy, TransportPolicy, persisted_policy_payload
+from typing import Final
+
+from account_pool.domain import SupplierKind
+from account_pool.policies import AccountPolicy, TransportPolicy, persisted_policy_payload, policy_capabilities
 
 
 def test_managed_identity_mode_round_trips_without_changing_defaults() -> None:
@@ -20,3 +23,23 @@ def test_persisted_policy_omits_default_read_timeout_and_keeps_explicit_value() 
 
     assert "read_timeout_seconds" not in default["transport"]
     assert explicit["transport"]["read_timeout_seconds"] == 60
+
+
+def test_provider_settings_capability_matches_supplier_policy_fields() -> None:
+    expected: Final = {
+        SupplierKind.OPENAI_CODEX: "gateway",
+        SupplierKind.ANTHROPIC_CLAUDE: "gateway",
+        SupplierKind.KIMI: "gateway",
+        SupplierKind.XAI: "gateway",
+        SupplierKind.GOOGLE_ANTIGRAVITY: "gateway",
+        SupplierKind.OPENAI_COMPATIBLE: "unsupported",
+        SupplierKind.GEMINI: "unsupported",
+        SupplierKind.GEMINI_INTERACTIONS: "unsupported",
+        SupplierKind.VERTEX: "unsupported",
+    }
+
+    for supplier, status in expected.items():
+        capability = next(item for item in policy_capabilities(supplier) if item.name == "provider_settings")
+        assert capability.status == status
+
+    assert next(item for item in policy_capabilities() if item.name == "provider_settings").status == "unsupported"

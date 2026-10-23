@@ -48,9 +48,8 @@
 
 | 问题 | 当前证据能说明什么 | 关闭条件 |
 | --- | --- | --- |
-| 当前未提交的身份适配是否已经实现、保存并生效 | HEAD 上未提交 manager、API model、Dashboard 和测试文件；固定 HEAD 的 129 项结果不包含这些工作树差异 | 第 0 阶段读取差异，并在同一工作树跑新增回归；标出已完成、缺项和失败 |
 | `managed` 身份是否跨重启、刷新和多 worker 稳定 | 固定 Cockpit 代码有版本化身份资料和 revision；两边运行时、持久化 owner 不同 | 在 LiteLLM 实际 CLIProxyAPI 镜像上验证 create/read/update/restart/refresh/concurrency，并证明不同卡片隔离 |
-| Claude / Kimi 等供应商设置是否从保存端到请求端闭环 | 有字段模型、配置同步与部分 CPA 执行路径；固定 Manager 批次只覆盖策略、同步、注册表和额度用例 | 每个字段追踪 UI -> API model -> persistence -> settings sync -> auth/config -> 实际请求构造，并为支持或不支持给出测试 |
+| Claude / Kimi 等供应商设置是否在真实请求中生效 | UI -> API -> policy persistence -> CLIProxyAPI auth/config 路径已静态核对；Kimi 固定源中 `fingerprint_profile` 只作用于 Claude Messages，设备 ID 写入 `X-Msh-Device-Id` | 在有 Go toolchain 的环境运行固定 CLIProxyAPI tests；经用户确认后做隔离真实上游请求。现阶段不把静态路径当作线上验收 |
 | Cockpit 是否能在真实上游接受跨账号 reasoning 密文 | Cockpit README 明确说跨账号密文接受度仍需真实请求验证；不能由本地测试推出 | 使用明确授权的测试账号和无敏感历史用例进行单独 E2E；没有结果前默认禁止把密文迁移写作已支持 |
 | Docker、真实数据库、多副本和真实供应商端到端 | 本轮的 129 项 Manager 与 Go 单元测试都不是这些环境验证 | 在隔离环境完成带版本和可回滚数据快照的验收；无法运行时记为未验证，不降级安全规则 |
 | Cockpit 自有 Rust/Tauri 文件在目标用途下能否复制 | 文件许可及与 LiteLLM 生命周期的兼容审查未完成 | 逐个目标文件审许可证、依赖、平台行为、凭据存储和维护 owner；在此之前只使用行为参考 |
@@ -83,13 +82,13 @@
 
 **修改边界：** 若需补功能，仅改 `account-pool/account_pool/policies.py`、`settings.py`、`channels/cliproxyapi/settings_sync.py`、对应代理 management model、`AccountPoolProviderPolicyFields.tsx` 及必要测试。保持现有目录和兼容入口
 
-- [ ] 将每个 Cockpit 设置登记为供应商、策略字段、默认值、保存位置、执行层、能力状态和对应测试；不支持项必须显示不支持，不能保存成功后假装已执行
-- [ ] 覆盖 8 个 CLIProxyAPI supplier 定义与 OpenAI-compatible 通道，共 9 个供应商类别；按真实 registry 映射检查，不把一个协议字段推广给其他供应商
-- [ ] 对 Claude 检查现有 `fingerprint_profile`、`cloak_mode`、`rebuild_mid_system_message` 从 API 保存到 CLIProxyAPI auth/config 的消费路径；不复制已相同的 Claude 执行文件
-- [ ] 对 Kimi 检查 `fingerprint_profile` 与 `resolveKimiDeviceID` 的来源、默认值和请求头使用；executor 不同则仅验证所需字段，不替换整个文件
-- [ ] 对 Codex 核对 `off/device/session/full`、`identity_confuse`、客户端准入、Compact、WebSocket 与当前网关 owner；Cockpit 弃用 metadata 不得重新启用/关闭现有策略
-- [ ] 对 Antigravity、xAI、Gemini、Gemini Interactions、Vertex 核对各自配置字段与执行点；没有请求端消费者或可靠测试的字段标记为 `unsupported` 或暂停，不扩展到通用兼容通道
-- [ ] 保留 OpenAI-compatible `_validate_destination` 的主机/目标校验和其直连路由，不将其切入 CLIProxyAPI 容器
+- [x] 将专属策略字段登记为供应商、默认值、保存位置、执行 owner、能力状态和测试；无专属字段的供应商返回并显示 `unsupported`
+- [x] 覆盖 8 个 CLIProxyAPI supplier 定义与 OpenAI-compatible 通道，共 9 个供应商类别；没有把 provider-specific policy 扩展到通用兼容通道
+- [x] 对 Claude 检查 `fingerprint_profile`、`cloak_mode`、`rebuild_mid_system_message` 的 policy/auth-file 映射及固定源消费路径；没有复制 Claude 执行文件
+- [x] 对 Kimi 核对 `fingerprint_profile` 与固定源 `resolveKimiDeviceID` 的来源、回退和 `X-Msh-Device-Id` 使用；设备 ID 属于现有认证状态，不以 Cockpit 身份字段替换
+- [x] 对 Codex 核对 fingerprint 默认值、`identity_confuse`、CLI/app-server 准入、Compact、WebSocket 和当前 owner；弃用 metadata 不覆盖网关策略
+- [x] 对 Antigravity、xAI、Gemini、Gemini Interactions、Vertex 核对配置与执行点；无专属策略字段的供应商标记 `unsupported`
+- [x] 保留 OpenAI-compatible `_validate_destination` 目标校验和直连路由，不切入 CLIProxyAPI 容器
 
 **针对性验证：**
 
@@ -108,6 +107,10 @@ npm run gen:api
 运行 API type 生成后审阅 `src/lib/http/schema.d.ts`，只提交本次生成的真实差异
 
 **验收：** 每个字段都有一个明确运行时消费者或明确的不支持状态；默认行为不变；不存在 manager 与 sidecar 两边各自重试
+
+**阶段 1 执行结果（2026-10-23）：** 逐字段详表见 `account-pool/cliproxy-adapter/providers.md`。专属 `provider_settings` 对 Codex、Claude、Kimi、xAI、Antigravity 为 `gateway`，对 OpenAI-compatible、Gemini、Gemini Interactions、Vertex 为 `unsupported`；“unsupported”不撤销各通道的认证/凭据能力，也不影响通用网关策略。修正了 Manager 与代理响应模型的 capability 映射，并让 Dashboard 的 `unsupported` 状态优先于固定说明显示。默认值和 quota/failover/conversation 逻辑未改。
+
+本阶段原始验证：阶段 1 Python 回归 `124 passed`；policy/API 定向测试 `5 passed`；Dashboard `RuntimePolicyDialog` 集成 `14 passed`；Dashboard type tests `4 passed, no type errors`。本次独立工作树续做时重跑四个指定后端测试文件，`144 passed`，`3.17s`。本机没有 Go toolchain，固定 CLIProxyAPI 的 Go tests 未重跑；真实 provider 请求、Docker、PostgreSQL 和跨账号密文接受度仍未验证。没有响应 schema 形状变化，因此未运行 `gen:api`。
 
 ### 阶段 2：单独完成 Codex managed installation identity
 
@@ -131,13 +134,13 @@ npm run gen:api
 
 **禁止范围：** 不改 `account_pool_failover.py` 的分类优先级、`Conversation` 的恢复门槛、重试预算默认值或账户排除规则，只为采用 Cockpit 命名而改协议字段
 
-- [ ] 先检查并补足当前测试，确保额度耗尽在允许范围内换卡、无可用卡时返回现有错误；普通瞬时 429 先按既有策略同卡重试，不误触发额度跨卡
-- [ ] 验证拒绝请求只能从该卡片 Key 已授权范围选择下一张卡，不能因为 Cockpit selector 或备用排序扩大范围
-- [ ] 验证 Responses 完整历史迁移保留图像、可见工具调用/结果、instructions 与请求参数；不会重复执行客户端工具，不会丢弃 dangling tool call 或不支持的私有项
-- [ ] 验证不完整历史、`previous_response_id` 的不可重放状态和失败后状态不明请求不会被简化成可重放文本
-- [ ] 验证 stream 第一段有效输出后绝不换卡/重放；仅首个客户端可见内容前允许已有策略恢复
-- [ ] 验证 compaction 仅对有已验证完整父历史的请求恢复；失败时不覆盖已保存响应或会话归属
-- [ ] 验证卡片 Key 的切换门仍有效；在工具调用、图像、WebSocket 和 native Messages 路径上维持原有重放限制
+- [x] 额度耗尽、无可用卡和普通瞬时 429 的既有换卡分类与同卡重试
+- [x] 下一张卡仍限定在该卡片 Key 已授权范围内
+- [x] 完整 Responses 历史、图像、可见工具调用/结果、instructions 和请求参数的恢复路径
+- [x] 不完整历史、`previous_response_id` 和失败后状态不明请求的不可重放限制
+- [x] stream 首个有效输出后的禁止换卡/重放边界
+- [x] compaction 只从完整父历史恢复，失败不覆盖已存响应或会话归属
+- [x] 卡片 Key 切换门及工具、图像、WebSocket、native Messages 的重放限制
 
 **文件与回归：**
 
@@ -163,6 +166,8 @@ $gatewayTests = @(
 
 **验收：** 上述回归通过；若身份适配触及任何失败边界，先修复或回退该适配，不调整额度分类、重试或续聊语义来迎合 Cockpit
 
+**阶段 3 执行结果（2026-10-23）：** 在当前 `codex/cockpit-reuse-plan` checkout、设置 `PYTHONPATH=account-pool` 后，阶段 3 六个指定文件及 `test_settings_and_policy_preserve_single_retry_owner` 一并运行，`439 passed, 8 warnings`，退出码 0；没有修改 `account_pool_failover.py`、conversation 恢复门槛、重试预算或账户排除规则。
+
 ### 阶段 4：部署前验证与分阶段提交
 
 - [ ] 从 `deploy/UPDATE_RUNBOOK.md` 开始部署准备；本阶段不实际部署，除非用户另行明确授权
@@ -184,6 +189,8 @@ $gatewayTests = @(
 - 上述 Manager 测试不运行 Docker、生产数据库或真实上游；Go 单元测试也不证明 LiteLLM 与该身份适配已集成
 - 审计期间有一次无效 pytest 命令因 `pytest_asyncio` 插件未加载退出码 4；修正插件后才是上述通过结果。一次初始 Go 尝试因系统 Go toolchain/embed 不完整失败；随后使用固定工具链和完整源码输入的运行才通过
 
+当前分支续做结果与上述历史快照分开记录，具体命令、失败尝试、literal outputs、退出码和角色哈希追加在 `.evidence/VERIFICATION.txt`。
+
 ## 证据附件
 
 证据目录：`docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/`
@@ -195,5 +202,6 @@ $gatewayTests = @(
 - `critical_snippets.json`、`cross_reference_matches.json`：包含 Cockpit 源码摘录，仅保留本地，不推送到 GitHub；待许可适用性确认后再决定是否发布。远端分支通过固定提交和文件锚点复核源码，不依赖这些摘录
 - `manager_check_resume.json`、`cockpit_go_check_retry.json`、`cockpit_go_check_verbose.json`：可复核测试命令、输出和退出码
 - `working_tree_guard.json`：生成计划前已知的本地 tracked diff 文件 SHA-256；不包含 untracked secrets
+- `../cliproxy-adapter/providers.md`：9 类供应商专属策略的默认值、保存与执行 owner、unsupported 状态及未实测边界
 
 审计依据是源码和列明的测试，不是生产服务实测。发现固定快照之外的上游新版本时，先重新取证和对照，再决定是否更新结论

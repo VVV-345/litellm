@@ -24,7 +24,12 @@ from litellm.proxy.management_endpoints.account_pool_endpoints import (
     _relay_browser_websocket,
     create_account_pool_router,
 )
-from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, ErrorLogRecord, ErrorStats
+from litellm.proxy.management_endpoints.account_pool_management_models import (
+    AccountPolicy,
+    ErrorLogRecord,
+    ErrorStats,
+    policy_capabilities,
+)
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingQuota,
     RoutingSnapshot,
@@ -34,6 +39,28 @@ from litellm.proxy.management_endpoints.account_pool_observability import Accoun
 
 _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
+
+
+def test_policy_capabilities_report_provider_settings_per_supplier() -> None:
+    expected: Final = {
+        "openai_codex": "gateway",
+        "anthropic_claude": "gateway",
+        "kimi": "gateway",
+        "xai": "gateway",
+        "google_antigravity": "gateway",
+        "openai_compatible": "unsupported",
+        "gemini": "unsupported",
+        "gemini_interactions": "unsupported",
+        "vertex": "unsupported",
+    }
+
+    for supplier, status in expected.items():
+        capability: Final = next(
+            item for item in policy_capabilities(supplier) if item.name == "provider_settings"
+        )
+        assert capability.status == status
+
+    assert next(item for item in policy_capabilities() if item.name == "provider_settings").status == "unsupported"
 
 
 class _BrowserWebSocket:

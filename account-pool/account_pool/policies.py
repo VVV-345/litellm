@@ -236,7 +236,14 @@ class PolicyCapability(BaseModel):
 
 
 def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCapability, ...]:
-    provider_status: Final = "gateway"
+    providers_with_settings: Final = (
+        SupplierKind.OPENAI_CODEX,
+        SupplierKind.ANTHROPIC_CLAUDE,
+        SupplierKind.KIMI,
+        SupplierKind.XAI,
+        SupplierKind.GOOGLE_ANTIGRAVITY,
+    )
+    provider_status: Final = "gateway" if supplier in providers_with_settings else "unsupported"
     return (
         *(
             PolicyCapability(name=name, status="gateway")

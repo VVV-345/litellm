@@ -1,24 +1,24 @@
 --- BASELINE.md
 +++ MODIFIED_FILE.md
-@@ -1,558 +1,199 @@
+@@ -1 +1 @@
 -# Cockpit 能力整合到 LiteLLM 号池的核实与实施计划
 +# LiteLLM 与 Cockpit 对照审查及执行计划
- 
+@@ -3 +3 @@
 -## 1. 文档目的
 +> 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；用户已明确要求推送此新分支到 GitHub；不部署，除非另行授权
- 
+@@ -5 +5 @@
 -本文把 Cockpit Tools v1.3.47 已核实的页面能力、配置能力和请求执行能力，映射到当前 LiteLLM 号池项目，形成后续开发可以逐项验收的计划
 +**目标：** 以代码证据区分 Cockpit 能力中可复用、须适配、不可替换和仍待确认的部分，并在所有后续改动中保住当前号池的额度换卡与续聊行为
- 
+@@ -7 +7 @@
 -本文的目标使用场景是：管理员在 LiteLLM 号池中维护多个上游账号，为每张号池卡片生成一个卡片 Key；NewAPI 保存这些卡片 Key 并负责下游用户、权限、额度和限流，号池负责卡片 Key 校验、账号配置、配额、切换和上游转发
 +**架构：** LiteLLM 继续拥有卡片 Key 授权范围、账号选择、额度和错误分类、重试及故障切换、计费和续聊。CLIProxyAPI 继续作为单账号上游适配器。只把 Cockpit 中边界清楚的实现作为固定版本的参考；不引入第二套号池或网关
- 
+@@ -9 +9 @@
 -本文只覆盖 Linux 服务端号池的管理面和数据面能力
 +**技术栈：** Python / Pydantic，React / TypeScript，CLIProxyAPI / Go；已有单账号容器和号池网关
- 
+@@ -11 +11 @@
 -## 2. 已核实版本与现有项目基线
 +**审查基线：** LiteLLM `f1289af7b3059b27e7d76a4ce37262658465a3b1`；Cockpit `76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4`；项目固定的 CLIProxyAPI fork `b3c954b63df09156ac2ac52ad038b3dc3a20748f`。比较不代表当前远端最新版本
- 
+@@ -13,32 +13 @@
 -| 项目 | 已核实版本或状态 | 结论 |
 -| --- | --- | --- |
 -| Cockpit Tools | v1.3.47，commit `deacbe44` | 页面和账号策略的参考实现 |
@@ -52,7 +52,7 @@
 -
 -控制面和数据面必须分开
 +**范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
- 
+@@ -46,95 +15 @@
 -- 控制面保存账号、卡片 Key、配置、路由规则和审计数据
 -- 数据面处理真实模型请求、账号选择、会话绑定、冷却和故障切换
 -- Manager 负责环境生命周期，不承载模型请求
@@ -149,7 +149,7 @@
 -
 -对当前版本暂不支持的设置，页面不能静默保存后显示成功。应显示“已保存但当前渠道不支持”或阻止保存，并在能力矩阵中记录后续适配任务
 +## 全局约束
- 
+@@ -142 +17,7 @@
 -当前页面通过能力清单把运行时状态拆开显示：`gateway` 表示卡片 Key 网关执行，`unsupported` 表示字段可保存但当前适配器不执行。服务端总体状态保持 `partial`，避免把已保存字段误报为全部生效
 +- 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改
 +- 额度耗尽换卡必须留在卡片 Key 获授权的账号范围内；一般限流不得误判成额度耗尽
@@ -158,15 +158,15 @@
 +- 不迁移数据库行、不重写既有卡片凭据、不在日志或文档中加入密钥、令牌、私有 URL 或个人配置
 +- 新代码遵守目标仓库的 CLAUDE.md、`account-pool/AGENTS.md`、`account-pool/MAINTENANCE.md` 和适用子目录说明
 +- Cockpit 源仓整体标注 CC BY-NC-SA 4.0；其中 vendored CLIProxyAPI 标注 MIT。复制 Cockpit 自有文件前，先记录来源、署名和适用许可；商业适用性须另行确认
- 
+@@ -144 +25 @@
 -### 5.3 Responses Compact 是独立服务端能力
 +## 审查结论
- 
+@@ -146,3 +27 @@
 -Responses Compact 控制的是网关是否允许并转发 `/v1/responses/compact`，与 Dashboard 的显示模式无关
 -
 -| 名称 | 作用 | 所属层 |
 +| 类别 | 能力 | 结论与后续处理 |
- | --- | --- | --- |
+@@ -150,3 +29,17 @@
 -| `/v1/responses/compact` | 对话压缩数据面接口 | LiteLLM、CLIProxyAPI 和上游适配 |
 -
 -## 6. 两类功能边界
@@ -187,10 +187,10 @@
 +- Cockpit 自带的旧指纹模式和客户端限制有明确“不改变请求／不限制客户端”的回归用例：Cockpit CLIProxyAPI `codex_fingerprint_test.go`、`codex_client_policy_test.go`。不能把这些弃用字段的行为当作可覆盖 LiteLLM 网关策略的证据
 +- 固定 CLIProxyAPI fork 已含 Claude 指纹解析和 mid-system-message 配置逻辑；对应文件与 Cockpit vendored 文件在该基线相同：`internal/runtime/executor/claude_fingerprint_policy.go`、`internal/runtime/executor/claude_signing.go`。因此先核对配置写入和消费，不搬重复执行代码
 +- Anthropic auth-file 管理文件整体并不相同；Kimi executor 也有差异，不能据少量同名字段推断整个供应商兼容：使用 `cliproxy_file_comparison.json` 和 `critical_snippets.json` 对照固定文件
- 
+@@ -154 +47 @@
 -### 6.1 可以直接放进服务端控制面
 +## 仍待确认
- 
+@@ -156,48 +49 @@
 -- 账号卡片、状态、套餐、配额窗口和更新时间
 -- OAuth 创建、重新授权、删除和恢复
 -- 标签、分组、搜索、筛选和批量任务
@@ -240,7 +240,7 @@
 -
 -| 对象 | 主要字段 | 作用 |
 +| 问题 | 当前证据能说明什么 | 关闭条件 |
- | --- | --- | --- |
+@@ -205,81 +51,5 @@
 -| `account_pool_card` | 卡片 ID、名称、状态、供应商、账号范围、配置版本 | 对外提供一个可管理的号池卡片 |
 -| `account_pool_card_key` | 卡片 ID、Key 哈希、状态、创建时间、重置时间 | 将一个入口 Key 绑定到一张卡片，页面只展示一次明文 Key |
 -| `account_pool_route_group` | 名称、策略、默认模型、会话设置 | 当一张卡片包含多个账号时定义选择规则 |
@@ -322,16 +322,15 @@
 -  -> LiteLLM 对账生成可路由 Deployment
 -  -> 管理员为卡片生成卡片 Key，并复制给 NewAPI
 -```
-+| 当前未提交的身份适配是否已经实现、保存并生效 | HEAD 上未提交 manager、API model、Dashboard 和测试文件；固定 HEAD 的 129 项结果不包含这些工作树差异 | 第 0 阶段读取差异，并在同一工作树跑新增回归；标出已完成、缺项和失败 |
 +| `managed` 身份是否跨重启、刷新和多 worker 稳定 | 固定 Cockpit 代码有版本化身份资料和 revision；两边运行时、持久化 owner 不同 | 在 LiteLLM 实际 CLIProxyAPI 镜像上验证 create/read/update/restart/refresh/concurrency，并证明不同卡片隔离 |
-+| Claude / Kimi 等供应商设置是否从保存端到请求端闭环 | 有字段模型、配置同步与部分 CPA 执行路径；固定 Manager 批次只覆盖策略、同步、注册表和额度用例 | 每个字段追踪 UI -> API model -> persistence -> settings sync -> auth/config -> 实际请求构造，并为支持或不支持给出测试 |
++| Claude / Kimi 等供应商设置是否在真实请求中生效 | UI -> API -> policy persistence -> CLIProxyAPI auth/config 路径已静态核对；Kimi 固定源中 `fingerprint_profile` 只作用于 Claude Messages，设备 ID 写入 `X-Msh-Device-Id` | 在有 Go toolchain 的环境运行固定 CLIProxyAPI tests；经用户确认后做隔离真实上游请求。现阶段不把静态路径当作线上验收 |
 +| Cockpit 是否能在真实上游接受跨账号 reasoning 密文 | Cockpit README 明确说跨账号密文接受度仍需真实请求验证；不能由本地测试推出 | 使用明确授权的测试账号和无敏感历史用例进行单独 E2E；没有结果前默认禁止把密文迁移写作已支持 |
 +| Docker、真实数据库、多副本和真实供应商端到端 | 本轮的 129 项 Manager 与 Go 单元测试都不是这些环境验证 | 在隔离环境完成带版本和可回滚数据快照的验收；无法运行时记为未验证，不降级安全规则 |
 +| Cockpit 自有 Rust/Tauri 文件在目标用途下能否复制 | 文件许可及与 LiteLLM 生命周期的兼容审查未完成 | 逐个目标文件审许可证、依赖、平台行为、凭据存储和维护 owner；在此之前只使用行为参考 |
- 
+@@ -287 +57 @@
 -### 8.2 配置保存和执行
 +## 执行计划
- 
+@@ -289,9 +59 @@
 -```text
 -管理员修改设置
 -  -> LiteLLM 校验权限和版本
@@ -342,13 +341,13 @@
 -  -> 页面显示 pending、成功或失败原因
 -```
 +### 阶段 0：审阅已提交的身份适配
- 
+@@ -299 +61 @@
 -保存成功不能等同于运行时已经生效。页面必须显示期望版本和观察版本，配置未被代理确认前显示同步中
 +**目标：** 对照当前分支已经提交的身份适配检查行为、调用链和未验证部分，不重复搬代码或把提交误报成已完成验收
- 
+@@ -301 +63 @@
 -### 8.3 模型请求和切号
 +**审阅文件：**
- 
+@@ -303,13 +65,6 @@
 -```text
 -NewAPI 使用卡片 Key 请求模型
 -  -> NewAPI 身份、预算、模型和限流
@@ -368,16 +367,16 @@
 +- `litellm/proxy/management_endpoints/account_pool_management_models.py`
 +- `ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolProviderPolicyFields.tsx`
 +- 上述文件对应的未提交测试、locale 和 API type 文件
- 
+@@ -317 +72,4 @@
 -“切号”在服务端场景不是修改用户电脑上的登录账号，而是下一次请求或故障切换时选择另一个上游账号
 +- [x] 审阅 `24b49b9cb0` 与 `a06aa13653` 的完整差异，重点检查 `account-pool/cliproxy-adapter/` 补丁、source lock、`client.py` 能力检测、`settings_sync.py` 字段同步、Manager/API/Dashboard gate 及对应新测试
 +- [x] 在当前 LiteLLM 根目录运行 `account-pool/tests/account_pool/test_policies.py`、`test_cliproxy_supplier_client.py`、`test_channel_registry.py` 和 `test_management.py`；另运行阶段 3 的换卡与续聊回归，不复用旧 HEAD 的通过数
 +- [x] 确认底层能力缺失时策略保存/同步会明确失败或报告不支持；检查 managed identity 不扩展至 conversation/session 密文，`request-retry=0` 与单一重试 owner 保持不变
 +- [x] 将当前 HEAD、命令、完整结果和未通过范围追加到证据记录；若发现缺口，只补最小差异，不从 Cockpit 重新实现已有逻辑
- 
+@@ -319 +77 @@
 -### 8.4 Compact 请求
 +**验收：** 有一份基于 `a06aa13653` 实际提交的变更与回归清单；旧提交的审查证据与新 HEAD 验收结果分开；不重复实现已提交的适配
- 
+@@ -321,8 +79 @@
 -```text
 -/v1/responses/compact
 -  -> 号池保留 Responses 请求语义
@@ -387,25 +386,25 @@
 -  -> 号池保留响应结构和用量记录
 -```
 +**阶段 0 执行摘要（2026-10-23，HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`）：** Manager 定向测试 `173 passed`，Dashboard 设置集成测试 `13 passed`。Phase 3 六文件回归第一次因缺少 `PYTHONPATH=account-pool` 出现 1 个导入失败、430 项通过；补上该路径后完整重跑为 `431 passed, 9 warnings`，退出码 0，没有断言失败。能力门控、默认关闭、`request_retry=0` 和单一重试 owner 均有当前测试覆盖；无额度路由或 conversation 运行时代码改动。LiteLLM 会保存所选策略，但底层不支持时将其标记 `failed` 并返回 502，明确告知尚未生效。固定 CLIProxyAPI 源码不在当前工作区，Go 补丁测试只引用历史结果，未冒充本次新运行。详细命令、结果和边界见同目录 `.evidence/VERIFICATION.txt`
- 
+@@ -330 +81 @@
 -Compact 必须加入端到端测试，因为普通 `/v1/responses` 能通，不代表 `/v1/responses/compact`、流式请求和别名模型都能通
 +### 阶段 1：建立设置能力矩阵，不搬整模块
- 
+@@ -332 +83 @@
 -## 9. 数据模型和 API 设计
 +**修改边界：** 若需补功能，仅改 `account-pool/account_pool/policies.py`、`settings.py`、`channels/cliproxyapi/settings_sync.py`、对应代理 management model、`AccountPoolProviderPolicyFields.tsx` 及必要测试。保持现有目录和兼容入口
- 
+@@ -334 +85,7 @@
 -### 9.1 账号策略字段
-+- [ ] 将每个 Cockpit 设置登记为供应商、策略字段、默认值、保存位置、执行层、能力状态和对应测试；不支持项必须显示不支持，不能保存成功后假装已执行
-+- [ ] 覆盖 8 个 CLIProxyAPI supplier 定义与 OpenAI-compatible 通道，共 9 个供应商类别；按真实 registry 映射检查，不把一个协议字段推广给其他供应商
-+- [ ] 对 Claude 检查现有 `fingerprint_profile`、`cloak_mode`、`rebuild_mid_system_message` 从 API 保存到 CLIProxyAPI auth/config 的消费路径；不复制已相同的 Claude 执行文件
-+- [ ] 对 Kimi 检查 `fingerprint_profile` 与 `resolveKimiDeviceID` 的来源、默认值和请求头使用；executor 不同则仅验证所需字段，不替换整个文件
-+- [ ] 对 Codex 核对 `off/device/session/full`、`identity_confuse`、客户端准入、Compact、WebSocket 与当前网关 owner；Cockpit 弃用 metadata 不得重新启用/关闭现有策略
-+- [ ] 对 Antigravity、xAI、Gemini、Gemini Interactions、Vertex 核对各自配置字段与执行点；没有请求端消费者或可靠测试的字段标记为 `unsupported` 或暂停，不扩展到通用兼容通道
-+- [ ] 保留 OpenAI-compatible `_validate_destination` 的主机/目标校验和其直连路由，不将其切入 CLIProxyAPI 容器
- 
++- [x] 将专属策略字段登记为供应商、默认值、保存位置、执行 owner、能力状态和测试；无专属字段的供应商返回并显示 `unsupported`
++- [x] 覆盖 8 个 CLIProxyAPI supplier 定义与 OpenAI-compatible 通道，共 9 个供应商类别；没有把 provider-specific policy 扩展到通用兼容通道
++- [x] 对 Claude 检查 `fingerprint_profile`、`cloak_mode`、`rebuild_mid_system_message` 的 policy/auth-file 映射及固定源消费路径；没有复制 Claude 执行文件
++- [x] 对 Kimi 核对 `fingerprint_profile` 与固定源 `resolveKimiDeviceID` 的来源、回退和 `X-Msh-Device-Id` 使用；设备 ID 属于现有认证状态，不以 Cockpit 身份字段替换
++- [x] 对 Codex 核对 fingerprint 默认值、`identity_confuse`、CLI/app-server 准入、Compact、WebSocket 和当前 owner；弃用 metadata 不覆盖网关策略
++- [x] 对 Antigravity、xAI、Gemini、Gemini Interactions、Vertex 核对配置与执行点；无专属策略字段的供应商标记 `unsupported`
++- [x] 保留 OpenAI-compatible `_validate_destination` 目标校验和直连路由，不切入 CLIProxyAPI 容器
+@@ -336 +93 @@
 -建议在现有 `EnvironmentConfiguration` 基础上增加独立的策略对象，避免把生命周期字段、路由字段和供应商协议字段混成一个大配置
 +**针对性验证：**
- 
+@@ -338,25 +95,2 @@
 -```text
 -AccountPolicy
 -  enabled
@@ -433,8 +432,7 @@
 -  responses_compact_enabled
 +```powershell
 +.venv/Scripts/python.exe -m pytest account-pool/tests/account_pool/test_policies.py account-pool/tests/account_pool/test_cliproxy_supplier_client.py account-pool/tests/account_pool/test_channel_registry.py account-pool/tests/account_pool/test_openai_compatible.py -q
- ```
- 
+@@ -365,27 +99 @@
 -### 9.2 管理接口
 -
 -建议沿用现有 LiteLLM 到 Manager 的代理接口，逐步补充以下端点
@@ -462,7 +460,8 @@
 -## 10. 分阶段实施计划
 -
 -按你的使用方式，计划调整为 **5 个阶段**。NewAPI 已负责下游用户、下游 Key、用户额度和下游权限，因此删除 LiteLLM 内部的多用户账号授权阶段
--
++Dashboard 有修改时，在 `ui/litellm-dashboard`：
+@@ -393,31 +101,5 @@
 -### 阶段 1：核实 Cockpit 全部能力并建立映射
 -
 -- 逐项登记 Cockpit 页面、全局设置、账号设置、供应商设置和代理设置
@@ -470,8 +469,7 @@
 -- 区分通用设置、供应商专属设置和数据面设置
 -- 固定 CLIProxyAPI 版本、Cockpit 行为审计版本和许可证边界
 -- 同时确定日志事件字典、错误分类、处理阶段、严重级别、脱敏规则和保留期限
-+Dashboard 有修改时，在 `ui/litellm-dashboard`：
- 
+-
 -验收：Cockpit 的每个设置都有明确归属；不支持的设置不会被标记为已生效
 -
 -### 阶段 2：完成号池卡片和管理页面
@@ -495,7 +493,12 @@
 -验收：卡片 A 的 Key 不能访问卡片 B；重置后旧 Key 立即失效；页面和日志不泄露 Key 明文；NewAPI 可以用卡片 Key 正常请求
 -
 -### 阶段 4：让 Cockpit 设置进入代理和供应商适配器
--
++```powershell
++npx vitest run --project unit --project component --project integration src/features/account-pool src/components/Settings/RuntimeSettings/RuntimePolicyDialog.integration.test.tsx --maxWorkers 2
++npm run test:types
++npm run gen:api
++```
+@@ -425,7 +107 @@
 -- 建立所有 Cockpit 设置的供应商能力矩阵
 -- 将通用字段和供应商扩展字段保存到卡片或账号策略中
 -- 在对应 CLIProxyAPI 或代理适配层执行身份、指纹、客户端、连接和协议设置
@@ -503,17 +506,14 @@
 -- 为入口鉴权、路由、连接、上游请求、响应解析、重试和切号写入结构化日志
 -- Codex 已实现 `off`、`device`、`session`、`full`，其他供应商按核实结果实现
 -- 配置不支持时明确返回能力状态，不静默忽略
--
--验收：每个纳入清单的数据面设置都能改变真实请求或明确报告不支持；设置关闭时不改写请求；不同供应商不会错误套用其他供应商字段
-+```powershell
-+npx vitest run --project unit --project component --project integration src/features/account-pool src/components/Settings/RuntimeSettings/RuntimePolicyDialog.integration.test.tsx --maxWorkers 2
-+npm run test:types
-+npm run gen:api
-+```
- 
--### 阶段 5：实现卡片内部切号、配额和故障处理
 +运行 API type 生成后审阅 `src/lib/http/schema.d.ts`，只提交本次生成的真实差异
- 
+@@ -433 +109 @@
+-验收：每个纳入清单的数据面设置都能改变真实请求或明确报告不支持；设置关闭时不改写请求；不同供应商不会错误套用其他供应商字段
++**验收：** 每个字段都有一个明确运行时消费者或明确的不支持状态；默认行为不变；不存在 manager 与 sidecar 两边各自重试
+@@ -435 +111 @@
+-### 阶段 5：实现卡片内部切号、配额和故障处理
++**阶段 1 执行结果（2026-10-23）：** 逐字段详表见 `account-pool/cliproxy-adapter/providers.md`。专属 `provider_settings` 对 Codex、Claude、Kimi、xAI、Antigravity 为 `gateway`，对 OpenAI-compatible、Gemini、Gemini Interactions、Vertex 为 `unsupported`；“unsupported”不撤销各通道的认证/凭据能力，也不影响通用网关策略。修正了 Manager 与代理响应模型的 capability 映射，并让 Dashboard 的 `unsupported` 状态优先于固定说明显示。默认值和 quota/failover/conversation 逻辑未改。
+@@ -437,8 +113 @@
 -- 一张卡片只有一个账号时直接固定转发
 -- 一张卡片包含多个账号时，实现候选过滤、优先级、权重、随机、配额优先、套餐优先和备用账号
 -- 实现会话粘性、TTL、账号冷却、并发占用和故障切换
@@ -522,17 +522,17 @@
 -- 可选本地 Token 预算按账号和固定窗口执行；请求前估算并预留，成功按真实输入与输出 Token 结算，失败和租约过期释放预留
 -- 记录每次错误的渠道、卡片、账号、时间、阶段、错误分类、上游码、重试和切号结果
 -- 完成 `/v1/responses/compact` 的端到端验证
-+**验收：** 每个字段都有一个明确运行时消费者或明确的不支持状态；默认行为不变；不存在 manager 与 sidecar 两边各自重试
- 
++本阶段原始验证：阶段 1 Python 回归 `124 passed`；policy/API 定向测试 `5 passed`；Dashboard `RuntimePolicyDialog` 集成 `14 passed`；Dashboard type tests `4 passed, no type errors`。本次独立工作树续做时重跑四个指定后端测试文件，`144 passed`，`3.17s`。本机没有 Go toolchain，固定 CLIProxyAPI 的 Go tests 未重跑；真实 provider 请求、Docker、PostgreSQL 和跨账号密文接受度仍未验证。没有响应 schema 形状变化，因此未运行 `gen:api`。
+@@ -446 +115 @@
 -验收：卡片内部可以按配额和状态自动切号；冷却或失效账号不会继续被选中；路由结果可解释；NewAPI 的下游用户不需要感知上游账号切换
 +### 阶段 2：单独完成 Codex managed installation identity
- 
+@@ -448 +117 @@
 -## 11. 更新和同步策略
 +**目标：** 如阶段 0 证明仍有缺口，只适配安装级标识，不搬入 Cockpit 号池或本地历史库
- 
+@@ -450 +119 @@
 -不能把 Cockpit 整个源码复制进每个账号隔离环境。正确的更新边界如下
 +**实现范围：** `account-pool/cliproxy-adapter/` 的固定来源与小补丁、CLIProxyAPI capability/client/settings sync、manager `CodexPolicy` 与 API model、已有 Dashboard policy 控件及映射测试。实际文件以阶段 0 的调用链核实为准
- 
+@@ -452 +121,7 @@
 -### 11.1 CLIProxyAPI 更新
 +- [ ] 固定 Cockpit commit、CLIProxyAPI fork commit、相关文件 SHA-256 与许可来源；以 `account-pool/cliproxy-adapter/sources.json` 为版本锁，不使用浮动分支
 +- [ ] 先写会失败的 managed 能力缺失测试、字段精确映射测试和 refresh/restart 稳定性测试；底层不支持时在写配置前拒绝，并报告 `unsupported/partial`
@@ -541,7 +541,7 @@
 +- [ ] `managed` 只对 Codex 明确启用；既有 `off/device/session/full` 和 `identity_confuse` 的默认与作用范围不变，不把两种机制叠加成隐式替换
 +- [ ] 验证普通 HTTP、SSE、WebSocket、图片和 Compact 共同请求路径在同一卡片下得到稳定身份，响应/客户端可见状态和安全日志无 token 泄漏
 +- [ ] 保持 `request-retry=0` 与 `max-retry-credentials=1` 的 sidecar 约束；任何身份查询失败都不尝试另一个上游账号或重发已执行请求
- 
+@@ -454,8 +129 @@
 -1. 记录当前版本、commit、镜像 digest 和配置 schema
 -2. 拉取新版本到独立审计目录
 -3. 比较请求路径、配置字段、账号选择、Codex 改写、Compact、WebSocket 和错误行为
@@ -551,30 +551,30 @@
 -7. 既有环境只更新容器镜像或配置，不改变环境 UUID、数据卷和 OAuth 凭据路径
 -8. 保留旧版本回滚信息和数据库 schema 版本
 +**回归命令：** 先运行阶段 1 的 Manager/前端命令，再运行本计划固定 fork 的 `go test` 中 `^TestManagedIdentity`、HTTP/SSE/WebSocket 请求边界测试；Go 必须使用仓库固定工具链和完整 embed 输入。最后运行阶段 3 的全部换卡与续聊测试
- 
+@@ -463 +131 @@
 -### 11.2 Cockpit 页面能力更新
 +**验收：** 缺能力会失败而非假成功；identity 跨刷新/重启保持卡片归属；session/reasoning 密文逐字节不因此设置变化；没有新增重试 owner
- 
+@@ -465 +133 @@
 -Cockpit 新增页面功能时，不直接复制 UI 源码。先把功能拆成以下三部分
 +### 阶段 3：证明额度换卡和续聊没有退化
- 
+@@ -467,3 +135 @@
 -- 页面行为：按钮、表单、状态和展示字段
 -- 控制面数据：字段、API、权限和持久化
 -- 数据面行为：该字段如何改变请求
 +**禁止范围：** 不改 `account_pool_failover.py` 的分类优先级、`Conversation` 的恢复门槛、重试预算默认值或账户排除规则，只为采用 Cockpit 命名而改协议字段
- 
+@@ -471 +137,7 @@
 -只把已确认的行为重新实现到 LiteLLM 的页面和服务端。对于 CLIProxyAPI 上游已有的 MIT 能力，可以按许可证复用或升级；Cockpit Tools 本身是 CC BY-NC-SA 4.0，商业使用受限，不能无条件复制 Cockpit 的 React、Rust 或定制 Go 源码。Cockpit 对上游 CLIProxyAPI 的修改还需要逐文件确认其来源和许可证
-+- [ ] 先检查并补足当前测试，确保额度耗尽在允许范围内换卡、无可用卡时返回现有错误；普通瞬时 429 先按既有策略同卡重试，不误触发额度跨卡
-+- [ ] 验证拒绝请求只能从该卡片 Key 已授权范围选择下一张卡，不能因为 Cockpit selector 或备用排序扩大范围
-+- [ ] 验证 Responses 完整历史迁移保留图像、可见工具调用/结果、instructions 与请求参数；不会重复执行客户端工具，不会丢弃 dangling tool call 或不支持的私有项
-+- [ ] 验证不完整历史、`previous_response_id` 的不可重放状态和失败后状态不明请求不会被简化成可重放文本
-+- [ ] 验证 stream 第一段有效输出后绝不换卡/重放；仅首个客户端可见内容前允许已有策略恢复
-+- [ ] 验证 compaction 仅对有已验证完整父历史的请求恢复；失败时不覆盖已保存响应或会话归属
-+- [ ] 验证卡片 Key 的切换门仍有效；在工具调用、图像、WebSocket 和 native Messages 路径上维持原有重放限制
- 
++- [x] 额度耗尽、无可用卡和普通瞬时 429 的既有换卡分类与同卡重试
++- [x] 下一张卡仍限定在该卡片 Key 已授权范围内
++- [x] 完整 Responses 历史、图像、可见工具调用/结果、instructions 和请求参数的恢复路径
++- [x] 不完整历史、`previous_response_id` 和失败后状态不明请求的不可重放限制
++- [x] stream 首个有效输出后的禁止换卡/重放边界
++- [x] compaction 只从完整父历史恢复，失败不覆盖已存响应或会话归属
++- [x] 卡片 Key 切换门及工具、图像、WebSocket、native Messages 的重放限制
+@@ -473 +145 @@
 -### 11.3 Cockpit 插件兼容边界
 +**文件与回归：**
- 
+@@ -475 +147,7 @@
 -Cockpit 的插件管理属于 CLIProxyAPI 卡片运行时，不属于 LiteLLM 核心进程。当前号池的调用链是：
 +- `tests/test_litellm/proxy/management_endpoints/test_account_pool_failover.py`
 +- `tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py`
@@ -583,7 +583,7 @@
 +- `tests/test_litellm/proxy/management_endpoints/test_account_pool_native_routing.py`
 +- `tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py`
 +- `account-pool/tests/account_pool/test_cliproxy_supplier_client.py` 的单一重试 owner 测试
- 
+@@ -477,6 +155,10 @@
 -```text
 -管理员页面
 -  -> LiteLLM /account_pool 管理接口
@@ -600,8 +600,7 @@
 +  'tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py'
 +)
 +.venv/Scripts/python.exe -u -m pytest @gatewayTests -q
- ```
- 
+@@ -485,20 +167 @@
 -因此，已经安装在 CLIProxyAPI 环境中的 Cockpit 兼容插件可以按卡片使用，但不能通过 LiteLLM 的全局插件机制直接加载。非 CLIProxyAPI 卡片会被服务端拒绝，插件 ID、版本和来源必须先由该卡片的 plugin-store 返回并通过校验。页面只显示状态和配置，不返回插件文件、凭据或完整运行配置
 -
 -Manager 侧的 `PluginService` 是受批准的 sidecar manifest 和启停状态记录，不负责执行插件，也不能把 Cockpit 的动态库装进 LiteLLM 进程。这样可以保留 LiteLLM 的鉴权、路由和计费边界，避免插件读取其他卡片的密钥或跨越账号隔离网络
@@ -622,7 +621,8 @@
 -启动或升级时，如果 Manager 要求的字段高于 CLIProxyAPI 实际支持能力，必须显示不兼容并阻止错误配置下发，不能静默忽略
 -
 -## 12. 测试矩阵
--
++**验收：** 上述回归通过；若身份适配触及任何失败边界，先修复或回退该适配，不调整额度分类、重试或续聊语义来迎合 Cockpit
+@@ -506,16 +169 @@
 -| 范围 | 必测内容 |
 -| --- | --- |
 -| 页面 | 账号卡片、额度窗口、状态、模型、配置保存、错误提示、权限隐藏、移动端配置入口 |
@@ -639,14 +639,12 @@
 -| 协议 | Chat、Responses、图片、WebSocket、压缩请求和请求体恢复 |
 -| 安全 | token 不出现在页面、日志和错误响应；内部账号地址不可从公共入口访问；Docker 网络隔离 |
 -| 升级 | 旧数据卷、旧凭据、旧配置、滚动升级、能力不匹配和回滚 |
--
++**阶段 3 执行结果（2026-10-23）：** 在当前 `codex/cockpit-reuse-plan` checkout、设置 `PYTHONPATH=account-pool` 后，阶段 3 六个指定文件及 `test_settings_and_policy_preserve_single_retry_owner` 一并运行，`439 passed, 8 warnings`，退出码 0；没有修改 `account_pool_failover.py`、conversation 恢复门槛、重试预算或账户排除规则。
+@@ -523 +171 @@
 -需要优先写能够在功能缺失时失败的测试，不写只重复实现细节的浅层测试。对请求路由和权限尤其要使用跨账号、跨 Key 的反例验证
-+**验收：** 上述回归通过；若身份适配触及任何失败边界，先修复或回退该适配，不调整额度分类、重试或续聊语义来迎合 Cockpit
- 
--## 13. 验收标准
 +### 阶段 4：部署前验证与分阶段提交
- 
--### 页面验收
+@@ -525 +173,7 @@
+-## 13. 验收标准
 +- [ ] 从 `deploy/UPDATE_RUNBOOK.md` 开始部署准备；本阶段不实际部署，除非用户另行明确授权
 +- [ ] 在隔离环境验证真实 Manager、LiteLLM、PostgreSQL 和 CLIProxyAPI 容器的 schema、restart、single-card request、额度拒绝和续聊；记录镜像 SHA/digest、配置版本、测试账号范围及是否真实触达上游
 +- [ ] 先完成不消耗额度的路由和状态检查；任何真实供应商请求另行确认成本、测试数据和权限，跨账号密文 E2E 未证明前禁用该场景
@@ -654,17 +652,20 @@
 +- [ ] 按 `account-pool/MAINTENANCE.md` 做 Manager、网关和 Dashboard 定向检查；记录 skipped tests、外部环境限制与已存在失败，不能引用本计划日期之前的测试通过数作为新结果
 +- [ ] 逐份检查待提交 diff、格式和 `git diff --check`，避免把 `.local/`、本地配置、身份数据和生成产物带入提交
 +- [ ] 验证完成后依项目规则 commit；只在收到用户明确 push 命令后 push
- 
+@@ -527 +181 @@
+-### 页面验收
++**验收：** 有测试范围、具体提交、固定镜像身份、回滚步骤和未验证事项；没有未授权部署或推送
+@@ -529,5 +183 @@
 -- 账号卡片可以看到状态、套餐、配额、重置时间、启用模型和最近错误
 -- 设置可以修改账号开关、并发、冷却、代理、模型和路由策略
 -- 各供应商身份或指纹策略和 Compact 字段有独立说明，不把不同供应商能力或不同层次的 Compact 合成一个开关
 -- 保存后能显示同步状态和失败原因
 -- 管理员可以管理完整号池；NewAPI 下游用户不会直接看到号池账号
-+**验收：** 有测试范围、具体提交、固定镜像身份、回滚步骤和未验证事项；没有未授权部署或推送
- 
--### 数据面验收
 +## 当前可引用的验证证据
- 
+@@ -535 +185 @@
+-### 数据面验收
++以下只是固定快照上的定向结果，不代表当前未提交工作树、完整后端或线上部署：
+@@ -537,9 +187,4 @@
 -- NewAPI 只拿到卡片 Key，不拿到上游 OAuth 或 CLIProxyAPI 凭据
 -- 未授权账号、禁用账号、冷却账号和模型不匹配账号不会被选择
 -- 同一会话在 TTL 内按策略复用账号，不同卡片 Key 之间不会共享粘性绑定
@@ -674,23 +675,23 @@
 -- 日志详情不会泄露卡片 Key、OAuth 凭据、代理密码、完整请求体或完整响应体
 -- Cockpit 纳入清单中的每个数据面设置实际影响代理请求，关闭或不支持时不会静默改写请求
 -- Compact 请求完成端到端验证
-+以下只是固定快照上的定向结果，不代表当前未提交工作树、完整后端或线上部署：
- 
--### 运维验收
 +- LiteLLM 固定 HEAD `f1289af7b3`：`test_policies.py`、`test_cliproxy_supplier_client.py`、`test_channel_registry.py`、`test_quota.py` 共 **129 passed**；本轮用修正后的 pytest 插件入口复跑，退出码 0，`2.17s`
 +- Cockpit 固定 commit `76fbea02...` 的 vendored CLIProxyAPI：Go `TestManagedIdentity` 定向 suite 使用固定完整 toolchain 和 embed 文件运行成功，退出码 0；覆盖验证/旧模式、精确路径与不透明历史、重复字段与 multipart、刷新主体一致性和选中 bearer 校验
 +- 上述 Manager 测试不运行 Docker、生产数据库或真实上游；Go 单元测试也不证明 LiteLLM 与该身份适配已集成
 +- 审计期间有一次无效 pytest 命令因 `pytest_asyncio` 插件未加载退出码 4；修正插件后才是上述通过结果。一次初始 Go 尝试因系统 Go toolchain/embed 不完整失败；随后使用固定工具链和完整源码输入的运行才通过
- 
+@@ -547 +192 @@
+-### 运维验收
++当前分支续做结果与上述历史快照分开记录，具体命令、失败尝试、literal outputs、退出码和角色哈希追加在 `.evidence/VERIFICATION.txt`。
+@@ -549,4 +194 @@
 -- CLIProxyAPI 可以独立升级和回滚，不需要重建账号身份
 -- Cockpit 页面新增能力可以按字段和行为重新实现，不依赖每个账号安装 Cockpit
 -- Manager 重启、Docker 暂时失败和上游短暂不可用后可以恢复
 -- 既有 `account-pool/uv.lock` 和 `ui/litellm-dashboard/tsconfig.tsbuildinfo` 等用户已有修改不被覆盖
 +## 证据附件
- 
+@@ -554 +196 @@
 -## 14. 当前最合理的落地顺序
 +证据目录：`docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/`
- 
+@@ -556 +198,8 @@
 -账号卡片、卡片 Key、路由、会话、冷却、故障切换、WebSocket 和调试详情已经进入验证阶段。下一步优先完成真实 Docker、PostgreSQL、NewAPI 和上游 E2E，再补其他供应商适配
 +- `source_inventory.json`：固定仓库 HEAD、文件清单与审计范围
 +- `litellm_snapshot.json`、`cockpit_snapshot.json`、`cliproxy_snapshot.json`：各固定源码快照文件 SHA-256
@@ -699,6 +700,7 @@
 +- `critical_snippets.json`、`cross_reference_matches.json`：包含 Cockpit 源码摘录，仅保留本地，不推送到 GitHub；待许可适用性确认后再决定是否发布。远端分支通过固定提交和文件锚点复核源码，不依赖这些摘录
 +- `manager_check_resume.json`、`cockpit_go_check_retry.json`、`cockpit_go_check_verbose.json`：可复核测试命令、输出和退出码
 +- `working_tree_guard.json`：生成计划前已知的本地 tracked diff 文件 SHA-256；不包含 untracked secrets
- 
++- `../cliproxy-adapter/providers.md`：9 类供应商专属策略的默认值、保存与执行 owner、unsupported 状态及未实测边界
+@@ -558 +207 @@
 -这样可以实现服务端目标：NewAPI 的多个下游用户通过各自的下游权限使用号池卡片，NewAPI 使用卡片 Key 访问指定的上游账号或账号集合，号池统一管理账号、配额和切换
 +审计依据是源码和列明的测试，不是生产服务实测。发现固定快照之外的上游新版本时，先重新取证和对照，再决定是否更新结论

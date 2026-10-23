@@ -218,3 +218,89 @@ Corrected scoped command: `git diff --cached --check -- . ':(exclude)docs/superp
 Corrected output: empty
 Corrected exit status: 0
 The plan and all other staged files pass the scoped whitespace check. The patch-format warnings are preserved rather than stripping required unified-diff markers.
+
+CONTINUATION REVALIDATION (2026-10-23; isolated branch)
+
+ACTIVE_OBJECT: LiteLLM/Cockpit reuse audit plan and Phase 1 provider-settings correction
+Worktree: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+Branch: codex/cockpit-reuse-plan
+HEAD before this continuation: 928ea082ad
+The original D:\Work2api\litellm checkout remained on CLIProxyAPI分支 with its pre-existing dirty state. No files were written there.
+
+Changed symbol/field: policy_capabilities(...).provider_settings.status in account_pool/policies.py and account_pool_management_models.py. Codex, Claude, Kimi, xAI, and Antigravity report gateway; OpenAI-compatible, Gemini, Gemini Interactions, Vertex, and an unspecified supplier report unsupported. RuntimePolicyDialog displays the unsupported status rather than the generic runtime-sync description. The quota failover, retry, authorization-scope, and conversation-replay implementation was not changed.
+
+Four role paths for this continuation:
+MODIFIED_FILE: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.md
+DIFF_FILE: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\DIFF_FILE.patch
+VERIFICATION.txt: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\VERIFICATION.txt
+ROLLBACK.sh: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\ROLLBACK.sh
+Additional baseline input: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\BASELINE.md
+
+FOCUSED BACKEND RETESTS
+
+First command: python -m pytest account-pool/tests/account_pool/test_management.py account-pool/tests/account_pool/test_policies.py
+Observed output: both files reached 100% (34 test cases); pytest then raised PermissionError while cleaning the shared system temp path.
+Observed error excerpt: PermissionError: [WinError 5] Access is denied: 'C:\Users\42117\AppData\Local\Temp\pytest-of-42117\pytest-current'
+Exit status: 1
+
+Corrected command: python -m pytest --basetemp "C:\Users\42117\AppData\Local\Temp\cockpit-pytest-38cfc4dffd754c4590ea906e0fadf5d4" account-pool/tests/account_pool/test_management.py account-pool/tests/account_pool/test_policies.py
+Literal stdout summary: 34 passed in 3.21s
+Literal stderr: C:\Users\42117\MiniConda3\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.2.0)/charset_normalizer (3.4.4) doesn't match a supported version!
+Exit status: 0
+
+Final Phase 1 command: python -m pytest --basetemp "C:\Users\42117\AppData\Local\Temp\cockpit-phase1-ledger-7760b391a87c4f2ca0ac454bad390585" account-pool/tests/account_pool/test_policies.py account-pool/tests/account_pool/test_cliproxy_supplier_client.py account-pool/tests/account_pool/test_channel_registry.py account-pool/tests/account_pool/test_management.py
+Literal stdout:
+============================= test session starts =============================
+platform win32 -- Python 3.12.9, pytest-9.1.1, pluggy-1.5.0
+rootdir: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\account-pool
+configfile: pyproject.toml
+plugins: anyio-4.12.1, langsmith-0.11.1, asyncio-1.4.0
+collected 144 items
+account-pool\tests\account_pool\test_policies.py ...                     [  2%]
+account-pool\tests\account_pool\test_cliproxy_supplier_client.py ....... [  6%]
+........................................................................ [ 56%]
+...........                                                              [ 64%]
+account-pool\tests\account_pool\test_channel_registry.py ............... [ 75%]
+.....                                                                    [ 78%]
+account-pool\tests\account_pool\test_management.py ..................... [ 93%]
+..........                                                               [100%]
+============================= 144 passed in 3.17s =============================
+Literal stderr: C:\Users\42117\MiniConda3\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (7.2.0)/charset_normalizer (3.4.4) doesn't match a supported version!
+Exit status: 0
+
+Final `git diff --check` stdout and stderr were empty; exit status 0. Before regenerating DIFF_FILE.patch with zero context, the check exited 2 because whitespace-only unified-diff context markers in that artifact were interpreted as trailing whitespace. The zero-context patch retains reconstruction behavior and the unscoped check now passes.
+
+FINAL PLAN TRANSACTION
+
+Patch generation command: Git for Windows `diff.exe -U0 --label BASELINE.md --label MODIFIED_FILE.md BASELINE.md MODIFIED_FILE.md`, with stdout redirected to DIFF_FILE.patch. Exit status: 1, expected because the inputs differ.
+Patch reconstruction command: Git for Windows `patch.exe -s -o <temporary-reconstruction> BASELINE.md -i DIFF_FILE.patch`. Literal stdout: empty. Literal stderr: empty. Exit status: 0.
+BASELINE SHA-256: a0f746ec3cdf6e6039b19c01a784cdf9f9446c8441d86ebffa01db3860d6c3cf
+MODIFIED_FILE SHA-256: 45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b
+Reconstructed file SHA-256: 45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b
+DIFF_FILE SHA-256: f8bc7907059c4cd129d76dd7c093acacaa86f3260d73db303615d6757c9df32b
+Reconstructed bytes equal MODIFIED_FILE: True
+
+The existing PLAN CONTRACT CHECK command and its 13 markers were run with the same marker input against all three states.
+BASELINE input: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\BASELINE.md
+BASELINE stdout: FAIL missing=12 a06aa13653; 24b49b9cb0; account-pool/cliproxy-adapter/; account_pool_failover.py; test_account_pool_quota_failover.py; test_account_pool_conversation.py; test_settings_and_policy_preserve_single_retry_owner; TestManagedIdentity; working_tree_guard.json; openai_compatible.py; request-retry; Conversation._history_replayable
+BASELINE stderr: empty
+BASELINE exit status: 1
+MODIFIED input: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.md
+MODIFIED stdout: PASS required_markers=13
+MODIFIED stderr: empty
+MODIFIED exit status: 0
+ROLLBACK command: `C:\Program Files\Git\bin\bash.exe ROLLBACK.sh <separate-temporary-copy-of-MODIFIED_FILE>`
+ROLLBACK script stdout: empty
+ROLLBACK script stderr: empty
+ROLLBACK script exit status: 0
+ROLLBACK input: separate temporary copy of MODIFIED_FILE
+ROLLBACK stdout: FAIL missing=12 a06aa13653; 24b49b9cb0; account-pool/cliproxy-adapter/; account_pool_failover.py; test_account_pool_quota_failover.py; test_account_pool_conversation.py; test_settings_and_policy_preserve_single_retry_owner; TestManagedIdentity; working_tree_guard.json; openai_compatible.py; request-retry; Conversation._history_replayable
+ROLLBACK stderr: empty
+ROLLBACK contract exit status: 1
+ROLLBACK copy SHA-256: a0f746ec3cdf6e6039b19c01a784cdf9f9446c8441d86ebffa01db3860d6c3cf
+ROLLBACK hash equals BASELINE: True
+MODIFIED_FILE remains goal-applied after rollback: True
+
+One intermediate transaction wrapper exited 3 because PowerShell captured diagnostic text together with the function return value. That wrapper result was rejected; the corrected run above emitted the literal outputs and the baseline/modified/rollback checks passed with the recorded expected statuses.
+
+Executable artifact source hash (before Git index mode check): ROLLBACK.sh SHA-256 9432257fe545df433071f3d48f0cd03c3dfcc759cec4ad9282f652f4d04e15a3

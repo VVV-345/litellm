@@ -766,7 +766,14 @@ class PolicyCapability(BaseModel):
 
 
 def policy_capabilities(supplier: str | None = None) -> tuple[PolicyCapability, ...]:
-    provider_status: Final = "gateway"
+    providers_with_settings: Final = (
+        "openai_codex",
+        "anthropic_claude",
+        "kimi",
+        "xai",
+        "google_antigravity",
+    )
+    provider_status: Final = "gateway" if supplier in providers_with_settings else "unsupported"
     return (
         *(
             PolicyCapability(name=name, status="gateway")
