@@ -204,7 +204,7 @@ class TransportPolicy(BaseModel):
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    identity_fingerprint_mode: Literal["off", "device", "session", "full"] = "off"
+    identity_fingerprint_mode: Literal["off", "device", "session", "full", "managed"] = "off"
     cli_only: bool = False
     allow_app_server: bool = False
     allow_app_server_clients: tuple[str, ...] = ()

@@ -217,7 +217,9 @@ async def test_expired_overload_allows_recovery_without_clearing_credential_fail
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("code", ("auth_unavailable", "refresh_token_invalidated", "refresh_token_reused", "unauthorized"))
+@pytest.mark.parametrize(
+    "code", ("auth_unavailable", "refresh_token_invalidated", "refresh_token_reused", "unauthorized")
+)
 @pytest.mark.parametrize("status", ("error", "active"))
 @pytest.mark.parametrize("plain", (False, True))
 async def test_authentication_error_blocks_false_available_credentials(code: str, status: str, plain: bool) -> None:
@@ -1644,6 +1646,92 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "capability", [None, {}, {"supported": False, "version": 1}, {"supported": True, "version": 2}]
+)
+async def test_managed_identity_rejects_unsupported_runtime_before_writes(capability: dict[str, object] | None) -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(404 if capability is None else 200, json=capability)
+
+    record = _record().model_copy(update={"auth_file_name": "codex.json"})
+    policy = AccountPolicy(codex=CodexPolicy(identity_fingerprint_mode="managed"))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        sync = CLIProxySettingsSynchronizer(HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client))
+        with pytest.raises(ValueError, match="managed identity"):
+            await sync.apply_policy(record, policy)
+    assert [(request.method, request.url.path) for request in requests] == [
+        ("GET", "/v0/management/codex/managed-identity")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_managed_identity_and_confusion_sync_only_after_runtime_capability_check() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/managed-identity"):
+            return httpx.Response(200, json={"supported": True, "version": 1})
+        if request.method == "GET" and request.url.path.endswith("/config.yaml"):
+            return httpx.Response(200, text="codex:\n  keep: preserved\n")
+        return httpx.Response(204)
+
+    record = _record().model_copy(update={"auth_file_name": "codex.json"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        sync = CLIProxySettingsSynchronizer(HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client))
+        await sync.apply_policy(
+            record,
+            AccountPolicy(
+                codex=CodexPolicy(
+                    identity_fingerprint_mode="managed",
+                    identity_confuse=True,
+                )
+            ),
+        )
+    assert requests[0].url.path == "/v0/management/codex/managed-identity"
+    patch = next(request for request in requests if request.url.path.endswith("/auth-files/fields"))
+    assert json.loads(patch.content) == {
+        "name": "codex.json",
+        "request_retry": 0,
+        "codex_fingerprint_mode": "managed",
+        "codex_fingerprint_seed": str(record.id),
+        "codex_cli_only": False,
+        "codex_cli_only_allow_app_server": False,
+    }
+    config = next(
+        request for request in requests if request.method == "PUT" and request.url.path.endswith("/config.yaml")
+    )
+    document = yaml.safe_load(config.content)
+    assert document["codex"]["identity-confuse"] is True
+    assert document["codex"]["keep"] == "preserved"
+    assert document["routing"]["session-affinity"] is True
+    assert document["request-retry"] == 0
+
+
+@pytest.mark.asyncio
+async def test_managed_identity_requires_authorized_codex_card_before_runtime_writes() -> None:
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204)
+
+    policy = AccountPolicy(codex=CodexPolicy(identity_fingerprint_mode="managed"))
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        sync = CLIProxySettingsSynchronizer(HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client))
+        for record in (
+            _record(),
+            _record().model_copy(update={"supplier": SupplierKind.KIMI, "auth_file_name": "kimi.json"}),
+        ):
+            with pytest.raises(ValueError, match="authorized Codex"):
+                await sync.apply_policy(record, policy)
+    assert requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "policy,expected_fields",
     (
         (
@@ -1701,7 +1789,7 @@ async def test_apply_policy_syncs_only_auth_file_metadata(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("supplier", [SupplierKind.OPENAI_CODEX, SupplierKind.ANTHROPIC_CLAUDE])
+@pytest.mark.parametrize("supplier", tuple(SupplierRegistry.default().definitions))
 async def test_settings_and_policy_preserve_single_retry_owner(supplier: SupplierKind) -> None:
     record: Final = _record().model_copy(update={"supplier": supplier, "auth_file_name": "account.json"})
     documents: list[dict[str, object]] = [

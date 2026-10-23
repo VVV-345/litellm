@@ -28713,7 +28713,7 @@ export interface components {
              * @default off
              * @enum {string}
              */
-            identity_fingerprint_mode: "off" | "device" | "session" | "full";
+            identity_fingerprint_mode: "off" | "device" | "session" | "full" | "managed";
             /**
              * Responses Compact Enabled
              * @default false

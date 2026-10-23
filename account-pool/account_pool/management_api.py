@@ -25,6 +25,7 @@ from account_pool.error_logs import (
 )
 from account_pool.policies import (
     AccountPolicy,
+    ManagedIdentityUnavailableError,
     PolicyRepository,
     PolicyUpdate,
     PolicyView,
@@ -157,6 +158,10 @@ def create_management_router(
         if sync_policy is not None:
             try:
                 await sync_policy(record, saved.policy)
+            except ManagedIdentityUnavailableError as error:
+                message: Final = "当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效"
+                await _set_policy_runtime_status(policies, saved, "failed", message)
+                raise HTTPException(status_code=502, detail=message) from error
             except Exception as error:
                 await _set_policy_runtime_status(policies, saved, "failed", "policy runtime synchronization failed")
                 raise HTTPException(status_code=502, detail="policy runtime synchronization failed") from error

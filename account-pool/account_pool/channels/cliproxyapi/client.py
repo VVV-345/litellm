@@ -55,6 +55,7 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
+from account_pool.policies import ManagedIdentityUnavailableError
 from account_pool.providers.usage.contracts import ProviderQuotaError, ProviderQuotaRefresh, QuotaObservation
 from account_pool.providers.usage.signals import parse_quota as parse_quota_snapshot
 from account_pool.shared.secrets import EnvironmentSecretDeriver
@@ -665,6 +666,20 @@ class HttpCLIProxyClient:
     async def get_config_yaml(self, record: EnvironmentRecord) -> str:
         response: Final = await self._request(record, "GET", "/v0/management/config.yaml")
         return response.text
+
+    async def require_managed_identity(self, record: EnvironmentRecord) -> None:
+        try:
+            response: Final = await self._request(record, "GET", "/v0/management/codex/managed-identity")
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 404:
+                raise ManagedIdentityUnavailableError(
+                    "CLIProxyAPI managed identity requires the compatible adapter build"
+                ) from error
+            raise
+        capability: Final = _JSON_OBJECT_ADAPTER.validate_python(response.json())
+        version: Final = capability.get("version")
+        if capability.get("supported") is not True or type(version) is not int or version != 1:
+            raise ManagedIdentityUnavailableError("CLIProxyAPI managed identity requires capability version 1")
 
     async def put_config_yaml(self, record: EnvironmentRecord, content: str) -> None:
         await self._request(

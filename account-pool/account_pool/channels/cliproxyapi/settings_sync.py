@@ -60,6 +60,10 @@ class CLIProxySettingsSynchronizer:
             await self._client.patch_auth_file_fields(record, record.auth_file_name, {"request_retry": 0})
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
+        if policy.codex is not None and policy.codex.identity_fingerprint_mode == "managed":
+            if record.supplier != SupplierKind.OPENAI_CODEX or not record.auth_file_name:
+                raise ValueError("Managed identity requires an authorized Codex card")
+            await self._client.require_managed_identity(record)
         route_strategy: Final = {
             "auto": "round-robin",
             "priority": "fill-first",

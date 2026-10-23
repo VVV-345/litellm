@@ -156,6 +156,33 @@ describe("RuntimePolicyDialog", () => {
     client.clear();
   });
 
+  it("saves managed installation identity together with identity confusion", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+    const mode = await screen.findByRole("combobox", { name: "Codex 指纹收敛模式" });
+    expect(mode).toHaveTextContent("off");
+    const confuse = screen.getByRole("switch", { name: "启用 Codex 身份混淆" });
+    expect(confuse).not.toBeChecked();
+    await user.click(mode);
+    await user.click(screen.getByRole("option", { name: "托管安装 ID" }));
+    await user.click(confuse);
+    await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledOnce());
+    expect((savePolicy.mock.calls[0][3] as AccountPolicy).codex).toMatchObject({
+      identity_fingerprint_mode: "managed",
+      identity_confuse: true,
+    });
+  });
+
+  it("keeps installation identity and identity confusion off by default", async () => {
+    renderDialog();
+    expect(await screen.findByRole("combobox", { name: "Codex 指纹收敛模式" })).toHaveTextContent("off");
+    expect(screen.getByRole("switch", { name: "启用 Codex 身份混淆" })).not.toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledOnce());
+    expect((savePolicy.mock.calls[0][3] as AccountPolicy).codex).toBeUndefined();
+  });
+
   it("saves separate reserve windows and controlled passthrough without changing inherited protocols", async () => {
     renderDialog();
     fireEvent.change(await screen.findByRole("spinbutton", { name: "5 小时额度保留比例 (%)" }), { target: { value: "10" } });

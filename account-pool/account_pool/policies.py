@@ -14,6 +14,10 @@ from account_pool.domain import EnvironmentRecord, SupplierKind
 from account_pool.repository import database_connection
 
 
+class ManagedIdentityUnavailableError(ValueError):
+    """运行中的底层未提供稳定身份能力，不包含上游响应正文。"""
+
+
 class RoutingPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -67,7 +71,7 @@ class TransportPolicy(BaseModel):
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    identity_fingerprint_mode: Literal["off", "device", "session", "full"] = "off"
+    identity_fingerprint_mode: Literal["off", "device", "session", "full", "managed"] = "off"
     cli_only: bool = False
     allow_app_server: bool = False
     allow_app_server_clients: tuple[str, ...] = ()
