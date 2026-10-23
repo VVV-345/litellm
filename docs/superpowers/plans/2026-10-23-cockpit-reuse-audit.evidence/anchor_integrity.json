@@ -1,0 +1,20 @@
+[
+  {
+    "manifest": "D:\\Work2api\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\litellm_snapshot.json",
+    "manifest_files": 499,
+    "verified_anchor_files": 20,
+    "mismatches": []
+  },
+  {
+    "manifest": "D:\\Work2api\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\cockpit_snapshot.json",
+    "manifest_files": 3814,
+    "verified_anchor_files": 21,
+    "mismatches": []
+  },
+  {
+    "manifest": "D:\\Work2api\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\cliproxy_snapshot.json",
+    "manifest_files": 1413,
+    "verified_anchor_files": 3,
+    "mismatches": []
+  }
+]

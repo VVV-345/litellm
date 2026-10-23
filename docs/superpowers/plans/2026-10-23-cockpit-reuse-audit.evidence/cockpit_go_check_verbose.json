@@ -1,0 +1,18 @@
+{
+  "command": [
+    "D:\\Work2api\\litellm\\.local\\cockpit-adaptation\\toolchain\\go\\bin\\go.exe",
+    "test",
+    "-mod=readonly",
+    "-p=2",
+    "./internal/runtime/executor/helps",
+    "-run",
+    "^TestManagedIdentity",
+    "-count=1",
+    "-timeout=90s",
+    "-v"
+  ],
+  "cwd": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI",
+  "exit_status": 0,
+  "stdout": "=== RUN   TestManagedIdentityValidationAndLegacy\n--- PASS: TestManagedIdentityValidationAndLegacy (0.00s)\n=== RUN   TestManagedIdentityExactPathsAndOpaqueHistory\n--- PASS: TestManagedIdentityExactPathsAndOpaqueHistory (0.00s)\n=== RUN   TestManagedIdentityRepeatedKnownKeysAndMultipart\n--- PASS: TestManagedIdentityRepeatedKnownKeysAndMultipart (0.00s)\n=== RUN   TestManagedIdentityRefreshedJWTPrincipalMustMatchProjection\n--- PASS: TestManagedIdentityRefreshedJWTPrincipalMustMatchProjection (0.00s)\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer/new_access_ignores_old_id_and_alias_tokens\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer/opaque_access_ignores_old_id_token\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer/api_key_wins_over_unused_access_token\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer/opaque_api_key_wins_over_unused_access_token\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer/actual_access_conflict\n=== RUN   TestManagedIdentityChecksOnlySelectedBearer/actual_api_key_conflict\n--- PASS: TestManagedIdentityChecksOnlySelectedBearer (0.00s)\n    --- PASS: TestManagedIdentityChecksOnlySelectedBearer/new_access_ignores_old_id_and_alias_tokens (0.00s)\n    --- PASS: TestManagedIdentityChecksOnlySelectedBearer/opaque_access_ignores_old_id_token (0.00s)\n    --- PASS: TestManagedIdentityChecksOnlySelectedBearer/api_key_wins_over_unused_access_token (0.00s)\n    --- PASS: TestManagedIdentityChecksOnlySelectedBearer/opaque_api_key_wins_over_unused_access_token (0.00s)\n    --- PASS: TestManagedIdentityChecksOnlySelectedBearer/actual_access_conflict (0.00s)\n    --- PASS: TestManagedIdentityChecksOnlySelectedBearer/actual_api_key_conflict (0.00s)\nPASS\nok  \tgithub.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps\t5.590s\n",
+  "stderr": ""
+}

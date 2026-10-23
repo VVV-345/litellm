@@ -1,0 +1,68 @@
+[
+  {
+    "root": "D:\\Work2api\\litellm",
+    "head": "f1289af7b3059b27e7d76a4ce37262658465a3b1",
+    "scope": "tracked uncommitted files; excludes secrets and unrelated untracked files",
+    "files": [
+      {
+        "path": "account-pool/account_pool/channels/cliproxyapi/client.py",
+        "sha256": "a4f141b4e0a8d38092f6c1ac6bd8cf6df7c1d094c141db424cfc92bd4cc80d63"
+      },
+      {
+        "path": "account-pool/account_pool/channels/cliproxyapi/settings_sync.py",
+        "sha256": "a56a0336498a367dc467e000e17f9657af9f16d03636cca07307a1939ea7a401"
+      },
+      {
+        "path": "account-pool/account_pool/policies.py",
+        "sha256": "0a314b719ded7c8e46c784fb770b7995a65565e45eac576f9674c9e029880d87"
+      },
+      {
+        "path": "account-pool/tests/account_pool/test_cliproxy_supplier_client.py",
+        "sha256": "53f58d4807a73d3081d71941254cb095ecdcf696b907903c7a6c50455ec4da50"
+      },
+      {
+        "path": "account-pool/tests/account_pool/test_policies.py",
+        "sha256": "dbe45a899b2d154a6107646b1da223353347d3fd6f7cc186ea3905147587a95a"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_management_models.py",
+        "sha256": "36420208dbda96198a486eacc482223704c774560025a2677191f686f78b5eec"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimePolicyDialog.integration.test.tsx",
+        "sha256": "4b1c6deafc7c231af8519b46b282d0cccecc2edb53fb92dc7556435fb4258353"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolProviderPolicyFields.tsx",
+        "sha256": "1d3268d81325e4339a3bccd272d66b2da1039e059422b290cb2c88e7f880806b"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/lib/http/schema.d.ts",
+        "sha256": "6c3db1c8bc565d1a687bdda1b469161da79cba2a582973483b4c21ae3200458a"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/locales/en.json",
+        "sha256": "de4a94cd61c1d97f904884534fa49db32a389650dd222e69ff0024b3cc39afd2"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/locales/zh-CN.json",
+        "sha256": "c2e3df96b851cabacc74c0cf31d83b99e22a4a0cb0aeacc2986b009d894f597d"
+      }
+    ]
+  },
+  {
+    "root": "D:\\Work2api\\cockpit-tools",
+    "head": "b53fa8f78bcbd79ac1d97ec2c030f5e6f64008c3",
+    "scope": "tracked uncommitted files; excludes secrets and unrelated untracked files",
+    "files": [
+      {
+        "path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/cmd/login.go",
+        "sha256": "787889c6f319e2a4d9a41c02496c5117c5392727e957918128aeabc539142ce9"
+      },
+      {
+        "path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/interfaces/types.go",
+        "sha256": "9ca8e957f5b7a9a1d513e7449da566615caa6c1639718abf339f6a22b07f4c9b"
+      }
+    ]
+  }
+]

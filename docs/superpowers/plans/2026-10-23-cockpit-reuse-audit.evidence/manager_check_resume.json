@@ -1,0 +1,41 @@
+{
+  "name": "pinned_manager_contracts_resume",
+  "command": [
+    "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+    "-B",
+    "-m",
+    "pytest",
+    "-c",
+    "NUL",
+    "--rootdir",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst",
+    "--confcutdir",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\tests",
+    "-p",
+    "no:cacheprovider",
+    "-p",
+    "pytest_asyncio.plugin",
+    "--asyncio-mode=auto",
+    "--basetemp",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-reuse-audit-tests-n7ooerbe\\pytest",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\tests\\account_pool\\test_policies.py",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\tests\\account_pool\\test_cliproxy_supplier_client.py",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\tests\\account_pool\\test_channel_registry.py",
+    "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\tests\\account_pool\\test_quota.py",
+    "-q"
+  ],
+  "command_template": "D:\\Work2api\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\manager_check_retry.json",
+  "cwd": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-reuse-audit-tests-n7ooerbe",
+  "environment": {
+    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+    "PYTHONPATH": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool;C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+  },
+  "exit_status": 0,
+  "stdout": "........................................................................ [ 55%]\n.........................................................                [100%]\n129 passed in 2.17s\n",
+  "stderr": "",
+  "seconds": 3.547,
+  "sha": "f1289af7b3059b27e7d76a4ce37262658465a3b1",
+  "scope": "Pinned Manager tests only; not the concurrent uncommitted implementation or live service"
+}

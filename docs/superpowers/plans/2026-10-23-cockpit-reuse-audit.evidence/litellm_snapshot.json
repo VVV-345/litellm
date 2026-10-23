@@ -1,0 +1,2501 @@
+{
+  "root": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst",
+  "sha": "f1289af7b3059b27e7d76a4ce37262658465a3b1",
+  "files": [
+    {
+      "path": "account-pool/.env.example",
+      "sha256": "7003686861d0397f69f446d83e873f51c79988f1f0c0885239aa561833657be7",
+      "bytes": 2343
+    },
+    {
+      "path": "account-pool/AGENTS.md",
+      "sha256": "4de5f47e5e551eaf33a9c5a249693eed1a10ee854d84cbd611acd89ac2a31cc3",
+      "bytes": 8008
+    },
+    {
+      "path": "account-pool/COCKPIT_INTEGRATION_PLAN.md",
+      "sha256": "a0f746ec3cdf6e6039b19c01a784cdf9f9446c8441d86ebffa01db3860d6c3cf",
+      "bytes": 42357
+    },
+    {
+      "path": "account-pool/COCKPIT_REBUILD_PLAN.md",
+      "sha256": "4df42a66e526fd3029bc645b35e63ccbc0062049431d9376257f0809040884ad",
+      "bytes": 34828
+    },
+    {
+      "path": "account-pool/CREDENTIAL_OWNERSHIP.md",
+      "sha256": "4530d13d57fad33b3b476585a8c53c59bcf9228462151957e9405de55f34ac09",
+      "bytes": 4040
+    },
+    {
+      "path": "account-pool/Dockerfile",
+      "sha256": "ef1e80a3479233ef4a5e786a55eac11afaad31a27ede320f7eca41008af50508",
+      "bytes": 1192
+    },
+    {
+      "path": "account-pool/MAINTENANCE.md",
+      "sha256": "ac498299b13120214f956bdd486d01224e46b87162612bc053e59311442327af",
+      "bytes": 54135
+    },
+    {
+      "path": "account-pool/NEWAPI_INTEGRATION.md",
+      "sha256": "03afb21a10013f6bbebcb85f5e4f74b4317349b6699c1521ec43dac01643924d",
+      "bytes": 2136
+    },
+    {
+      "path": "account-pool/ONBOARDING.md",
+      "sha256": "b6a83e5d6e1adcf68c02fd9ef1c712d62412555c7c8dd69a09a532285b657e38",
+      "bytes": 3032
+    },
+    {
+      "path": "account-pool/PLAN.md",
+      "sha256": "e7562e38c26eddadda69d89b98a7541d9355d185cab6c2fd72cece7186cdada1",
+      "bytes": 29065
+    },
+    {
+      "path": "account-pool/PROJECT_STRUCTURE.md",
+      "sha256": "22f7cd6aafeec0901da0e77ead48506b2af66b0ea6c7046004a5d3e415bbdb2b",
+      "bytes": 13116
+    },
+    {
+      "path": "account-pool/README.md",
+      "sha256": "ef9c593d7d883596d986bdede09856ac3661d616b66ee8bef6b87033c0b1f502",
+      "bytes": 16038
+    },
+    {
+      "path": "account-pool/REFRESH_CACHE_RATE_VERIFICATION.md",
+      "sha256": "0721f17ac27db85353138905cd8241d9a7d35a58b7510880b72b69e9c1ad646b",
+      "bytes": 5179
+    },
+    {
+      "path": "account-pool/UPSTREAM_UPDATE_REVIEW_TASKS.md",
+      "sha256": "9e4d0a3d2e0e3399bc3eccb5888006918e88ab85148860d30ac01bd5014a8f73",
+      "bytes": 2080
+    },
+    {
+      "path": "account-pool/account_pool/README.md",
+      "sha256": "6d6a004ef3096aeb5e13912a2308376741b5b8ff1a0fb94ddabb485de0e184d5",
+      "bytes": 851
+    },
+    {
+      "path": "account-pool/account_pool/__init__.py",
+      "sha256": "35ca9f7663ea0c2d8e1471be3f1a000207ec83978f02f881c6b19c628cae87d6",
+      "bytes": 85
+    },
+    {
+      "path": "account-pool/account_pool/api.py",
+      "sha256": "c27bcec513cbac957fcfcca940e262b960a25cd65bcaa7a0f48bb17ae60f9e5f",
+      "bytes": 59133
+    },
+    {
+      "path": "account-pool/account_pool/app.py",
+      "sha256": "641df129b1988f538e2e07bed14a12bf595be7266b0446cdb52e1a85e6e1b33c",
+      "bytes": 17891
+    },
+    {
+      "path": "account-pool/account_pool/application/README.md",
+      "sha256": "d230b7be8394da60701e77f6b8aae9258c4b51853a3912aceb3a4f51450eccf1",
+      "bytes": 866
+    },
+    {
+      "path": "account-pool/account_pool/application/__init__.py",
+      "sha256": "14b91f00b2faf6c75781ba066aa9453635bc31907cb181f3340a23c461bdb31d",
+      "bytes": 91
+    },
+    {
+      "path": "account-pool/account_pool/application/authorization.py",
+      "sha256": "d9222244b67d7af62a896b0eff793bcd03f589c8479b357f72ecb2efcf5bbe40",
+      "bytes": 1308
+    },
+    {
+      "path": "account-pool/account_pool/application/effective_policy.py",
+      "sha256": "81113406677b3097bb2021548d942482d11e1add15c8b22d9d8d46ae7e352a43",
+      "bytes": 2016
+    },
+    {
+      "path": "account-pool/account_pool/application/environment_state.py",
+      "sha256": "ec4176454abe7307555eadad0a4ecbcc8f67ad62ab68a4461bc87700b5fa5577",
+      "bytes": 2208
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/README.md",
+      "sha256": "d5fdf71cf899c71ae4d97ec00b414da90d6be4711af87203c20172848925087e",
+      "bytes": 880
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/__init__.py",
+      "sha256": "48d277f87847ad325ab9104f3b4fe068f3b42d416cecfebcadcd35b9f58334a2",
+      "bytes": 83
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/auth_files.py",
+      "sha256": "bcd265c49eda9322dafc8752a7a85f3a398d900071ea644bef16de9c2931d666",
+      "bytes": 18116
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/authorization.py",
+      "sha256": "f65700b3ae272762e58c8cd27aeb2442a3c2c02a4e8d28eb0e03ae1249380d83",
+      "bytes": 28166
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/configuration.py",
+      "sha256": "8eacb8293274bc6cc006b1210ef178a588fb6032144b83d22f3b94eba9919ca5",
+      "bytes": 14453
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/contracts.py",
+      "sha256": "83352b19409bae30cabbe103e007ef1ffdd60c9309d7f07988e180057ef990f5",
+      "bytes": 4578
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/deletion.py",
+      "sha256": "1800e4cbc06fce2978273739e07ec451e81f3133d54ae34d307dbc3cf6092473",
+      "bytes": 7147
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/plugins.py",
+      "sha256": "cec9c1853bb86cff60c555bfb35aa104ca994938e884820b2a9d0dad5937408f",
+      "bytes": 4340
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/provisioning.py",
+      "sha256": "16d5cf68c0dc629b28a189a44fcdeb3d69a65ff98caa535f1903118d80693245",
+      "bytes": 34597
+    },
+    {
+      "path": "account-pool/account_pool/application/environments/settings_sync.py",
+      "sha256": "9095d1a9638bee79dff50999888e169f6c49db984778d7b612411c492d11cb04",
+      "bytes": 11055
+    },
+    {
+      "path": "account-pool/account_pool/application/plugin_validation.py",
+      "sha256": "f4b559d47bc469291cbc932ab5d238162af98fb894b3f6653d8b816794bb045e",
+      "bytes": 1205
+    },
+    {
+      "path": "account-pool/account_pool/application/profile_updates.py",
+      "sha256": "b6e728e82df60170b881acf705445eede65c2d886b22e5ed13c776cf5f16c804",
+      "bytes": 3693
+    },
+    {
+      "path": "account-pool/account_pool/application/quota_state.py",
+      "sha256": "4f25bee0287a122305b8f3e6ab6892dbb00478436d6aab0157757bf28f8858ad",
+      "bytes": 1061
+    },
+    {
+      "path": "account-pool/account_pool/batch_models.py",
+      "sha256": "f82cce8126f59c44b593f474dd67c737c77c19fd1ba6a77da24c545bb695dda5",
+      "bytes": 2239
+    },
+    {
+      "path": "account-pool/account_pool/batch_repository.py",
+      "sha256": "abb648c8303f626bff4f0b286c98567722683bc896fe752c759c8ac0b0effa18",
+      "bytes": 8009
+    },
+    {
+      "path": "account-pool/account_pool/batch_service.py",
+      "sha256": "434455185f45d197e7181cff0268a6d8c2b4261448cc775b01298c2b81c97b53",
+      "bytes": 11581
+    },
+    {
+      "path": "account-pool/account_pool/card_keys.py",
+      "sha256": "1421df3dba47e8063afe80ee3f3ac4a3dc74e5f00fb2f29810d857eea6831673",
+      "bytes": 4071
+    },
+    {
+      "path": "account-pool/account_pool/channels/README.md",
+      "sha256": "24d89421f3355f0b418547436546c24aa64863dbed7f342df87202414925e2b6",
+      "bytes": 831
+    },
+    {
+      "path": "account-pool/account_pool/channels/__init__.py",
+      "sha256": "a05a345b441c5dccd9b87268aa710d4326fbeca9a4fa2bee2404a5a720c8d96b",
+      "bytes": 201
+    },
+    {
+      "path": "account-pool/account_pool/channels/base.py",
+      "sha256": "0b63d0f25d5439400b6119528abc532ff78c28dcfffbeadc280b1fb6c5855584",
+      "bytes": 1236
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/README.md",
+      "sha256": "79d33586192049aa2a8b435ca03362544b8d2bd2190c1c4b877b0f826744306e",
+      "bytes": 895
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/__init__.py",
+      "sha256": "282b3b17948060c16669a638070fdf9450a2f120156ed20dc56c32ad39eaa49f",
+      "bytes": 245
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/channel.py",
+      "sha256": "87c57c3e56a5b62390d9f087356373f77786201becef373b16c1819a313dec23",
+      "bytes": 10006
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/client.py",
+      "sha256": "782d0a8cf36385af1b4ae53959d000b593eb874296e14c24173fe5ddbe702be5",
+      "bytes": 35207
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/protocol.py",
+      "sha256": "bfbd52cc20317702ba7023dcc967d4d159dda6fc55ec45cff64e1e76bc45dcc8",
+      "bytes": 3893
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/provider_quota.py",
+      "sha256": "00c2f9e9132a5092d62dde37b5b246b4a80b74dd2acbd6049828e788fb2e5b49",
+      "bytes": 26991
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/provider_requests.py",
+      "sha256": "9990c558184f05bbd83ec49c6c8aa72fcd4708b2ef93e34269410b3b15febb0e",
+      "bytes": 5398
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/quota_state.py",
+      "sha256": "bd9aba8c103e8db594297b75ded6609f2e97ce9df39f24d8712707ca415091e4",
+      "bytes": 6581
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/runtime.py",
+      "sha256": "2f102cdd1ea10d6e8fe4758d850325598640ec724ac73e2384288e9d7b885ae9",
+      "bytes": 1894
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/settings_sync.py",
+      "sha256": "667453ea8aeef67485223e6ad10491eea46c5d7b0d6de8aa16c1a588d9b4aab4",
+      "bytes": 9456
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/__init__.py",
+      "sha256": "1fb5f20eabc4a6e47720f86689dad60011744f59b50461104ac7c9a8c53813da",
+      "bytes": 276
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/anthropic_claude.py",
+      "sha256": "067a964885141983d1d1c0b97d1faa68105798b7cf1167c586e26ac84833ac2e",
+      "bytes": 911
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/base.py",
+      "sha256": "09d98ff6000ba6e38d11478359f079f879679045ed55c22a3aab5a76bd8c408c",
+      "bytes": 1022
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/gemini.py",
+      "sha256": "48c18653a569026b628576a0e99fe63dc76bbd03749152434980297b4d53e7e8",
+      "bytes": 851
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/gemini_interactions.py",
+      "sha256": "a2295312202f63c7d3912cbdafd9a7ac5ad2af678193269e2d229b5576eeb082",
+      "bytes": 925
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/google_antigravity.py",
+      "sha256": "80c1dd95f7fb895fd82e9eee2219ae7b439c53cfe81ffdeb2387a4535dab3fb9",
+      "bytes": 914
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/kimi.py",
+      "sha256": "7a201cae83921e80bd4ba872f84e2b15aa02b2a62ab65a2bde930c6fd01e8b7a",
+      "bytes": 830
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/openai_codex.py",
+      "sha256": "6e62ed68f0bdd2785ffa17555e45138c57babf72fe05665d7bc8dcc873029959",
+      "bytes": 729
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/registry.py",
+      "sha256": "7b854aa36d861c5b7dd501cace5dddfbe84e2289307cfe862c81a8bd643d908e",
+      "bytes": 1891
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/vertex.py",
+      "sha256": "3d47f552f79abe9f8dcf25a7e2cb07f7b5f97cddd24c438d63e6c9a287112a52",
+      "bytes": 832
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/suppliers/xai.py",
+      "sha256": "5ccf28ca028f0fbf65b3d3af9fcdaf49483fe0d8d3508523c4a4cc5cd45ae965",
+      "bytes": 851
+    },
+    {
+      "path": "account-pool/account_pool/channels/cliproxyapi/transport.py",
+      "sha256": "60cd6cb7b649fed57d2669dacd37d0f66d7a57e8519843721d6cdb80d0728682",
+      "bytes": 3002
+    },
+    {
+      "path": "account-pool/account_pool/channels/openai_compatible.py",
+      "sha256": "a94e2ecd599f00528dc3b97f25ea58bb2084d2e7d7da6374454ff4e077d821e9",
+      "bytes": 12601
+    },
+    {
+      "path": "account-pool/account_pool/channels/registry.py",
+      "sha256": "ceea10ed0ed51b3497fe2823763f8a89d2c91e3190695edf8269f0900f9ae4ab",
+      "bytes": 4022
+    },
+    {
+      "path": "account-pool/account_pool/clash.py",
+      "sha256": "2a9e0e83bddf5e2c9ccdb4276e47d3854c173e45d9cf6d7d0423719237b69d1b",
+      "bytes": 7932
+    },
+    {
+      "path": "account-pool/account_pool/cleanup.py",
+      "sha256": "b3a891436ef691177782d7a04433ccdde8262ae1b237b4d0cbcabab3ee1743e5",
+      "bytes": 743
+    },
+    {
+      "path": "account-pool/account_pool/cliproxy.py",
+      "sha256": "9b5429fd9d253a5b8da52ad42809f20f0fe4293585b4361796d9ae1025cc651e",
+      "bytes": 294
+    },
+    {
+      "path": "account-pool/account_pool/compose.py",
+      "sha256": "e62f14aff78a09641231eae4b9bd997a8e53e5f16f20c17fe09accaf01e80b37",
+      "bytes": 656
+    },
+    {
+      "path": "account-pool/account_pool/compose_renderer.py",
+      "sha256": "71df1147f2454dd2fe491b7cec7693d9e935359db4eaf41f24f067bf320f5784",
+      "bytes": 8532
+    },
+    {
+      "path": "account-pool/account_pool/compose_runtime.py",
+      "sha256": "f469beb90199ebd0926040a4dda3149c54b5b1be4bbe2db68a928520c773103f",
+      "bytes": 17332
+    },
+    {
+      "path": "account-pool/account_pool/config.py",
+      "sha256": "dc1c73b9e358900466580bbab17a1371a22533db7b00b77371f8c347249be5fa",
+      "bytes": 9794
+    },
+    {
+      "path": "account-pool/account_pool/contracts.py",
+      "sha256": "a63bfe9081d0baa8863ecc40536431beef2b63cf7ebac4bf2291035d4bbe8a4e",
+      "bytes": 696
+    },
+    {
+      "path": "account-pool/account_pool/credential_ownership.py",
+      "sha256": "f13cde9cfcdd6e10b165e93ec7d14564c568565edaeed59087a7e140a866d869",
+      "bytes": 7462
+    },
+    {
+      "path": "account-pool/account_pool/domain.py",
+      "sha256": "ba2cccfeaedc0cb76400dce261ed056004de391c506c2c33e015f9172a52e58a",
+      "bytes": 27351
+    },
+    {
+      "path": "account-pool/account_pool/error_logs.py",
+      "sha256": "206031e0af831dc9e97258d99883e73379f4102d99a9576af03bbd7cc5312a6d",
+      "bytes": 11790
+    },
+    {
+      "path": "account-pool/account_pool/error_safety.py",
+      "sha256": "8e136dcd32cf53787329eda7da2ac55faa8ef92147bb0731eae5abfbef23b0f8",
+      "bytes": 193
+    },
+    {
+      "path": "account-pool/account_pool/feedback.py",
+      "sha256": "b7fce505e0e8496487ba2611a7cec1d1117c58623ccc4c8e9901561d693ddb3c",
+      "bytes": 11696
+    },
+    {
+      "path": "account-pool/account_pool/feedback_api.py",
+      "sha256": "d4ddbe2f07e89d9a7285adcf5f9587d7151adf72e72ccd345077cd2b5fe1e0a5",
+      "bytes": 7876
+    },
+    {
+      "path": "account-pool/account_pool/feedback_attachments.py",
+      "sha256": "228f42786375abef818badee890870a6ad1d6ee92409afbe92522e3cf36989c9",
+      "bytes": 2731
+    },
+    {
+      "path": "account-pool/account_pool/feedback_models.py",
+      "sha256": "bc2270b0bc22937657e97e049fecb4557cee8a92001e1f7753818d8cf05eb01b",
+      "bytes": 4544
+    },
+    {
+      "path": "account-pool/account_pool/feedback_repository.py",
+      "sha256": "013f7a7877bf848ae760a9e9b136fe56dd7c7adef1df49c2ed0330e35334c72d",
+      "bytes": 8559
+    },
+    {
+      "path": "account-pool/account_pool/gateway_contracts.py",
+      "sha256": "5f0cc43ddf1789657ad77d4a2bf4d09a4139629ddecb748cdab2696deb4f2e69",
+      "bytes": 7586
+    },
+    {
+      "path": "account-pool/account_pool/gateway_repository.py",
+      "sha256": "2daf8202356ad238f5582ff8addcd454907964bea56ee80d824b8cb365b59692",
+      "bytes": 21554
+    },
+    {
+      "path": "account-pool/account_pool/gateway_service.py",
+      "sha256": "9b995658f01672cc2447fd8c96a04dfed1604fce82cac4858a6de6d868f2b6eb",
+      "bytes": 20131
+    },
+    {
+      "path": "account-pool/account_pool/isp_probe.py",
+      "sha256": "7d3b4fa0ba05fd4e8617e35061affbd56a788a10589a88f9a8a39affc9d36d07",
+      "bytes": 3661
+    },
+    {
+      "path": "account-pool/account_pool/management_api.py",
+      "sha256": "941f1f6859b8991d7f13d346d1e09a82b27e544f01a994ae3007631f37b21476",
+      "bytes": 17713
+    },
+    {
+      "path": "account-pool/account_pool/management_repository.py",
+      "sha256": "a453464c2382efe0b2541484cfb17333f6aa876f607ec99b4dde6ba2d24ebaf0",
+      "bytes": 19538
+    },
+    {
+      "path": "account-pool/account_pool/oauth_browser.py",
+      "sha256": "6faa627b06831fb1ea9fb5568e313d9889685c226cd594d7370ab0e61e7a3f53",
+      "bytes": 10931
+    },
+    {
+      "path": "account-pool/account_pool/onboarding_api.py",
+      "sha256": "990804a3fb408ad1eb04e56ac7ca6bdd2da739f7b1d6c5df7c353ff84bf0e6f2",
+      "bytes": 4882
+    },
+    {
+      "path": "account-pool/account_pool/onboarding_models.py",
+      "sha256": "83ef0d081eaf0d0a041321fcc3d6855a0353a0ad1966fe5871e58f8a512ab8f8",
+      "bytes": 4507
+    },
+    {
+      "path": "account-pool/account_pool/onboarding_repository.py",
+      "sha256": "7085ee3401c59de580654a06a4983a33f11ffcef57a93c499f3723e4aa159a0c",
+      "bytes": 6324
+    },
+    {
+      "path": "account-pool/account_pool/onboarding_service.py",
+      "sha256": "4a6c63f80bb023ae8cf72b4eafa4b758958a1f373a74e723b79d8e24735c2b33",
+      "bytes": 26072
+    },
+    {
+      "path": "account-pool/account_pool/plugins.py",
+      "sha256": "335af3aa13d78ef4e3627236f43b910d242efcfd081d33829327f25e3dbbfda5",
+      "bytes": 6649
+    },
+    {
+      "path": "account-pool/account_pool/policies.py",
+      "sha256": "df292e9471adb27e3aca585ca2a27e76825da5b88d8ac466551494fc53856e77",
+      "bytes": 17335
+    },
+    {
+      "path": "account-pool/account_pool/ports.py",
+      "sha256": "6683278e964bf8eb4d174918bf01ac2da16875fec7744447269b84f5abf4a065",
+      "bytes": 7391
+    },
+    {
+      "path": "account-pool/account_pool/provider_families.py",
+      "sha256": "a7487783bd1245cd0d2eaab0ba0ef5ee68caec64304754de6b24304079c33ef8",
+      "bytes": 2753
+    },
+    {
+      "path": "account-pool/account_pool/provider_quota.py",
+      "sha256": "25dba64dc8c8b1815f21107c55792588cda17ed05a195adc38109d33ce48930f",
+      "bytes": 537
+    },
+    {
+      "path": "account-pool/account_pool/providers/README.md",
+      "sha256": "641b10472c140dbd838d18690d0ec1df92ce755cd3f809e0b81987a615ba9af3",
+      "bytes": 794
+    },
+    {
+      "path": "account-pool/account_pool/providers/__init__.py",
+      "sha256": "483c39da611e6207c154255a5851632866b8792b36dee12f13cf414ab240e8ae",
+      "bytes": 79
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/README.md",
+      "sha256": "9a10e20fdafa281bff9c5bfb1a598b42540d6b6dcaffde49108c535b3aa15b20",
+      "bytes": 847
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/__init__.py",
+      "sha256": "61ca9a39678c57f5aa52dad3f341644d9aef192190477603e710159c0a4343c5",
+      "bytes": 73
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/antigravity.py",
+      "sha256": "ef08162a2ca3c8f93ca84de79a33a5816668411b80374ffa0bd15aee58236f01",
+      "bytes": 13222
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/claude.py",
+      "sha256": "de48adcff5084a3dfa1d50d4ca2f1ddb14bd62f705eb199f0540bfe31c757903",
+      "bytes": 9323
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/codex.py",
+      "sha256": "5cea8505bb8612d3d926b0fd10be0e0e6c98dcacdfdaed0aa22a80285b2eecf2",
+      "bytes": 17057
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/common.py",
+      "sha256": "3410b9c6cbe6e90d0df591af8c056ddddb1645a38552a88088747e4aede4d0df",
+      "bytes": 5181
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/contracts.py",
+      "sha256": "c8ab55b2ec4ddf13383020400a5713676f0a7228dd03125f02e26b28c8471540",
+      "bytes": 1657
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/signals.py",
+      "sha256": "2066e441c61d3916b0d216f0d561e410c6427fec5756ce54287587e741578f3b",
+      "bytes": 6363
+    },
+    {
+      "path": "account-pool/account_pool/providers/usage/xai.py",
+      "sha256": "4ba344a5a4e8e8b509bcd6cba7d029db45215c638c58118f0d26f3dfc9d5202b",
+      "bytes": 16480
+    },
+    {
+      "path": "account-pool/account_pool/proxy_catalog.py",
+      "sha256": "41b92ba63a5bcd903d0db42ed21f1898ba0a8c9ea8c6fd1b4e6be91a5a2222ed",
+      "bytes": 10030
+    },
+    {
+      "path": "account-pool/account_pool/proxy_catalog_repository.py",
+      "sha256": "470de1047a8bcf78a7890bf5015fa5403ecf9d2eda157f1258b46b88c78e3ed8",
+      "bytes": 21282
+    },
+    {
+      "path": "account-pool/account_pool/proxy_catalog_service.py",
+      "sha256": "9104f8cb3053e81d49bcbe980cd54d76db56e950b896670403542db33bc59ddc",
+      "bytes": 4516
+    },
+    {
+      "path": "account-pool/account_pool/proxy_expiry.py",
+      "sha256": "504143bcbb080cb9de6cde025e43ade5cec3e3cefb64b4374fa88464d0002501",
+      "bytes": 1547
+    },
+    {
+      "path": "account-pool/account_pool/proxy_gateways.py",
+      "sha256": "90e795fa7e6f3cd1e38824e77d829811adfcf104400d12b5cf0f179f06edc146",
+      "bytes": 37165
+    },
+    {
+      "path": "account-pool/account_pool/quota.py",
+      "sha256": "a355363bacc1cb99039cf72b2b542427001cf1e7719550446bf9c2d1c5c6d0f0",
+      "bytes": 2258
+    },
+    {
+      "path": "account-pool/account_pool/quota_refresh_trigger.py",
+      "sha256": "e9b7e8532d40d090cefe6891371b32dde5c34a6860eacf51d3edb6fe0680d73a",
+      "bytes": 4035
+    },
+    {
+      "path": "account-pool/account_pool/quota_scheduler.py",
+      "sha256": "2a95a65d1faeb84550a055be61146bae51024c191693a600b9272b73af485791",
+      "bytes": 4806
+    },
+    {
+      "path": "account-pool/account_pool/release_app.py",
+      "sha256": "4ec94e53a2891479c40750b666b5d9591c69ca6d1365798edac4479b703fbaac",
+      "bytes": 7039
+    },
+    {
+      "path": "account-pool/account_pool/release_auto_update.py",
+      "sha256": "a04c3e0473caac8ad56a0a5ea05ab54989965425884b96ca8fc1292ec6f079d5",
+      "bytes": 3638
+    },
+    {
+      "path": "account-pool/account_pool/release_catalog.py",
+      "sha256": "38432cc491446541603c618f4c9cd154f88620c42a2715483b149fc4913cb822",
+      "bytes": 5640
+    },
+    {
+      "path": "account-pool/account_pool/release_compatibility.py",
+      "sha256": "bf31b6a4e42dc58440b7a0a7d1ab729d5c5e03777df0681e86cc6dfd576a93f5",
+      "bytes": 19382
+    },
+    {
+      "path": "account-pool/account_pool/release_database.py",
+      "sha256": "61b9994543292e7298467b46d9b2d450bdeb80edf1bcec832a8ad5c851a29ffa",
+      "bytes": 11319
+    },
+    {
+      "path": "account-pool/account_pool/release_models.py",
+      "sha256": "a34dd29e3b7421df0243546bbed7004822452738bdc348b4c53455acc6026130",
+      "bytes": 6761
+    },
+    {
+      "path": "account-pool/account_pool/release_runtime.py",
+      "sha256": "f87b4b0eda6ea95bcfe7a662fec6925aab7c467bce7d98f4162bf2972dffa275",
+      "bytes": 32252
+    },
+    {
+      "path": "account-pool/account_pool/release_service.py",
+      "sha256": "cb46d414fe29efbb326c1ce0a5b71930d8079d00fec2f6323874aae272e759da",
+      "bytes": 45194
+    },
+    {
+      "path": "account-pool/account_pool/release_store.py",
+      "sha256": "2e7a5e89b62d78fa5948f47bd7deb6b8db5da30c0101b29d7e92e0c1acf06223",
+      "bytes": 24155
+    },
+    {
+      "path": "account-pool/account_pool/repository.py",
+      "sha256": "330dabf8e59ec94bf8c703c3bdb4f74e3cebbf20b4c0de6e2e11ceb9be253a70",
+      "bytes": 23598
+    },
+    {
+      "path": "account-pool/account_pool/result.py",
+      "sha256": "59d82639e499b33b885c98bd5c3d6bb98bd2e005c3fe269cb52f8769301c25c6",
+      "bytes": 213
+    },
+    {
+      "path": "account-pool/account_pool/secrets.py",
+      "sha256": "dce967ccfca3e5c96d7e7e7a84be295c2e0ec97ff41cd9b33501f77d51df65c6",
+      "bytes": 257
+    },
+    {
+      "path": "account-pool/account_pool/service.py",
+      "sha256": "f1efa2749951beb49c5392d2894fa6563c7a4553fbbd3d908d65fea609ef8062",
+      "bytes": 47712
+    },
+    {
+      "path": "account-pool/account_pool/settings.py",
+      "sha256": "88b1ecbb99383a9bfae0208697616d9a47df0d3f5b9d6df8d688a878b83c88c0",
+      "bytes": 28964
+    },
+    {
+      "path": "account-pool/account_pool/shared/README.md",
+      "sha256": "cfbb9cfcbe142d9a491dde607b8872471035c5102e259900d1b2fb2f47419ed2",
+      "bytes": 845
+    },
+    {
+      "path": "account-pool/account_pool/shared/__init__.py",
+      "sha256": "40c25bbbf7c11934d9290d576a51c2901317ace9a2545bf1432230f37be9edf3",
+      "bytes": 73
+    },
+    {
+      "path": "account-pool/account_pool/shared/error_safety.py",
+      "sha256": "385b60127184f6b74874697d848854c112a89b78959654f53a4c7b92287b4571",
+      "bytes": 1792
+    },
+    {
+      "path": "account-pool/account_pool/shared/result.py",
+      "sha256": "3c2f43253101ed25494a404fb773b74e4294d32c86e8968059de86e386fecc28",
+      "bytes": 526
+    },
+    {
+      "path": "account-pool/account_pool/shared/secrets.py",
+      "sha256": "9c92b66991d35e333ad59e1cf2b989f3c9ef55842e18f4e938287242c68ef174",
+      "bytes": 1841
+    },
+    {
+      "path": "account-pool/account_pool/upstream_readiness.py",
+      "sha256": "d31914c51aa646a98f059e4682ab68960915f429c3b40e815bbd6eb2fd784f6a",
+      "bytes": 2962
+    },
+    {
+      "path": "account-pool/account_pool/upstream_sync.py",
+      "sha256": "769981a5d0c4c6a74cd7842226b059f92eb30a86c383499b9afe7c53c6fb97e3",
+      "bytes": 19605
+    },
+    {
+      "path": "account-pool/browser-worker/Dockerfile",
+      "sha256": "fad654aca1977ed4f6601feba40d0de38cbe1565db4563c11b3012e0adf8ff94",
+      "bytes": 926
+    },
+    {
+      "path": "account-pool/browser-worker/README.md",
+      "sha256": "be09da00bbe629c59780885312e7babce33e5a0ee21ad031af99a6d33e847967",
+      "bytes": 968
+    },
+    {
+      "path": "account-pool/browser-worker/entrypoint.py",
+      "sha256": "e7441b1a9cdf17a8d60d1d46070aeceac1e95947af39bf1fcb4ae4ec92f5b9ff",
+      "bytes": 17875
+    },
+    {
+      "path": "account-pool/cliproxy-adapter/sources.json",
+      "sha256": "1b7c522f27dcd929d054c01728a6da94bffd0e5dea83c06759b64bd155a0cecc",
+      "bytes": 464
+    },
+    {
+      "path": "account-pool/docker-compose.manager.yml",
+      "sha256": "b05fff76f75ca7098071babbf0f9675525fd497949f05a41bb84c58ef7b75e12",
+      "bytes": 7661
+    },
+    {
+      "path": "account-pool/docs/controlled-oauth-browser.md",
+      "sha256": "45ef73a625ce60a35fddb0a3816072185819b6795fb76cae38a6ee073cce7344",
+      "bytes": 11033
+    },
+    {
+      "path": "account-pool/docs/sub2api-port.md",
+      "sha256": "b7754020098e753a215dbcc35be7ab3077b3872c1d70d8b23dfb365a42d043dc",
+      "bytes": 5713
+    },
+    {
+      "path": "account-pool/docs/upstream-updates.md",
+      "sha256": "0ba3620c9e0e8d133fec3400ee3592c08e5f57b73bc350721689ca1e93980878",
+      "bytes": 11714
+    },
+    {
+      "path": "account-pool/pyproject.toml",
+      "sha256": "a7a391e460f56c5efe916999afa31219edb6e51afa9bc56dd0ea3201d45d148a",
+      "bytes": 869
+    },
+    {
+      "path": "account-pool/tests/account_pool/conftest.py",
+      "sha256": "7d30440d6c8a612024046a7e9c41a66b9c81b452f968c68d17baa0446496b9ff",
+      "bytes": 468
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_batch_service.py",
+      "sha256": "ada482c0ec2ec6fa2d6c323653184fdc8b764f002da1e20fe8145dd937f0cca4",
+      "bytes": 20163
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_browser_worker_runtime.py",
+      "sha256": "ecfe04c65cbef13fc279b1aa8d6176bffd50258d355a49909e89b55be705ce58",
+      "bytes": 13702
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_channel_registry.py",
+      "sha256": "0fd2166e8f63395d15d914bcdf685c6c830b8225af1a78d4a88794522a8aeb38",
+      "bytes": 6544
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_clash.py",
+      "sha256": "13bddd7543a9f3f0633a0f90592d3148f500f8d4c7df978c316ae9ff9c6a4749",
+      "bytes": 7621
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_cleanup.py",
+      "sha256": "1f841cf9aef654f132fc610139128ce66252181ba74032a75da1e58153c17c7b",
+      "bytes": 699
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_cliproxy_supplier_client.py",
+      "sha256": "223984e1ea03b56ee80e72ab7aeeb0261ded8e3b79aa7a5ca0b75274a0de0c16",
+      "bytes": 81306
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_compose_renderer.py",
+      "sha256": "49c2f845c359a97189c8086ff4b0aece782e0bb29371b980e763fb1ccc35ed91",
+      "bytes": 2920
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_contracts.py",
+      "sha256": "7664206a7ccba6dbc3c0f3c108a6b376bd707dbc45307bfca09cd4f227dd93c4",
+      "bytes": 7591
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_credential_ownership.py",
+      "sha256": "d3997b1641b4f68041926535b59f4e8ee146ca44dd099e6ca228aec744dbaad8",
+      "bytes": 4166
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_effective_policy.py",
+      "sha256": "fa47c15a984ad0da04cfe8cf487e5a4762aad00aaf9ea498acc7d5bb876a83b9",
+      "bytes": 3356
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_error_safety.py",
+      "sha256": "0fb21af061d73a8a69d9f94bd43d03c8e73119ceac5a8573f82c562ee9706f13",
+      "bytes": 606
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_feedback.py",
+      "sha256": "f40306bfef5491536e8f8fa0c08a69c0fca88661bdde3e98bc6c74d0ad1b709b",
+      "bytes": 13126
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_feedback_api.py",
+      "sha256": "6e2cf27fbc389f72efda39ded6643cacff0b9119227a2b1e5f4774e5aa92a5d5",
+      "bytes": 5871
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_gateway_service.py",
+      "sha256": "125c89b4c0fda3c8d01b9b0c417e63c63677497ca656d0c014c21f025ed0829b",
+      "bytes": 43916
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_isp_probe.py",
+      "sha256": "a082355fdfedf3890fd697ffb039ed2a6e71c969ac6def0d2ea3d40ede6a7085",
+      "bytes": 11375
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_isp_profiles.py",
+      "sha256": "fdebd9e9bffd808276a58c549b2f3ed4e6a22facca58155e90498763cec51faf",
+      "bytes": 8359
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_management.py",
+      "sha256": "dbf70f4b2d354608c0511e17e317f6c2998aa1cb14889c3166afc9f4e555ee0f",
+      "bytes": 29654
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_oauth_browser.py",
+      "sha256": "da35c7c34a2d75517c719f0f7d11541c4d28730ccb9187562c497d2dd8a99857",
+      "bytes": 9556
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_oauth_browser_api.py",
+      "sha256": "e718fcb124f8f729dad005f191362797971e12875281f08ec1470c943b00b4b7",
+      "bytes": 23899
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_onboarding_api.py",
+      "sha256": "8b2a63b68ee61aa99e3e6bda9e4ea7b727351071fc085f9d0d5d5b10bcaf66a1",
+      "bytes": 4171
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_onboarding_service.py",
+      "sha256": "469a46599ae3fabb609ef35d0605435c811681396740c5b6090f2863f1445ff5",
+      "bytes": 22913
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_openai_compatible.py",
+      "sha256": "9aa4d93b241e91d7ea4e7dff4077f74f4e586da10b9e63a56c1e0276d13497b5",
+      "bytes": 9296
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_plugins.py",
+      "sha256": "31c2b8c6ba5d6a32b316d272ba4cec336427d3894ffa6c7269c6d4662b738278",
+      "bytes": 3090
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_policies.py",
+      "sha256": "2913baed04947cf76174e6845be7d582c8d7804fd6a7c08aef2adfa9e4a4926b",
+      "bytes": 559
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_proxy_catalog_postgres.py",
+      "sha256": "85be0dca14462704d401df27687f9e95db7c5411e221f8c5eaf2013d7165c16f",
+      "bytes": 7487
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_proxy_catalog_schema.py",
+      "sha256": "98a8ab31ebf52bb531ccfe92be001aad30dfa9bd47a0e96007da8b5342b445a6",
+      "bytes": 1299
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_proxy_configuration.py",
+      "sha256": "fa1ab85a40e581eea1156414fff8bee832a65525f30c55dc9b7d2b7c4f9e6bdc",
+      "bytes": 12277
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_proxy_gateways.py",
+      "sha256": "01d370f77fc3d46fda61c8040e43d4e3e4a7d3ab8e94ba8627ac66ce60f11518",
+      "bytes": 18745
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_quota.py",
+      "sha256": "71362a429268986f12e8e1d02f275275500bdb05554c2fb6af24f46194b85080",
+      "bytes": 30187
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_quota_refresh_trigger.py",
+      "sha256": "b1e174e22eb6002e0d32f961e7c0f7b12c9e566e56c0a3bacf344268e607cdb9",
+      "bytes": 3980
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_repository_cleanup.py",
+      "sha256": "dc6c19d1cd1b493eb4c32dc63eb913977b7a1e57721ea0cdab24a816e6d5e696",
+      "bytes": 14869
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_result.py",
+      "sha256": "66f8d607d86ce20003148a64ef7b4d19ab062ae60821ff833071e3277ff3a3b3",
+      "bytes": 418
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_settings.py",
+      "sha256": "b35c47636456d785269a1bff47939bd275c033b51f4eabf0fe6bf171d4965b78",
+      "bytes": 19382
+    },
+    {
+      "path": "account-pool/tests/account_pool/test_upstream_sync.py",
+      "sha256": "04b0498063cc85b5cd0ac612d031fb4004464385e106e553535104f344cdb9ad",
+      "bytes": 20370
+    },
+    {
+      "path": "account-pool/tests/conftest.py",
+      "sha256": "dafd71f97ea0d963eb5e8ae96bf4108d270045de32938226b1e9a45c1ba97801",
+      "bytes": 300
+    },
+    {
+      "path": "account-pool/tests/test_account_pool.py",
+      "sha256": "7bc6666e0c4adb1c78611ebd3acc11e91b60d019a502bb237213e62cae25eb0d",
+      "bytes": 191070
+    },
+    {
+      "path": "account-pool/tests/test_release_auto_update.py",
+      "sha256": "c19631ad30b45e7df55229bf2e22efb9d2232e31e8ef9e5386bf1a86a1e0ccca",
+      "bytes": 11887
+    },
+    {
+      "path": "account-pool/tests/test_release_catalog.py",
+      "sha256": "aa4abdb6f760f673b9007cbafabe138ed56afb9ba64216f6651a2846f42b431a",
+      "bytes": 11301
+    },
+    {
+      "path": "account-pool/tests/test_release_database.py",
+      "sha256": "c236b0a86c848d1d8aba5bf26c6c192af99d4d6d1546d30aeab13ce13892da7b",
+      "bytes": 18363
+    },
+    {
+      "path": "account-pool/tests/test_release_database_integration.py",
+      "sha256": "14f8dd722faa0acda4bdbd5caabb45eb33b8c99b51a23271391fb04722e98bf0",
+      "bytes": 7207
+    },
+    {
+      "path": "account-pool/tests/test_release_runtime.py",
+      "sha256": "a3a5e580afebec5a5899a64d84e4d95cab27e27482c124065c9c662c5dc5c40d",
+      "bytes": 35021
+    },
+    {
+      "path": "account-pool/tests/test_release_workflow.py",
+      "sha256": "36bbc9f9729aade4b2664329e1fdd26c65b96dae39d6da5fdbc9a7413e7fa200",
+      "bytes": 5643
+    },
+    {
+      "path": "account-pool/tests/test_releases.py",
+      "sha256": "2d340e8c81c604c2d8a55ebcbbf61dabe07bf88736cf771e9be1bc8831bf9665",
+      "bytes": 32240
+    },
+    {
+      "path": "account-pool/uv.lock",
+      "sha256": "b24a91e7ffcf6129b2f028cc6607ec02cb5bd60d4d38c89ae8bb8ab26f34aa7d",
+      "bytes": 127386
+    },
+    {
+      "path": "deploy/.env.example",
+      "sha256": "e8804cabe1a32c82698a9b19d68c64841ef61b32d56b9b41d8ae5f94f174ced8",
+      "bytes": 3138
+    },
+    {
+      "path": "deploy/DEPLOY.md",
+      "sha256": "9c704b8e9b62fb7aa7b796770bb5889bf64179175c054df9517642fb2e3827a4",
+      "bytes": 10436
+    },
+    {
+      "path": "deploy/MIGRATION.md",
+      "sha256": "9275139e26097909849e67616f33770c6dbab1106bcc6305e3a221bff8969ad8",
+      "bytes": 39776
+    },
+    {
+      "path": "deploy/README.md",
+      "sha256": "441ba5ddf15859ebae152788d84db47e5697bffcd3e3a83e7e6779ba32b4bc22",
+      "bytes": 1000
+    },
+    {
+      "path": "deploy/RELEASES.md",
+      "sha256": "619ee1695c631ebac676296d43b10579d9470428cc845da94a3601ffdb7cf8dd",
+      "bytes": 29738
+    },
+    {
+      "path": "deploy/UPDATE_RUNBOOK.md",
+      "sha256": "fc423ee94938a5a40d67d9ed1afc9de089b0a094a2d6fdfe100e49b588e98287",
+      "bytes": 28334
+    },
+    {
+      "path": "deploy/VERSION",
+      "sha256": "138e1a38858ecf468b73e336e13e1bd8082c8a656a3b6434ac47bc9425b28129",
+      "bytes": 5
+    },
+    {
+      "path": "deploy/docker-compose.yml",
+      "sha256": "15c4e333dd5cc7a5e18a1318cacc154cc90ded7f8b0ad707beead46bacc2a6ff",
+      "bytes": 12402
+    },
+    {
+      "path": "deploy/release_version.py",
+      "sha256": "0a49cd2c772b1c96930f86d0996baf4098a8c16749bd9e9374ab4fb07d5fe6ee",
+      "bytes": 2701
+    },
+    {
+      "path": "deploy/releasectl.py",
+      "sha256": "faa526b08a21a5a89821f6f7a176ce0dda933c4c0a1240691e09da78c4da33d1",
+      "bytes": 6461
+    },
+    {
+      "path": "docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.md",
+      "sha256": "29e1a5c4526d4e092384121965d60b89512bccc8f277ea2abe6547eb229f3ceb",
+      "bytes": 3034
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/ACCOUNT_POOL_MAINTENANCE.md",
+      "sha256": "49500463cea9c889973ce8e582782c5ef97d3d695055db4de100f43cbeb5a46e",
+      "bytes": 861
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/access_group_endpoints.py",
+      "sha256": "57a1ae594cd1ed527828978228242c4a1facac2155bc95c76e3f1f17a50cf279",
+      "bytes": 25695
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_accounting.py",
+      "sha256": "a98e277aeef817d99ae06b76713d634e82bc7ed81de5731b0d64e0f09390e1ad",
+      "bytes": 11928
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_conversation.py",
+      "sha256": "5ec68c15fad78cc996f5f892c495280cb8ba5aba0e25cb51f35f2009854e3147",
+      "bytes": 28317
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_endpoints.py",
+      "sha256": "548033cb1904f51ecb92e9c4248af7fbfb455d9ba35bfab8bffeac88d3cedeaf",
+      "bytes": 59809
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_failover.GPL-3.0",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+      "bytes": 35149
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_failover.LICENSE",
+      "sha256": "a5681bf9b05db14d86776930017c647ad9e6e56ff6bbcfdf21e5848288dfaf1b",
+      "bytes": 7651
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_failover.NOTICE",
+      "sha256": "5080290a43e03f1a280b21da4201fcb332c2a1133aa13bf472f5078fb59af3a2",
+      "bytes": 1079
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_failover.py",
+      "sha256": "cf99d8cfedd27b895d42694f9a2add93dbb281c1969bdbf4b5fe8f90778b6638",
+      "bytes": 6492
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_feedback.py",
+      "sha256": "df7a536b0fabc7e1f59f681657a267ead45c8057e345dc3b345e381a07b29fd0",
+      "bytes": 12982
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_feedback_models.py",
+      "sha256": "c403213a959de356671955e3a08fbff23545d42b47aef773c4f127ffeba9da84",
+      "bytes": 4000
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_full_log_api.py",
+      "sha256": "650b9cf89df1d6bb25917fdb23ac0d9dac7e8c3a95350dca9f6bdfe31a46e4b8",
+      "bytes": 3673
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_full_logs.py",
+      "sha256": "27ede16da61ec569ef1b85d494eeb3379f27968b8239483613cc4affc8da42d2",
+      "bytes": 18411
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_gateway.py",
+      "sha256": "8e9f6fea03f670beb0c41957eb6d84c141da097baf7e2e7f0579bf5b8d61158b",
+      "bytes": 22992
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_gateway_client.py",
+      "sha256": "bc5892be6d0caf7efe44eb59d0c5038f440700fee7dbc3142130d7d1309eee6c",
+      "bytes": 2679
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_gateway_contracts.py",
+      "sha256": "a1ae626f802916c0a2ae32ec9e085a4fb99d8c913e284ce7ab0812f7f3baa225",
+      "bytes": 7263
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_gateway_forwarder.py",
+      "sha256": "dc6b94643d89f4a7a887eab7335f6bb9372028d23f38f9eb5db3bf48a84707b8",
+      "bytes": 62632
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_integration.py",
+      "sha256": "b61a89576d5e83126326b13d897705839cd69dbf5603c1f6448b11de1afc5705",
+      "bytes": 19169
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_management.py",
+      "sha256": "bb68f76b808c878ab721e547c0b03d1312a021f644ab28491fbba769802b6d71",
+      "bytes": 12363
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_management_models.py",
+      "sha256": "ee3499344755bd95460ac1545b81783c74a96791e3403ba024b5103e808450f1",
+      "bytes": 37287
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_model_test.py",
+      "sha256": "1f522c1c14d20483b25f079be33d749db17619c3d202da01d0640d6d268ab956",
+      "bytes": 10046
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_native_routing.py",
+      "sha256": "3258b35beba1d900162e0d9be8567d4ae6e753791d5c6f1080d62d6c061b9763",
+      "bytes": 21777
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_observability.py",
+      "sha256": "79d494f4a781e8c7f6fbc7715d44c1f1589d653477ec920ae17cd3950af6a533",
+      "bytes": 5993
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_onboarding.py",
+      "sha256": "9260cc733da89740fc474bc8306470e3db60b072d8ac61683ed2fb1c93f50f6e",
+      "bytes": 4889
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_onboarding_models.py",
+      "sha256": "83ef0d081eaf0d0a041321fcc3d6855a0353a0ad1966fe5871e58f8a512ab8f8",
+      "bytes": 4507
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_protocols.py",
+      "sha256": "a552adc18ed8e1befff55cd2a4de2898a2253b11aee109e70617be41330bf4d3",
+      "bytes": 1411
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_proxy_catalog.py",
+      "sha256": "1dca3488a1832060ad5b2e1910e4c4d61871d2cc43c5816470c6367a1533bb78",
+      "bytes": 6494
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_reconciler.py",
+      "sha256": "6a803ee1b1e5d928cd8a7b78f172221e7832bb76cc538567f59cf9ca1b3b12d3",
+      "bytes": 21687
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_release_models.py",
+      "sha256": "a34dd29e3b7421df0243546bbed7004822452738bdc348b4c53455acc6026130",
+      "bytes": 6761
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_releases.py",
+      "sha256": "786ab372fa9b0eeb53da1ef2908520865017b8d7b87afd4b65be0e52814920e7",
+      "bytes": 5647
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_request_log.py",
+      "sha256": "2b28b42c0d6111ca28a0864ca12745983b66d6dbac13f293106b71efce6434cb",
+      "bytes": 18126
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_retry.py",
+      "sha256": "b7676696e948a032415b3fb29bb0b7409942f77c95f887038fae1896f3ff4a36",
+      "bytes": 11428
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_routing.py",
+      "sha256": "5611b5b15e8578ccf77327ba4a8355c3a71f47b346258f6e023bbf4a4da81047",
+      "bytes": 13591
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_session.py",
+      "sha256": "f316487b82650a70c7e5f74c522d36576d2b5b4e4916ba210fb3eaea6ad254eb",
+      "bytes": 2676
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_signature.py",
+      "sha256": "ce1ab9d998cc536bfbfd8615c734fdad004d6fca93bc5396075db60480499f35",
+      "bytes": 7903
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_stream.py",
+      "sha256": "a4ffd4c59787ccd6e2c2bdb15010d1993afed00462590a299eb9100ba95f1edb",
+      "bytes": 9654
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_timing.py",
+      "sha256": "a562f585ebcce3004b388cbb2297da8abf8516a37cee0d5259251c19fe7c49c8",
+      "bytes": 3012
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/account_pool_websocket.py",
+      "sha256": "d96e21a279b3a2a3c16888c27e8cafec8d80927f43ac736887599cb452f4dd1e",
+      "bytes": 46603
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/auto_router_endpoints.py",
+      "sha256": "128be15a6e85c971e1caa6ffd71a92cf586ad1fa60e8ac8706da0fc9c7b9f682",
+      "bytes": 61684
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/budget_management_endpoints.py",
+      "sha256": "a76629ceb5ecf54bf96b08ba6c5b94036ae1e3eec2b1dc2299974a44049c5fca",
+      "bytes": 13043
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/cache_settings_endpoints.py",
+      "sha256": "cd9b7f945b162aa7a3df4f7c27ff6a2be16cadd2d6dc5ceb1b5074e3fae153b4",
+      "bytes": 29163
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/callback_management_endpoints.py",
+      "sha256": "46b395f7222ca827f2f6e770f03e3ac793b4a47c04ef19ee11972699a26ea19a",
+      "bytes": 1405
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/common_daily_activity.py",
+      "sha256": "7f94d49bb2eecf6e6969686ecb187f717f0f75616901fb29df6859c2aaabe193",
+      "bytes": 59901
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/common_utils.py",
+      "sha256": "07f025f8b6e792ab423b94373b1c4fa4e563a45f9fe3e646742977bc8d3058db",
+      "bytes": 22480
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/compliance_endpoints.py",
+      "sha256": "b80868f7a800067678ff7d9d4056adefbd8fd13019290958b3e4b47b39418d20",
+      "bytes": 2450
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/config_override_endpoints.py",
+      "sha256": "4fe1a997ca9e5c3da3cded222db8a6950827c43e0c9c496a9bb447c13e872aff",
+      "bytes": 38764
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/coordination_redis_endpoints.py",
+      "sha256": "625e525272abadcf2fd618157126f4541cf4df8fe443892e93f306bd46a53f21",
+      "bytes": 17534
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/cost_tracking_settings.py",
+      "sha256": "aca4a92039d1029b1475acdce4a0b93495d09d16a7d6ca0eec7cb937c5111647",
+      "bytes": 24616
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/credential_migration.py",
+      "sha256": "02cceb4d68e4143be586b8cfeb9a15e207dca89d388607b3d863afff454a0787",
+      "bytes": 27054
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/customer_endpoints.py",
+      "sha256": "1fdbc5bc679d38f04790d1de586624af040f894019b88f1c07009eed9bac71fa",
+      "bytes": 35794
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/fallback_management_endpoints.py",
+      "sha256": "a876678948240349894babcba5112f1853c459bbc3a977478a09956635843eae",
+      "bytes": 12412
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/gateway_request_endpoints.py",
+      "sha256": "f739ddebeb7a25c139dbc24a0bc31be2ca44579fbb27ae903bb9cf03aafa46e2",
+      "bytes": 5156
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/internal_user_endpoints.py",
+      "sha256": "3ba3997900f6fa132474d9c0e3a591653f27f235ac43d01b7f12b08e0e21f7a9",
+      "bytes": 118729
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/jwt_key_mapping_endpoints.py",
+      "sha256": "f0a915f6a337a776b9b1e9aac98893d95cba2d03840618857c63f2dc7c48d752",
+      "bytes": 10824
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/key_management_endpoints.py",
+      "sha256": "d1fe8de7e85f27dabf97d2619938a0e2ceb4078ad05af15649b89553e66fe8d3",
+      "bytes": 298229
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/management_v1/__init__.py",
+      "sha256": "a7b64820ef585497ff977b05de06ef9805814fbab6fae18e044607f25a082fc7",
+      "bytes": 450
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/management_v1/budgets.py",
+      "sha256": "206a244cfe5bb514e18317319644ec342450baddaa98edcbc28943a86d5a2b96",
+      "bytes": 7407
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/management_v1/common.py",
+      "sha256": "c99c4d90d77e070bfa78909d672f0020da6d2dbc5755dd9b87e74464f3faa8a4",
+      "bytes": 230
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/management_v1/spend_logs.py",
+      "sha256": "d39093f290e599ebb88aef82b91e58a36bdb67a714a78e5de97922cb5062171a",
+      "bytes": 9841
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/mcp_connector_import.py",
+      "sha256": "2164a2e027438d46bee1853c353e266f2d0c5768128ec5ca471b52f61bac7c66",
+      "bytes": 6631
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/mcp_management_endpoints.py",
+      "sha256": "0a93dc8561b55b3c2e4a88ae020aed3cf1216105a2615b9ce1a42d81212c1645",
+      "bytes": 138050
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/model_access_group_management_endpoints.py",
+      "sha256": "09fc7c0070da01519469538f48edfaa3c439e80e0711aafd57b3beb8e0641528",
+      "bytes": 44549
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/model_management_endpoints.py",
+      "sha256": "a9bc888329e4a54fdf7bab017dee2313ad5fa6e32905667a342ed5ebcb9421c5",
+      "bytes": 109083
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/organization_endpoints.py",
+      "sha256": "600ee48a3210b5ecb050c61db00600d28b799b4603a4a17db81c52f37202aba6",
+      "bytes": 61167
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/policy_endpoints/__init__.py",
+      "sha256": "f481de52a58b0a7b1806024156227947e92a371c8f5e3850c299e2d269a020db",
+      "bytes": 751
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/policy_endpoints/ai_policy_suggester.py",
+      "sha256": "71af3f78b9f944a83975a30db75c75b4da174e6156d45254deee102ac9150bce",
+      "bytes": 5749
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/policy_endpoints/endpoints.py",
+      "sha256": "f006fa9ecc3278a476837a96680c0c849623c7690eccfd1a37e48661937b12e5",
+      "bytes": 46119
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/request_log_endpoints.py",
+      "sha256": "a5cf63c17c5f5d74ec5e741ee36bacd267a2a3baf0dad895e6b14ca793597d69",
+      "bytes": 8092
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/request_log_runtime.py",
+      "sha256": "f5f6d6c88681386eb1b2b9230ced775a1f4a872ba5fa497b8f34b5f47635cfb7",
+      "bytes": 6449
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/router_settings_endpoints.py",
+      "sha256": "7dabc6c6694223763892a0562bef1742e9a13ba9a2cf1e80661b686730bc99fd",
+      "bytes": 6911
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/runtime_configuration_endpoints.py",
+      "sha256": "a7d7911c4ce8035b9570edef39a24a2fc4acd815b743acb8a6f8e426abe5f785",
+      "bytes": 4406
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/scim/README_SCIM.md",
+      "sha256": "20e1da87686ac50d0f820d9f19d00db68ff6b7a348a8e3e9a55e9ae16b90f926",
+      "bytes": 2990
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/scim/scim_transformations.py",
+      "sha256": "d420f13b4e8c7003f6c01644ecbaa94b377bbebd533eaab8c563d18de7aa364a",
+      "bytes": 8588
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/scim/scim_v2.py",
+      "sha256": "eb047749d1bdf8a44b4e8d23102d55410c08a9d124025456062e711132892710",
+      "bytes": 108353
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/sso/__init__.py",
+      "sha256": "4a62fd6087046772f2e9f5074d44ac300a03ec74e97b9650cdea338aac7b3852",
+      "bytes": 264
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/sso/custom_microsoft_sso.py",
+      "sha256": "faebfce71acc06bae0a3287c2e0cdc2c881b94d154ad22227989ab920ac01667",
+      "bytes": 3048
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/sso/saml_sso.py",
+      "sha256": "77ab9a7bfabb7507fd6880b302e73ff3195524d32af3dcfbd355026482e58f44",
+      "bytes": 22076
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/sso_helper_utils.py",
+      "sha256": "5e68bbb2ec8a659bf6d9f6625b99387823fc9b7407be6b8a93a4ff07c9039a3a",
+      "bytes": 659
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/tag_management_endpoints.py",
+      "sha256": "6cca558905b675b2c570fd36a137ec6ca419e5e883ae682e8ee415db99a591d0",
+      "bytes": 28595
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/team_callback_endpoints.py",
+      "sha256": "5eeec5ac502237b921b13613338422c33b7b333e8551601fd5484759d895a1e5",
+      "bytes": 33026
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/team_endpoints.py",
+      "sha256": "ca30ca13816d2ac43fc27e3f48df6feb9dfdd580242ba9f838afcbbcf1ec1cc4",
+      "bytes": 252975
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/tool_management_endpoints.py",
+      "sha256": "a6366d39f4b0f8aa44fddf18489e3f33638d1e7cfd50e459d6e9130772839950",
+      "bytes": 28885
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/types.py",
+      "sha256": "ebfe5ce816dcff03a10696272029e79a5c2a865416a949e6df415b78200e02d6",
+      "bytes": 1798
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/ui_sso.py",
+      "sha256": "8257283cff2b99ba6b88592078d5f793c891b9fbf03ebe562af4ebeea6ed4d0c",
+      "bytes": 201304
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/usage_endpoints/__init__.py",
+      "sha256": "91a60a822dfc12da2fa0eb902c9c030aaf7e374e600e5a4a07cf278e10e48679",
+      "bytes": 183
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/usage_endpoints/ai_usage_chat.py",
+      "sha256": "096cdc8721b4ecd8b7af55aff986941adb579c46f4cfc6e6986906a5a6b3b447",
+      "bytes": 20412
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/usage_endpoints/endpoints.py",
+      "sha256": "aa38dcaa73e91c219bcd1ca500017a282887256c7b01d37bb81508048149a071",
+      "bytes": 2031
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/user_agent_analytics_endpoints.py",
+      "sha256": "9d4db377063dad07781fe6edd6e5a1dcadf6b39e70c6e637ec6fba7422d6b4a2",
+      "bytes": 30081
+    },
+    {
+      "path": "litellm/proxy/management_endpoints/workflow_management_endpoints.py",
+      "sha256": "bfa130d7972678c85b2aa3a2e2ca564115026cc71260de0d3877256b810486ec",
+      "bytes": 18650
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/management_v1/test_budgets.py",
+      "sha256": "bf89101ac823e17d01a4304fa615ff27d115c6445886433292972e57761f0ce3",
+      "bytes": 18526
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/management_v1/test_spend_logs.py",
+      "sha256": "62f39db0aba84f1fbf7b4691d494ffe4a7a9beb9bd75979322464397f21aa488",
+      "bytes": 18118
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/policy_endpoints/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/policy_endpoints/test_ai_policy_suggester.py",
+      "sha256": "1d50827652fe2ff2e375d963f65568a713f52a9be0f8fed4d833c90abca6f17b",
+      "bytes": 12062
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/policy_endpoints/test_endpoints.py",
+      "sha256": "ec6d4c67e818da2f8e19fb6cbda40e89710fa77a9f0930f361168167993700f5",
+      "bytes": 7296
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/scim/test_scim_key_deactivation.py",
+      "sha256": "18085346322a742b40edae92cfc34169645020d31cba74cfebc0a7087298c874",
+      "bytes": 20445
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/scim/test_scim_patch_user.py",
+      "sha256": "9815523433b5bdd8d26db53e25e5fd52b925c715167f7644582e3b7fb93e6ed2",
+      "bytes": 16862
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/scim/test_scim_transformations.py",
+      "sha256": "a1a884063077e6a766eeb0fc009eec7aa74299418b6b54292a1f211cbae15257",
+      "bytes": 18106
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/scim/test_scim_v2_discovery.py",
+      "sha256": "cb4cd447722834ff085b4aea0d1b77ea1174d5981deec9eedddef72fe327c8b5",
+      "bytes": 11119
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/scim/test_scim_v2_endpoints.py",
+      "sha256": "db0d835da761de4aa91bf43328b59e95f451ef623872d97e3ec6d9d360afb084",
+      "bytes": 223193
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/search_endpoints/test_search_tool_management.py",
+      "sha256": "beb22847fa04eb0207c24001e2ebc9954e6dbb458e27508478a135115a91c223",
+      "bytes": 46327
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_access_group_endpoints.py",
+      "sha256": "69a74a0e1fd7c137a52f15292ce1ecb338482c14fc34ce83f4458699bb95eb63",
+      "bytes": 49854
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_access_group_management.py",
+      "sha256": "4fee682373900afd42ddc0a7fa8da7d5d59ad29f0deaa9ceb7065387988800e5",
+      "bytes": 49370
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py",
+      "sha256": "8a2fb9f142f1d5e620d7b66117533fceb73b1c985e5d56b3174c29526c848bf5",
+      "bytes": 12347
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_conversation.py",
+      "sha256": "4c728680aaf21e87541d2c724e641bec1523722b5777462587028c4c3cbcdbf3",
+      "bytes": 62861
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "sha256": "e2a525f063a885f1bad32a7fd571eed2f0d3d6d4ed9df40cdf22de6654773b64",
+      "bytes": 52798
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_failover.py",
+      "sha256": "25c2a1e06af85536c229132e52931faf726369d869d9a6e40b52e99762f22531",
+      "bytes": 1687
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_feedback.py",
+      "sha256": "65b497093cf21146dafa26ae24668905c18312e464c3994f3e40b2c0930e542b",
+      "bytes": 7030
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_full_logs.py",
+      "sha256": "5b1333cad0b1e24f6cb98753b5318e12c0f2d0721a85914285c22672d4850c09",
+      "bytes": 26074
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py",
+      "sha256": "45e0c3a213dd0d097105b4b7a954bb25a65edef96fae0264495f4111c52304fb",
+      "bytes": 164524
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py",
+      "sha256": "7ea0e9f41c2446b087d9702a5f5e33d7403952afb600dccc33d5a6da4d9b34a1",
+      "bytes": 57135
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_management.py",
+      "sha256": "e510b26b4fe29d8bb35c8ff10a63549007e59e5d88b726962a6b71d441ca3829",
+      "bytes": 2224
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_model_test.py",
+      "sha256": "545cd14a9061244e2e4fa2775e78254250e64c0d5c3abf74e0a1138ecf9c7334",
+      "bytes": 8929
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_native_routing.py",
+      "sha256": "d4a6b19dc269a6dba96c5d1932277a9ef121121fe49ec72f5920a2544a0d2828",
+      "bytes": 38780
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_observability.py",
+      "sha256": "783caa0a5ec09737824f1aec15d2b2f63afde5e4f0be5bf0b35f22d143b7f582",
+      "bytes": 4001
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_onboarding.py",
+      "sha256": "4bb18a8de80f45c5b48ca0507eff3c41dcc408211b7c7a1f29c88f706d658a88",
+      "bytes": 3458
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_protocols.py",
+      "sha256": "7b98f08f68107310c03d801aa8ce446cf360c24dc0c7c32c7f14b3066521f00c",
+      "bytes": 24412
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py",
+      "sha256": "f437b0703701420ea4c35279b8dee9c048080bbca67987fb9eb96fe52934825f",
+      "bytes": 19039
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_reconciler.py",
+      "sha256": "dc16f62f5db5e96eaa879d07181b83f5967acb2c68a920d22ddd12c52449e52a",
+      "bytes": 15088
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_releases.py",
+      "sha256": "6382d2fadd913dc0e66bdeef9e5b8876dc38b5a43f55103d953099658b3d09b1",
+      "bytes": 7116
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_session.py",
+      "sha256": "5d03547acadc7e3b1bc5c3098591081b8dc6216b550f12296f8473f6865518d1",
+      "bytes": 1134
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_window_policy.py",
+      "sha256": "760944949ff405cff0dbf56a9457a3d942c96c1ad32003f99fb568086801d3b3",
+      "bytes": 7759
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_activity_tenant_scoping.py",
+      "sha256": "b4b01d8907b5a336e87fb72898910e151bfae00b45f6072d359a55d444c8a747",
+      "bytes": 13911
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_auto_router_endpoints.py",
+      "sha256": "dc848949fc4c352adbcd6acbdfd6ef6ac386b351e2183d92cf5c0a04820c7fc0",
+      "bytes": 102244
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_budget_endpoints.py",
+      "sha256": "ffde4f0d8d15862acc5841ecfd4eddf484449926219fdd044e8a8c2a4b488c99",
+      "bytes": 13769
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_cache_settings_endpoints.py",
+      "sha256": "5773c078077662f7c91a9d82df8ca49614cbb43c9a2a39b84318c34ffd630e22",
+      "bytes": 44897
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_callback_management_endpoints.py",
+      "sha256": "f711d5a61e6ccb17877d4f273a788f035e57896cde0a74314af13d76b7a51bdf",
+      "bytes": 16754
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_common_daily_activity.py",
+      "sha256": "298eb981dbc12b30739c41532cbe4d257ec5c133c0fb317018f217ab97f9513f",
+      "bytes": 79255
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_common_utils.py",
+      "sha256": "16540364998a4d324211a28b1b99ad324e11dd9495126a25120ec51677db6fbc",
+      "bytes": 42044
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_compliance_endpoints.py",
+      "sha256": "3fce51918d453aa9bde54e3198cb47f1fa8f93ce12b7dba31661c4d1066edee4",
+      "bytes": 23899
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_config_override_endpoints.py",
+      "sha256": "fdefe09e969d60ceb7b0785bb38ae9d6550bf77dd47f79f3b991efcc9d29a181",
+      "bytes": 35757
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_coordination_redis_endpoints.py",
+      "sha256": "c6ac9dc963ef98b670ccd963c26269c20a1ff5b5a06da7b039cf55ab2a6d041f",
+      "bytes": 25726
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_cost_estimate_endpoint.py",
+      "sha256": "58413d0632c30e8673c46a535de80d508c0f565e5d8c5d858414aec2bd2cd70a",
+      "bytes": 5034
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_cost_tracking_settings.py",
+      "sha256": "af36b1c1e6da0dfc7d1734f7625649195cedbe9a991d41d5a9671c11c99693bc",
+      "bytes": 33718
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_credential_migration.py",
+      "sha256": "c7ee9f9f460e1ac3101bfcc6bb356b0048ea2230ed905c837806a2b57d0abcbc",
+      "bytes": 19804
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_customer_budget.py",
+      "sha256": "957c2e2a1dd61c03c4c7965a4bfe904fe7d537eaaed5866b3c239e29b57cf2cd",
+      "bytes": 12996
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_customer_endpoints.py",
+      "sha256": "9b4f3f3c7815ed5e86aac81022ae38d98fec05903f7acde9d590657bd8c8f065",
+      "bytes": 36454
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_delete_callbacks_endpoint.py",
+      "sha256": "4917befbcae9720e5915a3c64dfa99c97b150562adace138c513b675f0fb81dc",
+      "bytes": 3796
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_delete_verification_tokens_failed.py",
+      "sha256": "6326219d76474e5009fb7f75a6e70cf1ecfde266004167a75fc9a2d4401daeef",
+      "bytes": 9216
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_deployment_version.py",
+      "sha256": "487c5384789f042b86a42b793a7af8851e91bf9503b4220886e262299f798df9",
+      "bytes": 4224
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_encryption_endpoints.py",
+      "sha256": "abef71ab8e0489e957dc9d44c5e0e1e6105bb9f15de898785cf4a5fbcff18e4f",
+      "bytes": 3650
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_entraid_app_roles.py",
+      "sha256": "119a6998afd8a20e65c1ee43d37a865bb3e5bb6dcca09c3b1f1e646838671403",
+      "bytes": 4381
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_gateway_request_endpoints.py",
+      "sha256": "b042f763f5259f45c945093c0ce43b1817b0f872d8ff7e678dabf1db02925bdf",
+      "bytes": 11819
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_internal_user_endpoints.py",
+      "sha256": "14be2d3388c3a6fafb5fedf374d6b3594d6d95cd15c336975f994b4518f32264",
+      "bytes": 149934
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_key_management_endpoints.py",
+      "sha256": "93811642b56dd75fe9f69626df03601a884238b7a5adc3b4bda366e29270ee61",
+      "bytes": 620815
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_mcp_connector_import.py",
+      "sha256": "e6c70ccb9b45b80a3b125b6556d0e8b391131e37f8f6c69e4d17021c5d7f177f",
+      "bytes": 8689
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_mcp_management_endpoints.py",
+      "sha256": "8ba0beed8e8a6bf3e5b88d5d2aa9a53e0a338cc3fda9c82deba8c4554f89a2c7",
+      "bytes": 300543
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_model_management_endpoints.py",
+      "sha256": "74496f58d5ad08750796a3834c8bd7b29b698bd63920568f9f97872b2b69e25e",
+      "bytes": 188759
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_org_admin_team_access.py",
+      "sha256": "0d26f5344a1dc5e229db07ec87dde9cabc2096cdaa02d5f4a93fea99f8a8518c",
+      "bytes": 10813
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_organization_endpoints.py",
+      "sha256": "6b886ed3b27fc019b4c6aef9efe786dc6c4f81eb757a267a6ba07549328cd22f",
+      "bytes": 42003
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_policy_endpoints.py",
+      "sha256": "0aa8c00c2d036af6871f05c0be7210161bb44cb2c4d01d3c35942ad3b908afdb",
+      "bytes": 34268
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_project_org_authz.py",
+      "sha256": "fc638cb6e4bc0b6abc63b5afee6a96896ee1e52552eb04c99c2aa6da08c47b41",
+      "bytes": 6350
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_ptu_model_settings.py",
+      "sha256": "a81a05d6683145b8fd7b7a3280fb8b245cb888d2dcb5775c95e23cd6f9df4f8b",
+      "bytes": 57252
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_request_log_endpoints.py",
+      "sha256": "db62e47c6629b531edd599a8760d34c9d86220e14cdd9625c81fd9dcbdfd136a",
+      "bytes": 6055
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_router_settings_endpoints.py",
+      "sha256": "b03af6d64cc6e7f18e89756e8444b8637623f1962091347505b6b47a875d49ec",
+      "bytes": 4070
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_runtime_configuration_endpoints.py",
+      "sha256": "eec991b316503eb746e889f6d355395798b4a53b3a541691b56be5eaa051d16c",
+      "bytes": 8997
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_saml_sso.py",
+      "sha256": "d11a6217901d39728aaa03489008d54766e617251c17aa9de4d02da467db6c53",
+      "bytes": 22280
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_tag_management_endpoints.py",
+      "sha256": "a77dce24b8ae3911fa6f79fb69f89372bdcf3b54752d8288a2d9f54c40c3db1f",
+      "bytes": 48770
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_team_callback_endpoints.py",
+      "sha256": "86e7fd09dc95b1bec8ad2131a3a5cdb70d09112a10e4f5dac2047ca475cd5297",
+      "bytes": 53999
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_team_default_params.py",
+      "sha256": "75a944e569977e2476fc6c17490c4aa2b70e53079ee333a11fedbe8be900c8ab",
+      "bytes": 37577
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_team_endpoints.py",
+      "sha256": "57d713def31d70946ce71f9ff830d6b01284cf586e4f4c51d4a31a6c028798e3",
+      "bytes": 510668
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_team_model_alias_merge.py",
+      "sha256": "bfa7f9f73641315b8db7cd3cb14c79187dbb10cd535d5ab661a39b8ce7deaaec",
+      "bytes": 2806
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_tool_management_endpoints.py",
+      "sha256": "fce0356b5cf202d814b1aa4ebe7b8ab0149d79c54cbc784ae424164db3d2e290",
+      "bytes": 18434
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_ui_sso.py",
+      "sha256": "2da18fa0766afd19835dfe584f8bd95c5f77246b6108dea98aa415a152cfae9a",
+      "bytes": 336194
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/test_workflow_management_endpoints.py",
+      "sha256": "2f11b7d2c8c9288feed3a1a36259f8b87f4a9ef58df6abea80a9339e9ca00c23",
+      "bytes": 28539
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/usage_endpoints/__init__.py",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    {
+      "path": "tests/test_litellm/proxy/management_endpoints/usage_endpoints/test_ai_usage_chat.py",
+      "sha256": "9b4828d839eb6f1ab75f8be166b37d59b38bd40ea87ac192e0a67214e89f9b72",
+      "bytes": 16538
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/ModelRuntimeConfiguration.tsx",
+      "sha256": "ebad3960513dee277d33063265923800a92b91aaba84e2bae9b18a118c7cde3b",
+      "bytes": 2924
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeConfigDialog.integration.test.tsx",
+      "sha256": "32394fc1cc491c27dfc2d5156365679d6be35c3f51b863d63cfd51eb3639b43e",
+      "bytes": 3929
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeConfigDialog.tsx",
+      "sha256": "b1682852933a8c3409175cb6cbb7465799425ce21830a00434e1a185ba065fca",
+      "bytes": 16746
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimePolicyDialog.integration.test.tsx",
+      "sha256": "1a978d6f74d81d6ee22922062e1c9a6756e65ed5982a5158fb3ddd8bca62ca10",
+      "bytes": 13608
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimePolicyDialog.tsx",
+      "sha256": "aaeb614011f4a5c13b6fd015ce0366ca8d97ef87d9f45ecd1d53f4c2063e00ad",
+      "bytes": 29638
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimePolicyRoutingSection.tsx",
+      "sha256": "05faa7618440ff4ca83f55682470a60d74a02601ac36da5129529e518aae1809",
+      "bytes": 8412
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeSettings.tsx",
+      "sha256": "7f5a65a601c68877f9ead7259c3a7f9676e5efb30dcfa7b39c73c57153eeca8e",
+      "bytes": 1002
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeSettingsFields.tsx",
+      "sha256": "9bda89bb1362d70dd99b2af8a028cc92f60f7b584e6c152a68d488eeb3c64296",
+      "bytes": 1177
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeSettingsProfileSection.test.tsx",
+      "sha256": "706474faaeda62c2edb9ff984703a6fb35e628724cdd2b3f5d4047421bfc1227",
+      "bytes": 3394
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeSettingsProfileSection.tsx",
+      "sha256": "3294460c7fb26dce33b80c27b412276ae76b729c5ba23e8dad6fef79f9990d7d",
+      "bytes": 11016
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeSettingsSection.test.tsx",
+      "sha256": "a99c6d9827a396d11fe79f5f05116dffa5b1dd324419adf8576c861707f18869",
+      "bytes": 11603
+    },
+    {
+      "path": "ui/litellm-dashboard/src/components/Settings/RuntimeSettings/RuntimeSettingsSection.tsx",
+      "sha256": "e0e0e8f729f81a907a90a708d4762d4eee0ab983fac05550e1651424a26145cf",
+      "bytes": 32636
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/README.md",
+      "sha256": "6f3aaf7182be0dd223686fccec4273cff593ccfe94e58e1630e47abed6abc618",
+      "bytes": 954
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolApi.test.ts",
+      "sha256": "ddb5f44818e0df706af3861994ecc3ebfbba8ddd7eb175adc6b5a9ac32234e9b",
+      "bytes": 3612
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolApi.ts",
+      "sha256": "dd31dde28ec8d9296c82a1bf4cda312ae2fec0285b6f8758b55a411b79c95184",
+      "bytes": 10965
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolFeedbackApi.test.ts",
+      "sha256": "e08f7ff45ebea48ff0b6c4afb64879afe3126273a54c136340291d141d107e76",
+      "bytes": 3184
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolFeedbackApi.ts",
+      "sha256": "9580331e9324c53e90d089db72ec1f0c4de79d467b48bcf5dded36150d84cf5c",
+      "bytes": 3206
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts",
+      "sha256": "6ee8ad98832df8c2b1672a1a0069b8d5e0ee502408db8636728da70fe0d907a8",
+      "bytes": 8755
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts",
+      "sha256": "81da358c4ef0ed6f7b7dc54dabcb2f8a9897935ae6131f7e3548a1dac464ab98",
+      "bytes": 14920
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolOnboardingApi.test.ts",
+      "sha256": "9e4f63f9aa94bd1791f9e6db87e0e3e47a4e1e98efd3abf326d1c9ef45fdb5dc",
+      "bytes": 1033
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolOnboardingApi.ts",
+      "sha256": "57035c7c90db3b5465356a33f764063f8cd20ced876efe83eec020f31e1277ad",
+      "bytes": 4166
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolReleasesApi.ts",
+      "sha256": "fcde18d91d71e91d45a94b3660b79252cb8bdf495926cba0dadc15e26d8009f4",
+      "bytes": 2334
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/api/README.md",
+      "sha256": "2753c7dcead5427892d71ccab67950708efdc5651a50e5de3c538691d3130609",
+      "bytes": 938
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolBatchPanel.test.tsx",
+      "sha256": "f8061143da665e1cb48028be1ecd5e82e55caaeedc62c9d0a9d7c45e5d7f2222",
+      "bytes": 8055
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolBatchPanel.tsx",
+      "sha256": "7101d5f06ba071e2c9f8704db52278acbc326fad11ffbd22148ba46b3f4afbfa",
+      "bytes": 13505
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolCard.test.tsx",
+      "sha256": "9510a5cce6b78bb08f2a31e5656305b14724c023d8a56f584b45f37f93926900",
+      "bytes": 9425
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolCard.tsx",
+      "sha256": "e3984f839b430195eedd0301cd7479c314306e817d7cfef4a56a5319818d62d9",
+      "bytes": 16953
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolCardQuota.tsx",
+      "sha256": "27a7d989042fb8d7bd787991d18c4d056161f0d9ec88bd0b4dff03f1cef78129",
+      "bytes": 5437
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolCreateDialog.integration.test.tsx",
+      "sha256": "017535a466b984539071f7a253379c551aaecd7650840eb94dda67f1f69c2df1",
+      "bytes": 12339
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolCreateDialog.tsx",
+      "sha256": "d2128569c099d4dcc0c6696685e14c4f91fd260fe97a31294078e20b12c4c1fb",
+      "bytes": 19357
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolModelTestDialog.integration.test.tsx",
+      "sha256": "df356cdd31fd4270fc7fc27fd15db2fef8ffa38da0500d9bb5faf4d901d2fe9a",
+      "bytes": 2346
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolModelTestDialog.tsx",
+      "sha256": "6da14f3ea58d2be10b1b6228a8aad09e08af26d853a0bbee9c25819a8eb64d2e",
+      "bytes": 4864
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolOpenAICompatibleForm.tsx",
+      "sha256": "4edb921e3893ca8d56cbe88ddc8a9d49f4b0cd6f222519085f09b2be11f5aba7",
+      "bytes": 10396
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolSortableCards.integration.test.tsx",
+      "sha256": "2e9dca5b095e7c2ba83947baefc7011fec291a59b854226a450e649f2e328584",
+      "bytes": 4995
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/AccountPoolSortableCards.tsx",
+      "sha256": "c20cf660a2f368d56975cfb552bd1aa0fa3b28e38e28050c607e083d03ed38b5",
+      "bytes": 8087
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/cards/README.md",
+      "sha256": "13a70c8a6969d8b585abcafdf0654446db103f2cbe2e724eaf5c2bb6804ba7a4",
+      "bytes": 916
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/AccountPoolAuthFileFieldsDialog.tsx",
+      "sha256": "c5689eb1f6d9801341b3243f136d0d65850a67d6e78bed3fb55a3be702acd782",
+      "bytes": 10493
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/AccountPoolAuthorizationOverview.tsx",
+      "sha256": "f36715afb9fc6813cf1c9329d0e2c42895e44c09139b0467e8b8a70607e865df",
+      "bytes": 5005
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/AccountPoolAuthorizationPanel.integration.test.tsx",
+      "sha256": "a381730789592c19cc9d96a04e35205b02d89dfb5b4c3199183e8863f1df731a",
+      "bytes": 7792
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/AccountPoolAuthorizationPanel.tsx",
+      "sha256": "4d2700b288dea8c2b4c29bcc5441ceac217280e080ddce791e1cf401087fe2f5",
+      "bytes": 7121
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/AccountPoolCredentialsPanel.integration.test.tsx",
+      "sha256": "c443378f4aebd2a93fd2c300b0492b483d5347c5c47f0aa47a8f1d6a4df0130c",
+      "bytes": 24698
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/AccountPoolCredentialsPanel.tsx",
+      "sha256": "16b924d82e8738e2e706dca8291b1740f345e927e5a56622fb3ba88a1ff82b20",
+      "bytes": 22608
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/credentials/README.md",
+      "sha256": "f7a039981b12afa22a41ca2407d5486e69370ba2a15d1e0e12475c63ff72fa71",
+      "bytes": 912
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolDashboard.pagination.integration.test.tsx",
+      "sha256": "685b5e1e45b39a1e96598f4e7aa63ede26eae2223e38243038d729cc1eb222cb",
+      "bytes": 8075
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolDashboard.test.tsx",
+      "sha256": "ab4675549ac403afdac93c5633d04555b1128349a3498129a7a33bbcfed608e6",
+      "bytes": 2897
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolDashboard.tsx",
+      "sha256": "0c4e7e5e0784b6ab0cd186365d10f39f3fc82e7a6dfb6187211f735d8e9ad248",
+      "bytes": 15874
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolQuotaPanel.test.tsx",
+      "sha256": "585b9b626fb384362af8009aae59eb4fc84a75fd916b34685838c3d090c3dc94",
+      "bytes": 3468
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolQuotaPanel.tsx",
+      "sha256": "db64d487d08bbba4067cf2ea2cf17ea4859831a4230472113ac77d5ed306ad73",
+      "bytes": 13201
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx",
+      "sha256": "cf696a433de4978e71bc64dca8417a3b864b9bfcdb5b4126dd21e6a37dcffcdc",
+      "bytes": 3788
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.tsx",
+      "sha256": "da04a006ee4ce8eb5051d12c22e44da2244797b7c5a42e8f241347feaddb6b57",
+      "bytes": 22223
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/ModuleVisibilityPanel.integration.test.tsx",
+      "sha256": "162401fa39790265fcb61c08c9747a6d8f4b25520e695b9cdc8be2933d89eb39",
+      "bytes": 3213
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/ModuleVisibilityPanel.tsx",
+      "sha256": "93b6f6b3f7cb37d7adf2f42a7f027d70877a061385e805e9aa97d2eb0a5eec35",
+      "bytes": 4405
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/README.md",
+      "sha256": "9758646768c6a112a00e4b0343bd4ed4f0c7d4fe9ded4b072f3322e0dbbeccff",
+      "bytes": 890
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/AccountPoolFeedbackPanel.integration.test.tsx",
+      "sha256": "5e966fa9651cf951e117aebbf913b7fc05c0e7df99a8b2d4751cdf7b7b9c0826",
+      "bytes": 12427
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/AccountPoolFeedbackPanel.tsx",
+      "sha256": "356b56ba9643ae9a45f7589c80a542dd6ebf06c676b252d4b5cbde97161a9217",
+      "bytes": 8023
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/FeedbackDetailDialog.tsx",
+      "sha256": "d725bc9ecee31306b33820b7d21baebb9ba9c82c5192a903317d4f308227590c",
+      "bytes": 7541
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/FeedbackHeaderButton.test.tsx",
+      "sha256": "e47acda83a531f9e86b3ab7d5fe58e5df75d6d41cb99d99e896b1be5e12e06ea",
+      "bytes": 1232
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/FeedbackHeaderButton.tsx",
+      "sha256": "a657fd58e09c5a35bd09ee54a3a81fbab43eaa13182874c6a25145c82d1b1be2",
+      "bytes": 1020
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/FeedbackIssueDialog.tsx",
+      "sha256": "945e3f65b55eed59161c64d81e13072ab6d4a1962da8f676da9376a560e71ccd",
+      "bytes": 7996
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/FeedbackTokens.tsx",
+      "sha256": "c9f935ef08b435a838b0c13ca338b4c67db8a573e0ecf8179cf674d1b46f9632",
+      "bytes": 4456
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/feedback/feedbackFields.ts",
+      "sha256": "4509699b8551c14828bd5f3c36a582316dc61e75085a82431e76a36b0195ea4a",
+      "bytes": 1354
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/onboarding/AccountPoolOnboardingCleanup.tsx",
+      "sha256": "40f0d5e645b90161bf5c1f5cddbe5c0e0a202a0d693485241956b3c47a97bde7",
+      "bytes": 3992
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/onboarding/AccountPoolOnboardingPanel.integration.test.tsx",
+      "sha256": "9e11b64e65157f6d59b7e403b7720ac008ea97cc00dbc993f16719a049603227",
+      "bytes": 12027
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/onboarding/AccountPoolOnboardingPanel.tsx",
+      "sha256": "166a280196e5879161ec10e7e10ae57f16dd36cff1b020a716e265f72598aa36",
+      "bytes": 22603
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/onboarding/AccountPoolOnboardingTarget.tsx",
+      "sha256": "1fae246bb49024cfc29e86bcedbd8bb6571b3545baaf4d8437b81730577e237f",
+      "bytes": 4480
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/onboarding/AccountPoolOnboardingTasks.tsx",
+      "sha256": "3b3cd66c757dfedfd6c74de15b384bdfe44479a95570e34f1406278216f1609a",
+      "bytes": 13498
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/onboarding/README.md",
+      "sha256": "84b0960a1bbde54b9a0d646c63fe9724cabc3bf0c7a7ac34cdd99aa801ead84f",
+      "bytes": 936
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/plugins/AccountPoolPluginsPanel.tsx",
+      "sha256": "895bcc7552c86e85d87f1099c59033694952508c1c777c59f058fd1df04a996e",
+      "bytes": 17199
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/plugins/README.md",
+      "sha256": "78fd45d36fc5fb4ec4bc9f2524cd80a35015b10300dd00e8820a859497980863",
+      "bytes": 903
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolProviderFamilies.test.tsx",
+      "sha256": "b3b7ded53c026d8dab59a724601c5aa24d676f1d4266f5dff5da2b1ac14d2d70",
+      "bytes": 2403
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolProviderFamilies.tsx",
+      "sha256": "5e308f97b45423171dff33b2db2cb82293630a4ea127d5dacc3a0a15dbba0b14",
+      "bytes": 5368
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolProviderPolicyFields.tsx",
+      "sha256": "11ea2c709d104cc2301800998cb3e3b11be2ec4426f646cb6b0bb8c0881c8a49",
+      "bytes": 11384
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolSupplierLogo.test.tsx",
+      "sha256": "b654aac3915eda775d4b3f1a0f1a46fbdb042bb3d576dd4c751f7a99e6f40e20",
+      "bytes": 878
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolSupplierLogo.tsx",
+      "sha256": "f2939be94bcbb10e98994a8923a90f033e6499e5e4917548c775712e17ebacca",
+      "bytes": 798
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/providers/README.md",
+      "sha256": "459cd5fcca3f99436ded5b2dd4188c2f2bed97b3bd47dd0b9a4a2a8d2be95029",
+      "bytes": 899
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/proxy/ISPProxyCatalogPanel.tsx",
+      "sha256": "3e79274d73907fc1759384f599ff62c90add9f023a7ca18788c86593ef73c521",
+      "bytes": 17054
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/proxy/ProxyManagerPanel.integration.test.tsx",
+      "sha256": "8cc7c8ed228f701528e4c1fd987e9171674a9842f5e38720f031bab130d691a6",
+      "bytes": 23653
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/proxy/ProxyManagerPanel.tsx",
+      "sha256": "ff5ed58af89b37c700d12cbb4067204d75a4455304042f305bb8c7d8525a913e",
+      "bytes": 23426
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/proxy/README.md",
+      "sha256": "6dd0271377892421fe7160b8b99d495a6558d7b4b808167ce3b96f24fe8e79c6",
+      "bytes": 907
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolAutoUpdatePanel.integration.test.tsx",
+      "sha256": "2b4f2d548e1986aeb1ec68daf752b0f2063c51048176fbcfbf6742b8237a7969",
+      "bytes": 11418
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolAutoUpdatePanel.tsx",
+      "sha256": "5d28f607dc2d28dfd0a7ddd1a89ba8428c4fb2df2f85c53d6dd290ba1b67336a",
+      "bytes": 9872
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolImageManager.tsx",
+      "sha256": "f7641f598cc4dcc77355d4f1c75f78409fb7045215292069ddd75bbb94b627d0",
+      "bytes": 5830
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolReleaseCards.tsx",
+      "sha256": "36cdc4bf8ec4d4523d58c5b523c6081658bc404f7c1cfd4aef27243f41189836",
+      "bytes": 14624
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolReleaseConfirmation.tsx",
+      "sha256": "bc27ed06e3ca8d9acef4e8f54bb5842a83d1e60b6cb1bd198dab5538250fd41e",
+      "bytes": 7839
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolReleasesPanel.integration.test.tsx",
+      "sha256": "e048d976e28ed0d6c4315a284c7261595ed0974e0e8ba2fd396d4c76cf6ae65c",
+      "bytes": 16005
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolReleasesPanel.tsx",
+      "sha256": "503d4f3ed7453c6a63ae8114f0afdfdd9eecab787ee5f2f4458d1c3d5fc4a92f",
+      "bytes": 10237
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/AccountPoolRollbackReport.tsx",
+      "sha256": "2570a166bffd578aabd66313e04f0bd2beaa40d777cbd331cc515170947973f7",
+      "bytes": 5706
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/releases/README.md",
+      "sha256": "9bbb6cc9e82197efe9c43a380c3635e1b21004717e45d88f2698d4a9e1c48be3",
+      "bytes": 901
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/shared/AccountPoolRefreshIntervalSelect.tsx",
+      "sha256": "c40b1a0a07036da0a7b01a2c75dec1f8152c6ec378f9bfc1400bf4386914dd42",
+      "bytes": 1139
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/shared/README.md",
+      "sha256": "fbc96314d3336aec45ad48aaab1f080a52f75b4452b8fa1a8446e0e33abebd50",
+      "bytes": 901
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel.test.tsx",
+      "sha256": "b01c8aa41b933df620e2c9b431245aa6838b6973bbda90314d3856ef3a796c64",
+      "bytes": 10492
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel.tsx",
+      "sha256": "f17f88bcb73636c9b25157a991e6dd178cba0f15dc9f8b2ebd269bf6abb37128",
+      "bytes": 20893
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/components/upstream/README.md",
+      "sha256": "437acc9267864b20a350b0057fd8c4218cdd63326537ddc9b273dbb1a4eed95e",
+      "bytes": 1001
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/README.md",
+      "sha256": "3dd3b4e5b83c456afef817aee4010e972b803443ecfba2fbdbf221ed730c50bc",
+      "bytes": 958
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolOptions.ts",
+      "sha256": "38a91d15085f163b9af674ad04eb03a7fe3bf0c03fa2349fc5311ac8b2dd714e",
+      "bytes": 2433
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.test.ts",
+      "sha256": "7443de159d126f678a0d04171c8131c1fd6117d3b67efc853e6044c6103d551a",
+      "bytes": 1209
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts",
+      "sha256": "cbf644d7a54d02f7a68e4a552b7355d4207b6342f36f5b98ae0e8bcf701d212a",
+      "bytes": 4734
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useAccountPoolClock.ts",
+      "sha256": "8169da06a1e68a69964c2445c7fdf5c3520c7d7a7e85c31996297812fa70f5cd",
+      "bytes": 732
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useAccountPoolCredentials.ts",
+      "sha256": "f99c8fc89d9fade4d3b89371dcdced42422fe9660dfc26672b7bd381138d08e9",
+      "bytes": 6810
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useAccountPoolMutations.test.tsx",
+      "sha256": "ef30c2679bd195b557b4d8682b06bf2af65238ad48da31e3be405028f00e6bda",
+      "bytes": 5159
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useAccountPoolMutations.ts",
+      "sha256": "65e061ffd63560826e0229783d65b9bb1eb41be82eda5a59c143202a2daff21d",
+      "bytes": 5041
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useAccountPoolProxyOptions.ts",
+      "sha256": "455a409860175a5a9e2f3537bb662ecf935d2192669985802c1a198cce342333",
+      "bytes": 2218
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useAccountPoolQuery.ts",
+      "sha256": "d14a1874bf40f861624cf8420725b9731bda6e571f8183e90de36487abca18d2",
+      "bytes": 752
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useProxyGatewayDelays.test.tsx",
+      "sha256": "e6f00672747108afd5d8e27158662144fcea28eb973881a55f289a4ab24e7cbe",
+      "bytes": 2825
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/hooks/useProxyGateways.ts",
+      "sha256": "457bd145806ef174c94071bcbfe16de0983a0b44b0df54245be429580f19db46",
+      "bytes": 11291
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/preloadModules.ts",
+      "sha256": "8bdc40dafea7fa2737588d573f235f659901e14ed613dbb57b4295cdd89645ec",
+      "bytes": 2647
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolFormatters.test.ts",
+      "sha256": "8aa44147c085d6aa3404c2aee5f68dece201708609f0d3e9353653e506c09f06",
+      "bytes": 5942
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolFormatters.ts",
+      "sha256": "cda2ad3c8ed8033ec957c30fe8a45eac4033012572612e22defcba27b809f085",
+      "bytes": 4758
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolPermissions.ts",
+      "sha256": "880e5c4d7e4161b53c1d186af122d7b8ecae3cf78c8abce49bd382cdb269fc40",
+      "bytes": 1578
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolPluginRuntime.test.ts",
+      "sha256": "4f7267f439f2b72cd13f1ca6d6822e559b54326664952cd84cd9a7dde48e6878",
+      "bytes": 2544
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolPluginRuntime.ts",
+      "sha256": "6d92805423576e9d2122b36f8d07069ea68fdb5d96a075aa51be50073ba6bfdc",
+      "bytes": 3448
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolProxyOptions.test.ts",
+      "sha256": "73b107b932ccc388cde73c0bb2b651841881f2d9345820b761b2598761568292",
+      "bytes": 1802
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolProxyOptions.ts",
+      "sha256": "1aa605919fb9fb5e83eeeee169b89b73f72cc41ad6116916da5a28eec1e61212",
+      "bytes": 1677
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolTypes.ts",
+      "sha256": "3038c9774cd7e87574fb507d780e061d29ac6042ab4e596c7134626a0fd5445c",
+      "bytes": 3215
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AccountPoolValidation.ts",
+      "sha256": "038f46d9340f369e7ee1d52958164d9fb03ae0f8e0385d44cd66eadf0f4d2b0f",
+      "bytes": 2536
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AuthFileTemplate.test.ts",
+      "sha256": "d794ead445b27203aa5fb765d7d124970df0e17d6e102f0bf0cb2f624f063379",
+      "bytes": 2041
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/AuthFileTemplate.ts",
+      "sha256": "9ab72f3e67463a80aadf0b6c36ea2881fbacb46ca096208a6c6bcf5041a9c046",
+      "bytes": 2462
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/README.md",
+      "sha256": "6fc71f48b28a427002e27e7afa3fc760866f7a1baefeb454ba2281f80b6b4427",
+      "bytes": 886
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolCodexPlan.test.ts",
+      "sha256": "268d1615919b04a296872acf50cd345440adb1423462f808173b06eab1138040",
+      "bytes": 627
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolCodexPlan.ts",
+      "sha256": "645eea963a6c31fc33b0c6cb161105b02003c454ce610e29dd9b4c818b3f3f23",
+      "bytes": 1148
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolDashboardSelectors.test.ts",
+      "sha256": "2b9916a06445fd52a625fcb65e3b39d474d1372913e294315d40bd4ef7e29f91",
+      "bytes": 5224
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolDashboardSelectors.ts",
+      "sha256": "9779553568d4adc5ba91a97e7ca67498d1e7dd5f4a6ed2dc3cb0da26bb828cec",
+      "bytes": 3945
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolLatency.test.ts",
+      "sha256": "794f34c6124757fd340fa9ea712d32b284e8b534035d6041028e8aacd22da42a",
+      "bytes": 1908
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolLatency.ts",
+      "sha256": "b5066a64c28df3b564e550bd3ed2ae249d50ff8bc05627deffe4070beb6cf55e",
+      "bytes": 1362
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolPolicyOptions.test.ts",
+      "sha256": "bd1fedd340a8bef438f0150a1d8e53f7deb894a0efe2d76dc3e6818844daa625",
+      "bytes": 2311
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolPolicyOptions.ts",
+      "sha256": "5ed217048313a4855e840d76f357aeb73729fe411a6a0d4606a4181e82385542",
+      "bytes": 2631
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolSelectors.test.ts",
+      "sha256": "a394a99d880f96f7e6c714f74e813c294aaec098498610c7e35e2a9ebac3275c",
+      "bytes": 1905
+    },
+    {
+      "path": "ui/litellm-dashboard/src/features/account-pool/utils/accountPoolSelectors.ts",
+      "sha256": "9ddf6424c836141752b1acf059b1bfdcf0d7dfffc0f21f81bf1798cec9b206fa",
+      "bytes": 2629
+    }
+  ]
+}

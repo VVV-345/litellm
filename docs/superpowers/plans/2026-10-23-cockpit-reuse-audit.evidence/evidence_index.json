@@ -1,0 +1,398 @@
+[
+  {
+    "id": "L01",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\channels\\registry.py",
+    "repository_path": "account-pool/account_pool/channels/registry.py",
+    "line": 22,
+    "symbol": "class ChannelRegistry",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\channels\\registry.py",
+    "url": null
+  },
+  {
+    "id": "L02",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\policies.py",
+    "repository_path": "account-pool/account_pool/policies.py",
+    "line": 67,
+    "symbol": "class CodexPolicy",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\policies.py",
+    "url": null
+  },
+  {
+    "id": "L03",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\channels\\cliproxyapi\\settings_sync.py",
+    "repository_path": "account-pool/account_pool/channels/cliproxyapi/settings_sync.py",
+    "line": 21,
+    "symbol": "class CLIProxySettingsSynchronizer",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\channels\\cliproxyapi\\settings_sync.py",
+    "url": null
+  },
+  {
+    "id": "L04",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\litellm\\proxy\\management_endpoints\\account_pool_routing.py",
+    "repository_path": "litellm/proxy/management_endpoints/account_pool_routing.py",
+    "line": 34,
+    "symbol": "def protocol_policy",
+    "local_path": "D:\\Work2api\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_routing.py",
+    "url": null
+  },
+  {
+    "id": "L05",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\litellm\\proxy\\management_endpoints\\account_pool_conversation.py",
+    "repository_path": "litellm/proxy/management_endpoints/account_pool_conversation.py",
+    "line": 95,
+    "symbol": "class ConversationStore",
+    "local_path": "D:\\Work2api\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_conversation.py",
+    "url": null
+  },
+  {
+    "id": "L06",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\litellm\\proxy\\management_endpoints\\account_pool_failover.py",
+    "repository_path": "litellm/proxy/management_endpoints/account_pool_failover.py",
+    "line": 83,
+    "symbol": "def classify_failure",
+    "local_path": "D:\\Work2api\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_failover.py",
+    "url": null
+  },
+  {
+    "id": "L07",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\onboarding_service.py",
+    "repository_path": "account-pool/account_pool/onboarding_service.py",
+    "line": 114,
+    "symbol": "class OnboardingService",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\onboarding_service.py",
+    "url": null
+  },
+  {
+    "id": "L08",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\oauth_browser.py",
+    "repository_path": "account-pool/account_pool/oauth_browser.py",
+    "line": 138,
+    "symbol": "class OAuthBrowserSessionService",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\oauth_browser.py",
+    "url": null
+  },
+  {
+    "id": "L09",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\proxy_gateways.py",
+    "repository_path": "account-pool/account_pool/proxy_gateways.py",
+    "line": 59,
+    "symbol": "class ProxyGatewayService",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\proxy_gateways.py",
+    "url": null
+  },
+  {
+    "id": "L10",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\compose_renderer.py",
+    "repository_path": "account-pool/account_pool/compose_renderer.py",
+    "line": 43,
+    "symbol": "def render_compose",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\compose_renderer.py",
+    "url": null
+  },
+  {
+    "id": "L11",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\channels\\cliproxyapi\\provider_quota.py",
+    "repository_path": "account-pool/account_pool/channels/cliproxyapi/provider_quota.py",
+    "line": 61,
+    "symbol": "class ProviderQuotaClient",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\channels\\cliproxyapi\\provider_quota.py",
+    "url": null
+  },
+  {
+    "id": "L12",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\litellm\\proxy\\management_endpoints\\account_pool_accounting.py",
+    "repository_path": "litellm/proxy/management_endpoints/account_pool_accounting.py",
+    "line": 174,
+    "symbol": "async def sync_spend",
+    "local_path": "D:\\Work2api\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_accounting.py",
+    "url": null
+  },
+  {
+    "id": "L13",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\channels\\openai_compatible.py",
+    "repository_path": "account-pool/account_pool/channels/openai_compatible.py",
+    "line": 88,
+    "symbol": "async def _validate_destination",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\channels\\openai_compatible.py",
+    "url": null
+  },
+  {
+    "id": "L14",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\providers\\AccountPoolProviderPolicyFields.tsx",
+    "repository_path": "ui/litellm-dashboard/src/features/account-pool/components/providers/AccountPoolProviderPolicyFields.tsx",
+    "line": 67,
+    "symbol": "export function AccountPoolProviderPolicyFields",
+    "local_path": "D:\\Work2api\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\providers\\AccountPoolProviderPolicyFields.tsx",
+    "url": null
+  },
+  {
+    "id": "L15",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\settings.py",
+    "repository_path": "account-pool/account_pool/settings.py",
+    "line": 209,
+    "symbol": "class AccountPoolSettings(",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\settings.py",
+    "url": null
+  },
+  {
+    "id": "L16",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\tests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_conversation.py",
+    "repository_path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_conversation.py",
+    "line": 1323,
+    "symbol": "async def test_compaction_can_rebuild_only_with_verified_complete_parent",
+    "local_path": "D:\\Work2api\\litellm\\tests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_conversation.py",
+    "url": null
+  },
+  {
+    "id": "L17",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\tests\\account_pool\\test_cliproxy_supplier_client.py",
+    "repository_path": "account-pool/tests/account_pool/test_cliproxy_supplier_client.py",
+    "line": 1705,
+    "symbol": "async def test_settings_and_policy_preserve_single_retry_owner",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\tests\\account_pool\\test_cliproxy_supplier_client.py",
+    "url": null
+  },
+  {
+    "id": "L18",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\credential_ownership.py",
+    "repository_path": "account-pool/account_pool/credential_ownership.py",
+    "line": 93,
+    "symbol": "class CredentialOwnership",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\credential_ownership.py",
+    "url": null
+  },
+  {
+    "id": "L19",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\application\\environments\\settings_sync.py",
+    "repository_path": "account-pool/account_pool/application/environments/settings_sync.py",
+    "line": 41,
+    "symbol": "class ",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\application\\environments\\settings_sync.py",
+    "url": null
+  },
+  {
+    "id": "L20",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-litellm-audit-f1289af7b305-ozfw5xst\\account-pool\\account_pool\\release_compatibility.py",
+    "repository_path": "account-pool/account_pool/release_compatibility.py",
+    "line": 98,
+    "symbol": "def ",
+    "local_path": "D:\\Work2api\\litellm\\account-pool\\account_pool\\release_compatibility.py",
+    "url": null
+  },
+  {
+    "id": "C01",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\src-tauri\\src\\modules\\codex_api_identity.rs",
+    "repository_path": "src-tauri/src/modules/codex_api_identity.rs",
+    "line": 22,
+    "symbol": "pub struct InstallationProfile",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/src-tauri/src/modules/codex_api_identity.rs#L22"
+  },
+  {
+    "id": "C02",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\helps\\managed_identity.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/helps/managed_identity.go",
+    "line": 116,
+    "symbol": "func ApplyManagedIdentity(",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/helps/managed_identity.go#L116"
+  },
+  {
+    "id": "C03",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\codex_executor_request.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/codex_executor_request.go",
+    "line": 308,
+    "symbol": "func codexIdentityConfuseEnabled",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/codex_executor_request.go#L308"
+  },
+  {
+    "id": "C04",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\codex_fingerprint_test.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/codex_fingerprint_test.go",
+    "line": 18,
+    "symbol": "func TestCodexLegacyFingerprintModesDoNotChangeRequests",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/codex_fingerprint_test.go#L18"
+  },
+  {
+    "id": "C05",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\codex_client_policy_test.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/codex_client_policy_test.go",
+    "line": 17,
+    "symbol": "func TestCodexLegacyClientPolicyDoesNotRestrictClients",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/codex_client_policy_test.go#L17"
+  },
+  {
+    "id": "C06",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\src\\services\\codexLocalAccessService.ts",
+    "repository_path": "src/services/codexLocalAccessService.ts",
+    "line": 1,
+    "symbol": "import { invoke }",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/src/services/codexLocalAccessService.ts#L1"
+  },
+  {
+    "id": "C07",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\src-tauri\\src\\modules\\codex_local_access_sidecar_config.rs",
+    "repository_path": "src-tauri/src/modules/codex_local_access_sidecar_config.rs",
+    "line": 2896,
+    "symbol": "\"request-retry\"",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/src-tauri/src/modules/codex_local_access_sidecar_config.rs#L2896"
+  },
+  {
+    "id": "C08",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\auth_scope_selector.go",
+    "repository_path": "sidecars/cockpit-cliproxy/auth_scope_selector.go",
+    "line": 17,
+    "symbol": "func ",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/auth_scope_selector.go#L17"
+  },
+  {
+    "id": "C09",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\continuity_worker.go",
+    "repository_path": "sidecars/cockpit-cliproxy/continuity_worker.go",
+    "line": 18,
+    "symbol": "func startContinuityWorker",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/continuity_worker.go#L18"
+  },
+  {
+    "id": "C10",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\src-tauri\\src\\modules\\codex_native_api\\identity_checkpoint.rs",
+    "repository_path": "src-tauri/src/modules/codex_native_api/identity_checkpoint.rs",
+    "line": 20,
+    "symbol": "pub(super) fn initialize",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/src-tauri/src/modules/codex_native_api/identity_checkpoint.rs#L20"
+  },
+  {
+    "id": "C11",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\src-tauri\\src\\modules\\codex_account_proxy.rs",
+    "repository_path": "src-tauri/src/modules/codex_account_proxy.rs",
+    "line": 47,
+    "symbol": "pub fn eligible",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/src-tauri/src/modules/codex_account_proxy.rs#L47"
+  },
+  {
+    "id": "C12",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\claude_fingerprint_policy.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/claude_fingerprint_policy.go",
+    "line": 63,
+    "symbol": "func claudeFingerprintProfileFromAuth",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/claude_fingerprint_policy.go#L63"
+  },
+  {
+    "id": "C13",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\api\\handlers\\management\\auth_files_fields.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/api/handlers/management/auth_files_fields.go",
+    "line": 538,
+    "symbol": "func syncAuthFileMetadataFields",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/api/handlers/management/auth_files_fields.go#L538"
+  },
+  {
+    "id": "C14",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\claude_signing.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/claude_signing.go",
+    "line": 545,
+    "symbol": "func rebuildMidSystemMessageEnabled",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/claude_signing.go#L545"
+  },
+  {
+    "id": "C15",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\runtime\\executor\\kimi_executor.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/kimi_executor.go",
+    "line": 95,
+    "symbol": "func (e *KimiExecutor) Execute(",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/kimi_executor.go#L95"
+  },
+  {
+    "id": "C16",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\config\\config.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/config/config.go",
+    "line": 117,
+    "symbol": "InteractionsKey []GeminiKey",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/config/config.go#L117"
+  },
+  {
+    "id": "C17",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI\\internal\\config\\config_types.go",
+    "repository_path": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/config/config_types.go",
+    "line": 137,
+    "symbol": "InjectXSearch bool",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/config/config_types.go#L137"
+  },
+  {
+    "id": "C18",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\crates\\cockpit-core\\Cargo.toml",
+    "repository_path": "crates/cockpit-core/Cargo.toml",
+    "line": 34,
+    "symbol": "tauri.workspace",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/crates/cockpit-core/Cargo.toml#L34"
+  },
+  {
+    "id": "C19",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\crates\\cockpit-cli\\src\\main.rs",
+    "repository_path": "crates/cockpit-cli/src/main.rs",
+    "line": 14,
+    "symbol": "enum Commands",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/crates/cockpit-cli/src/main.rs#L14"
+  },
+  {
+    "id": "C20",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\README.md",
+    "repository_path": "README.md",
+    "line": 498,
+    "symbol": "## 许可证",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/README.md#L498"
+  },
+  {
+    "id": "C21",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\UPSTREAM.md",
+    "repository_path": "sidecars/cockpit-cliproxy/UPSTREAM.md",
+    "line": 1,
+    "symbol": "# CLIProxyAPI upstream sync",
+    "local_path": null,
+    "url": "https://github.com/jlcodes99/cockpit-tools/blob/76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4/sidecars/cockpit-cliproxy/UPSTREAM.md#L1"
+  },
+  {
+    "id": "F01",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cpa-audit-b3c954b63df0-iq9bfjrc\\internal\\runtime\\executor\\claude_fingerprint_policy.go",
+    "repository_path": "internal/runtime/executor/claude_fingerprint_policy.go",
+    "line": 63,
+    "symbol": "func claudeFingerprintProfileFromAuth",
+    "local_path": null,
+    "url": "https://github.com/VVV-345/CLIProxyAPI/blob/b3c954b63df09156ac2ac52ad038b3dc3a20748f/internal/runtime/executor/claude_fingerprint_policy.go#L63"
+  },
+  {
+    "id": "F02",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cpa-audit-b3c954b63df0-iq9bfjrc\\internal\\runtime\\executor\\claude_signing.go",
+    "repository_path": "internal/runtime/executor/claude_signing.go",
+    "line": 545,
+    "symbol": "func rebuildMidSystemMessageEnabled",
+    "local_path": null,
+    "url": "https://github.com/VVV-345/CLIProxyAPI/blob/b3c954b63df09156ac2ac52ad038b3dc3a20748f/internal/runtime/executor/claude_signing.go#L545"
+  },
+  {
+    "id": "F03",
+    "snapshot_path": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cpa-audit-b3c954b63df0-iq9bfjrc\\internal\\api\\handlers\\management\\auth_files_fields.go",
+    "repository_path": "internal/api/handlers/management/auth_files_fields.go",
+    "line": 539,
+    "symbol": "func syncAuthFileMetadataFields",
+    "local_path": null,
+    "url": "https://github.com/VVV-345/CLIProxyAPI/blob/b3c954b63df09156ac2ac52ad038b3dc3a20748f/internal/api/handlers/management/auth_files_fields.go#L539"
+  }
+]

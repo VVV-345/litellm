@@ -1,0 +1,19 @@
+{
+  "command": [
+    "D:\\Work2api\\litellm\\.local\\cockpit-adaptation\\toolchain\\go\\bin\\go.exe",
+    "test",
+    "-mod=readonly",
+    "-p=2",
+    "./internal/runtime/executor/helps",
+    "-run",
+    "^TestManagedIdentity",
+    "-count=1",
+    "-timeout=90s"
+  ],
+  "cwd": "C:\\Users\\42117\\AppData\\Local\\Temp\\codex-cockpit-source-audit-h49br7p2\\source\\sidecars\\cockpit-cliproxy\\third_party\\CLIProxyAPI",
+  "stdout": "ok  \tgithub.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps\t5.653s\n",
+  "stderr": "",
+  "exit_status": 0,
+  "seconds": 79.06,
+  "corrected": "complete pinned embed .txt files; use existing complete toolchain with explicit GOROOT"
+}
