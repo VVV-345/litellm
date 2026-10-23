@@ -1125,6 +1125,29 @@ class RoutingGateStatus(BaseModel):
     detail: str | None = None
 
 
+class CockpitPolicyApply(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+
+
+class CockpitPolicyRuntime(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    persisted_revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+    active_revision: Annotated[str, Field(pattern=r'^"sha256-[0-9a-f]{64}"$')] | None
+    apply_supported: bool
+    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None
+
+    @model_validator(mode="after")
+    def consistent_activation(self) -> Self:
+        if self.apply_supported != (self.blocked_reason is None):
+            raise ValueError("Inconsistent runtime capability")
+        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
+            raise ValueError("Unknown runtime must remain unavailable")
+        return self
+
+
 class AccountPoolRoutingStatus(BaseModel):
     model_config = ConfigDict(frozen=True)
 

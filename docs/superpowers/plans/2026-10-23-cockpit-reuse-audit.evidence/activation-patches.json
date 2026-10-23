@@ -1,0 +1,102 @@
+{
+  "events": [
+    {
+      "label": "STAGE_litellm",
+      "command": [
+        "git",
+        "add",
+        "--",
+        "account-pool/account_pool/cockpit_admin.py",
+        "account-pool/account_pool/cockpit_runtime.py",
+        "account-pool/account_pool/management_api.py",
+        "account-pool/tests/account_pool/test_cockpit_runtime.py",
+        "account-pool/tests/account_pool/test_cockpit_policy.py",
+        "litellm/proxy/management_endpoints/account_pool_management.py",
+        "litellm/proxy/management_endpoints/account_pool_management_models.py",
+        "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+        "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts",
+        "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts",
+        "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx",
+        "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx",
+        "ui/litellm-dashboard/src/lib/http/schema.d.ts"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "PATCH_litellm",
+      "command": [
+        "C:/Program Files/Git/usr/bin/patch.exe",
+        "--binary",
+        "--batch",
+        "-p1",
+        "-d",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-activation-20261023-211946\\patch-litellm",
+        "-i",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\activation-litellm.patch"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "patching file account-pool/account_pool/cockpit_admin.py\npatching file account-pool/account_pool/cockpit_runtime.py\npatching file account-pool/account_pool/management_api.py\npatching file account-pool/tests/account_pool/test_cockpit_policy.py\npatching file account-pool/tests/account_pool/test_cockpit_runtime.py\npatching file litellm/proxy/management_endpoints/account_pool_management.py\npatching file litellm/proxy/management_endpoints/account_pool_management_models.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py\npatching file ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts\npatching file ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts\npatching file ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx\npatching file ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx\npatching file ui/litellm-dashboard/src/lib/http/schema.d.ts\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "STAGE_cockpit",
+      "command": [
+        "git",
+        "add",
+        "--",
+        "sidecars/cockpit-cliproxy/auth_selection.go",
+        "sidecars/cockpit-cliproxy/manifest_policy.go",
+        "sidecars/cockpit-cliproxy/relay_server.go",
+        "sidecars/cockpit-cliproxy/policy_runtime.go",
+        "sidecars/cockpit-cliproxy/policy_runtime_test.go",
+        "sidecars/cockpit-cliproxy/DEPLOYMENT.md"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement",
+      "stdout": "",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "PATCH_cockpit",
+      "command": [
+        "C:/Program Files/Git/usr/bin/patch.exe",
+        "--binary",
+        "--batch",
+        "-p1",
+        "-d",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-activation-20261023-211946\\patch-cockpit",
+        "-i",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\activation-cockpit.patch"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement",
+      "stdout": "patching file sidecars/cockpit-cliproxy/DEPLOYMENT.md\npatching file sidecars/cockpit-cliproxy/auth_selection.go\npatching file sidecars/cockpit-cliproxy/manifest_policy.go\npatching file sidecars/cockpit-cliproxy/policy_runtime.go\npatching file sidecars/cockpit-cliproxy/policy_runtime_test.go\npatching file sidecars/cockpit-cliproxy/relay_server.go\n",
+      "stderr": "",
+      "exit_status": 0
+    }
+  ],
+  "source_hashes": {
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_admin.py": "94051716dd82695a74cade09301ca7e300a4acf07846605e5e37c2aea0b821c7",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_runtime.py": "e6facf04921f44c2a4929c9f6ddc33d7d5e5f4ab574ab47c5e84714afa008312",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\management_api.py": "82f1f7be4ec7499f95fd5ae588b717d040dcf9102b72d4e604c4bfa56800c289",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\tests\\account_pool\\test_cockpit_runtime.py": "06ebea35f5adcd4e511737b547e5c55a80c9c5edb7ce416064d5cc67abb8f3b9",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\tests\\account_pool\\test_cockpit_policy.py": "0b0792163a140075773f729eca00134d5bb6761903938410af1fda3c18ffefed",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_management.py": "35b611172f6cfaebc91329342414633669af5e0aeba660efdfd33e9e69cbd5b9",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_management_models.py": "6baf324a096ab057b809eeb88fb9f78051f6b2a485c45f778e141d556769cac3",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\tests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py": "75261a28729758f1562686c8b17a84117e4218cd2fc8318a0e3239411d9fd12d",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\api\\AccountPoolManagementApi.ts": "f11a5b479b7ce0fe845b62096ee5b35ee3830cc311324f851461d34b3d38ecb5",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\api\\AccountPoolManagementApi.test.ts": "1734836eb8997ca4e75164c573734386ab48c6be98e9bea2be60646e8c3e5e66",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolCockpitPolicyPanel.tsx": "97e922405e90d58dbee3e78359b54e285b220400232e37f3949a40d287842b91",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolCockpitPolicyPanel.integration.test.tsx": "4bf1058c82258029ce97c512b954b096338a5362cad51473655771f3a62fcb17",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\lib\\http\\schema.d.ts": "60c88f9579eb0bf7e904ae49c841d276f8015666ab2ec6cb35efb8b0518e5759",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement\\sidecars\\cockpit-cliproxy\\auth_selection.go": "9610bbedd34cbfdbb30ebcca872368f986b0f5f04022e3861d2d1ddb0c5359e0",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement\\sidecars\\cockpit-cliproxy\\manifest_policy.go": "be198727f1c01b636e11860e4baa2debacf77a622732d9073ed240088d82ca20",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement\\sidecars\\cockpit-cliproxy\\relay_server.go": "198e990a5b56ecb7bbbe3f14fe68918d2c0c85c422a815d700d5787ef1b50490",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement\\sidecars\\cockpit-cliproxy\\policy_runtime.go": "865a586c6ca99ab1fde673157c63379822eb2c441c8bbc4ddd2a051c3db1761e",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement\\sidecars\\cockpit-cliproxy\\policy_runtime_test.go": "f59fa7ab459ab1d7143a8981f62ea7950dc10feedd10105ea4ff851841a69a07",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-backend-replacement\\sidecars\\cockpit-cliproxy\\DEPLOYMENT.md": "7d8b239c222476c85f2bfeff6cad8584f45d7dda5275cf2b29ded209d21b5dd0"
+  }
+}

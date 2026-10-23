@@ -1437,3 +1437,53 @@ def test_cockpit_policy_put_invalid_receipt_requires_reread(status: int, body: d
         response: Final = client.put("/account_pool/cockpit/policy", json={
             "revision": '"sha256-' + 'a' * 64 + '"', "routing_strategy": "auto", "custom_rules": []})
     assert response.status_code == 503 and response.json() == {"detail": "write_outcome_unknown"}
+
+
+def test_cockpit_runtime_proxy_requires_admin_and_keeps_confirmed_revision() -> None:
+    revision: Final = '"sha256-' + 'b' * 64 + '"'
+    calls: Final[list[str]] = []
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url.path)
+            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
+            if request.method == "POST":
+                assert json.loads(request.content) == {"revision": revision}
+            return httpx.Response(200, json={"persisted_revision": revision, "active_revision": revision,
+                "apply_supported": True, "blocked_reason": None, "secret": "PRIVATE"})
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.get("/account_pool/cockpit/policy/runtime").status_code == 403
+        assert client.post("/account_pool/cockpit/policy/apply", json={"revision": revision}).status_code == 403
+    assert calls == []
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        before: Final = client.get("/account_pool/cockpit/policy/runtime")
+        applied: Final = client.post("/account_pool/cockpit/policy/apply", json={"revision": revision})
+    assert before.status_code == applied.status_code == 200
+    assert applied.json()["active_revision"] == revision
+    assert "PRIVATE" not in applied.text and applied.headers["cache-control"] == "no-store"
+    assert calls == ["/api/cockpit/policy/runtime", "/api/cockpit/policy/apply"]
+
+
+@pytest.mark.parametrize("status,payload,expected,detail", [
+    (409, {"detail": "revision_conflict", "secret": "PRIVATE"}, 409, "revision_conflict"),
+    (422, {"detail": "non_policy_change"}, 422, "non_policy_change"),
+    (200, {}, 503, "apply_outcome_unknown"),
+    (503, {"detail": "PRIVATE"}, 503, "apply_outcome_unknown"),
+    (200, {"persisted_revision": '"sha256-' + 'a' * 64 + '"',
+           "active_revision": '"sha256-' + 'a' * 64 + '"', "apply_supported": True,
+           "blocked_reason": None}, 503, "apply_outcome_unknown"),
+])
+def test_cockpit_runtime_proxy_rejects_unknown_or_mismatched_apply_receipts(
+    status: int, payload: dict[str, object], expected: int, detail: str,
+) -> None:
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(status, json=payload))))
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response: Final = client.post("/account_pool/cockpit/policy/apply", json={
+            "revision": '"sha256-' + 'b' * 64 + '"'})
+    assert response.status_code == expected and response.json() == {"detail": detail}
+    assert response.headers["cache-control"] == "no-store"

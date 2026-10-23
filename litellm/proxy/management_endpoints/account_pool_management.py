@@ -26,6 +26,8 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolSettingsView,
     BatchJob,
     BatchRequest,
+    CockpitPolicyApply,
+    CockpitPolicyRuntime,
     CockpitPolicyUpdate,
     CockpitPolicyView,
     CodexReviewPackage,
@@ -112,6 +114,54 @@ def create_management_router(
     async def put_cockpit_policy(request: CockpitPolicyUpdate, response: Response) -> CockpitPolicyView:
         response.headers["Cache-Control"] = "no-store"
         return await cockpit_policy_call("PUT", request.model_dump_json().encode())
+
+    async def cockpit_runtime_call(request: CockpitPolicyApply | None = None) -> CockpitPolicyRuntime:
+        failure: Final = "apply_outcome_unknown" if request is not None else "unavailable"
+        status: Final = 503 if request is not None else 502
+        headers: Final = {"Cache-Control": "no-store"}
+        try:
+            upstream: Final = await request_manager(
+                "POST" if request is not None else "GET",
+                "/api/cockpit/policy/apply" if request is not None else "/api/cockpit/policy/runtime",
+                request.model_dump_json().encode() if request is not None else None,
+            )
+        except HTTPException:
+            raise HTTPException(503, failure, headers=headers) from None
+        if upstream.status_code != 200:
+            safe_codes: Final = {
+                409: frozenset({"revision_conflict"}),
+                422: frozenset({"non_policy_change", "unsupported_policy"}),
+                503: frozenset({"unavailable", "apply_outcome_unknown"}),
+            }
+            try:
+                error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
+            except ValidationError:
+                raise HTTPException(status, failure, headers=headers) from None
+            detail: Final = error.get("detail", "")
+            accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
+            raise HTTPException(upstream.status_code if accepted else status,
+                                detail if accepted else failure, headers=headers)
+        try:
+            result: Final = CockpitPolicyRuntime.model_validate_json(upstream.content)
+        except ValidationError:
+            raise HTTPException(status, failure, headers=headers) from None
+        if request is not None and (
+            result.active_revision != request.revision
+            or result.persisted_revision != request.revision
+            or not result.apply_supported
+        ):
+            raise HTTPException(503, "apply_outcome_unknown", headers=headers)
+        return result
+
+    @router.get("/cockpit/policy/runtime")
+    async def get_cockpit_runtime(response: Response) -> CockpitPolicyRuntime:
+        response.headers["Cache-Control"] = "no-store"
+        return await cockpit_runtime_call()
+
+    @router.post("/cockpit/policy/apply")
+    async def post_cockpit_apply(request: CockpitPolicyApply, response: Response) -> CockpitPolicyRuntime:
+        response.headers["Cache-Control"] = "no-store"
+        return await cockpit_runtime_call(request)
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])

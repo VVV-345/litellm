@@ -4,6 +4,41 @@
  */
 
 export interface paths {
+    "/account_pool/cockpit/policy/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cockpit Runtime */
+        get: operations["get_cockpit_runtime_account_pool_cockpit_policy_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/policy/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Cockpit Apply */
+        post: operations["post_cockpit_apply_account_pool_cockpit_policy_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+
     "/": {
         parameters: {
             query?: never;
@@ -24331,6 +24366,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** CockpitPolicyApply */
+        CockpitPolicyApply: {
+            /** Revision */
+            revision: string;
+        };
+        /** CockpitPolicyRuntime */
+        CockpitPolicyRuntime: {
+            /** Persisted Revision */
+            persisted_revision: string;
+            /** Active Revision */
+            active_revision: string | null;
+            /** Apply Supported */
+            apply_supported: boolean;
+            /** Blocked Reason */
+            blocked_reason: ("non_policy_change" | "unsupported_policy" | "runtime_unavailable") | null;
+        };
+
         /**
          * APIKeySecurityScheme
          * @description Defines a security scheme using an API key.
@@ -45166,6 +45218,60 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+                };
+            };
+        };
+    };
+    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitPolicyApply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+
     home__get: {
         parameters: {
             query?: never;

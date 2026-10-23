@@ -1,0 +1,1010 @@
+diff --git a/account-pool/account_pool/cockpit_admin.py b/account-pool/account_pool/cockpit_admin.py
+index 17ec83351c..a1771dc651 100644
+--- a/account-pool/account_pool/cockpit_admin.py
++++ b/account-pool/account_pool/cockpit_admin.py
+@@ -7 +7 @@ from dataclasses import dataclass, field
+-from typing import Annotated, Final, Literal
++from typing import Annotated, Final, Literal, Self
+@@ -11 +11,11 @@ import httpx
+-from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, TypeAdapter, ValidationError, field_validator
++from pydantic import (
++    BaseModel,
++    ConfigDict,
++    Field,
++    JsonValue,
++    SecretStr,
++    TypeAdapter,
++    ValidationError,
++    field_validator,
++    model_validator,
++)
+@@ -69,0 +80,20 @@ class CockpitFailure:
++    code: Literal["non_policy_change", "unsupported_policy"] | None = None
++
++
++class RuntimeSnapshot(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    persisted_revision: str = Field(alias="persistedRevision", pattern=_ETAG)
++    active_revision: Annotated[str, Field(pattern=_ETAG)] | None = Field(alias="activeRevision")
++    apply_supported: bool = Field(alias="applySupported")
++    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None = Field(
++        alias="blockedReason"
++    )
++
++    @model_validator(mode="after")
++    def consistent_activation(self) -> Self:
++        if self.apply_supported != (self.blocked_reason is None):
++            raise ValueError("Inconsistent runtime capability")
++        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
++            raise ValueError("Unknown runtime must remain unavailable")
++        return self
+@@ -124 +154 @@ class CockpitAdminClient:
+-        expected: int,
++        expected: int | tuple[int, ...],
+@@ -143 +173 @@ class CockpitAdminClient:
+-        if response.status_code != expected:
++        if response.status_code not in ((expected,) if isinstance(expected, int) else expected):
+@@ -148,0 +179,33 @@ class CockpitAdminClient:
++    async def read_policy_runtime(self) -> RuntimeSnapshot | CockpitFailure:
++        return await self._policy_runtime()
++
++    async def apply_policy(self, revision: str) -> RuntimeSnapshot | CockpitFailure:
++        if not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_input")
++        return await self._policy_runtime(revision)
++
++    async def _policy_runtime(self, revision: str | None = None) -> RuntimeSnapshot | CockpitFailure:
++        result: Final = await self._request(
++            "GET" if revision is None else "POST",
++            "policy-runtime" if revision is None else "policy-apply",
++            (200, 422),
++            condition=("If-Match", revision) if revision is not None else None,
++        )
++        if isinstance(result, CockpitFailure):
++            return result
++        try:
++            if result.status_code == 422:
++                error: Final = _JSON.validate_json(result.content).get("error")
++                code: Final = error.get("code") if isinstance(error, dict) else None
++                if isinstance(code, str) and (code == "non_policy_change" or code == "unsupported_policy"):
++                    return CockpitFailure("http", 422, code)
++                return CockpitFailure("invalid_response", 422)
++            snapshot: Final = RuntimeSnapshot.model_validate_json(result.content)
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++        if revision is not None and (
++            snapshot.persisted_revision != revision or snapshot.active_revision != revision or not snapshot.apply_supported
++        ):
++            return CockpitFailure("invalid_response", result.status_code)
++        return snapshot
++
+diff --git a/account-pool/account_pool/cockpit_runtime.py b/account-pool/account_pool/cockpit_runtime.py
+new file mode 100644
+index 0000000000..5a4a722696
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_runtime.py
+@@ -0,0 +1,73 @@
++"""读取 Cockpit 实际策略版本并显式应用，不保存策略、重启服务或切换流量。"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Annotated, Literal, Self
++
++from pydantic import BaseModel, ConfigDict, Field, model_validator
++
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, RuntimeSnapshot
++
++
++class CockpitPolicyApply(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++class CockpitPolicyRuntime(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    persisted_revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    active_revision: Annotated[str, Field(pattern=r'^"sha256-[0-9a-f]{64}"$')] | None
++    apply_supported: bool
++    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None
++
++    @model_validator(mode="after")
++    def consistent_activation(self) -> Self:
++        if self.apply_supported != (self.blocked_reason is None):
++            raise ValueError("Inconsistent runtime capability")
++        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
++            raise ValueError("Unknown runtime must remain unavailable")
++        return self
++
++
++@dataclass(frozen=True, slots=True)
++class RuntimeFailure:
++    status: int
++    code: Literal["unavailable", "invalid_response", "revision_conflict", "non_policy_change",
++                  "unsupported_policy", "apply_outcome_unknown"]
++
++
++def _runtime_result(result: RuntimeSnapshot | CockpitFailure, *, applying: bool) -> CockpitPolicyRuntime | RuntimeFailure:
++    if isinstance(result, CockpitFailure):
++        if result.category == "precondition":
++            return RuntimeFailure(409, "revision_conflict")
++        if result.code is not None:
++            return RuntimeFailure(422, result.code)
++        if applying:
++            return RuntimeFailure(503, "apply_outcome_unknown")
++        if result.category == "invalid_response":
++            return RuntimeFailure(502, "invalid_response")
++        return RuntimeFailure(503, "unavailable")
++    return CockpitPolicyRuntime(
++        persisted_revision=result.persisted_revision,
++        active_revision=result.active_revision,
++        apply_supported=result.apply_supported,
++        blocked_reason=result.blocked_reason,
++    )
++
++
++async def read_cockpit_runtime(client: CockpitAdminClient | None) -> CockpitPolicyRuntime | RuntimeFailure:
++    if client is None:
++        return RuntimeFailure(503, "unavailable")
++    return _runtime_result(await client.read_policy_runtime(), applying=False)
++
++
++async def apply_cockpit_policy(
++    client: CockpitAdminClient | None, request: CockpitPolicyApply,
++) -> CockpitPolicyRuntime | RuntimeFailure:
++    if client is None:
++        return RuntimeFailure(503, "unavailable")
++    return _runtime_result(await client.apply_policy(request.revision), applying=True)
+diff --git a/account-pool/account_pool/management_api.py b/account-pool/account_pool/management_api.py
+index ac5beb86e6..f84742117c 100644
+--- a/account-pool/account_pool/management_api.py
++++ b/account-pool/account_pool/management_api.py
+@@ -24,0 +25,7 @@ from account_pool.cockpit_policy import (
++from account_pool.cockpit_runtime import (
++    CockpitPolicyApply,
++    CockpitPolicyRuntime,
++    RuntimeFailure,
++    apply_cockpit_policy,
++    read_cockpit_runtime,
++)
+@@ -96,0 +104,15 @@ def create_management_router(
++    def runtime_result(result: CockpitPolicyRuntime | RuntimeFailure) -> CockpitPolicyRuntime:
++        if isinstance(result, RuntimeFailure):
++            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
++        return result
++
++    @router.get("/cockpit/policy/runtime")
++    async def get_cockpit_runtime(response: Response) -> CockpitPolicyRuntime:
++        response.headers["Cache-Control"] = "no-store"
++        return runtime_result(await read_cockpit_runtime(cockpit_admin))
++
++    @router.post("/cockpit/policy/apply")
++    async def post_cockpit_apply(request: CockpitPolicyApply, response: Response) -> CockpitPolicyRuntime:
++        response.headers["Cache-Control"] = "no-store"
++        return runtime_result(await apply_cockpit_policy(cockpit_admin, request))
++
+diff --git a/account-pool/tests/account_pool/test_cockpit_policy.py b/account-pool/tests/account_pool/test_cockpit_policy.py
+index a89f5d4a7d..a83a9aac7a 100644
+--- a/account-pool/tests/account_pool/test_cockpit_policy.py
++++ b/account-pool/tests/account_pool/test_cockpit_policy.py
+@@ -180,0 +181,2 @@ def test_policy_management_disabled_without_cockpit_client() -> None:
++        assert client.get("/api/cockpit/policy/runtime").status_code == 503
++        assert client.post("/api/cockpit/policy/apply", json={"revision": R1}).status_code == 503
+@@ -233,0 +236,2 @@ def test_policy_contract_matches_proxy_and_preserves_outer_manager_authorization
++        assert client.get("/api/cockpit/policy/runtime").status_code == 401
++        assert client.post("/api/cockpit/policy/apply", json={"revision": R1}).status_code == 401
+diff --git a/account-pool/tests/account_pool/test_cockpit_runtime.py b/account-pool/tests/account_pool/test_cockpit_runtime.py
+new file mode 100644
+index 0000000000..5180704562
+--- /dev/null
++++ b/account-pool/tests/account_pool/test_cockpit_runtime.py
+@@ -0,0 +1,130 @@
++"""验证策略运行版本及显式应用边界，不启动服务或调用供应商。"""
++
++from __future__ import annotations
++
++import asyncio
++from typing import Final
++
++import httpx
++import pytest
++from fastapi.testclient import TestClient
++from test_cockpit_policy import R1, R2, ManifestFixture, app_for
++
++
++class RuntimeFixture(ManifestFixture):
++    def __init__(self, *, status: int = 200, mode: str = "ok") -> None:
++        super().__init__()
++        self.status = status
++        self.mode = mode
++        self.active = R1
++        self.revision = R2
++
++    def handle(self, request: httpx.Request) -> httpx.Response:
++        self.calls.append(request)
++        assert request.headers["Authorization"] == "Bearer " + "s" * 32
++        assert request.url.path in {"/admin/v1/policy-runtime", "/admin/v1/policy-apply"}
++        if request.method == "POST":
++            assert request.headers["If-Match"] == R2
++            if self.mode == "lost":
++                self.active = R2
++                raise httpx.ReadTimeout("PRIVATE", request=request)
++            if self.status != 200:
++                return httpx.Response(self.status, json={"error": {"code": self.mode, "message": "PRIVATE"}})
++            self.active = R2
++        if self.mode == "malformed":
++            return httpx.Response(200, json={"PRIVATE": "SECRET"})
++        payload = {
++            "persistedRevision": self.revision,
++            "activeRevision": R1 if self.mode == "wrong_revision" else self.active,
++            "applySupported": True,
++            "blockedReason": None,
++            "secret": "PRIVATE",
++        }
++        if self.mode == "wrong_persisted":
++            payload["persistedRevision"] = R1
++        if self.mode == "contradictory":
++            payload["blockedReason"] = "unsupported_policy"
++        if self.mode == "coerced_bool":
++            payload["applySupported"] = "true"
++        if self.mode == "unknown_active":
++            payload["activeRevision"] = None
++        return httpx.Response(200, json=payload)
++
++
++def test_runtime_requires_explicit_apply_and_reports_exact_revision() -> None:
++    fixture: Final = RuntimeFixture()
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        before: Final = client.get("/api/cockpit/policy/runtime")
++        applied: Final = client.post("/api/cockpit/policy/apply", json={"revision": R2})
++        after: Final = client.get("/api/cockpit/policy/runtime")
++    asyncio.run(http.aclose())
++    assert before.status_code == applied.status_code == after.status_code == 200
++    assert before.json()["active_revision"] == R1
++    assert before.json()["persisted_revision"] == R2
++    assert applied.json()["active_revision"] == after.json()["active_revision"] == R2
++    assert applied.headers["cache-control"] == "no-store"
++    assert "PRIVATE" not in applied.text and "secret" not in applied.text
++    assert [(r.method, r.url.path) for r in fixture.calls] == [
++        ("GET", "/admin/v1/policy-runtime"), ("POST", "/admin/v1/policy-apply"),
++        ("GET", "/admin/v1/policy-runtime"),
++    ]
++
++
++@pytest.mark.parametrize("status,mode,expected,detail", [
++    (412, "manifest_changed", 409, "revision_conflict"),
++    (422, "non_policy_change", 422, "non_policy_change"),
++    (422, "unsupported_policy", 422, "unsupported_policy"),
++    (422, "PRIVATE", 503, "apply_outcome_unknown"),
++    (200, "lost", 503, "apply_outcome_unknown"),
++    (200, "malformed", 503, "apply_outcome_unknown"),
++    (200, "wrong_revision", 503, "apply_outcome_unknown"),
++    (200, "wrong_persisted", 503, "apply_outcome_unknown"),
++    (200, "contradictory", 503, "apply_outcome_unknown"),
++    (200, "coerced_bool", 503, "apply_outcome_unknown"),
++    (200, "unknown_active", 503, "apply_outcome_unknown"),
++])
++def test_apply_failures_are_safe_and_never_retried(status: int, mode: str, expected: int, detail: str) -> None:
++    fixture: Final = RuntimeFixture(status=status, mode=mode)
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.post("/api/cockpit/policy/apply", json={"revision": R2})
++    asyncio.run(http.aclose())
++    assert response.status_code == expected and response.json()["detail"] == detail
++    assert response.headers["cache-control"] == "no-store"
++    assert "PRIVATE" not in response.text and len(fixture.calls) == 1
++
++
++@pytest.mark.parametrize("body", [{}, {"revision": "bad"}, {"revision": R2, "restart": True}])
++def test_apply_rejects_invalid_input_before_any_request(body: dict[str, object]) -> None:
++    fixture: Final = RuntimeFixture()
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.post("/api/cockpit/policy/apply", json=body)
++    asyncio.run(http.aclose())
++    assert response.status_code == 422 and fixture.calls == []
++
++
++def test_runtime_contract_matches_public_models() -> None:
++    from account_pool.cockpit_runtime import CockpitPolicyApply, CockpitPolicyRuntime
++
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitPolicyApply as PublicApply,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitPolicyRuntime as PublicRuntime,
++    )
++
++    assert CockpitPolicyApply.model_json_schema() == PublicApply.model_json_schema()
++    assert CockpitPolicyRuntime.model_json_schema() == PublicRuntime.model_json_schema()
++
++
++@pytest.mark.parametrize("mode", ["malformed", "contradictory", "coerced_bool", "unknown_active"])
++def test_unconfirmed_runtime_read_cannot_become_active(mode: str) -> None:
++    fixture: Final = RuntimeFixture(mode=mode)
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.get("/api/cockpit/policy/runtime")
++    asyncio.run(http.aclose())
++    assert response.status_code == 502 and response.json() == {"detail": "invalid_response"}
++    assert len(fixture.calls) == 1
+diff --git a/litellm/proxy/management_endpoints/account_pool_management.py b/litellm/proxy/management_endpoints/account_pool_management.py
+index 3426f30fe4..3732404dc4 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management.py
++++ b/litellm/proxy/management_endpoints/account_pool_management.py
+@@ -28,0 +29,2 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
++    CockpitPolicyApply,
++    CockpitPolicyRuntime,
+@@ -115,0 +118,48 @@ def create_management_router(
++    async def cockpit_runtime_call(request: CockpitPolicyApply | None = None) -> CockpitPolicyRuntime:
++        failure: Final = "apply_outcome_unknown" if request is not None else "unavailable"
++        status: Final = 503 if request is not None else 502
++        headers: Final = {"Cache-Control": "no-store"}
++        try:
++            upstream: Final = await request_manager(
++                "POST" if request is not None else "GET",
++                "/api/cockpit/policy/apply" if request is not None else "/api/cockpit/policy/runtime",
++                request.model_dump_json().encode() if request is not None else None,
++            )
++        except HTTPException:
++            raise HTTPException(503, failure, headers=headers) from None
++        if upstream.status_code != 200:
++            safe_codes: Final = {
++                409: frozenset({"revision_conflict"}),
++                422: frozenset({"non_policy_change", "unsupported_policy"}),
++                503: frozenset({"unavailable", "apply_outcome_unknown"}),
++            }
++            try:
++                error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
++            except ValidationError:
++                raise HTTPException(status, failure, headers=headers) from None
++            detail: Final = error.get("detail", "")
++            accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
++            raise HTTPException(upstream.status_code if accepted else status,
++                                detail if accepted else failure, headers=headers)
++        try:
++            result: Final = CockpitPolicyRuntime.model_validate_json(upstream.content)
++        except ValidationError:
++            raise HTTPException(status, failure, headers=headers) from None
++        if request is not None and (
++            result.active_revision != request.revision
++            or result.persisted_revision != request.revision
++            or not result.apply_supported
++        ):
++            raise HTTPException(503, "apply_outcome_unknown", headers=headers)
++        return result
++
++    @router.get("/cockpit/policy/runtime")
++    async def get_cockpit_runtime(response: Response) -> CockpitPolicyRuntime:
++        response.headers["Cache-Control"] = "no-store"
++        return await cockpit_runtime_call()
++
++    @router.post("/cockpit/policy/apply")
++    async def post_cockpit_apply(request: CockpitPolicyApply, response: Response) -> CockpitPolicyRuntime:
++        response.headers["Cache-Control"] = "no-store"
++        return await cockpit_runtime_call(request)
++
+diff --git a/litellm/proxy/management_endpoints/account_pool_management_models.py b/litellm/proxy/management_endpoints/account_pool_management_models.py
+index 60884ed7f5..ad4933b7db 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management_models.py
++++ b/litellm/proxy/management_endpoints/account_pool_management_models.py
+@@ -1127,0 +1128,23 @@ class RoutingGateStatus(BaseModel):
++class CockpitPolicyApply(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++class CockpitPolicyRuntime(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    persisted_revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    active_revision: Annotated[str, Field(pattern=r'^"sha256-[0-9a-f]{64}"$')] | None
++    apply_supported: bool
++    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None
++
++    @model_validator(mode="after")
++    def consistent_activation(self) -> Self:
++        if self.apply_supported != (self.blocked_reason is None):
++            raise ValueError("Inconsistent runtime capability")
++        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
++            raise ValueError("Unknown runtime must remain unavailable")
++        return self
++
++
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+index 04fb9a8412..ced820c7cc 100644
+--- a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+@@ -1439,0 +1440,50 @@ def test_cockpit_policy_put_invalid_receipt_requires_reread(status: int, body: d
++
++
++def test_cockpit_runtime_proxy_requires_admin_and_keeps_confirmed_revision() -> None:
++    revision: Final = '"sha256-' + 'b' * 64 + '"'
++    calls: Final[list[str]] = []
++
++    def factory() -> AccountPoolManagerClient:
++        def handler(request: httpx.Request) -> httpx.Response:
++            calls.append(request.url.path)
++            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
++            if request.method == "POST":
++                assert json.loads(request.content) == {"revision": revision}
++            return httpx.Response(200, json={"persisted_revision": revision, "active_revision": revision,
++                "apply_supported": True, "blocked_reason": None, "secret": "PRIVATE"})
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
++            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
++
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
++        assert client.get("/account_pool/cockpit/policy/runtime").status_code == 403
++        assert client.post("/account_pool/cockpit/policy/apply", json={"revision": revision}).status_code == 403
++    assert calls == []
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        before: Final = client.get("/account_pool/cockpit/policy/runtime")
++        applied: Final = client.post("/account_pool/cockpit/policy/apply", json={"revision": revision})
++    assert before.status_code == applied.status_code == 200
++    assert applied.json()["active_revision"] == revision
++    assert "PRIVATE" not in applied.text and applied.headers["cache-control"] == "no-store"
++    assert calls == ["/api/cockpit/policy/runtime", "/api/cockpit/policy/apply"]
++
++
++@pytest.mark.parametrize("status,payload,expected,detail", [
++    (409, {"detail": "revision_conflict", "secret": "PRIVATE"}, 409, "revision_conflict"),
++    (422, {"detail": "non_policy_change"}, 422, "non_policy_change"),
++    (200, {}, 503, "apply_outcome_unknown"),
++    (503, {"detail": "PRIVATE"}, 503, "apply_outcome_unknown"),
++    (200, {"persisted_revision": '"sha256-' + 'a' * 64 + '"',
++           "active_revision": '"sha256-' + 'a' * 64 + '"', "apply_supported": True,
++           "blocked_reason": None}, 503, "apply_outcome_unknown"),
++])
++def test_cockpit_runtime_proxy_rejects_unknown_or_mismatched_apply_receipts(
++    status: int, payload: dict[str, object], expected: int, detail: str,
++) -> None:
++    def factory() -> AccountPoolManagerClient:
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
++            transport=httpx.MockTransport(lambda _: httpx.Response(status, json=payload))))
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        response: Final = client.post("/account_pool/cockpit/policy/apply", json={
++            "revision": '"sha256-' + 'b' * 64 + '"'})
++    assert response.status_code == expected and response.json() == {"detail": detail}
++    assert response.headers["cache-control"] == "no-store"
+diff --git a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts
+index 1c0ffd1322..873a46f0a9 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts
++++ b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.test.ts
+@@ -5,0 +6 @@ import {
++  applyAccountPoolCockpitPolicy,
+@@ -8,0 +10 @@ import {
++  getAccountPoolCockpitPolicyRuntime,
+@@ -27,0 +30,65 @@ const deleteMock = vi.fn();
++describe("Cockpit runtime response validation", () => {
++  const revision = '"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"';
++  const otherRevision = '"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"';
++  const runtime = {
++    persisted_revision: revision,
++    active_revision: revision,
++    apply_supported: true,
++    blocked_reason: null,
++  };
++
++  beforeEach(() => {
++    getMock.mockReset();
++    postMock.mockReset();
++  });
++
++  it("reads uncached runtime state and applies only the explicitly requested revision", async () => {
++    getMock.mockResolvedValue(runtime);
++    postMock.mockResolvedValue(runtime);
++    await expect(getAccountPoolCockpitPolicyRuntime("token")).resolves.toEqual(runtime);
++    expect(getMock).toHaveBeenCalledWith("/account_pool/cockpit/policy/runtime", {
++      accessToken: "token",
++      cache: "no-store",
++    });
++    await expect(applyAccountPoolCockpitPolicy("token", { revision })).resolves.toEqual(runtime);
++    expect(postMock).toHaveBeenCalledWith("/account_pool/cockpit/policy/apply", {
++      accessToken: "token",
++      body: { revision },
++    });
++  });
++
++  it.each([
++    null,
++    {},
++    { ...runtime, persisted_revision: "invalid" },
++    { ...runtime, active_revision: "invalid" },
++    { ...runtime, active_revision: null },
++    { ...runtime, apply_supported: false },
++    { ...runtime, blocked_reason: "unsupported_policy" },
++    { ...runtime, apply_supported: false, blocked_reason: "runtime_unavailable" },
++    { ...runtime, active_revision: null, apply_supported: false, blocked_reason: "non_policy_change" },
++  ])("rejects malformed or contradictory runtime data: %j", async (receipt) => {
++    getMock.mockResolvedValue(receipt);
++    await expect(getAccountPoolCockpitPolicyRuntime("token")).rejects.toThrow("运行状态响应无效");
++  });
++
++  it.each([
++    { ...runtime, active_revision: otherRevision },
++    { ...runtime, persisted_revision: otherRevision, active_revision: otherRevision },
++    { ...runtime, apply_supported: false, blocked_reason: "non_policy_change" },
++    { ...runtime, active_revision: null, apply_supported: false, blocked_reason: "runtime_unavailable" },
++  ])("does not treat an incomplete or unrelated apply receipt as confirmation: %j", async (receipt) => {
++    postMock.mockResolvedValue(receipt);
++    await expect(applyAccountPoolCockpitPolicy("token", { revision })).rejects.toThrow("应用结果未确认");
++  });
++
++  it.each([
++    { ...runtime, apply_supported: false, blocked_reason: "non_policy_change" },
++    { ...runtime, apply_supported: false, blocked_reason: "unsupported_policy" },
++    { ...runtime, active_revision: null, apply_supported: false, blocked_reason: "runtime_unavailable" },
++  ])("retains valid blocked observations without claiming apply support: %j", async (receipt) => {
++    getMock.mockResolvedValue(receipt);
++    await expect(getAccountPoolCockpitPolicyRuntime("token")).resolves.toEqual(receipt);
++  });
++});
++
+diff --git a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
+index fdebdb0586..7bf7470019 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
++++ b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
+@@ -10,0 +11,2 @@ export type CockpitPolicyUpdate = components["schemas"]["CockpitPolicyUpdate"];
++export type CockpitPolicyRuntime = components["schemas"]["CockpitPolicyRuntime"];
++export type CockpitPolicyApply = components["schemas"]["CockpitPolicyApply"];
+@@ -126,0 +129,43 @@ export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: Co
++const cockpitPolicyRuntimeShape = {
++  persisted_revision: z.string().regex(/^"sha256-[a-f0-9]{64}"$/),
++  active_revision: z
++    .string()
++    .regex(/^"sha256-[a-f0-9]{64}"$/)
++    .nullable(),
++  apply_supported: z.boolean(),
++  blocked_reason: z.enum(["non_policy_change", "unsupported_policy", "runtime_unavailable"]).nullable(),
++};
++const cockpitPolicyRuntimeResponse: z.ZodType<CockpitPolicyRuntime> = z
++  .object(cockpitPolicyRuntimeShape)
++  .refine(
++    (data) =>
++      data.apply_supported === (data.blocked_reason === null) &&
++      (data.active_revision === null) === (data.blocked_reason === "runtime_unavailable"),
++  );
++
++export const getAccountPoolCockpitPolicyRuntime = async (accessToken: string): Promise<CockpitPolicyRuntime> => {
++  const result = cockpitPolicyRuntimeResponse.safeParse(
++    await apiClient.get<unknown>("/account_pool/cockpit/policy/runtime", { accessToken, cache: "no-store" }),
++  );
++  if (!result.success) throw new Error("运行状态响应无效，必须重新检查");
++  return result.data;
++};
++
++export const applyAccountPoolCockpitPolicy = async (
++  accessToken: string,
++  body: CockpitPolicyApply,
++): Promise<CockpitPolicyRuntime> => {
++  const result = cockpitPolicyRuntimeResponse.safeParse(
++    await apiClient.post<unknown>("/account_pool/cockpit/policy/apply", { accessToken, body }),
++  );
++  if (!result.success) throw new Error("应用结果未确认，必须重新检查运行状态并核对保存版本");
++  const confirmed =
++    result.data.apply_supported &&
++    result.data.persisted_revision === body.revision &&
++    result.data.active_revision === body.revision;
++  if (!confirmed) {
++    throw new Error("应用结果未确认，必须重新检查运行状态并核对保存版本");
++  }
++  return result.data;
++};
++
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
+index 631e574252..114fdf90d9 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
+@@ -43 +43 @@ afterEach(() => vi.unstubAllGlobals());
+-function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response>) {
++function mountPanel(respond: (init?: RequestInit, path?: string) => Response | Promise<Response>) {
+@@ -44,0 +45,2 @@ function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response
++  const paths: string[] = [];
++  const tokens: (string | null)[] = [];
+@@ -49 +51 @@ function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response
+-      if (path !== "/account_pool/cockpit/policy") throw new Error(`Unexpected request: ${path}`);
++      if (!path.startsWith("/account_pool/cockpit/policy")) throw new Error(`Unexpected request: ${path}`);
+@@ -51 +53,3 @@ function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response
+-      return respond(init);
++      paths.push(path);
++      tokens.push(new Headers(init?.headers).get("Authorization"));
++      return respond(init, path);
+@@ -55 +59 @@ function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response
+-  render(
++  const rendered = render(
+@@ -60 +64,12 @@ function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response
+-  return { requests, client };
++  return {
++    requests,
++    paths,
++    tokens,
++    client,
++    changeToken: (accessToken: string) =>
++      rendered.rerender(
++        <QueryClientProvider client={client}>
++          <AccountPoolCockpitPolicyPanel accessToken={accessToken} />
++        </QueryClientProvider>,
++      ),
++  };
+@@ -88 +103 @@ it("sends edited global fields and the original revision only on explicit save,
+-  expect(await screen.findByRole("status")).toHaveTextContent("已保存，待重启或运行状态确认");
++  expect(await screen.findByRole("status")).toHaveTextContent("已保存，请检查运行状态后显式应用");
+@@ -200 +215 @@ it("locks edits while saving and makes preferred and backup flags mutually exclu
+-  expect(await screen.findByRole("status")).toHaveTextContent("待重启或运行状态确认");
++  expect(await screen.findByRole("status")).toHaveTextContent("请检查运行状态后显式应用");
+@@ -238 +253 @@ it.each([null, {}])("rejects an incomplete 200 save receipt %j and requires a re
+-  expect(screen.queryByText("已保存，待重启或运行状态确认")).not.toBeInTheDocument();
++  expect(screen.queryByText("已保存，请检查运行状态后显式应用")).not.toBeInTheDocument();
+@@ -250,0 +266,145 @@ it("rejects an invalid read revision instead of enabling writes", async () => {
++
++const nextRevision = '"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"';
++const previousRevision = '"sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"';
++const readyRuntime = {
++  persisted_revision: initialPolicy.revision,
++  active_revision: previousRevision,
++  apply_supported: true,
++  blocked_reason: null,
++};
++
++it("checks runtime explicitly before applying the shown saved revision and confirms only Codex sorting", async () => {
++  const { paths, requests, client } = mountPanel((init, path) => {
++    if (path?.endsWith("/runtime")) return Response.json(readyRuntime);
++    if (path?.endsWith("/apply")) return Response.json({ ...readyRuntime, active_revision: initialPolicy.revision });
++    return Response.json(initialPolicy);
++  });
++  const user = userEvent.setup();
++  await screen.findByRole("combobox", { name: "选择策略" });
++  expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++  expect(paths).toEqual(["/account_pool/cockpit/policy"]);
++  await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++  await waitFor(() => expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeEnabled());
++  expect(screen.getByText(/尚未采用当前保存策略/)).toHaveTextContent(previousRevision);
++  await user.click(screen.getByRole("button", { name: "应用已保存策略" }));
++  expect(await screen.findByText(/已确认 Codex 全局排序运行版本/)).toHaveTextContent(initialPolicy.revision);
++  expect(screen.getByText(/不切换现有 LiteLLM 流量/)).toBeInTheDocument();
++  expect(paths).toEqual([
++    "/account_pool/cockpit/policy",
++    "/account_pool/cockpit/policy",
++    "/account_pool/cockpit/policy/runtime",
++    "/account_pool/cockpit/policy/apply",
++  ]);
++  expect(requests[3]).toEqual({ method: "POST", body: { revision: initialPolicy.revision } });
++  client.clear();
++});
++
++it("invalidates runtime confirmation on edits and save even when the save revision equals the old observation", async () => {
++  const { paths, client } = mountPanel((init, path) => {
++    if (path?.endsWith("/runtime")) return Response.json({ ...readyRuntime, active_revision: initialPolicy.revision });
++    return Response.json(
++      init?.method === "PUT" ? { ...initialPolicy, ...JSON.parse(String(init.body)) } : initialPolicy,
++    );
++  });
++  const user = userEvent.setup();
++  await screen.findByRole("combobox", { name: "选择策略" });
++  await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++  await screen.findByText(/已确认 Codex 全局排序运行版本/);
++  await user.click(screen.getByRole("checkbox", { name: "account-a 优先使用" }));
++  expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++  expect(screen.queryByText(/已确认 Codex 全局排序运行版本/)).not.toBeInTheDocument();
++  await user.click(screen.getByRole("button", { name: "保存全局策略" }));
++  await screen.findByText("已保存，请检查运行状态后显式应用");
++  expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++  expect(screen.queryByText(/已确认 Codex 全局排序运行版本/)).not.toBeInTheDocument();
++  expect(paths.filter((path) => path.endsWith("/runtime"))).toHaveLength(1);
++  expect(paths.some((path) => path.endsWith("/apply"))).toBe(false);
++  client.clear();
++});
++
++it.each([
++  ["non_policy_change", previousRevision, "包含非策略配置变更"],
++  ["unsupported_policy", previousRevision, "当前策略不支持在线应用"],
++  ["runtime_unavailable", null, "运行状态不可用"],
++])("keeps apply locked for runtime block %s", async (blocked_reason, active_revision, message) => {
++  const { paths, client } = mountPanel((init, path) =>
++    Response.json(
++      path?.endsWith("/runtime")
++        ? { ...readyRuntime, active_revision, apply_supported: false, blocked_reason }
++        : initialPolicy,
++    ),
++  );
++  const user = userEvent.setup();
++  await screen.findByRole("combobox", { name: "选择策略" });
++  await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++  expect(await screen.findByText(new RegExp(String(message)))).toBeInTheDocument();
++  expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++  expect(paths.some((path) => path.endsWith("/apply"))).toBe(false);
++  client.clear();
++});
++
++it.each([
++  [409, "revision_conflict"],
++  [422, "non_policy_change"],
++  [503, "apply_outcome_unknown"],
++  [200, "malformed_receipt"],
++])(
++  "requires a fresh runtime and policy reconciliation after apply status %s without automatic retry",
++  async (status, detail) => {
++    let runtimeReads = 0;
++    let policy = initialPolicy;
++    const { paths, client } = mountPanel((init, path) => {
++      if (path?.endsWith("/apply")) {
++        policy = { ...initialPolicy, revision: nextRevision };
++        return Response.json(status === 200 ? {} : { detail }, { status: Number(status) });
++      }
++      if (path?.endsWith("/runtime")) {
++        runtimeReads += 1;
++        if (runtimeReads === 2) return Response.json({ detail: "status unavailable" }, { status: 503 });
++        if (runtimeReads === 3) return Response.json(readyRuntime);
++        return Response.json({ ...readyRuntime, persisted_revision: policy.revision });
++      }
++      return Response.json(policy);
++    });
++    const user = userEvent.setup();
++    await screen.findByRole("combobox", { name: "选择策略" });
++    await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++    await waitFor(() => expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeEnabled());
++    await user.click(screen.getByRole("button", { name: "应用已保存策略" }));
++    expect(await screen.findByText(/应用未确认，必须重新检查运行状态并核对保存版本/)).toBeInTheDocument();
++    expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++    await user.click(screen.getByRole("button", { name: "重新读取策略" }));
++    await waitFor(() => expect(screen.getByRole("button", { name: "检查运行状态" })).toBeEnabled());
++    expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++    await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++    await screen.findByText(/status unavailable/);
++    expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++    await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++    await screen.findByText(/保存版本与运行状态不一致/);
++    expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++    await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++    await waitFor(() => expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeEnabled());
++    expect(screen.getByText(/已保存版本/)).toHaveTextContent(nextRevision);
++    expect(screen.queryByText(/应用未确认/)).not.toBeInTheDocument();
++    expect(paths.filter((path) => path.endsWith("/apply"))).toHaveLength(1);
++    client.clear();
++  },
++);
++
++it("does not reuse a runtime observation when switching access tokens or returning to an earlier token", async () => {
++  const { changeToken, tokens, client } = mountPanel((init, path) =>
++    Response.json(path?.endsWith("/runtime") ? readyRuntime : initialPolicy),
++  );
++  const user = userEvent.setup();
++  await screen.findByRole("combobox", { name: "选择策略" });
++  await user.click(screen.getByRole("button", { name: "检查运行状态" }));
++  await waitFor(() => expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeEnabled());
++  changeToken("other-token");
++  await waitFor(() => expect(screen.getByRole("button", { name: "检查运行状态" })).toBeEnabled());
++  expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++  expect(tokens.at(-1)).toBe("Bearer other-token");
++  changeToken("admin-token");
++  await waitFor(() => expect(screen.getByRole("button", { name: "检查运行状态" })).toBeEnabled());
++  expect(screen.getByRole("button", { name: "应用已保存策略" })).toBeDisabled();
++  client.clear();
++});
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
+index 74cf57500e..1237d8d1d5 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
+@@ -13,0 +14,2 @@ import {
++  getAccountPoolCockpitPolicyRuntime,
++  applyAccountPoolCockpitPolicy,
+@@ -14,0 +17,2 @@ import {
++  type CockpitPolicyApply,
++  type CockpitPolicyRuntime,
+@@ -53,0 +58,9 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++  const [runtime, setRuntime] = useState<CockpitPolicyRuntime | null>(null);
++  const apply = useMutation({
++    mutationFn: (body: CockpitPolicyApply) => {
++      setRuntime(null);
++      return applyAccountPoolCockpitPolicy(accessToken, body);
++    },
++    retry: false,
++    onSuccess: (result) => setRuntime(result),
++  });
+@@ -55 +68,4 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+-    mutationFn: (body: CockpitPolicyUpdate) => saveAccountPoolCockpitPolicy(accessToken, body),
++    mutationFn: (body: CockpitPolicyUpdate) => {
++      setRuntime(null);
++      return saveAccountPoolCockpitPolicy(accessToken, body);
++    },
+@@ -63 +79,4 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+-    mutationFn: () => getAccountPoolCockpitPolicy(accessToken),
++    mutationFn: () => {
++      setRuntime(null);
++      return getAccountPoolCockpitPolicy(accessToken);
++    },
+@@ -70,0 +90,19 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++  const checkRuntime = useMutation({
++    mutationFn: async () => {
++      setRuntime(null);
++      const policy = await getAccountPoolCockpitPolicy(accessToken);
++      const observation = await getAccountPoolCockpitPolicyRuntime(accessToken);
++      if (observation.persisted_revision !== policy.revision) {
++        throw new Error("保存版本与运行状态不一致，请重新检查");
++      }
++      return { policy, observation };
++    },
++    retry: false,
++    onSuccess: ({ policy, observation }) => {
++      client.setQueryData(queryKey, policy);
++      setRuntime(observation);
++      save.reset();
++      apply.reset();
++      reload.reset();
++    },
++  });
+@@ -73,2 +111,4 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+-  const busy = query.isFetching || save.isPending || reload.isPending;
+-  const failed = query.isError || save.isError || reload.isError;
++  const busy = [query.isFetching, save.isPending, reload.isPending, apply.isPending, checkRuntime.isPending].some(
++    Boolean,
++  );
++  const failed = [query.isError, save.isError, reload.isError, apply.isError].some(Boolean);
+@@ -75,0 +116,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++  const applyDisabled = [
++    disabled,
++    draft !== null,
++    !runtime?.apply_supported,
++    runtime?.persisted_revision !== data?.revision,
++    runtime?.active_revision === data?.revision,
++  ].some(Boolean);
+@@ -79,0 +127 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++    setRuntime(null);
+@@ -94 +142,3 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+-        <p className="text-sm text-amber-700 dark:text-amber-400">待重启或运行状态确认，运行中的策略可能与保存值不同</p>
++        <p className="text-sm text-amber-700 dark:text-amber-400">
++          仅显式应用已保存的 Codex 全局排序策略，不重启服务，不迁移流量、凭据或其他配置
++        </p>
+@@ -99,0 +150,4 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++        {data && <p className="break-all text-xs">已保存版本：{data.revision}</p>}
++        <CockpitRuntimeStatus runtime={runtime} revision={data?.revision} />
++        {apply.error && <p role="alert">应用未确认，必须重新检查运行状态并核对保存版本：{apply.error.message}</p>}
++        {checkRuntime.error && <p role="alert">运行状态检查失败：{checkRuntime.error.message}</p>}
+@@ -114,0 +169,11 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++          <Button variant="outline" disabled={busy || draft !== null} onClick={() => checkRuntime.mutate()}>
++            {checkRuntime.isPending ? "正在检查运行状态" : "检查运行状态"}
++          </Button>
++          <Button
++            disabled={applyDisabled}
++            onClick={() => {
++              if (!applyDisabled && data) apply.mutate({ revision: data.revision });
++            }}
++          >
++            {apply.isPending ? "正在应用策略" : "应用已保存策略"}
++          </Button>
+@@ -116 +181 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+-        {save.isSuccess && <p role="status">已保存，待重启或运行状态确认</p>}
++        {save.isSuccess && <p role="status">已保存，请检查运行状态后显式应用</p>}
+@@ -121,0 +187,14 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++function CockpitRuntimeStatus({ runtime, revision }: { runtime: CockpitPolicyRuntime | null; revision?: string }) {
++  if (!runtime || runtime.persisted_revision !== revision) return <p>运行状态尚未确认，请检查运行状态</p>;
++  const reasons = {
++    non_policy_change: "包含非策略配置变更，不能单独应用",
++    unsupported_policy: "当前策略不支持在线应用",
++    runtime_unavailable: "运行状态不可用，不能应用",
++  };
++  if (runtime.blocked_reason) return <p>{reasons[runtime.blocked_reason]}</p>;
++  if (runtime.active_revision === revision) {
++    return <p className="break-all">已确认 Codex 全局排序运行版本：{runtime.active_revision}</p>;
++  }
++  return <p className="break-all">运行版本：{runtime.active_revision}，尚未采用当前保存策略</p>;
++}
++
+diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+index 1baeb6d952..14cf4989e3 100644
+--- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
++++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+@@ -6,0 +7,35 @@ export interface paths {
++    "/account_pool/cockpit/policy/runtime": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Get Cockpit Runtime */
++        get: operations["get_cockpit_runtime_account_pool_cockpit_policy_runtime_get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/policy/apply": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Post Cockpit Apply */
++        post: operations["post_cockpit_apply_account_pool_cockpit_policy_apply_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++
+@@ -24333,0 +24369,17 @@ export interface components {
++        /** CockpitPolicyApply */
++        CockpitPolicyApply: {
++            /** Revision */
++            revision: string;
++        };
++        /** CockpitPolicyRuntime */
++        CockpitPolicyRuntime: {
++            /** Persisted Revision */
++            persisted_revision: string;
++            /** Active Revision */
++            active_revision: string | null;
++            /** Apply Supported */
++            apply_supported: boolean;
++            /** Blocked Reason */
++            blocked_reason: ("non_policy_change" | "unsupported_policy" | "runtime_unavailable") | null;
++        };
++
+@@ -45168,0 +45221,54 @@ export interface operations {
++    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                };
++            };
++        };
++    };
++    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitPolicyApply"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++

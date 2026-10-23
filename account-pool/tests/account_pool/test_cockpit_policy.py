@@ -178,6 +178,8 @@ def test_policy_management_disabled_without_cockpit_client() -> None:
     with TestClient(app) as client:
         assert client.get("/api/cockpit/policy").status_code == 503
         assert client.put("/api/cockpit/policy", json=BODY).status_code == 503
+        assert client.get("/api/cockpit/policy/runtime").status_code == 503
+        assert client.post("/api/cockpit/policy/apply", json={"revision": R1}).status_code == 503
 
 
 @pytest.mark.parametrize("mode", ["api_key", "unknown", "empty", "future_strategy"])
@@ -231,6 +233,8 @@ def test_policy_contract_matches_proxy_and_preserves_outer_manager_authorization
     )
     with TestClient(app) as client:
         assert client.put("/api/cockpit/policy", json=BODY).status_code == 401
+        assert client.get("/api/cockpit/policy/runtime").status_code == 401
+        assert client.post("/api/cockpit/policy/apply", json={"revision": R1}).status_code == 401
         assert fixture.calls == []
         assert (
             client.put("/api/cockpit/policy", json=BODY, headers={"Authorization": "Bearer " + "m" * 32}).status_code

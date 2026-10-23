@@ -1,0 +1,22 @@
+{
+  "reviewer": "/root/policy_source_scan",
+  "method": "independent read-only source review; no duplicate tests",
+  "scope": [
+    "Go startup snapshot and two-field apply",
+    "Python client/Manager/admin facade",
+    "UI revision confirmation and explicit action"
+  ],
+  "result": "no blocking defect in the agreed single-process, per-selector-Pick scope",
+  "followups_completed": [
+    "contradictory receipts and strict boolean rejection",
+    "persisted and active revision mismatches",
+    "Manager disabled and unauthorized endpoints",
+    "concurrent admin PUT versus apply"
+  ],
+  "limits": [
+    "Not a cross-process or multi-instance CAS",
+    "Not per-logical-request policy pinning across retries",
+    "Dynamic quota, affinity and API-key priority states remain independent",
+    "Desktop remote administration not implemented"
+  ]
+}

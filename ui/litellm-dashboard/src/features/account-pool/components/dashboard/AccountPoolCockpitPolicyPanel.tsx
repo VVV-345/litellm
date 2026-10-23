@@ -11,7 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   getAccountPoolCockpitPolicy,
+  getAccountPoolCockpitPolicyRuntime,
+  applyAccountPoolCockpitPolicy,
   saveAccountPoolCockpitPolicy,
+  type CockpitPolicyApply,
+  type CockpitPolicyRuntime,
   type CockpitPolicyUpdate,
   type CockpitPolicyView,
 } from "../../api/AccountPoolManagementApi";
@@ -51,8 +55,20 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
   };
   const query = useQuery(queryOptions);
   const [draft, setDraft] = useState<CockpitPolicyDraft | null>(null);
+  const [runtime, setRuntime] = useState<CockpitPolicyRuntime | null>(null);
+  const apply = useMutation({
+    mutationFn: (body: CockpitPolicyApply) => {
+      setRuntime(null);
+      return applyAccountPoolCockpitPolicy(accessToken, body);
+    },
+    retry: false,
+    onSuccess: (result) => setRuntime(result),
+  });
   const save = useMutation({
-    mutationFn: (body: CockpitPolicyUpdate) => saveAccountPoolCockpitPolicy(accessToken, body),
+    mutationFn: (body: CockpitPolicyUpdate) => {
+      setRuntime(null);
+      return saveAccountPoolCockpitPolicy(accessToken, body);
+    },
     retry: false,
     onSuccess: (data) => {
       client.setQueryData(queryKey, data);
@@ -60,7 +76,10 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
     },
   });
   const reload = useMutation({
-    mutationFn: () => getAccountPoolCockpitPolicy(accessToken),
+    mutationFn: () => {
+      setRuntime(null);
+      return getAccountPoolCockpitPolicy(accessToken);
+    },
     retry: false,
     onSuccess: (data) => {
       client.setQueryData(queryKey, data);
@@ -68,15 +87,44 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
       save.reset();
     },
   });
+  const checkRuntime = useMutation({
+    mutationFn: async () => {
+      setRuntime(null);
+      const policy = await getAccountPoolCockpitPolicy(accessToken);
+      const observation = await getAccountPoolCockpitPolicyRuntime(accessToken);
+      if (observation.persisted_revision !== policy.revision) {
+        throw new Error("保存版本与运行状态不一致，请重新检查");
+      }
+      return { policy, observation };
+    },
+    retry: false,
+    onSuccess: ({ policy, observation }) => {
+      client.setQueryData(queryKey, policy);
+      setRuntime(observation);
+      save.reset();
+      apply.reset();
+      reload.reset();
+    },
+  });
   const data = query.data;
   const form = draft ?? (data ? cockpitPolicyDraft(data) : null);
-  const busy = query.isFetching || save.isPending || reload.isPending;
-  const failed = query.isError || save.isError || reload.isError;
+  const busy = [query.isFetching, save.isPending, reload.isPending, apply.isPending, checkRuntime.isPending].some(
+    Boolean,
+  );
+  const failed = [query.isError, save.isError, reload.isError, apply.isError].some(Boolean);
   const disabled = busy || !data?.editable || failed;
+  const applyDisabled = [
+    disabled,
+    draft !== null,
+    !runtime?.apply_supported,
+    runtime?.persisted_revision !== data?.revision,
+    runtime?.active_revision === data?.revision,
+  ].some(Boolean);
   const payload = form && data ? cockpitPolicyUpdate(form, data.supported_strategies) : null;
   const edit = (changes: Partial<CockpitPolicyDraft>) => {
     if (!form || disabled) return;
     setDraft({ ...form, ...changes });
+    setRuntime(null);
     save.reset();
   };
   const error = reload.error ?? query.error;
@@ -91,12 +139,18 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-sm text-amber-700 dark:text-amber-400">待重启或运行状态确认，运行中的策略可能与保存值不同</p>
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          仅显式应用已保存的 Codex 全局排序策略，不重启服务，不迁移流量、凭据或其他配置
+        </p>
         <p className="text-xs text-muted-foreground">
           当前仅支持 OAuth 账号子集，最多 256 个账号。此处不修改账号启用、候选范围、回退、最多尝试次数、冷却或会话亲和性
         </p>
         {query.isPending && <p role="status">正在读取全局策略…</p>}
         <CockpitPolicyError readError={error} saveError={save.error} />
+        {data && <p className="break-all text-xs">已保存版本：{data.revision}</p>}
+        <CockpitRuntimeStatus runtime={runtime} revision={data?.revision} />
+        {apply.error && <p role="alert">应用未确认，必须重新检查运行状态并核对保存版本：{apply.error.message}</p>}
+        {checkRuntime.error && <p role="alert">运行状态检查失败：{checkRuntime.error.message}</p>}
         {data && form && (
           <CockpitPolicyFields data={data} form={form} disabled={disabled} valid={payload !== null} onChange={edit} />
         )}
@@ -112,11 +166,36 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
           <Button variant="outline" disabled={busy} onClick={() => reload.mutate()}>
             重新读取策略
           </Button>
+          <Button variant="outline" disabled={busy || draft !== null} onClick={() => checkRuntime.mutate()}>
+            {checkRuntime.isPending ? "正在检查运行状态" : "检查运行状态"}
+          </Button>
+          <Button
+            disabled={applyDisabled}
+            onClick={() => {
+              if (!applyDisabled && data) apply.mutate({ revision: data.revision });
+            }}
+          >
+            {apply.isPending ? "正在应用策略" : "应用已保存策略"}
+          </Button>
         </div>
-        {save.isSuccess && <p role="status">已保存，待重启或运行状态确认</p>}
+        {save.isSuccess && <p role="status">已保存，请检查运行状态后显式应用</p>}
       </CardContent>
     </Card>
   );
+}
+
+function CockpitRuntimeStatus({ runtime, revision }: { runtime: CockpitPolicyRuntime | null; revision?: string }) {
+  if (!runtime || runtime.persisted_revision !== revision) return <p>运行状态尚未确认，请检查运行状态</p>;
+  const reasons = {
+    non_policy_change: "包含非策略配置变更，不能单独应用",
+    unsupported_policy: "当前策略不支持在线应用",
+    runtime_unavailable: "运行状态不可用，不能应用",
+  };
+  if (runtime.blocked_reason) return <p>{reasons[runtime.blocked_reason]}</p>;
+  if (runtime.active_revision === revision) {
+    return <p className="break-all">已确认 Codex 全局排序运行版本：{runtime.active_revision}</p>;
+  }
+  return <p className="break-all">运行版本：{runtime.active_revision}，尚未采用当前保存策略</p>;
 }
 
 function CockpitPolicyFields({

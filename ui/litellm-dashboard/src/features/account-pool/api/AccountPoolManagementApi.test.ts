@@ -3,9 +3,11 @@ import { setServerRootPath } from "@/lib/serverRootPath";
 
 import {
   analyzeAccountPoolUpstream,
+  applyAccountPoolCockpitPolicy,
   cancelAccountPoolOAuthBrowserSession,
   createAccountPoolJobId,
   getAccountPoolCodexReview,
+  getAccountPoolCockpitPolicyRuntime,
   getAccountPoolUpstreamSync,
   getAccountPoolOAuthBrowserSession,
   getAccountPoolOAuthBrowserUrl,
@@ -24,6 +26,71 @@ const getMock = vi.fn();
 const postMock = vi.fn();
 const putMock = vi.fn();
 const deleteMock = vi.fn();
+
+describe("Cockpit runtime response validation", () => {
+  const revision = '"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"';
+  const otherRevision = '"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"';
+  const runtime = {
+    persisted_revision: revision,
+    active_revision: revision,
+    apply_supported: true,
+    blocked_reason: null,
+  };
+
+  beforeEach(() => {
+    getMock.mockReset();
+    postMock.mockReset();
+  });
+
+  it("reads uncached runtime state and applies only the explicitly requested revision", async () => {
+    getMock.mockResolvedValue(runtime);
+    postMock.mockResolvedValue(runtime);
+    await expect(getAccountPoolCockpitPolicyRuntime("token")).resolves.toEqual(runtime);
+    expect(getMock).toHaveBeenCalledWith("/account_pool/cockpit/policy/runtime", {
+      accessToken: "token",
+      cache: "no-store",
+    });
+    await expect(applyAccountPoolCockpitPolicy("token", { revision })).resolves.toEqual(runtime);
+    expect(postMock).toHaveBeenCalledWith("/account_pool/cockpit/policy/apply", {
+      accessToken: "token",
+      body: { revision },
+    });
+  });
+
+  it.each([
+    null,
+    {},
+    { ...runtime, persisted_revision: "invalid" },
+    { ...runtime, active_revision: "invalid" },
+    { ...runtime, active_revision: null },
+    { ...runtime, apply_supported: false },
+    { ...runtime, blocked_reason: "unsupported_policy" },
+    { ...runtime, apply_supported: false, blocked_reason: "runtime_unavailable" },
+    { ...runtime, active_revision: null, apply_supported: false, blocked_reason: "non_policy_change" },
+  ])("rejects malformed or contradictory runtime data: %j", async (receipt) => {
+    getMock.mockResolvedValue(receipt);
+    await expect(getAccountPoolCockpitPolicyRuntime("token")).rejects.toThrow("运行状态响应无效");
+  });
+
+  it.each([
+    { ...runtime, active_revision: otherRevision },
+    { ...runtime, persisted_revision: otherRevision, active_revision: otherRevision },
+    { ...runtime, apply_supported: false, blocked_reason: "non_policy_change" },
+    { ...runtime, active_revision: null, apply_supported: false, blocked_reason: "runtime_unavailable" },
+  ])("does not treat an incomplete or unrelated apply receipt as confirmation: %j", async (receipt) => {
+    postMock.mockResolvedValue(receipt);
+    await expect(applyAccountPoolCockpitPolicy("token", { revision })).rejects.toThrow("应用结果未确认");
+  });
+
+  it.each([
+    { ...runtime, apply_supported: false, blocked_reason: "non_policy_change" },
+    { ...runtime, apply_supported: false, blocked_reason: "unsupported_policy" },
+    { ...runtime, active_revision: null, apply_supported: false, blocked_reason: "runtime_unavailable" },
+  ])("retains valid blocked observations without claiming apply support: %j", async (receipt) => {
+    getMock.mockResolvedValue(receipt);
+    await expect(getAccountPoolCockpitPolicyRuntime("token")).resolves.toEqual(receipt);
+  });
+});
 
 it.each([false, true])("passes explicit credential replacement intent: %s", async (replace) => {
   const file = new File(["{}"], "auth.json", { type: "application/json" });

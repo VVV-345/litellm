@@ -22,6 +22,13 @@ from account_pool.cockpit_policy import (
     read_cockpit_policy,
     save_cockpit_policy,
 )
+from account_pool.cockpit_runtime import (
+    CockpitPolicyApply,
+    CockpitPolicyRuntime,
+    RuntimeFailure,
+    apply_cockpit_policy,
+    read_cockpit_runtime,
+)
 from account_pool.domain import EnvironmentRecord, utc_now
 from account_pool.error_logs import (
     ErrorLogDetail,
@@ -93,6 +100,21 @@ def create_management_router(
     async def put_cockpit_policy(request: CockpitPolicyUpdate, response: Response) -> CockpitPolicyView:
         response.headers["Cache-Control"] = "no-store"
         return policy_result(await save_cockpit_policy(cockpit_admin, request))
+
+    def runtime_result(result: CockpitPolicyRuntime | RuntimeFailure) -> CockpitPolicyRuntime:
+        if isinstance(result, RuntimeFailure):
+            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
+        return result
+
+    @router.get("/cockpit/policy/runtime")
+    async def get_cockpit_runtime(response: Response) -> CockpitPolicyRuntime:
+        response.headers["Cache-Control"] = "no-store"
+        return runtime_result(await read_cockpit_runtime(cockpit_admin))
+
+    @router.post("/cockpit/policy/apply")
+    async def post_cockpit_apply(request: CockpitPolicyApply, response: Response) -> CockpitPolicyRuntime:
+        response.headers["Cache-Control"] = "no-store"
+        return runtime_result(await apply_cockpit_policy(cockpit_admin, request))
 
     async def card(card_id: UUID) -> EnvironmentRecord:
         record: Final = await environments.get(card_id)

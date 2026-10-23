@@ -8,6 +8,8 @@ import { serverRootPath } from "@/lib/serverRootPath";
 
 export type CockpitPolicyView = components["schemas"]["CockpitPolicyView"];
 export type CockpitPolicyUpdate = components["schemas"]["CockpitPolicyUpdate"];
+export type CockpitPolicyRuntime = components["schemas"]["CockpitPolicyRuntime"];
+export type CockpitPolicyApply = components["schemas"]["CockpitPolicyApply"];
 export type CockpitRoutingRule = components["schemas"]["CockpitRoutingRule"];
 export type PolicyView = components["schemas"]["PolicyView"];
 export type AccountPoolRoutingStatus = components["schemas"]["AccountPoolRoutingStatus"];
@@ -123,6 +125,49 @@ export const getAccountPoolCockpitPolicy = async (accessToken: string) =>
 
 export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate) =>
   readCockpitPolicyResponse(await apiClient.put<unknown>("/account_pool/cockpit/policy", { accessToken, body }));
+
+const cockpitPolicyRuntimeShape = {
+  persisted_revision: z.string().regex(/^"sha256-[a-f0-9]{64}"$/),
+  active_revision: z
+    .string()
+    .regex(/^"sha256-[a-f0-9]{64}"$/)
+    .nullable(),
+  apply_supported: z.boolean(),
+  blocked_reason: z.enum(["non_policy_change", "unsupported_policy", "runtime_unavailable"]).nullable(),
+};
+const cockpitPolicyRuntimeResponse: z.ZodType<CockpitPolicyRuntime> = z
+  .object(cockpitPolicyRuntimeShape)
+  .refine(
+    (data) =>
+      data.apply_supported === (data.blocked_reason === null) &&
+      (data.active_revision === null) === (data.blocked_reason === "runtime_unavailable"),
+  );
+
+export const getAccountPoolCockpitPolicyRuntime = async (accessToken: string): Promise<CockpitPolicyRuntime> => {
+  const result = cockpitPolicyRuntimeResponse.safeParse(
+    await apiClient.get<unknown>("/account_pool/cockpit/policy/runtime", { accessToken, cache: "no-store" }),
+  );
+  if (!result.success) throw new Error("运行状态响应无效，必须重新检查");
+  return result.data;
+};
+
+export const applyAccountPoolCockpitPolicy = async (
+  accessToken: string,
+  body: CockpitPolicyApply,
+): Promise<CockpitPolicyRuntime> => {
+  const result = cockpitPolicyRuntimeResponse.safeParse(
+    await apiClient.post<unknown>("/account_pool/cockpit/policy/apply", { accessToken, body }),
+  );
+  if (!result.success) throw new Error("应用结果未确认，必须重新检查运行状态并核对保存版本");
+  const confirmed =
+    result.data.apply_supported &&
+    result.data.persisted_revision === body.revision &&
+    result.data.active_revision === body.revision;
+  if (!confirmed) {
+    throw new Error("应用结果未确认，必须重新检查运行状态并核对保存版本");
+  }
+  return result.data;
+};
 
 const policyPath = (cardId: string) => `/account_pool/environments/${encodeURIComponent(cardId)}/policy`;
 

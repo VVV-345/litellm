@@ -4,11 +4,21 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final, Literal, Self
 from urllib.parse import quote, urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, TypeAdapter, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    SecretStr,
+    TypeAdapter,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 _ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
@@ -67,6 +77,26 @@ class CockpitAdminConfig(BaseModel):
 class CockpitFailure:
     category: Literal["transport", "http", "precondition", "invalid_input", "invalid_response"]
     status_code: int | None = None
+    code: Literal["non_policy_change", "unsupported_policy"] | None = None
+
+
+class RuntimeSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    persisted_revision: str = Field(alias="persistedRevision", pattern=_ETAG)
+    active_revision: Annotated[str, Field(pattern=_ETAG)] | None = Field(alias="activeRevision")
+    apply_supported: bool = Field(alias="applySupported")
+    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None = Field(
+        alias="blockedReason"
+    )
+
+    @model_validator(mode="after")
+    def consistent_activation(self) -> Self:
+        if self.apply_supported != (self.blocked_reason is None):
+            raise ValueError("Inconsistent runtime capability")
+        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
+            raise ValueError("Unknown runtime must remain unavailable")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,7 +151,7 @@ class CockpitAdminClient:
         self,
         method: str,
         path: str,
-        expected: int,
+        expected: int | tuple[int, ...],
         *,
         content: bytes | None = None,
         condition: tuple[str, str] | None = None,
@@ -140,11 +170,44 @@ class CockpitAdminClient:
             )
         except httpx.HTTPError:
             return CockpitFailure("transport")
-        if response.status_code != expected:
+        if response.status_code not in ((expected,) if isinstance(expected, int) else expected):
             return CockpitFailure(
                 "precondition" if response.status_code in {412, 428} else "http", response.status_code
             )
         return response
+
+    async def read_policy_runtime(self) -> RuntimeSnapshot | CockpitFailure:
+        return await self._policy_runtime()
+
+    async def apply_policy(self, revision: str) -> RuntimeSnapshot | CockpitFailure:
+        if not re.fullmatch(_ETAG, revision):
+            return CockpitFailure("invalid_input")
+        return await self._policy_runtime(revision)
+
+    async def _policy_runtime(self, revision: str | None = None) -> RuntimeSnapshot | CockpitFailure:
+        result: Final = await self._request(
+            "GET" if revision is None else "POST",
+            "policy-runtime" if revision is None else "policy-apply",
+            (200, 422),
+            condition=("If-Match", revision) if revision is not None else None,
+        )
+        if isinstance(result, CockpitFailure):
+            return result
+        try:
+            if result.status_code == 422:
+                error: Final = _JSON.validate_json(result.content).get("error")
+                code: Final = error.get("code") if isinstance(error, dict) else None
+                if isinstance(code, str) and (code == "non_policy_change" or code == "unsupported_policy"):
+                    return CockpitFailure("http", 422, code)
+                return CockpitFailure("invalid_response", 422)
+            snapshot: Final = RuntimeSnapshot.model_validate_json(result.content)
+        except ValidationError:
+            return CockpitFailure("invalid_response", result.status_code)
+        if revision is not None and (
+            snapshot.persisted_revision != revision or snapshot.active_revision != revision or not snapshot.apply_supported
+        ):
+            return CockpitFailure("invalid_response", result.status_code)
+        return snapshot
 
     async def read_manifest(self) -> ManifestSnapshot | CockpitFailure:
         result: Final = await self._request("GET", "manifest", 200)
