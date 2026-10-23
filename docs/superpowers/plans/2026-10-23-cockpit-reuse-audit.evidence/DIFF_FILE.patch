@@ -43,7 +43,7 @@
 +| 同卡和跨卡续聊，尤其 reasoning 密文 | 项目当前保存完整可见历史并有严格重放边界；Cockpit 有本地历史/检查点尝试恢复，但跨账号密文是否被供应商接受仍待真实请求 | 先完成无真实上游的状态机/序列化测试；跨卡密文只在明确批准的隔离账号和低风险请求验证，未通过时保持该路径关闭 |
 +| Cockpit 支持的供应商、UI/API 和项目能力覆盖 | Cockpit Rust/Go 引擎及当前项目各自适配范围不相同；已有 provider-settings gate 仅是窄范围功能 | 为目标供应商和管理工作流建立功能矩阵，以真实配置消费者和测试为依据；不可用能力列入差异清单 |
 +| Cockpit 源码许可对目标部署/分发的影响 | Cockpit 自有源整体为 CC BY-NC-SA 4.0，vendored CLIProxyAPI 为 MIT | 复制或分发前由用户确认许可适用性；不能因 Go 子仓 MIT 推断 Cockpit 自有模块同许可 |
-@@ -57 +58,68 @@
+@@ -57 +58,70 @@
 -## 执行计划
 +## Cockpit 整体替换执行计划
 +
@@ -62,10 +62,12 @@
 +
 +**目标：** 判断固定 Cockpit 是否能作为目标后台运行，不因桌面应用或单元测试代码存在就假定生产服务能力。
 +
-+- [ ] 分别审阅固定 Cockpit Rust 原生引擎和 Go CLIProxyAPI 引擎的启动入口、HTTP API、账号存储、认证、健康检查、日志及管理界面依赖
-+- [ ] 验证选定引擎是否可在目标 Linux/Docker 形态无桌面运行；记录容器构建、配置、端口、数据卷和升级方式
++- [x] 审阅固定 Cockpit Rust CLI/core、Tauri 桌面入口与 Go sidecar 的启动入口、HTTP API、账号存储、认证及管理界面依赖；确认 Rust CLI 不是 HTTP 服务，Go sidecar 才是可独立启动的数据面
++- [ ] 验证选定 Go sidecar 在目标 Linux/Docker 形态无桌面运行；已加入容器入口、Compose 示例和 `/healthz`，但本机 Docker Linux daemon 不可用，镜像构建及容器内验证仍未完成
 +- [ ] 验证单实例重启、持久化、备份/恢复和并发访问；多副本、锁和账号一致性作为独立门槛
-+- [ ] 核对 Cockpit 自有代码与 vendored CLIProxyAPI 的许可证及发布义务
++- [x] 核对 Cockpit 自有代码与 vendored CLIProxyAPI 的许可证及发布义务；Cockpit 自有代码为 CC BY-NC-SA 4.0，vendored CLIProxyAPI 为 MIT，分发前仍需确认适用性
++
++**阶段 B 当前结果（2026-10-23）：** Go sidecar `go test -mod=readonly ./...` 通过，Linux/amd64 无 CGO 交叉构建通过；隔离进程启动后，匿名 `/healthz` 返回 200、有效 API Key 可读模型和额度端点、缺少 API Key 的模型请求返回 401。Compose 文件可解析。Docker daemon 未启动，实际镜像构建未验证；Rust 定向测试因缺少 MSVC `link.exe` 在依赖编译时停止。新增的服务镜像仍读取静态 manifest，尚无账号管理 REST API，因此这不是整体后台替换完成，也未满足阶段 B 全部验收条件。完整命令与输出见 `2026-10-23-cockpit-reuse-audit.evidence/VERIFICATION.txt`。
 +
 +**验收：** 选定一个可构建、可运行并能持久保存账号状态的后台形态；失败即记录为整体替换阻断项，不以现有 CLIProxyAPI 容器代替证明。
 +
