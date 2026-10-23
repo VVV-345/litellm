@@ -304,3 +304,47 @@ MODIFIED_FILE remains goal-applied after rollback: True
 One intermediate transaction wrapper exited 3 because PowerShell captured diagnostic text together with the function return value. That wrapper result was rejected; the corrected run above emitted the literal outputs and the baseline/modified/rollback checks passed with the recorded expected statuses.
 
 Executable artifact source hash (before Git index mode check): ROLLBACK.sh SHA-256 9432257fe545df433071f3d48f0cd03c3dfcc759cec4ad9282f652f4d04e15a3
+
+COCKPIT BACKEND REPLACEMENT PLAN CORRECTION (2026-10-23)
+
+Current bound object: `docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md` in branch `codex/cockpit-reuse-plan`.
+User intent: Cockpit is the target backend for an overall backend migration. Existing quota failover, retry, and conversation behavior are compatibility acceptance criteria, not a requirement for LiteLLM to remain the permanent backend owner.
+Changed document fields: title, goal, target architecture, migration constraints, replacement/reuse matrix, unresolved questions, and the phased Cockpit replacement route. The earlier identity/settings adaptation plan is explicitly labeled historical evidence, not the replacement execution sequence.
+No business source code was changed. No Python, Go, UI, Docker, database, or real-provider tests were run in this documentation-only correction.
+
+Continuation baseline:
+Path: `docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/CONTINUATION_BASELINE.md`
+SHA-256: `45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b`
+Target before edit SHA-256: same as continuation baseline.
+
+First plan-contract check attempt:
+The required marker used `Cockpit 整体后台替换执行计划`, while the section heading was `Cockpit 整体替换执行计划`. This checker typo caused a false failure; the plan itself was not changed by the check. The attempt was rejected and rerun with the exact heading marker.
+First attempt MODIFIED stdout: `FAIL missing=1 forbidden=0` and `missing: Cockpit 整体后台替换执行计划`.
+First attempt MODIFIED exit status: 1.
+
+Corrected contract check used the same required and forbidden markers for BASELINE, MODIFIED_FILE, and ROLLBACK_COPY.
+Required markers: `Cockpit 整体替换执行计划`, `目标架构：`, `替换阶段 B：验证 Cockpit 服务化`, `替换阶段 D：实现 Cockpit 后台接管`, `替换阶段 E：行为兼容与差异验收`, `额度耗尽换卡`, `跨卡续聊`, `回滚`.
+Forbidden markers: `LiteLLM 号池是账号路由和重试的唯一 owner`, `继续由 LiteLLM 网关执行`.
+BASELINE stdout: `FAIL missing=6 forbidden=2`; missing markers: `Cockpit 整体替换执行计划; 目标架构：; 替换阶段 B：验证 Cockpit 服务化; 替换阶段 D：实现 Cockpit 后台接管; 替换阶段 E：行为兼容与差异验收; 跨卡续聊`; forbidden markers found: `LiteLLM 号池是账号路由和重试的唯一 owner; 继续由 LiteLLM 网关执行`.
+BASELINE stderr: empty. BASELINE exit status: 1.
+MODIFIED_FILE stdout: `PASS required=8 forbidden=0`.
+MODIFIED_FILE stderr: empty. MODIFIED_FILE exit status: 0.
+ROLLBACK_COPY stdout: same as BASELINE above.
+ROLLBACK_COPY stderr: empty. ROLLBACK contract exit status: 1.
+
+Rollback command: `C:\Program Files\Git\bin\bash.exe ROLLBACK.sh <separate-temporary-copy-of-MODIFIED_FILE>`.
+Rollback script stdout/stderr: empty. Rollback script exit status: 0.
+ROLLBACK_COPY SHA-256: `45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b`.
+Rollback hash equals CONTINUATION_BASELINE: `True`.
+
+DIFF_FILE generation: `diff.exe -U0 --label CONTINUATION_BASELINE.md --label MODIFIED_FILE.md CONTINUATION_BASELINE.md MODIFIED_FILE.md`; stdout redirected to `DIFF_FILE.patch`. Exit status: 1, expected because files differ.
+Patch reconstruction: `patch.exe -s -o RECONSTRUCTED.md CONTINUATION_BASELINE.md -i DIFF_FILE.patch`. Stdout/stderr: empty. Exit status: 0.
+MODIFIED_FILE SHA-256: `aad09024d735f047f06d8ee84bafe32e9634a74e2b76afc97743a92f15c58695`.
+RECONSTRUCTED SHA-256: same as MODIFIED_FILE. Byte-for-byte reconstruction: `True`.
+`git diff --check` stdout/stderr: empty. Exit status: 0.
+
+Four role paths:
+MODIFIED_FILE: `C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.md`
+DIFF_FILE: `C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\DIFF_FILE.patch`
+VERIFICATION.txt: `C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\VERIFICATION.txt`
+ROLLBACK.sh: `C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\ROLLBACK.sh`
