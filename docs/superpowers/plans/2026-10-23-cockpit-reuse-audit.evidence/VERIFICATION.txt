@@ -666,3 +666,83 @@ NEXT: D2 dry-run identity/account scope and provider compatibility mapping tests
 
 Evidence formatting correction: initial appended Windows CRLF produced doubled carriage returns in the readable ledger; removed duplicate CR only. Exact subprocess output remains JSON escaped in task-1-management-checks.json.
 Supplemental code patch generated with --unified=0 so diff context-only blank lines do not trigger evidence-file whitespace checks; apply with git apply --unidiff-zero. Original code is retained by its commit.
+
+
+ADMINISTRATOR POLICY DIRECTION, 2026-10-23
+TARGET: same isolated plan role; baseline commit 802b1d0065; goal: explicit sole Cockpit owner plus page-editable policy, supplier capability gates, non-bypassable safety boundaries, versioned activation. Runtime code not changed this turn. No build, deployment, push or service mutation.
+Direction structure check: BASELINE direction_missing=7 (exit 1), MODIFIED direction_missing=0 (exit 0), ROLLBACK direction_missing=7 (exit 1). This checks document requirements, not product implementation. Exact pre-turn copy restored byte-for-byte; original sibling rollback also verified; modified plan reapplied from reconstructed patch.
+Prior runtime smoke retained, not rerun: BASELINE GET /account_pool/cockpit/status 404, MODIFIED 200 no-store safe summary, ROLLBACK 404; all smoke process exits 0, restored endpoint hash matches pristine. Historical 355/431 results not claimed as new tests.
+Preparation command error: Get-Content .../policies.py -TotalCount sixty exited 1 due invalid Int64; corrected -TotalCount 60 exited 0. No source mutation.
+
+DIRECTION_BASELINE
+COMMAND: ["D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\direction_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\direction-BASELINE.md"]
+STDOUT:
+direction_missing=7
+STDERR:
+EXIT: 1
+
+DIRECTION_MODIFIED
+COMMAND: ["D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\direction_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+STDOUT:
+direction_missing=0
+STDERR:
+EXIT: 0
+
+DIFF_GENERATION exit 1 (expected difference); literal stdout is DIFF_FILE.patch and direction-verification.json; stderr empty
+
+PATCH_RECONSTRUCTION
+COMMAND: ["C:/Program Files/Git/usr/bin/patch.exe", "--binary", "-s", "-o", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-reconstructed.md", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md", "-i", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"]
+STDOUT:
+STDERR:
+EXIT: 0
+
+EXACT_PRETURN_ROLLBACK
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-rollback.md", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\direction-BASELINE.md"]
+STDOUT:
+STDERR:
+EXIT: 0
+
+DIRECTION_ROLLBACK
+COMMAND: ["D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\direction_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-rollback.md"]
+STDOUT:
+direction_missing=7
+STDERR:
+EXIT: 1
+
+ORIGINAL_ROLE_ROLLBACK
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-pristine-rollback.md"]
+STDOUT:
+STDERR:
+EXIT: 0
+
+ORIGINAL_CONTRACT_BASELINE
+COMMAND: ["D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md"]
+STDOUT:
+missing=7 forbidden=2
+STDERR:
+EXIT: 1
+
+ORIGINAL_CONTRACT_MODIFIED
+COMMAND: ["D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+STDOUT:
+missing=0 forbidden=0
+STDERR:
+EXIT: 0
+
+ORIGINAL_CONTRACT_ROLLBACK
+COMMAND: ["D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-pristine-rollback.md"]
+STDOUT:
+missing=7 forbidden=2
+STDERR:
+EXIT: 1
+
+HASHES:
+{
+  "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\direction-BASELINE.md": "38431d627e99316c4507f8c887808ff63f24e4a4ebcdc843c8023b39c8360279",
+  "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md": "d801ce26d8f9feea2e1f55f29d974796c8344c87190efc511b1b69024a3e1adf",
+  "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md": "45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b",
+  "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-rollback.md": "38431d627e99316c4507f8c887808ff63f24e4a4ebcdc843c8023b39c8360279",
+  "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-pristine-rollback.md": "45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b",
+  "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\direction-reconstructed.md": "d801ce26d8f9feea2e1f55f29d974796c8344c87190efc511b1b69024a3e1adf"
+}
+Next unfinished operation remains D2.1 account/subject scope preflight; D1 not repeated. Both UI entrypoints must share a single policy source if enabled; editable policies remain goals until runtime and provider tests exist.

@@ -119,6 +119,39 @@
 
 限制：以上为离线/mock 契约，不是运行中 Cockpit、PostgreSQL、容器、浏览器 UI 或真实供应商证明。独立审阅代理连续遇到加密上下文启动错误，未产生审阅结论；本轮只完成主执行者复查和自动检查。未执行镜像构建、部署、push 或凭据迁移，默认模型请求链路与页面未切换
 
+### 管理员可配置策略执行约定（2026-10-23）
+
+本节采用用户本轮确认的整合方向，扩充 D2 的实现和验收要求，不宣称下面的策略已经接入。只在既有隔离分支编写、测试和本地提交代码，不构建镜像、不推送、不部署
+
+**唯一执行方：** 完成迁移后，Cockpit 负责路由、重试、额度换卡和续聊决策；LiteLLM 负责公共 API、下游用户认证/授权与标准用量统计。Manager 可以承担页面工作流和同步，不得作为第二套模型请求选卡/重试后台。不能将当前 D1 只读状态接口当作策略编辑已完成
+
+**管理入口：** 优先沿用现有号池页面，通过 LiteLLM 管理鉴权和服务端适配器读写 Cockpit 策略；浏览器不持有 Cockpit 管理 Token，不直接编辑 raw manifest。如果以后同时开放 Cockpit 管理界面，两个管理界面必须读写同一份版本化策略，不能各自写一份配置再双向覆盖。持久化 revision 与运行中 revision 分开，冲突返回 409/412 并要求重新读取，不以最后写入者无条件覆盖
+
+| 管理员配置目标 | 现有 LiteLLM 字段或行为 | Cockpit 接管时必须实现与验收 |
+| --- | --- | --- |
+| 卡片启用状态 | 卡片启用/停用、可用性 | 当前 accountSpec 没有同名启用字段，须补目标运行态语义；停用卡立即退出新请求候选，亲和性不能重新选中它；不擅自中止在途请求 |
+| 候选账号范围 | RoutingPolicy.preferred_account_ids、卡片 Key scope | preferred 不等于授权范围；候选范围只能缩小，不能扩大主体授权范围。空候选、全部停用或不支持供应商时明确拒绝，不退回整个账号池；Cockpit apiKeySpec.accountIds 是授权映射输入，必须与认证主体绑定 |
+| 优先级、权重、备用卡 | RoutingPolicy.priority/weight/is_backup | Cockpit customRoutingRules 有对应字段，但须核验排序方向、权重算法和备用卡触发条件；不把字段同名视为行为等价。按作用域配置不能被全局规则覆盖 |
+| 路由策略 | RoutingPolicy.strategy、AccountPoolSettings.default_route | 与 Cockpit routingStrategy/customRoutingRules 逐枚举匹配；未支持的 plan/expiry/custom 或供应商组合明确禁用，禁止默默改成 auto |
+| 是否故障换卡 | RoutingPolicy.fallback_enabled、额度换卡规则 | 区分额度耗尽与普通限流/可恢复故障；关闭对应换卡策略时返回明确错误，不偷偷切其他卡。移植前保留两类现有开关语义，不将它们合并成一个未经确认的新默认 |
+| 重试次数和退避 | RoutingPolicy.max_attempts/retryable_statuses/backoff_ms，request_retry | 重试次数不包含首次请求；max_attempts 是包含首次的总尝试数，映射显式转换。限定次数、总时限和可恢复错误，0 次不做额外重试；重试与跨卡尝试共享 Cockpit 的单一预算，LiteLLM 不再叠加 |
+| 冷却策略 | max_retry_interval、手工冷却、供应商 retry-after/额度重置 | 退避上限不等于账号冷却时长。分别建模手工停用、普通限流和额度耗尽；配置不能绕过上游强制等待或把尚未恢复的账号标为 ready |
+| 会话亲和性 | RoutingPolicy.session_affinity/session_affinity_ttl | 明确 scope、TTL、账号失效与过期清理；亲和性不扩展授权。安全历史不完整或账号切换不满足恢复条件时拒绝重放，而不是为保持会话强行请求 |
+
+字段依据：`account-pool/account_pool/policies.py` 的 RoutingPolicy、`account-pool/account_pool/settings.py` 的 request_retry/default_route/max_retry_interval，以及 Cockpit `sidecars/cockpit-cliproxy/manifest_policy.go` 的 apiKeySpec/accountSpec/customRoutingRule。这里只记录映射起点；每个选项还须定位实际执行函数和供应商覆盖范围
+
+**能力与生效：** 为每个配置项返回供应商、支持状态、当前值、限制和不支持原因；不支持的选项禁止保存，服务端同样拒绝。页面区分已保存、待生效、已生效；现有 manifest 写入需要重启，必须展示待生效并提供受保护的显式应用操作，不能静默重启或虚报热更新。实现运行中 revision 的读取/确认前，不得显示已生效。修改受支持的策略不需要再改代码，但不等于任何修改都立即生效
+
+**硬性边界：** 不得提供绕过安全边界的设置。主体无权使用的卡片永远不可进入候选；已输出有效内容、工具已经执行、上游执行状态不明或上下文不完整时，不得强制重放。即使直接调用管理 API 绕过前端，Cockpit 运行时也必须再次执行授权和可重放性检查
+
+**按原 D2 顺序追加验收：**
+
+- [ ] D2.1 映射预检：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
+- [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
+- [ ] D2.3 请求接管：按 scope 发布 Cockpit 路由，验证外层 retry/fallback 不会再次发请求，验证原有 LiteLLM 标准 token/spend 统计继续归属原用户/Key；客户端协议不新增内部管理 Token
+- [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
+- [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
+
 ### D2 后续代码顺序（未完成，不可切流）
 
 1. 账号/主体映射 dry-run：以数据库卡片 UUID 和已授权范围建立目标 account IDs，旧卡 Key 只有 hash，不导出或猜测旧明文。报告模型/供应商/代理/额度字段差异，无确定映射时拒绝迁移；验收空 scope、跨卡 scope、缺失凭据和不支持供应商
