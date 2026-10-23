@@ -1,0 +1,798 @@
+diff --git a/account-pool/account_pool/api.py b/account-pool/account_pool/api.py
+index 533ca45360..b19c4876e0 100644
+--- a/account-pool/account_pool/api.py
++++ b/account-pool/account_pool/api.py
+@@ -26,0 +27 @@ from account_pool.clash import ClashError
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, CockpitStatus, cockpit_status
+@@ -302,0 +304 @@ def create_router(
++    cockpit_admin: CockpitAdminClient | None = None,
+@@ -312,0 +315,11 @@ def create_router(
++    @router.get("/api/cockpit/status", dependencies=[Depends(require_manager)])
++    async def get_cockpit_status(response: Response) -> CockpitStatus:
++        response.headers["Cache-Control"] = "no-store"
++        result: Final = await cockpit_status(cockpit_admin)
++        if isinstance(result, CockpitFailure):
++            raise HTTPException(
++                503 if result.category == "transport" or result.status_code == 503 else 502,
++                "Cockpit admin status unavailable", headers={"Cache-Control": "no-store"},
++            )
++        return result
++
+diff --git a/account-pool/account_pool/app.py b/account-pool/account_pool/app.py
+index 71e9d0ad59..e96150fbec 100644
+--- a/account-pool/account_pool/app.py
++++ b/account-pool/account_pool/app.py
+@@ -7 +7 @@ import logging
+-from collections.abc import AsyncGenerator
++from collections.abc import AsyncGenerator, Callable
+@@ -12,0 +13 @@ from uuid import UUID
++import httpx
+@@ -23,0 +25 @@ from account_pool.clash import ClashController
++from account_pool.cockpit_admin import CockpitAdminClient
+@@ -65 +67,5 @@ _LOGGER: Final = logging.getLogger(__name__)
+-def create_app(settings: Settings | None = None) -> FastAPI:
++def create_app(
++    settings: Settings | None = None,
++    *,
++    cockpit_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
++) -> FastAPI:
+@@ -66,0 +73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
++    cockpit_config: Final = resolved.cockpit_admin_config()
+@@ -154,0 +162,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
++    cockpit_http: Final = cockpit_client_factory() if cockpit_config is not None else None
++    cockpit_admin: Final = (
++        CockpitAdminClient(cockpit_config, cockpit_http)
++        if cockpit_config is not None and cockpit_http is not None else None
++    )
++
+@@ -249 +262,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
+-    app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
++    @asynccontextmanager
++    async def managed_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
++        # 即使原服务初始化失败，也关闭本次创建的管理连接。
++        try:
++            async with lifespan(app):
++                yield
++        finally:
++            if cockpit_http is not None:
++                await cockpit_http.aclose()
++
++    app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=managed_lifespan)
+@@ -284,0 +308 @@ def create_app(settings: Settings | None = None) -> FastAPI:
++            cockpit_admin=cockpit_admin,
+diff --git a/account-pool/account_pool/cockpit_admin.py b/account-pool/account_pool/cockpit_admin.py
+new file mode 100644
+index 0000000000..17ec83351c
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_admin.py
+@@ -0,0 +1,259 @@
++"""封装 Cockpit 服务间管理契约，不负责选卡、重试或自动激活配置。"""
++
++from __future__ import annotations
++
++import re
++from dataclasses import dataclass, field
++from typing import Annotated, Final, Literal
++from urllib.parse import quote, urlsplit
++
++import httpx
++from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, TypeAdapter, ValidationError, field_validator
++
++_ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
++_JSON: Final = TypeAdapter(dict[str, JsonValue])
++
++
++def _valid_auth_name(name: str) -> bool:
++    return (
++        bool(name)
++        and name == name.strip()
++        and not name.startswith(".")
++        and name.lower().endswith(".json")
++        and not any(char in '/\\:*?"<>|' or ord(char) < 32 for char in name)
++    )
++
++
++class CockpitAdminConfig(BaseModel):
++    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
++
++    url: str = Field(repr=False)
++    token: SecretStr = Field(min_length=32)
++
++    @field_validator("url")
++    @classmethod
++    def validate_origin(cls, value: str) -> str:
++        try:
++            parsed: Final = urlsplit(value)
++            port: Final = parsed.port
++        except ValueError:
++            raise ValueError("Cockpit URL must be a valid HTTP(S) origin") from None
++        if (
++            parsed.scheme not in {"http", "https"}
++            or not parsed.hostname
++            or parsed.username is not None
++            or parsed.password is not None
++            or parsed.path not in {"", "/"}
++            or parsed.query
++            or parsed.fragment
++            or "?" in value
++            or "#" in value
++            or "\\" in value
++            or any(ord(char) <= 32 for char in value)
++            or (port is not None and not 1 <= port <= 65535)
++        ):
++            raise ValueError("Cockpit URL must be a credential-free HTTP(S) origin")
++        return value.rstrip("/")
++
++    @field_validator("token")
++    @classmethod
++    def validate_token(cls, value: SecretStr) -> SecretStr:
++        if any(ord(char) <= 32 or ord(char) >= 127 for char in value.get_secret_value()):
++            raise ValueError("Cockpit token must contain only printable non-space ASCII")
++        return value
++
++
++@dataclass(frozen=True, slots=True)
++class CockpitFailure:
++    category: Literal["transport", "http", "precondition", "invalid_input", "invalid_response"]
++    status_code: int | None = None
++
++
++@dataclass(frozen=True, slots=True)
++class ManifestSnapshot:
++    data: dict[str, JsonValue] = field(repr=False)
++    revision: str
++    account_count: int
++    enabled_key_count: int
++
++
++@dataclass(frozen=True, slots=True)
++class AdminReceipt:
++    status: Literal["persisted", "deleted", "restart_scheduled"]
++    revision: str | None = None
++
++
++class AuthFileMetadata(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    id: str = Field(repr=False)
++    etag: str = Field(pattern=_ETAG)
++    size: int = Field(ge=0)
++
++    @field_validator("id")
++    @classmethod
++    def validate_id(cls, value: str) -> str:
++        if not _valid_auth_name(value):
++            raise ValueError("Invalid Cockpit credential name")
++        return value
++
++
++class _ClientKey(BaseModel):
++    model_config = ConfigDict(strict=True)
++    enabled: bool = False
++
++
++class _ManifestCounts(BaseModel):
++    accounts: tuple[dict[str, JsonValue], ...] | None = None
++    apiKeys: tuple[_ClientKey, ...] | None = None
++
++
++class _AuthFiles(BaseModel):
++    files: tuple[AuthFileMetadata, ...]
++
++
++class CockpitAdminClient:
++    def __init__(self, config: CockpitAdminConfig, client: httpx.AsyncClient) -> None:
++        self._config = config
++        self._client = client
++
++    async def _request(
++        self,
++        method: str,
++        path: str,
++        expected: int,
++        *,
++        content: bytes | None = None,
++        condition: tuple[str, str] | None = None,
++    ) -> httpx.Response | CockpitFailure:
++        try:
++            response: Final = await self._client.request(
++                method,
++                self._config.url + "/admin/v1/" + path,
++                headers={
++                    "Authorization": "Bearer " + self._config.token.get_secret_value(),
++                    "Content-Type": "application/json",
++                    **(dict((condition,)) if condition else {}),
++                },
++                content=content,
++                follow_redirects=False,
++            )
++        except httpx.HTTPError:
++            return CockpitFailure("transport")
++        if response.status_code != expected:
++            return CockpitFailure(
++                "precondition" if response.status_code in {412, 428} else "http", response.status_code
++            )
++        return response
++
++    async def read_manifest(self) -> ManifestSnapshot | CockpitFailure:
++        result: Final = await self._request("GET", "manifest", 200)
++        if isinstance(result, CockpitFailure):
++            return result
++        revision: Final = next((value for key, value in result.headers.items() if key.lower() == "etag"), "")
++        if not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_response", result.status_code)
++        try:
++            data: Final = _JSON.validate_json(result.content)
++            counts: Final = _ManifestCounts.model_validate(data)
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++        return ManifestSnapshot(
++            data, revision, len(counts.accounts or ()), sum(k.enabled for k in counts.apiKeys or ())
++        )
++
++    async def write_manifest(self, data: dict[str, JsonValue], revision: str) -> AdminReceipt | CockpitFailure:
++        if not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_input")
++        return await self._mutation(
++            "PUT", "manifest", "persisted", content=_JSON.dump_json(data), condition=("If-Match", revision)
++        )
++
++    async def list_auth_files(self) -> tuple[AuthFileMetadata, ...] | CockpitFailure:
++        result: Final = await self._request("GET", "auth-files", 200)
++        if isinstance(result, CockpitFailure):
++            return result
++        try:
++            return _AuthFiles.model_validate_json(result.content).files
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++
++    async def put_auth_file(
++        self,
++        name: str,
++        content: bytes,
++        revision: str | None = None,
++    ) -> AdminReceipt | CockpitFailure:
++        if not _valid_auth_name(name) or (revision is not None and not re.fullmatch(_ETAG, revision)):
++            return CockpitFailure("invalid_input")
++        return await self._mutation(
++            "PUT",
++            "auth-files/" + quote(name, safe=""),
++            "persisted",
++            content=content,
++            condition=("If-Match", revision) if revision is not None else ("If-None-Match", "*"),
++        )
++
++    async def delete_auth_file(self, name: str, revision: str) -> AdminReceipt | CockpitFailure:
++        if not _valid_auth_name(name) or not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_input")
++        return await self._mutation(
++            "DELETE", "auth-files/" + quote(name, safe=""), "deleted", condition=("If-Match", revision)
++        )
++
++    async def restart(self) -> AdminReceipt | CockpitFailure:
++        return await self._mutation("POST", "restart", "restart_scheduled")
++
++    async def _mutation(
++        self,
++        method: str,
++        path: str,
++        status: Literal["persisted", "deleted", "restart_scheduled"],
++        *,
++        content: bytes | None = None,
++        condition: tuple[str, str] | None = None,
++    ) -> AdminReceipt | CockpitFailure:
++        result: Final = await self._request(method, path, 202, content=content, condition=condition)
++        if isinstance(result, CockpitFailure):
++            return result
++        try:
++            body: Final = _JSON.validate_json(result.content)
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++        revision: Final = result.headers["ETag"] if status == "persisted" and "ETag" in result.headers else None
++        if (
++            body.get("status") != status
++            or (status != "restart_scheduled" and body.get("restartRequired") is not True)
++            or (status == "persisted" and (revision is None or not re.fullmatch(_ETAG, revision)))
++        ):
++            return CockpitFailure("invalid_response", result.status_code)
++        return AdminReceipt(status, revision)
++
++
++class CockpitStatus(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    configured: bool
++    account_count: int = Field(default=0, ge=0)
++    enabled_key_count: int = Field(default=0, ge=0)
++    credential_count: int = Field(default=0, ge=0)
++    persisted_manifest_revision: Annotated[str, Field(pattern=_ETAG)] | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++
++
++async def cockpit_status(client: CockpitAdminClient | None) -> CockpitStatus | CockpitFailure:
++    if client is None:
++        return CockpitStatus(configured=False)
++    manifest: Final = await client.read_manifest()
++    if isinstance(manifest, CockpitFailure):
++        return manifest
++    files: Final = await client.list_auth_files()
++    if isinstance(files, CockpitFailure):
++        return files
++    return CockpitStatus(
++        configured=True,
++        account_count=manifest.account_count,
++        enabled_key_count=manifest.enabled_key_count,
++        credential_count=len(files),
++        persisted_manifest_revision=manifest.revision,
++    )
+diff --git a/account-pool/account_pool/config.py b/account-pool/account_pool/config.py
+index 73585e2b16..ed0be2b4e1 100644
+--- a/account-pool/account_pool/config.py
++++ b/account-pool/account_pool/config.py
+@@ -9 +9 @@ from urllib.parse import urlsplit
+-from pydantic import Field, SecretStr, field_validator
++from pydantic import Field, SecretStr, field_validator, model_validator
+@@ -11,0 +12,2 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
++from account_pool.cockpit_admin import CockpitAdminConfig
++
+@@ -31 +33 @@ class Settings(BaseSettings):
+-    model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_", frozen=True)
++    model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_", frozen=True, hide_input_in_errors=True)
+@@ -35,0 +38,2 @@ class Settings(BaseSettings):
++    cockpit_admin_url: str | None = Field(default=None, repr=False)
++    cockpit_admin_token: SecretStr | None = Field(default=None, min_length=32)
+@@ -84,0 +89,12 @@ class Settings(BaseSettings):
++    @model_validator(mode="after")
++    def validate_cockpit_admin(self) -> "Settings":
++        self.cockpit_admin_config()
++        return self
++
++    def cockpit_admin_config(self) -> CockpitAdminConfig | None:
++        if self.cockpit_admin_url is None and self.cockpit_admin_token is None:
++            return None
++        if self.cockpit_admin_url is None or self.cockpit_admin_token is None:
++            raise ValueError("Cockpit admin URL and token must both be configured")
++        return CockpitAdminConfig(url=self.cockpit_admin_url, token=self.cockpit_admin_token)
++
+diff --git a/account-pool/tests/account_pool/test_cockpit_admin.py b/account-pool/tests/account_pool/test_cockpit_admin.py
+new file mode 100644
+index 0000000000..4f365f7103
+--- /dev/null
++++ b/account-pool/tests/account_pool/test_cockpit_admin.py
+@@ -0,0 +1,244 @@
++"""验证 Cockpit 服务端管理契约，不连接真实供应商或执行切流。"""
++
++from __future__ import annotations
++
++import json
++from typing import Final
++
++import httpx
++import pytest
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig, CockpitFailure, ManifestSnapshot
++from pydantic import SecretStr
++
++_ETAG: Final = '"sha256-' + "a" * 64 + '"'
++_NEXT: Final = '"sha256-' + "b" * 64 + '"'
++_CONFIG: Final = {"url": "http://cockpit.test:8317", "token": SecretStr("s" * 32)}
++_MANIFEST: Final = {
++    "accounts": [{"id": "private-id", "email": "private@example.test"}],
++    "apiKeys": [{"key": "private-key", "enabled": True}, {"enabled": False}],
++    "future": {"nested": [1, None, "preserve"]},
++}
++
++
++@pytest.mark.asyncio
++async def test_manifest_roundtrip_preserves_unknown_fields_and_uses_conditional_write() -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        assert request.headers["authorization"] == "Bearer " + "s" * 32
++        if request.method == "GET":
++            return httpx.Response(200, json=_MANIFEST, headers={"ETag": _ETAG})
++        assert request.headers["if-match"] == _ETAG
++        assert json.loads(request.content) == _MANIFEST
++        return httpx.Response(202, json={"status": "persisted", "restartRequired": True}, headers={"ETag": _NEXT})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client: Final = CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http)
++        snapshot: Final = await client.read_manifest()
++        assert isinstance(snapshot, ManifestSnapshot)
++        assert snapshot.account_count == 1
++        assert snapshot.enabled_key_count == 1
++        assert snapshot.revision == _ETAG
++        result: Final = await client.write_manifest(snapshot.data, snapshot.revision)
++        assert not isinstance(result, CockpitFailure)
++        assert result.revision == _NEXT
++    assert [(r.method, r.url.path) for r in requests] == [("GET", "/admin/v1/manifest"), ("PUT", "/admin/v1/manifest")]
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "status,category", [(302, "http"), (412, "precondition"), (428, "precondition"), (503, "http")]
++)
++async def test_errors_are_sanitized_and_never_retried_or_redirected(status: int, category: str) -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        return httpx.Response(status, text="PRIVATE-TOKEN", headers={"Location": "http://private.test/token"})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle), follow_redirects=True) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).read_manifest()
++    assert isinstance(result, CockpitFailure)
++    assert result.category == category and result.status_code == status
++    assert len(requests) == 1
++    assert "PRIVATE" not in repr(result) and "private.test" not in repr(result)
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "content,etag",
++    [
++        (b"not json", _ETAG),
++        (b"[]", _ETAG),
++        (b"{}", ""),
++        (b"{}", "W/" + _ETAG),
++        (b'{"accounts":"secret"}', _ETAG),
++        (b'{"apiKeys":[{"enabled":"true"}]}', _ETAG),
++    ],
++)
++async def test_invalid_manifest_success_is_not_reported_as_healthy(content: bytes, etag: str) -> None:
++    async with httpx.AsyncClient(
++        transport=httpx.MockTransport(lambda _: httpx.Response(200, content=content, headers={"ETag": etag}))
++    ) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).read_manifest()
++    assert isinstance(result, CockpitFailure) and result.category == "invalid_response"
++
++
++@pytest.mark.asyncio
++async def test_transport_error_does_not_expose_private_url() -> None:
++    def handle(request: httpx.Request) -> httpx.Response:
++        raise httpx.ConnectError("private-token-private-url", request=request)
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).read_manifest()
++    assert isinstance(result, CockpitFailure) and result.category == "transport"
++    assert "private" not in repr(result)
++
++
++@pytest.mark.asyncio
++async def test_credentials_have_conditional_mutations_and_restart_is_explicit() -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        if request.method == "GET":
++            return httpx.Response(200, json={"files": [{"id": "credential.json", "etag": _ETAG, "size": 16}]})
++        if request.method == "POST":
++            return httpx.Response(202, json={"status": "restart_scheduled"})
++        if request.method == "DELETE":
++            assert request.headers["if-match"] == _NEXT
++            return httpx.Response(202, json={"status": "deleted", "restartRequired": True})
++        assert request.content == b'{"type":"codex"}'
++        if "if-none-match" in request.headers:
++            assert request.headers["if-none-match"] == "*" and "if-match" not in request.headers
++        else:
++            assert request.headers["if-match"] == _ETAG
++        return httpx.Response(202, json={"status": "persisted", "restartRequired": True}, headers={"ETag": _NEXT})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client: Final = CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http)
++        files: Final = await client.list_auth_files()
++        assert not isinstance(files, CockpitFailure) and files[0].id == "credential.json"
++        assert not isinstance(await client.put_auth_file("credential.json", b'{"type":"codex"}'), CockpitFailure)
++        assert not isinstance(await client.put_auth_file("credential.json", b'{"type":"codex"}', _ETAG), CockpitFailure)
++        assert not isinstance(await client.delete_auth_file("credential.json", _NEXT), CockpitFailure)
++        assert all(r.url.path != "/admin/v1/restart" for r in requests)
++        assert not isinstance(await client.restart(), CockpitFailure)
++    assert len(requests) == 5 and requests[-1].url.path == "/admin/v1/restart"
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("name", ["../a.json", "..\\a.json", ".a.json", "a.json?x", "a.json#x", "a.json\n", "a.txt"])
++async def test_invalid_credential_names_never_reach_transport(name: str) -> None:
++    def handle(_: httpx.Request) -> httpx.Response:
++        pytest.fail("invalid name reached transport")
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client: Final = CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http)
++        for result in (await client.put_auth_file(name, b"{}"), await client.delete_auth_file(name, _ETAG)):
++            assert isinstance(result, CockpitFailure) and result.category == "invalid_input"
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "body",
++    [
++        {"status": "persisted"},
++        {"status": "persisted", "restartRequired": False},
++        {"status": "persisted", "restartRequired": 1},
++        {"status": "active", "restartRequired": True},
++    ],
++)
++async def test_mutation_requires_literal_persisted_and_restart_required(body: dict[str, object]) -> None:
++    async with httpx.AsyncClient(
++        transport=httpx.MockTransport(lambda _: httpx.Response(202, json=body, headers={"ETag": _NEXT}))
++    ) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).write_manifest({}, _ETAG)
++    assert isinstance(result, CockpitFailure) and result.category == "invalid_response"
++
++
++@pytest.mark.asyncio
++async def test_real_world_auth_file_names_are_encoded_without_changing_identity() -> None:
++    name: Final = "codex-user@example.test-plus.json"
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        assert request.url.path == "/admin/v1/auth-files/" + name
++        return httpx.Response(202, headers={"ETag": _NEXT}, json={"status": "persisted", "restartRequired": True})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).put_auth_file(name, b"{}")
++    assert not isinstance(result, CockpitFailure)
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("revision", ["*", "", "bad", "W/" + _ETAG, _ETAG + ", " + _NEXT])
++async def test_invalid_revisions_are_rejected_before_network(revision: str) -> None:
++    def handle(_: httpx.Request) -> httpx.Response:
++        pytest.fail("invalid revision reached transport")
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client: Final = CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http)
++        for result in (
++            await client.write_manifest({}, revision),
++            await client.put_auth_file("auth.json", b"{}", revision),
++            await client.delete_auth_file("auth.json", revision),
++        ):
++            assert isinstance(result, CockpitFailure) and result.category == "invalid_input"
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "payload",
++    [
++        {},
++        {"files": None},
++        {"files": [{"id": "../x.json", "etag": _ETAG, "size": 1}]},
++        {"files": [{"id": "x.json", "etag": "bad", "size": 1}]},
++        {"files": [{"id": "x.json", "etag": _ETAG, "size": -1}]},
++    ],
++)
++async def test_invalid_credential_metadata_is_rejected(payload: dict[str, object]) -> None:
++    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload))) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).list_auth_files()
++    assert isinstance(result, CockpitFailure) and result.category == "invalid_response"
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("name", ["账号.json", "codex#user%.json"])
++async def test_supported_cockpit_names_remain_usable_without_url_injection(name: str) -> None:
++    def handle(request: httpx.Request) -> httpx.Response:
++        assert request.url.path == "/admin/v1/auth-files/" + name
++        assert request.url.query == b"" and request.url.fragment == ""
++        return httpx.Response(202, headers={"ETag": _NEXT}, json={"status": "persisted", "restartRequired": True})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        result: Final = await CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http).put_auth_file(name, b"{}")
++    assert not isinstance(result, CockpitFailure)
++
++
++@pytest.mark.parametrize("url", ["http://cockpit.test:SECRET-PORT", "http://[SECRET-HOST]"])
++def test_invalid_origin_parser_errors_do_not_echo_private_values(url: str) -> None:
++    with pytest.raises(ValueError) as error:
++        CockpitAdminConfig(url=url, token=SecretStr("s" * 32))
++    assert "SECRET" not in str(error.value)
++
++
++@pytest.mark.asyncio
++async def test_cockpit_mutation_preconditions_do_not_trigger_retry_or_restart() -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        return httpx.Response(412, text="PRIVATE-CONFLICT")
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client: Final = CockpitAdminClient(CockpitAdminConfig(**_CONFIG), http)
++        for result in (
++            await client.write_manifest({}, _ETAG),
++            await client.put_auth_file("auth.json", b"{}", _ETAG),
++            await client.delete_auth_file("auth.json", _ETAG),
++        ):
++            assert isinstance(result, CockpitFailure) and result.category == "precondition"
++            assert result.status_code == 412
++    assert len(requests) == 3 and all(r.url.path != "/admin/v1/restart" for r in requests)
+diff --git a/account-pool/tests/account_pool/test_management.py b/account-pool/tests/account_pool/test_management.py
+index 219b3dc1e6..16b4e73bc6 100644
+--- a/account-pool/tests/account_pool/test_management.py
++++ b/account-pool/tests/account_pool/test_management.py
+@@ -770,0 +771,50 @@ def test_policy_reset_reapplies_the_winning_policy_when_the_version_changes() ->
++
++@pytest.mark.parametrize("enabled", [False, True])
++def test_cockpit_manager_status_is_protected_and_redacted(tmp_path: Path, enabled: bool) -> None:
++    from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig
++    from pydantic import SecretStr
++
++    requests: Final[list[str]] = []
++    revision: Final = '"sha256-' + 'a' * 64 + '"'
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request.url.path)
++        if request.url.path == "/admin/v1/manifest":
++            return httpx.Response(200, headers={"ETag": revision}, json={
++                "accounts": [{"id": "PRIVATE-ID", "email": "PRIVATE-EMAIL"}],
++                "apiKeys": [{"key": "PRIVATE-KEY", "enabled": True}, {"enabled": False}]})
++        return httpx.Response(200, json={"files": [{"id": "private.json", "etag": revision, "size": 20}]})
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++    app: Final = FastAPI()
++    from test_account_pool import _service
++    app.include_router(create_router(_service(_record(status=EnvironmentStatus.READY), FakeCLIProxy(), tmp_path),
++                                    "m" * 32, cockpit_admin=admin if enabled else None))
++    with TestClient(app) as client:
++        assert client.get("/api/cockpit/status").status_code == 401
++        assert requests == []
++        response: Final = client.get("/api/cockpit/status", headers={"Authorization": "Bearer " + "m" * 32})
++    asyncio.run(http.aclose())
++    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
++    assert response.json() == {"configured": enabled, "account_count": 1 if enabled else 0,
++        "enabled_key_count": 1 if enabled else 0, "credential_count": 1 if enabled else 0,
++        "persisted_manifest_revision": revision if enabled else None,
++        "runtime_activation": "restart_required_or_unverified"}
++    assert "PRIVATE" not in response.text and "private.json" not in response.text
++    assert len(requests) == (2 if enabled else 0)
++
++
++def test_cockpit_manager_failure_is_not_reported_as_unconfigured(tmp_path: Path) -> None:
++    from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig
++    from pydantic import SecretStr
++    from test_account_pool import _service
++
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(503, text="PRIVATE")))
++    app: Final = FastAPI()
++    app.include_router(create_router(_service(_record(status=EnvironmentStatus.READY), FakeCLIProxy(), tmp_path),
++        "m" * 32, cockpit_admin=CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test",
++        token=SecretStr("s" * 32)), http)))
++    with TestClient(app) as client:
++        response: Final = client.get("/api/cockpit/status", headers={"Authorization": "Bearer " + "m" * 32})
++    asyncio.run(http.aclose())
++    assert response.status_code == 503 and "PRIVATE" not in response.text
++    assert response.headers["cache-control"] == "no-store"
+diff --git a/account-pool/tests/test_account_pool.py b/account-pool/tests/test_account_pool.py
+index 602eec5115..b4e83c1a18 100644
+--- a/account-pool/tests/test_account_pool.py
++++ b/account-pool/tests/test_account_pool.py
+@@ -4773,0 +4774,44 @@ async def test_event_quota_refresh_waits_for_inflight_refresh(tmp_path: Path) ->
++
++@pytest.mark.parametrize("updates", [
++    {"cockpit_admin_url": "http://cockpit.test"},
++    {"cockpit_admin_token": "s" * 32},
++    {"cockpit_admin_url": "http://cockpit.test", "cockpit_admin_token": "short"},
++    *({"cockpit_admin_url": url, "cockpit_admin_token": "s" * 32} for url in
++      ["http://user:pass@cockpit.test", "http://cockpit.test/path", "http://cockpit.test?key=x",
++       "http://cockpit.test#x", "file:///tmp", "http://cockpit.test:70000"]),
++])
++def test_cockpit_settings_reject_partial_or_unsafe_connection(tmp_path: Path, updates: dict[str, object]) -> None:
++    with pytest.raises(ValueError):
++        _settings_with(tmp_path, **updates)
++
++
++def test_cockpit_settings_default_disabled_and_redact_token(tmp_path: Path) -> None:
++    assert _settings(tmp_path).cockpit_admin_url is None
++    configured: Final = _settings_with(tmp_path, cockpit_admin_url="http://cockpit.test:8317", cockpit_admin_token="x" * 32)
++    assert configured.cockpit_admin_token.get_secret_value() == "x" * 32
++    assert "x" * 32 not in repr(configured)
++
++@pytest.mark.asyncio
++async def test_cockpit_client_closes_when_production_startup_fails(tmp_path: Path) -> None:
++    from account_pool.app import create_app
++
++    blocker: Final = tmp_path / "file"
++    blocker.write_text("not a directory")
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(500)))
++    configured: Final = _settings_with(tmp_path, data_root=blocker / "data",
++        cockpit_admin_url="http://cockpit.test", cockpit_admin_token="s" * 32)
++    app: Final = create_app(configured, cockpit_client_factory=lambda: http)
++    with pytest.raises(OSError):
++        async with app.router.lifespan_context(app):
++            pytest.fail("startup should fail before external I/O")
++    assert http.is_closed
++
++@pytest.mark.parametrize("field,value", [
++    ("cockpit_admin_token", "SECRET-SHORT"),
++    ("cockpit_admin_url", "http://SECRET:password@cockpit.test"),
++])
++def test_invalid_cockpit_settings_do_not_echo_secrets(tmp_path: Path, field: str, value: str) -> None:
++    with pytest.raises(ValueError) as error:
++        _settings_with(tmp_path, **{"cockpit_admin_url": "http://cockpit.test",
++            "cockpit_admin_token": "s" * 32, field: value})
++    assert "SECRET" not in str(error.value)
+diff --git a/litellm/proxy/management_endpoints/account_pool_endpoints.py b/litellm/proxy/management_endpoints/account_pool_endpoints.py
+index e0e699b7fd..6aa6538707 100644
+--- a/litellm/proxy/management_endpoints/account_pool_endpoints.py
++++ b/litellm/proxy/management_endpoints/account_pool_endpoints.py
+@@ -17 +17 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Reque
+-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
++from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError
+@@ -28 +28 @@ from litellm.proxy.management_endpoints.account_pool_management import create_ma
+-from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus
++from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus, CockpitStatus
+@@ -626,0 +627,21 @@ def create_account_pool_router(
++    @router.get("/cockpit/status", response_model=CockpitStatus)
++    async def get_cockpit_status(
++        response: Response,
++        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
++    ) -> CockpitStatus:
++        _require_proxy_admin(user_api_key_dict)
++        response.headers["Cache-Control"] = "no-store"
++        try:
++            upstream: Final = await _manager_request(client_factory, "GET", "/api/cockpit/status")
++        except HTTPException:
++            raise HTTPException(503, "Cockpit status unavailable", headers={"Cache-Control": "no-store"}) from None
++        if upstream.status_code != 200:
++            raise HTTPException(
++                503 if upstream.status_code == 503 else 502,
++                "Cockpit status unavailable", headers={"Cache-Control": "no-store"},
++            )
++        try:
++            return CockpitStatus.model_validate_json(upstream.content)
++        except ValidationError:
++            raise HTTPException(502, "Invalid Cockpit status", headers={"Cache-Control": "no-store"}) from None
++
+diff --git a/litellm/proxy/management_endpoints/account_pool_management_models.py b/litellm/proxy/management_endpoints/account_pool_management_models.py
+index bf00b8ca3d..abb09c98bb 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management_models.py
++++ b/litellm/proxy/management_endpoints/account_pool_management_models.py
+@@ -21,0 +22,12 @@ from pydantic import (
++
++class CockpitStatus(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    configured: bool
++    account_count: int = Field(ge=0)
++    enabled_key_count: int = Field(ge=0)
++    credential_count: int = Field(ge=0)
++    persisted_manifest_revision: Annotated[str, Field(pattern=r'^"sha256-[0-9a-f]{64}"$')] | None
++    runtime_activation: Literal["restart_required_or_unverified"]
++
++
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+index df9cb70584..b2ac3ce11d 100644
+--- a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+@@ -1312,0 +1313,34 @@ def test_routing_status_reports_the_snapshot_and_rejects_unknown_cards() -> None
++
++@pytest.mark.parametrize("configured", [False, True])
++def test_cockpit_status_requires_admin_and_never_exposes_raw_manifest(configured: bool) -> None:
++    calls: Final[list[str]] = []
++    def factory() -> AccountPoolManagerClient:
++        def handler(request: httpx.Request) -> httpx.Response:
++            calls.append(request.url.path)
++            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
++            return httpx.Response(200, json={"configured": configured, "account_count": 2,
++                "enabled_key_count": 1, "credential_count": 2,
++                "persisted_manifest_revision": '"sha256-' + 'a' * 64 + '"',
++                "runtime_activation": "restart_required_or_unverified", "raw_manifest": "SECRET"})
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
++            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
++        assert client.get("/account_pool/cockpit/status").status_code == 403
++    assert calls == []
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        response: Final = client.get("/account_pool/cockpit/status")
++    assert response.status_code == 200
++    assert response.json()["configured"] is configured
++    assert response.headers["cache-control"] == "no-store"
++    assert "SECRET" not in response.text and "raw_manifest" not in response.text
++    assert calls == ["/api/cockpit/status"]
++
++
++def test_cockpit_status_proxy_sanitizes_manager_errors() -> None:
++    def factory() -> AccountPoolManagerClient:
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
++            transport=httpx.MockTransport(lambda _: httpx.Response(502, text="PRIVATE-SECRET"))))
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        response: Final = client.get("/account_pool/cockpit/status")
++    assert response.status_code == 502 and "PRIVATE" not in response.text
++    assert response.headers["cache-control"] == "no-store"

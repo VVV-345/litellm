@@ -3,12 +3,15 @@
 @@ -1 +1 @@
 -# LiteLLM 与 Cockpit 对照审查及执行计划
 +# Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
+@@ -3 +3 @@
+-> 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；用户已明确要求推送此新分支到 GitHub；不部署，除非另行授权
++> 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
 @@ -5 +5 @@
 -**目标：** 以代码证据区分 Cockpit 能力中可复用、须适配、不可替换和仍待确认的部分，并在所有后续改动中保住当前号池的额度换卡与续聊行为
 +**目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
 @@ -7 +7 @@
 -**架构：** LiteLLM 继续拥有卡片 Key 授权范围、账号选择、额度和错误分类、重试及故障切换、计费和续聊。CLIProxyAPI 继续作为单账号上游适配器。只把 Cockpit 中边界清楚的实现作为固定版本的参考；不引入第二套号池或网关
-+**目标架构：** 完成切换后由 Cockpit 后台负责账号池、账号选择、额度/错误处理、重试与故障切换、会话归属和续聊，以及其支持的上游适配；LiteLLM 号池不再作为第二个后台路由 owner。迁移期间保留旧链路仅用于对照和回滚，任何请求只允许一个 active retry/failover owner。是否保留 LiteLLM 或 NewAPI 作为外部 API 入口、下游用户/Key 和计费层，是实施前的边界决策，不在本计划中擅自假定。
++**目标架构：** 完成切换后由 Cockpit 后台负责账号池、账号选择、额度/错误处理、重试与故障切换、会话归属和续聊，以及其支持的上游适配；LiteLLM 号池不再作为第二个后台路由 owner。迁移期间保留旧链路仅用于对照和回滚，任何请求只允许一个 active retry/failover owner。已确认保留 LiteLLM 作为公共 API 入口、下游用户/Key 和用量统计层，现有号池页面经服务端管理适配器连接 Cockpit。
 @@ -15 +15 @@
 -## 全局约束
 +## 迁移约束
@@ -43,7 +46,7 @@
 +| 同卡和跨卡续聊，尤其 reasoning 密文 | 项目当前保存完整可见历史并有严格重放边界；Cockpit 有本地历史/检查点尝试恢复，但跨账号密文是否被供应商接受仍待真实请求 | 先完成无真实上游的状态机/序列化测试；跨卡密文只在明确批准的隔离账号和低风险请求验证，未通过时保持该路径关闭 |
 +| Cockpit 支持的供应商、UI/API 和项目能力覆盖 | Cockpit Rust/Go 引擎及当前项目各自适配范围不相同；已有 provider-settings gate 仅是窄范围功能 | 为目标供应商和管理工作流建立功能矩阵，以真实配置消费者和测试为依据；不可用能力列入差异清单 |
 +| Cockpit 源码许可对目标部署/分发的影响 | Cockpit 自有源整体为 CC BY-NC-SA 4.0，vendored CLIProxyAPI 为 MIT | 复制或分发前由用户确认许可适用性；不能因 Go 子仓 MIT 推断 Cockpit 自有模块同许可 |
-@@ -57 +58,70 @@
+@@ -57 +58,95 @@
 -## 执行计划
 +## Cockpit 整体替换执行计划
 +
@@ -75,16 +78,18 @@
 +
 +**目标：** 明确 Cockpit 接管的后台职责与保留的外层系统，逐项映射数据模型和行为。
 +
-+- [ ] 实施前确认替换边界：至少替换 `account-pool` Manager 与账号路由数据面；另外确认 LiteLLM/NewAPI 的公共 API、下游用户/Key、限流/计费是否保留
++- [x] 已确认外层边界：LiteLLM 保留公共 API、下游用户/Key、用量统计和现有号池页面；Cockpit 接管账号池运行态、账号选择、上游请求、重试/故障切换和续聊。迁移期间不允许 LiteLLM 与 Cockpit 同时作为请求重试 owner
 +- [ ] 对照账号/卡片/供应商凭据、卡片 Key 授权范围、模型过滤、候选账号、优先级、额度、错误分类、冷却、重试、会话粘性、用量归属、管理 API 和 Dashboard
 +- [ ] 每项标为 `直接替换`、`可复用`、`需适配`、`需重做`、`不支持` 或 `未验证`；列出 Cockpit 目标 owner 和对应文件/API/数据表
 +- [ ] 将 LiteLLM 当前 quota failover 与 conversation tests 改造成 Cockpit 可执行的契约场景，不把 LiteLLM 代码本身当作最终实现
 +
 +**验收：** 外层入口与责任边界获用户确认；没有未映射的关键能力；不确定项有阻断条件和负责人。
 +
++**边界记录（2026-10-23）：** LiteLLM 的客户端入口、Key 鉴权和用量记录保留；现有号池页面保留为管理入口并通过服务端适配器读写 Cockpit。Cockpit 成为模型请求的数据面和唯一换卡/重试 owner。管理适配期间可保留 Manager 作为页面工作流或数据同步桥，但模型请求不能继续调用 Manager 的 `resolve/acquire/finish` 选择账号。供应商凭据与策略从现有数据库导入 Cockpit 的具体映射仍需实现和契约测试。
++
 +### 替换阶段 D：实现 Cockpit 后台接管
 +
-+**前置条件：** 阶段 B 可部署性通过，阶段 C 的边界与能力差异得到确认。此阶段是后续单独实施任务，不代表本计划已改业务代码。
++**前置条件：** 代码和离线契约测试按用户“先写代码”的要求推进；镜像、容器、真实上游验证仍是后续切流门槛，不能以单元测试代替。阶段 C 边界已确认，未映射的身份、授权范围和数据面行为必须先实现并验收。
 +
 +- [ ] 在此独立分支按已确认边界实现 Cockpit 服务/引擎部署、认证绑定和必要的 LiteLLM/NewAPI 适配；Cockpit 成为账号选择、额度/错误处理、重试、故障切换与续聊的唯一后台 owner
 +- [ ] 为现有卡片 Key 或下游主体建立不可混淆的 Cockpit 身份和账号授权范围；以只读/校验迁移工具先检查映射，不导出明文 token 或覆盖原凭据
@@ -92,6 +97,29 @@
 +- [ ] 为切换提供显式路由开关和可回滚配置；不得在同一请求上同时启用 LiteLLM 与 Cockpit 重试/重放
 +
 +**验收：** 新后台能在隔离环境独立处理管理和模型请求；现有账户密钥、权限与审计边界可验证；无未批准的双重重试。
++
++**代码检查点（2026-10-23）：** Cockpit 仓库分支 `codex/cockpit-backend-replacement` 的本地提交 `0d74db2b` 增加了受独立管理员 Token 保护的 manifest/凭据条件写入 API、校验和显式重启入口。它仍以静态 manifest 为运行态输入，要求服务重启；LiteLLM 管理客户端与只读状态适配已在下方 D1 完成；账号/凭据导入、管理操作同步和模型请求接线尚未实现，因此不能据此切流或声称整体替换完成。本轮不构建镜像、不部署。
++
++### D1 已完成：服务间管理客户端与安全状态接口
++
++代码提交：`c90f67aaa6fe4486a5687963368ca9ea68124504`，分支 `codex/cockpit-reuse-plan`，实现基线 `533fbbc1f53e6d13c10d54b6688bb5053b05ed4a`。Cockpit 仍锁定本地 `0d74db2b1cf8fe42257ed934ad27e861b79efded`；既有 workflow 修改保留未动
++
++- [x] `account-pool/account_pool/cockpit_admin.py` 提供 manifest 读取/条件写入、凭据 metadata 读取/条件创建/替换/删除、显式重启；失败作为脱敏结果返回，不自动重试、不跟随重定向、不自动重启，未知 manifest 字段 roundtrip 保留
++- [x] Manager 新增 `ACCOUNT_POOL_COCKPIT_ADMIN_URL` 与 `ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN`，必须同时配置；Token 至少 32 字符，URL 为不含凭据/path/query/fragment 的 HTTP(S) origin。默认关闭；启动失败或退出时关闭共用客户端
++- [x] Manager `GET /api/cockpit/status` 与 LiteLLM admin-only `GET /account_pool/cockpit/status` 只提供 configured、账号/启用 Key/凭据计数、persisted manifest revision，明确 `runtime_activation=restart_required_or_unverified`，响应 no-store。浏览器没有 raw manifest、凭据或 restart 写入口
++- [x] 现有配置/管理/代理测试 355 项通过；在此基础上客户端补充检查 40 项通过，二者有重叠不能相加。旧 failover、quota failover、gateway、conversation、native routing、accounting 六文件 431 项通过。新增客户端 strict Ruff 与类型检查无错误，改动文件 Ruff 和 diff check 通过
++- [x] 同输入接口事务：BASELINE 404，MODIFIED 200 且只含安全摘要，ROLLBACK 404；回滚副本 hash 等于原文件。文档事务沿用既有四角色，原始命令/输出见证据
++
++限制：以上为离线/mock 契约，不是运行中 Cockpit、PostgreSQL、容器、浏览器 UI 或真实供应商证明。独立审阅代理连续遇到加密上下文启动错误，未产生审阅结论；本轮只完成主执行者复查和自动检查。未执行镜像构建、部署、push 或凭据迁移，默认模型请求链路与页面未切换
++
++### D2 后续代码顺序（未完成，不可切流）
++
++1. 账号/主体映射 dry-run：以数据库卡片 UUID 和已授权范围建立目标 account IDs，旧卡 Key 只有 hash，不导出或猜测旧明文。报告模型/供应商/代理/额度字段差异，无确定映射时拒绝迁移；验收空 scope、跨卡 scope、缺失凭据和不支持供应商
++2. 管理同步事务：保持现有页面契约，服务端经条件写入更新 Cockpit projection；处理 412、部分凭据写入、回滚与显式重启，写成功不等于已激活；先单实例单 writer，不宣称跨进程 CAS
++3. 数据面接线：按已验证主体 scope 发布 Cockpit deployment，保留 LiteLLM 标准统计；对 Cockpit 路由取消外层重复 resolve/acquire、重试/换卡/续聊 owner，旧路径仅作为另一条显式回滚配置；不能只替换 upstream URL
++4. 将旧行为矩阵变为 Cockpit 契约，覆盖额度换卡、续聊、stream/tool/image 重放边界和用量归属；验证各供应商加载路径。当前 manifest Codex token 注册要求 provider=codex，不能将九类供应商凭据一律按 Codex 导入
++
++恢复执行先读取此 D2 状态与 D1 已完成提交，不重新实施 D1。下一可执行操作：先为账号/主体映射 dry-run 的空范围、越界范围和供应商不匹配写失败测试，再实现只读映射报告；不自动启用生产路由
 +
 +### 替换阶段 E：行为兼容与差异验收
 +
