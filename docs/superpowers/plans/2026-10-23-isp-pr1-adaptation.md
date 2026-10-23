@@ -44,7 +44,7 @@ Files: `ISPProxyCatalogPanel.tsx`, its existing integration test, `AccountPoolAp
 - [x] Probe only manual records in the catalog batch action; retain per-gateway probing for subscription chains
 - [x] Preserve `identity_fingerprint_mode=managed` and `identity_confuse` alongside the new proxy APIs
 - [x] Generate schema with `npm run gen:api`, never hand-edit it
-- [ ] Run the explicit proxy/API and identity settings integration tests, then commit the verified merge and fixes
+- [x] Run the explicit proxy/API and identity settings integration tests, then commit the verified merge and fixes (`bf6ecd607c`)
 
 ## Task 4: final verification, rollback and release
 
@@ -52,8 +52,8 @@ Files: `ISPProxyCatalogPanel.tsx`, its existing integration test, `AccountPoolAp
 - [x] Run real PostgreSQL checks in a disposable local database if the runtime is available; do not use production data
 - [x] Verify fail-closed, config parsing and routing behavior with local test fixtures; no live ISP/airport/provider acceptance is claimed
 - [x] Extend the same modified archive, reconstructing patch, evidence ledger and executable rollback with this task's affected files
-- [ ] Execute identical baseline/modified/rollback probes on disposable copies and verify pristine restored hashes
-- [x] Set `deploy/VERSION` to `v1.7`, record the exact verified scope and remaining live-service gates, and prepare the release-stage commit
+- [x] Execute identical baseline/modified/rollback probes on disposable copies and verify pristine restored hashes
+- [x] Set `deploy/VERSION` to `v1.7`, record the exact verified scope and remaining live-service gates
 - [ ] Confirm staged content and branch, push without force, inspect the matching image workflow and report its actual result
 
 ## Required evidence
