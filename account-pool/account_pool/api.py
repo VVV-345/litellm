@@ -24,6 +24,7 @@ from account_pool.batch_models import BatchJob, BatchRequest
 from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
+from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, CockpitStatus, cockpit_status
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import (
     AuthorizationFlow,
@@ -300,6 +301,7 @@ def create_router(
     browser_sessions: OAuthBrowserSessionService | None = None,
     browser_runtime: OAuthBrowserRuntime | None = None,
     feedback: FeedbackService | None = None,
+    cockpit_admin: CockpitAdminClient | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -309,6 +311,17 @@ def create_router(
         supplied: Final = "" if credentials is None else credentials.credentials
         if not hmac.compare_digest(supplied, manager_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
+
+    @router.get("/api/cockpit/status", dependencies=[Depends(require_manager)])
+    async def get_cockpit_status(response: Response) -> CockpitStatus:
+        response.headers["Cache-Control"] = "no-store"
+        result: Final = await cockpit_status(cockpit_admin)
+        if isinstance(result, CockpitFailure):
+            raise HTTPException(
+                503 if result.category == "transport" or result.status_code == 503 else 502,
+                "Cockpit admin status unavailable", headers={"Cache-Control": "no-store"},
+            )
+        return result
 
     if (
         environments is not None

@@ -1310,3 +1310,37 @@ def test_routing_status_reports_the_snapshot_and_rejects_unknown_cards() -> None
     assert found.json()["eligible"] is True
     assert found.json()["resolved_model"] == "shared"
     assert missing.status_code == 404
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_cockpit_status_requires_admin_and_never_exposes_raw_manifest(configured: bool) -> None:
+    calls: Final[list[str]] = []
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url.path)
+            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
+            return httpx.Response(200, json={"configured": configured, "account_count": 2,
+                "enabled_key_count": 1, "credential_count": 2,
+                "persisted_manifest_revision": '"sha256-' + 'a' * 64 + '"',
+                "runtime_activation": "restart_required_or_unverified", "raw_manifest": "SECRET"})
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.get("/account_pool/cockpit/status").status_code == 403
+    assert calls == []
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response: Final = client.get("/account_pool/cockpit/status")
+    assert response.status_code == 200
+    assert response.json()["configured"] is configured
+    assert response.headers["cache-control"] == "no-store"
+    assert "SECRET" not in response.text and "raw_manifest" not in response.text
+    assert calls == ["/api/cockpit/status"]
+
+
+def test_cockpit_status_proxy_sanitizes_manager_errors() -> None:
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(502, text="PRIVATE-SECRET"))))
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response: Final = client.get("/account_pool/cockpit/status")
+    assert response.status_code == 502 and "PRIVATE" not in response.text
+    assert response.headers["cache-control"] == "no-store"

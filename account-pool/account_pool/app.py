@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from datetime import date
 from typing import Final
 from uuid import UUID
 
+import httpx
 import uvicorn
 from fastapi import FastAPI
 
@@ -21,6 +22,7 @@ from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
+from account_pool.cockpit_admin import CockpitAdminClient
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
@@ -62,8 +64,13 @@ from account_pool.upstream_sync import GitHubUpstreamSyncService
 _LOGGER: Final = logging.getLogger(__name__)
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    cockpit_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
+) -> FastAPI:
     resolved: Final = settings or Settings()  # pyright: ignore[reportCallIssue]  # values come from environment
+    cockpit_config: Final = resolved.cockpit_admin_config()
     environments: Final = PostgresEnvironmentRepository(resolved.database_url)
     profiles: Final = PostgresProxyProfileRepository(resolved.database_url)
     browser_session_repository: Final = PostgresOAuthBrowserSessionRepository(resolved.database_url)
@@ -151,6 +158,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not failed:
             _notify_refresh_schedulers_after_settings_sync(quota_scheduler, auth_refresh_scheduler)
         return failed
+
+    cockpit_http: Final = cockpit_client_factory() if cockpit_config is not None else None
+    cockpit_admin: Final = (
+        CockpitAdminClient(cockpit_config, cockpit_http)
+        if cockpit_config is not None and cockpit_http is not None else None
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
@@ -246,7 +259,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await litellm_upstream_sync.close()
             await cooldown_client.close()
 
-    app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
+    @asynccontextmanager
+    async def managed_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # 即使原服务初始化失败，也关闭本次创建的管理连接。
+        try:
+            async with lifespan(app):
+                yield
+        finally:
+            if cockpit_http is not None:
+                await cockpit_http.aclose()
+
+    app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=managed_lifespan)
     app.include_router(
         create_router(
             service,
@@ -282,6 +305,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_sessions=browser_sessions,
             browser_runtime=browser_runtime,
             feedback=feedback,
+            cockpit_admin=cockpit_admin,
         )
     )
     return app

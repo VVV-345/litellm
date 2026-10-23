@@ -19,6 +19,18 @@ from pydantic import (
     model_validator,
 )
 
+
+class CockpitStatus(BaseModel):
+    model_config = ConfigDict(frozen=True, strict=True)
+
+    configured: bool
+    account_count: int = Field(ge=0)
+    enabled_key_count: int = Field(ge=0)
+    credential_count: int = Field(ge=0)
+    persisted_manifest_revision: Annotated[str, Field(pattern=r'^"sha256-[0-9a-f]{64}"$')] | None
+    runtime_activation: Literal["restart_required_or_unverified"]
+
+
 ChannelKind = Literal["openai_compatible", "cliproxyapi"]
 SupplierKind = Literal[
     "openai_compatible",

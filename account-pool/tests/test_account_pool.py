@@ -4771,3 +4771,47 @@ async def test_event_quota_refresh_waits_for_inflight_refresh(tmp_path: Path) ->
     lock.release()
     assert await pending is True
     assert cli.refresh_quota_calls == [True]
+
+@pytest.mark.parametrize("updates", [
+    {"cockpit_admin_url": "http://cockpit.test"},
+    {"cockpit_admin_token": "s" * 32},
+    {"cockpit_admin_url": "http://cockpit.test", "cockpit_admin_token": "short"},
+    *({"cockpit_admin_url": url, "cockpit_admin_token": "s" * 32} for url in
+      ["http://user:pass@cockpit.test", "http://cockpit.test/path", "http://cockpit.test?key=x",
+       "http://cockpit.test#x", "file:///tmp", "http://cockpit.test:70000"]),
+])
+def test_cockpit_settings_reject_partial_or_unsafe_connection(tmp_path: Path, updates: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        _settings_with(tmp_path, **updates)
+
+
+def test_cockpit_settings_default_disabled_and_redact_token(tmp_path: Path) -> None:
+    assert _settings(tmp_path).cockpit_admin_url is None
+    configured: Final = _settings_with(tmp_path, cockpit_admin_url="http://cockpit.test:8317", cockpit_admin_token="x" * 32)
+    assert configured.cockpit_admin_token.get_secret_value() == "x" * 32
+    assert "x" * 32 not in repr(configured)
+
+@pytest.mark.asyncio
+async def test_cockpit_client_closes_when_production_startup_fails(tmp_path: Path) -> None:
+    from account_pool.app import create_app
+
+    blocker: Final = tmp_path / "file"
+    blocker.write_text("not a directory")
+    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(500)))
+    configured: Final = _settings_with(tmp_path, data_root=blocker / "data",
+        cockpit_admin_url="http://cockpit.test", cockpit_admin_token="s" * 32)
+    app: Final = create_app(configured, cockpit_client_factory=lambda: http)
+    with pytest.raises(OSError):
+        async with app.router.lifespan_context(app):
+            pytest.fail("startup should fail before external I/O")
+    assert http.is_closed
+
+@pytest.mark.parametrize("field,value", [
+    ("cockpit_admin_token", "SECRET-SHORT"),
+    ("cockpit_admin_url", "http://SECRET:password@cockpit.test"),
+])
+def test_invalid_cockpit_settings_do_not_echo_secrets(tmp_path: Path, field: str, value: str) -> None:
+    with pytest.raises(ValueError) as error:
+        _settings_with(tmp_path, **{"cockpit_admin_url": "http://cockpit.test",
+            "cockpit_admin_token": "s" * 32, field: value})
+    assert "SECRET" not in str(error.value)

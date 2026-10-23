@@ -6,8 +6,10 @@ from pathlib import Path
 from typing import Annotated, Final
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+from account_pool.cockpit_admin import CockpitAdminConfig
 
 DEFAULT_CLI_PROXY_IMAGE: Final = (
     "ghcr.io/vvv-345/cliproxyapi:sha-bebf587f5a940af676f6e503065140d4991ae1f3"
@@ -28,11 +30,13 @@ class Settings(BaseSettings):
     log_retention_days: int = Field(default=30, ge=1, le=365)
     quota_refresh_interval_seconds: float = Field(default=300.0, ge=30.0, le=86400.0)
     quota_refresh_max_concurrency: int = Field(default=3, ge=1, le=32)
-    model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_", frozen=True)
+    model_config = SettingsConfigDict(env_prefix="ACCOUNT_POOL_", frozen=True, hide_input_in_errors=True)
 
     database_url: str
     data_root: Path = Path("/var/lib/litellm-account-pool/environments")
     manager_token: str = Field(min_length=32)
+    cockpit_admin_url: str | None = Field(default=None, repr=False)
+    cockpit_admin_token: SecretStr | None = Field(default=None, min_length=32)
     secret_seed: str = Field(min_length=32)
     manager_container: str = Field(default="litellm-account-pool", pattern=r"^[a-zA-Z0-9_.-]+$")
     gateway_container: str = Field(default="litellm", pattern=r"^[a-zA-Z0-9_.-]+$")
@@ -81,6 +85,18 @@ class Settings(BaseSettings):
     clash_gateway_ports: Annotated[tuple[int, ...], NoDecode] = ()
     proxy_gateway_host: str = DEFAULT_PROXY_GATEWAY_HOST
     plugin_registry_json: str = Field(default="", max_length=2_000_000)
+
+    @model_validator(mode="after")
+    def validate_cockpit_admin(self) -> "Settings":
+        self.cockpit_admin_config()
+        return self
+
+    def cockpit_admin_config(self) -> CockpitAdminConfig | None:
+        if self.cockpit_admin_url is None and self.cockpit_admin_token is None:
+            return None
+        if self.cockpit_admin_url is None or self.cockpit_admin_token is None:
+            raise ValueError("Cockpit admin URL and token must both be configured")
+        return CockpitAdminConfig(url=self.cockpit_admin_url, token=self.cockpit_admin_token)
 
     @field_validator("clash_controller_url")
     @classmethod

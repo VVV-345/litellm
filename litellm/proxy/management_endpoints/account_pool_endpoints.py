@@ -14,7 +14,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -25,7 +25,7 @@ from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
 from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
-from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus
+from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus, CockpitStatus
 from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
@@ -623,6 +623,27 @@ def create_account_pool_router(
     browser_websocket_connect: Callable[[str], AbstractAsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
+
+    @router.get("/cockpit/status", response_model=CockpitStatus)
+    async def get_cockpit_status(
+        response: Response,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> CockpitStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            upstream: Final = await _manager_request(client_factory, "GET", "/api/cockpit/status")
+        except HTTPException:
+            raise HTTPException(503, "Cockpit status unavailable", headers={"Cache-Control": "no-store"}) from None
+        if upstream.status_code != 200:
+            raise HTTPException(
+                503 if upstream.status_code == 503 else 502,
+                "Cockpit status unavailable", headers={"Cache-Control": "no-store"},
+            )
+        try:
+            return CockpitStatus.model_validate_json(upstream.content)
+        except ValidationError:
+            raise HTTPException(502, "Invalid Cockpit status", headers={"Cache-Control": "no-store"}) from None
 
     async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
         return await _manager_request(client_factory, method, path, body)

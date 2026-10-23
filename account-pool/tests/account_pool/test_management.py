@@ -768,3 +768,53 @@ def test_policy_reset_reapplies_the_winning_policy_when_the_version_changes() ->
     assert racing.records[record.id].version == 4
     assert applied[0].routing.strategy == "auto"
     assert applied[-1].routing.strategy == "plan"
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_cockpit_manager_status_is_protected_and_redacted(tmp_path: Path, enabled: bool) -> None:
+    from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig
+    from pydantic import SecretStr
+
+    requests: Final[list[str]] = []
+    revision: Final = '"sha256-' + 'a' * 64 + '"'
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/admin/v1/manifest":
+            return httpx.Response(200, headers={"ETag": revision}, json={
+                "accounts": [{"id": "PRIVATE-ID", "email": "PRIVATE-EMAIL"}],
+                "apiKeys": [{"key": "PRIVATE-KEY", "enabled": True}, {"enabled": False}]})
+        return httpx.Response(200, json={"files": [{"id": "private.json", "etag": revision, "size": 20}]})
+    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
+    app: Final = FastAPI()
+    from test_account_pool import _service
+    app.include_router(create_router(_service(_record(status=EnvironmentStatus.READY), FakeCLIProxy(), tmp_path),
+                                    "m" * 32, cockpit_admin=admin if enabled else None))
+    with TestClient(app) as client:
+        assert client.get("/api/cockpit/status").status_code == 401
+        assert requests == []
+        response: Final = client.get("/api/cockpit/status", headers={"Authorization": "Bearer " + "m" * 32})
+    asyncio.run(http.aclose())
+    assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
+    assert response.json() == {"configured": enabled, "account_count": 1 if enabled else 0,
+        "enabled_key_count": 1 if enabled else 0, "credential_count": 1 if enabled else 0,
+        "persisted_manifest_revision": revision if enabled else None,
+        "runtime_activation": "restart_required_or_unverified"}
+    assert "PRIVATE" not in response.text and "private.json" not in response.text
+    assert len(requests) == (2 if enabled else 0)
+
+
+def test_cockpit_manager_failure_is_not_reported_as_unconfigured(tmp_path: Path) -> None:
+    from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig
+    from pydantic import SecretStr
+    from test_account_pool import _service
+
+    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(503, text="PRIVATE")))
+    app: Final = FastAPI()
+    app.include_router(create_router(_service(_record(status=EnvironmentStatus.READY), FakeCLIProxy(), tmp_path),
+        "m" * 32, cockpit_admin=CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test",
+        token=SecretStr("s" * 32)), http)))
+    with TestClient(app) as client:
+        response: Final = client.get("/api/cockpit/status", headers={"Authorization": "Bearer " + "m" * 32})
+    asyncio.run(http.aclose())
+    assert response.status_code == 503 and "PRIVATE" not in response.text
+    assert response.headers["cache-control"] == "no-store"
