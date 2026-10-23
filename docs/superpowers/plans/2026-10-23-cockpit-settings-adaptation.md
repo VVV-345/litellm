@@ -23,7 +23,7 @@
 - [x] 1. 固定源码与来源：`account-pool/cliproxy-adapter/sources.json` 对照 Git HEAD，保留许可和九供应商映射，commit `f1289af7b3`
 - [x] 2. 底层适配：复用 Cockpit managed_identity 模块，补充服务器持久化、HTTP/SSE/WS 接入和能力接口；先失败测试再修复；验证刷新、重启、并发、坏文件、已知字段精确改写、两开关组合；保存可重建 patch，commit
 - [x] 3. Manager/UI：扩展已有 identity_fingerprint_mode 的 managed 选项，先检查运行中底层能力再下发；修复 Claude/Kimi 保存与消费不同步，验证其他供应商映射、默认值、重试归属；生成 API types，跑定向测试，commit
-- [ ] 4. 回归与回滚：跑现有换卡、续聊与不可重放边界测试；固定输入执行 BASELINE/MODIFIED/ROLLBACK，恢复哈希相等；记录验证范围、未做的真实供应商验收，commit
+- [x] 4. 回归与回滚：跑现有换卡、续聊与不可重放边界测试；固定输入执行 BASELINE/MODIFIED/ROLLBACK，恢复哈希相等；记录验证范围、未做的真实供应商验收，commit
 
 ## 文件责任
 
@@ -40,3 +40,7 @@
 阶段 2 提交为 `24b49b9cb0`。阶段 3 的 Manager 六文件定向测试为 174 passed，保留一条 Starlette/httpx 弃用警告；界面集成测试为 13 passed，生产源码 tsc 通过，API 类型重新生成。ESLint 为 0 错误、15 条既有相邻代码警告，相关 Python Ruff 通过。五个 Python 源码的严格类型检查在基线与修改版均为 118 项诊断，逐条比较没有新增，不能称全量类型检查通过
 
 额外运行授权视图契约测试时发现期望中缺少已有 spend_usd 字段；原始提交 `71a52d51eb` 的隔离副本也复现同一失败，本次未修改。换卡、续聊、配额切换和管理集成的六文件回归已完成 466 passed，保留既有 94 条警告；首次执行缺少 Manager 导入路径，修正 PYTHONPATH 后通过，没有为此改生产代码
+
+阶段 3 提交为 `a06aa13653`。阶段 4 在一次性副本完成原版、改版、回滚的同输入策略与真实 localhost 出站检查，回滚后 38 个受影响路径的文件存在状态及原始字节哈希一致。DIFF 重建的改版与归档一致，已重新应用 GOAL，四个固定角色均已重新打开。原 policies.py 的磁盘基线是 CRLF，Git blob 为 LF，回滚以修改前记录的磁盘字节为准，不用换行归一化冒充相同哈希
+
+结果与未覆盖项见 [本轮验证记录](2026-10-23-cockpit-settings-adaptation.validation.md)。整体替换账号池与请求引擎的路线仍只作为后续考虑，本次未实施
