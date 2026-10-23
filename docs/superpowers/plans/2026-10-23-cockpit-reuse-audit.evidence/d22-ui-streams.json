@@ -1,0 +1,10 @@
+{
+  "encoding": "UTF-8 streams encoded as JSON strings, preserving literal output including trailing blank lines",
+  "raw_streams": {
+    "d22-ui-final-eslint.stderr.log": "",
+    "d22-ui-final-eslint.stdout.log": "\nC:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolSettingsOverview.tsx\n  333:28  warning  Object literal with 4 properties passed inline as an argument; assign it to a named variable first  local/no-large-inline-object-arg\n\n✖ 1 problem (0 errors, 1 warning)\n\n",
+    "d22-ui-final-tests.stderr.log": "(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:\n  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `\"type\": \"module\"` in the closest package.json\nSet `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.\nTesting types with tsc and vue-tsc is an experimental feature.\nBreaking changes might not follow SemVer, please pin Vitest's version when using it.\n",
+    "d22-ui-final-tests.stdout.log": "\n RUN  v4.1.11 C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/ui/litellm-dashboard\n\n·······································\n\n Test Files  4 passed (4)\n      Tests  39 passed (39)\nType Errors  no errors\n   Start at  20:47:41\n   Duration  5.52s (transform 1.46s, setup 1.54s, import 2.88s, tests 3.07s, environment 2.33s)\n\n",
+    "d22-ui-focused-tsc.log": ""
+  }
+}

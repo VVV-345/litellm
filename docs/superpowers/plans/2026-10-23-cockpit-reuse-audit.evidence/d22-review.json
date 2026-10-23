@@ -1,0 +1,29 @@
+{
+  "scope": "D2.2 bounded native global policy management",
+  "reviewer": "/root/d22_review",
+  "method": "read-only static review, no test execution",
+  "findings": [
+    {
+      "severity": "P2",
+      "issue": "PUT malformed receipt misclassified",
+      "resolution": "write_outcome_unknown; red 2 fail then green 6 pass"
+    },
+    {
+      "severity": "P2",
+      "issue": "browser empty 200 receipt falsely saved",
+      "resolution": "Zod runtime response validation and UI regressions"
+    },
+    {
+      "severity": "P2",
+      "issue": "more than 256 accounts editable but unsavable",
+      "resolution": "explicit read-only capability; red failure then green regression"
+    }
+  ],
+  "remaining": [
+    {
+      "severity": "minor",
+      "issue": "upstream weight<=0 legacy rule returns GET 502; no implicit normalization"
+    }
+  ],
+  "final": "no important blockers within bounded slice; not full D2.2 or cutover acceptance"
+}

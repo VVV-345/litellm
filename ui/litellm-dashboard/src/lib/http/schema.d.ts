@@ -804,6 +804,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/cockpit/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cockpit Policy */
+        get: operations["get_cockpit_policy_account_pool_cockpit_policy_get"];
+        /** Put Cockpit Policy */
+        put: operations["put_cockpit_policy_account_pool_cockpit_policy_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Cockpit Mapping */
+        post: operations["check_cockpit_mapping_account_pool_cockpit_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cockpit Status */
+        get: operations["get_cockpit_status_account_pool_cockpit_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/credentials": {
         parameters: {
             query?: never;
@@ -28681,6 +28733,198 @@ export interface components {
              */
             timezone?: string | null;
         };
+        /** CockpitAccountPreflight */
+        CockpitAccountPreflight: {
+            /** Blockers */
+            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Source Version */
+            source_version: number | null;
+            /**
+             * Target Account Id
+             * Format: uuid
+             */
+            target_account_id: string;
+        };
+        /** CockpitPolicyUpdate */
+        CockpitPolicyUpdate: {
+            /** Custom Rules */
+            custom_rules: components["schemas"]["CockpitRoutingRule"][];
+            /** Revision */
+            revision: string;
+            /**
+             * Routing Strategy
+             * @enum {string}
+             */
+            routing_strategy: "auto" | "random" | "quota_high_first" | "quota_low_first" | "plan_high_first" | "plan_low_first" | "expiry_soon_first" | "custom";
+        };
+        /** CockpitPolicyView */
+        CockpitPolicyView: {
+            /** Account Ids */
+            account_ids: string[];
+            /** Blocked Reason */
+            blocked_reason: ("unsupported_account_or_rule" | "unsupported_strategy") | null;
+            /** Custom Rules */
+            custom_rules: components["schemas"]["CockpitRoutingRule"][];
+            /** Editable */
+            editable: boolean;
+            /** Revision */
+            revision: string;
+            /** Routing Strategy */
+            routing_strategy: string;
+            /**
+             * Runtime Activation
+             * @default restart_required_or_unverified
+             * @constant
+             */
+            runtime_activation: "restart_required_or_unverified";
+            /**
+             * Scope
+             * @default codex_pool_global
+             * @constant
+             */
+            scope: "codex_pool_global";
+            /**
+             * Supported Strategies
+             * @default [
+             *       "auto",
+             *       "random",
+             *       "quota_high_first",
+             *       "quota_low_first",
+             *       "plan_high_first",
+             *       "plan_low_first",
+             *       "expiry_soon_first",
+             *       "custom"
+             *     ]
+             */
+            supported_strategies: ("auto" | "random" | "quota_high_first" | "quota_low_first" | "plan_high_first" | "plan_low_first" | "expiry_soon_first" | "custom")[];
+            /**
+             * Unsupported Fields
+             * @default [
+             *       "account_enabled",
+             *       "candidate_scope",
+             *       "fallback_enabled",
+             *       "max_attempts",
+             *       "cooldown",
+             *       "session_affinity"
+             *     ]
+             */
+            unsupported_fields: string[];
+        };
+        /** CockpitPreflightReport */
+        CockpitPreflightReport: {
+            /** Accounts */
+            accounts: components["schemas"]["CockpitAccountPreflight"][];
+            /** Authorized Account Ids */
+            authorized_account_ids: string[];
+            /** Blockers */
+            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Pending Checks
+             * @default [
+             *       "runtime_eligibility_unverified",
+             *       "credentials_and_ownership_unverified",
+             *       "models_proxy_quota_unmapped",
+             *       "policy_behavior_unverified",
+             *       "native_subject_mapping_unimplemented",
+             *       "runtime_activation_unverified"
+             *     ]
+             */
+            pending_checks: ("runtime_eligibility_unverified" | "credentials_and_ownership_unverified" | "models_proxy_quota_unmapped" | "policy_behavior_unverified" | "native_subject_mapping_unimplemented" | "runtime_activation_unverified")[];
+            /** Persisted Manifest Revision */
+            persisted_manifest_revision: string;
+            /** Policy Version */
+            policy_version: number;
+            /**
+             * Ready To Migrate
+             * @default false
+             * @constant
+             */
+            ready_to_migrate: false;
+            /** Scope Valid */
+            scope_valid: boolean;
+            /** Settings Version */
+            settings_version: number | null;
+            /**
+             * Source Strategy
+             * @enum {string}
+             */
+            source_strategy: "auto" | "random" | "priority" | "quota" | "plan" | "expiry" | "custom";
+            /**
+             * Subject Kind
+             * @enum {string}
+             */
+            subject_kind: "legacy_card_key" | "litellm_key";
+        };
+        /** CockpitPreflightRequest */
+        CockpitPreflightRequest: {
+            /** Candidate Ids */
+            candidate_ids?: string[] | null;
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Expected Key Id */
+            expected_key_id?: string | null;
+            /**
+             * Subject Kind
+             * @enum {string}
+             */
+            subject_kind: "legacy_card_key" | "litellm_key";
+        };
+        /** CockpitRoutingRule */
+        CockpitRoutingRule: {
+            /** Account Id */
+            account_id: string;
+            /**
+             * Is Backup
+             * @default false
+             */
+            is_backup: boolean;
+            /**
+             * Is Preferred
+             * @default false
+             */
+            is_preferred: boolean;
+            /**
+             * Priority
+             * @default 0
+             */
+            priority: number;
+            /**
+             * Weight
+             * @default 1
+             */
+            weight: number;
+        };
+        /** CockpitStatus */
+        CockpitStatus: {
+            /** Account Count */
+            account_count: number;
+            /** Configured */
+            configured: boolean;
+            /** Credential Count */
+            credential_count: number;
+            /** Enabled Key Count */
+            enabled_key_count: number;
+            /** Persisted Manifest Revision */
+            persisted_manifest_revision: string | null;
+            /**
+             * Runtime Activation
+             * @constant
+             */
+            runtime_activation: "restart_required_or_unverified";
+        };
         /** CodexPolicy */
         CodexPolicy: {
             /**
@@ -45856,6 +46100,112 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cockpit_policy_account_pool_cockpit_policy_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPolicyView"];
+                };
+            };
+        };
+    };
+    put_cockpit_policy_account_pool_cockpit_policy_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitPolicyUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPolicyView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_cockpit_mapping_account_pool_cockpit_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitPreflightRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPreflightReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cockpit_status_account_pool_cockpit_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitStatus"];
                 };
             };
         };

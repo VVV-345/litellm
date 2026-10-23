@@ -31,6 +31,7 @@ import { migratedHref } from "@/utils/migratedPages";
 import { getAccountPoolSettings, type AccountPoolSettings } from "../../api/AccountPoolManagementApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePanel";
+import { AccountPoolCockpitPolicyPanel } from "./AccountPoolCockpitPolicyPanel";
 import { ModuleVisibilityPanel } from "./ModuleVisibilityPanel";
 
 type SettingsGroup = {
@@ -408,6 +409,9 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
       <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
         <div className="md:col-span-2 2xl:col-span-3">
           <ModuleVisibilityPanel accessToken={accessToken} />
+        </div>
+        <div className="md:col-span-2 2xl:col-span-3">
+          <AccountPoolCockpitPolicyPanel accessToken={accessToken} />
         </div>
         <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />
         <OverviewCard

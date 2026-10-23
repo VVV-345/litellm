@@ -1,0 +1,22 @@
+{
+  "exclude": [],
+  "include": [
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\api\\AccountPoolManagementApi.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolCockpitPolicyPanel.tsx",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolCockpitPolicyPanel.integration.test.tsx",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\utils\\cockpitPolicyDraft.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\utils\\cockpitPolicyDraft.test.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolSettingsOverview.tsx",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\components\\dashboard\\AccountPoolSettingsOverview.test.tsx",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\src\\features\\account-pool\\hooks\\accountPoolQueryKeys.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\node_modules\\vitest\\globals.d.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\node_modules\\@testing-library\\jest-dom\\types\\vitest.d.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\node_modules\\next\\image-types\\global.d.ts",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\node_modules\\@types\\node\\index.d.ts"
+  ],
+  "compilerOptions": {
+    "types": [],
+    "incremental": false
+  },
+  "extends": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\ui\\litellm-dashboard\\tsconfig.json"
+}

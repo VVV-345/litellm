@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Annotated, Final, Literal, TypeAlias
+from typing import Annotated, Final, Literal, Self, TypeAlias
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -18,6 +18,56 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+CockpitStrategy = Literal[
+    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
+    "expiry_soon_first", "custom",
+]
+_COCKPIT_STRATEGIES: Final[tuple[CockpitStrategy, ...]] = (
+    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
+    "expiry_soon_first", "custom",
+)
+
+
+class CockpitRoutingRule(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    account_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
+    priority: int = Field(default=0, ge=-10000, le=10000, strict=True)
+    weight: int = Field(default=1, ge=1, le=10000, strict=True)
+    is_backup: bool = Field(default=False, strict=True)
+    is_preferred: bool = Field(default=False, strict=True)
+
+    @model_validator(mode="after")
+    def check_role(self) -> Self:
+        if self.is_backup and self.is_preferred:
+            raise ValueError("An account cannot be both backup and preferred")
+        return self
+
+
+class CockpitPolicyUpdate(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+    routing_strategy: CockpitStrategy
+    custom_rules: tuple[CockpitRoutingRule, ...] = Field(max_length=256)
+
+
+class CockpitPolicyView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+    routing_strategy: str
+    custom_rules: tuple[CockpitRoutingRule, ...]
+    account_ids: tuple[str, ...]
+    editable: bool
+    blocked_reason: Literal["unsupported_account_or_rule", "unsupported_strategy"] | None
+    scope: Literal["codex_pool_global"] = "codex_pool_global"
+    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
+    supported_strategies: tuple[CockpitStrategy, ...] = _COCKPIT_STRATEGIES
+    unsupported_fields: tuple[str, ...] = (
+        "account_enabled", "candidate_scope", "fallback_enabled", "max_attempts", "cooldown", "session_affinity",
+    )
 
 
 class CockpitStatus(BaseModel):

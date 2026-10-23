@@ -1,0 +1,58 @@
+{
+  "events": [
+    {
+      "label": "CODE_BASELINE",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-BASELINE-management.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"input\": {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"routing_strategy\": \"custom\"}, \"manager_calls\": [], \"read_status\": 404, \"save_body\": {\"detail\": \"Not Found\"}, \"save_status\": 404, \"secret_exposed\": false, \"stale_status\": 404}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    },
+    {
+      "label": "CODE_MODIFIED",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_management.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"input\": {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"routing_strategy\": \"custom\"}, \"manager_calls\": [\"GET /api/cockpit/policy\", \"PUT /api/cockpit/policy\", \"PUT /api/cockpit/policy\"], \"read_status\": 200, \"save_body\": {\"account_ids\": [\"account-a\"], \"blocked_reason\": null, \"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"editable\": true, \"revision\": \"\\\"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\\"\", \"routing_strategy\": \"custom\", \"runtime_activation\": \"restart_required_or_unverified\", \"scope\": \"codex_pool_global\", \"supported_strategies\": [\"auto\", \"random\", \"quota_high_first\", \"quota_low_first\", \"plan_high_first\", \"plan_low_first\", \"expiry_soon_first\", \"custom\"], \"unsupported_fields\": [\"account_enabled\", \"candidate_scope\", \"fallback_enabled\", \"max_attempts\", \"cooldown\", \"session_affinity\"]}, \"save_status\": 200, \"secret_exposed\": false, \"stale_status\": 409}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    },
+    {
+      "label": "CODE_ROLLBACK_COMMAND",
+      "command": [
+        "C:/Program Files/Git/bin/bash.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-management.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-BASELINE-management.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "CODE_ROLLBACK",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-management.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"input\": {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"routing_strategy\": \"custom\"}, \"manager_calls\": [], \"read_status\": 404, \"save_body\": {\"detail\": \"Not Found\"}, \"save_status\": 404, \"secret_exposed\": false, \"stale_status\": 404}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    }
+  ],
+  "hashes": {
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-BASELINE-management.py": "bb68f76b808c878ab721e547c0b03d1312a021f644ab28491fbba769802b6d71",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_management.py": "a5ff025973b67eadc28af8ad9e46d50d5373e18d808b66db75d533b21e8068e4",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-management.py": "bb68f76b808c878ab721e547c0b03d1312a021f644ab28491fbba769802b6d71"
+  }
+}

@@ -1,0 +1,438 @@
+[
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "account-pool/account_pool/cockpit_policy.py",
+      "account-pool/account_pool/management_api.py",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "litellm/proxy/management_endpoints/account_pool_management.py",
+      "litellm/proxy/management_endpoints/account_pool_management_models.py",
+      "--select",
+      "E9,F,I"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-final-lint"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_admin.py",
+      "account-pool/tests/account_pool/test_management.py",
+      "account-pool/tests/account_pool/test_gateway_service.py",
+      "account-pool/tests/account_pool/test_policies.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_management.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-final-regression"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "........................................................................ [ 29%]\n........................................................................ [ 59%]\n........................................................................ [ 88%]\n...........................                                              [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n243 passed, 1 warning in 79.02s (0:01:19)\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-final-regression"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.local\\cockpit-adaptation\\toolchain\\go\\bin\\go.exe",
+      "test",
+      "-mod=readonly",
+      "-p=2",
+      ".",
+      "-run",
+      "^(TestAdminManifest|TestBackupAccountSelector|TestUsagePrioritySelector|TestCockpitSelectorRestrictsAuths)",
+      "-count=1",
+      "-timeout=90s"
+    ],
+    "cwd": "C:/Users/42117/.codex/worktrees/cockpit-backend-replacement/sidecars/cockpit-cliproxy",
+    "stdout": "ok  \tgithub.com/router-for-me/CLIProxyAPI/v7/cockpit-cliproxy\t5.187s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-go-contract"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-green"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "..............                                                           [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n14 passed, 1 warning in 2.09s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-green"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "-q",
+      "-k",
+      "more_than",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-limit-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "F                                                                        [100%]\n================================== FAILURES ===================================\n_____________ test_more_than_256_accounts_is_explicitly_read_only _____________\n\n    def test_more_than_256_accounts_is_explicitly_read_only() -> None:\n        fixture: Final = ManifestFixture()\n        fixture.data[\"accounts\"] = [{\"id\": f\"account-{i}\"} for i in range(257)]\n        fixture.data[\"customRoutingRules\"] = []\n        app, http = app_for(fixture)\n        with TestClient(app) as client:\n            response: Final = client.get(\"/api/cockpit/policy\")\n            write: Final = client.put(\"/api/cockpit/policy\", json={**BODY, \"custom_rules\": []})\n        asyncio.run(http.aclose())\n>       assert response.status_code == 200 and response.json()[\"editable\"] is False\nE       assert (200 == 200 and True is False)\nE        +  where 200 = <Response [200 OK]>.status_code\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:262: AssertionError\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_more_than_256_accounts_is_explicitly_read_only\n1 failed, 20 deselected, 1 warning in 2.47s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d22-limit-red"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "account-pool/account_pool/cockpit_policy.py",
+      "account-pool/account_pool/management_api.py",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "litellm/proxy/management_endpoints/account_pool_management.py",
+      "litellm/proxy/management_endpoints/account_pool_management_models.py",
+      "--select",
+      "E9,F,I"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-lint"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "-k",
+      "cockpit_policy",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-proxy-green"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "....                                                                     [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n4 passed, 63 deselected, 1 warning in 10.71s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-proxy-green"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "-k",
+      "cockpit_policy",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-proxy-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "FFFF                                                                     [100%]\n================================== FAILURES ===================================\n_______ test_cockpit_policy_proxy_requires_admin_and_preserves_conflict _______\n\n    def test_cockpit_policy_proxy_requires_admin_and_preserves_conflict() -> None:\n        calls: Final[list[str]] = []\n        def factory() -> AccountPoolManagerClient:\n            def handler(request: httpx.Request) -> httpx.Response:\n                calls.append(request.method)\n                assert request.url.path == \"/api/cockpit/policy\"\n                if request.method == \"PUT\":\n                    return httpx.Response(409, json={\"detail\": \"revision_conflict\", \"secret\": \"PRIVATE\"})\n                return httpx.Response(200, json={\"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"auto\",\n                    \"custom_rules\": [], \"account_ids\": [\"account-a\"], \"editable\": True, \"blocked_reason\": None,\n                    \"raw_manifest\": \"PRIVATE\"})\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN,\n                client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))\n        body: Final = {\"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"random\", \"custom_rules\": []}\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:\n>           assert client.get(\"/account_pool/cockpit/policy\").status_code == 403\nE           AssertionError: assert 404 == 403\nE            +  where 404 = <Response [404 Not Found]>.status_code\nE            +    where <Response [404 Not Found]> = get('/account_pool/cockpit/policy')\nE            +      where get = <starlette.testclient.TestClient object at 0x0000026AE1AB5070>.get\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1405: AssertionError\n---------------------------- Captured stdout setup ----------------------------\n[conftest] Module setup complete (worker: master)\n____ test_cockpit_policy_proxy_sanitizes_errors[422-invalid_rule_accounts] ____\n\nstatus = 422, detail = 'invalid_rule_accounts'\n\n    @pytest.mark.parametrize(\"status,detail\", [(503, \"write_outcome_unknown\"), (422, \"invalid_rule_accounts\"),\n        (500, \"PRIVATE\")])\n    def test_cockpit_policy_proxy_sanitizes_errors(status: int, detail: str) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json={\"detail\": detail}))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.put(\"/account_pool/cockpit/policy\", json={\n                \"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"auto\", \"custom_rules\": []})\n>       assert response.status_code == (502 if status == 500 else status)\nE       assert 404 == 422\nE        +  where 404 = <Response [404 Not Found]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1427: AssertionError\n___________ test_cockpit_policy_proxy_sanitizes_errors[500-PRIVATE] ___________\n\nstatus = 500, detail = 'PRIVATE'\n\n    @pytest.mark.parametrize(\"status,detail\", [(503, \"write_outcome_unknown\"), (422, \"invalid_rule_accounts\"),\n        (500, \"PRIVATE\")])\n    def test_cockpit_policy_proxy_sanitizes_errors(status: int, detail: str) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json={\"detail\": detail}))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.put(\"/account_pool/cockpit/policy\", json={\n                \"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"auto\", \"custom_rules\": []})\n>       assert response.status_code == (502 if status == 500 else status)\nE       assert 404 == 502\nE        +  where 404 = <Response [404 Not Found]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1427: AssertionError\n____ test_cockpit_policy_proxy_sanitizes_errors[503-write_outcome_unknown] ____\n\nstatus = 503, detail = 'write_outcome_unknown'\n\n    @pytest.mark.parametrize(\"status,detail\", [(503, \"write_outcome_unknown\"), (422, \"invalid_rule_accounts\"),\n        (500, \"PRIVATE\")])\n    def test_cockpit_policy_proxy_sanitizes_errors(status: int, detail: str) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json={\"detail\": detail}))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.put(\"/account_pool/cockpit/policy\", json={\n                \"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"auto\", \"custom_rules\": []})\n>       assert response.status_code == (502 if status == 500 else status)\nE       assert 404 == 503\nE        +  where 404 = <Response [404 Not Found]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1427: AssertionError\n-------------------------- Captured stdout teardown ---------------------------\n[conftest] Module teardown complete (worker: master)\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_policy_proxy_requires_admin_and_preserves_conflict\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_policy_proxy_sanitizes_errors[422-invalid_rule_accounts]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_policy_proxy_sanitizes_errors[500-PRIVATE]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_policy_proxy_sanitizes_errors[503-write_outcome_unknown]\n4 failed, 63 deselected, 1 warning in 13.11s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d22-proxy-red"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "-k",
+      "cockpit_policy",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-receipt-green"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "......                                                                   [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n6 passed, 63 deselected, 1 warning in 12.80s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-receipt-green"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "-k",
+      "cockpit_policy_put_invalid",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-receipt-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "FF                                                                       [100%]\n================================== FAILURES ===================================\n_____ test_cockpit_policy_put_invalid_receipt_requires_reread[200-body0] ______\n\nstatus = 200, body = {'revision': 'bad'}\n\n    @pytest.mark.parametrize(\"status,body\", [(200, {\"revision\": \"bad\"}), (503, {\"unexpected\": 5})])\n    def test_cockpit_policy_put_invalid_receipt_requires_reread(status: int, body: dict[str, object]) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json=body))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.put(\"/account_pool/cockpit/policy\", json={\n                \"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"auto\", \"custom_rules\": []})\n>       assert response.status_code == 503 and response.json() == {\"detail\": \"write_outcome_unknown\"}\nE       assert (502 == 503)\nE        +  where 502 = <Response [502 Bad Gateway]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1439: AssertionError\n---------------------------- Captured stdout setup ----------------------------\n[conftest] Module setup complete (worker: master)\n_____ test_cockpit_policy_put_invalid_receipt_requires_reread[503-body1] ______\n\nstatus = 503, body = {'unexpected': 5}\n\n    @pytest.mark.parametrize(\"status,body\", [(200, {\"revision\": \"bad\"}), (503, {\"unexpected\": 5})])\n    def test_cockpit_policy_put_invalid_receipt_requires_reread(status: int, body: dict[str, object]) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json=body))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.put(\"/account_pool/cockpit/policy\", json={\n                \"revision\": '\"sha256-' + 'a' * 64 + '\"', \"routing_strategy\": \"auto\", \"custom_rules\": []})\n>       assert response.status_code == 503 and response.json() == {\"detail\": \"write_outcome_unknown\"}\nE       assert (502 == 503)\nE        +  where 502 = <Response [502 Bad Gateway]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1439: AssertionError\n-------------------------- Captured stdout teardown ---------------------------\n[conftest] Module teardown complete (worker: master)\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_policy_put_invalid_receipt_requires_reread[200-body0]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_policy_put_invalid_receipt_requires_reread[503-body1]\n2 failed, 67 deselected, 1 warning in 12.49s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d22-receipt-red"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "FFFFFFFFFFFFFF                                                           [100%]\n================================== FAILURES ===================================\n_ test_policy_read_save_preserves_credentials_and_unknown_fields_without_restart _\n\n    def test_policy_read_save_preserves_credentials_and_unknown_fields_without_restart() -> None:\n        fixture: Final = ManifestFixture()\n        original: Final = copy.deepcopy(fixture.data)\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:67: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2E6CFB60>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra0] _____\n\nextra = {'routing_strategy': 'priority'}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2F652EA0>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra1] _____\n\nextra = {'fallback_enabled': True}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2F652060>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra2] _____\n\nextra = {'max_attempts': 4}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2F653590>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra3] _____\n\nextra = {'session_affinity': True}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D306D2C60>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra4] _____\n\nextra = {'account_ids': ['other']}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D306D3BC0>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra5] _____\n\nextra = {'custom_rules': [{'account_id': 'account-a', 'weight': 0}]}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2F652960>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_____ test_unsupported_policy_fields_are_rejected_before_upstream[extra6] _____\n\nextra = {'custom_rules': [{'account_id': 'account-a', 'is_backup': True, 'is_preferred': True}]}\n\n    @pytest.mark.parametrize(\"extra\", [\n        {\"routing_strategy\": \"priority\"}, {\"fallback_enabled\": True}, {\"max_attempts\": 4},\n        {\"session_affinity\": True}, {\"account_ids\": [\"other\"]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"weight\": 0}]},\n        {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": True, \"is_preferred\": True}]},\n    ])\n    def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:97: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2F652C30>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_______ test_unknown_or_duplicate_rule_accounts_cannot_be_saved[rules0] _______\n\nrules = [{'account_id': 'other'}]\n\n    @pytest.mark.parametrize(\"rules\", [[{\"account_id\": \"other\"}], [{\"account_id\": \"account-a\"}]*2])\n    def test_unknown_or_duplicate_rule_accounts_cannot_be_saved(rules: list[dict[str, str]]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:108: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D2F650AA0>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_______ test_unknown_or_duplicate_rule_accounts_cannot_be_saved[rules1] _______\n\nrules = [{'account_id': 'account-a'}, {'account_id': 'account-a'}]\n\n    @pytest.mark.parametrize(\"rules\", [[{\"account_id\": \"other\"}], [{\"account_id\": \"account-a\"}]*2])\n    def test_unknown_or_duplicate_rule_accounts_cannot_be_saved(rules: list[dict[str, str]]) -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:108: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D306D3F50>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n________________ test_two_admins_cannot_overwrite_new_revision ________________\n\n    def test_two_admins_cannot_overwrite_new_revision() -> None:\n        fixture: Final = ManifestFixture()\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:118: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D306D2000>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_ test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back[conflict-409-revision_conflict] _\n\nmode = 'conflict', status = 409, detail = 'revision_conflict'\n\n    @pytest.mark.parametrize(\"mode,status,detail\", [(\"conflict\", 409, \"revision_conflict\"),\n        (\"lost\", 503, \"write_outcome_unknown\")])\n    def test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back(mode: str, status: int, detail: str) -> None:\n        fixture: Final = ManifestFixture(mode=mode)\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:132: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D3070EB10>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n_ test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back[lost-503-write_outcome_unknown] _\n\nmode = 'lost', status = 503, detail = 'write_outcome_unknown'\n\n    @pytest.mark.parametrize(\"mode,status,detail\", [(\"conflict\", 409, \"revision_conflict\"),\n        (\"lost\", 503, \"write_outcome_unknown\")])\n    def test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back(mode: str, status: int, detail: str) -> None:\n        fixture: Final = ManifestFixture(mode=mode)\n>       app, http = app_for(fixture)\n                    ^^^^^^^^^^^^^^^^\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:132: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nfixture = <test_cockpit_policy.ManifestFixture object at 0x0000022D3070F7A0>\n\n    def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:\n        http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))\n        admin: Final = CockpitAdminClient(CockpitAdminConfig(url=\"http://cockpit.test\", token=SecretStr(\"s\" * 32)), http)\n        app: Final = FastAPI()\n        # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。\n>       app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies(), cockpit_admin=admin))\nE       TypeError: create_management_router() got an unexpected keyword argument 'cockpit_admin'\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:59: TypeError\n___________ test_policy_management_disabled_without_cockpit_client ____________\n\n    def test_policy_management_disabled_without_cockpit_client() -> None:\n        app: Final = FastAPI()\n        app.include_router(create_management_router(CardKeyService(MemoryKeys()), MemoryLogs(),\n            MemoryRepository(_record(status=EnvironmentStatus.READY)), lambda: None, MemoryPolicies()))\n        with TestClient(app) as client:\n>           assert client.get(\"/api/cockpit/policy\").status_code == 503\nE           AssertionError: assert 404 == 503\nE            +  where 404 = <Response [404 Not Found]>.status_code\nE            +    where <Response [404 Not Found]> = get('/api/cockpit/policy')\nE            +      where get = <starlette.testclient.TestClient object at 0x0000022D3083AEA0>.get\n\naccount-pool\\tests\\account_pool\\test_cockpit_policy.py:147: AssertionError\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_policy_read_save_preserves_credentials_and_unknown_fields_without_restart\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra0]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra1]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra2]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra3]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra4]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra5]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unsupported_policy_fields_are_rejected_before_upstream[extra6]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unknown_or_duplicate_rule_accounts_cannot_be_saved[rules0]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_unknown_or_duplicate_rule_accounts_cannot_be_saved[rules1]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_two_admins_cannot_overwrite_new_revision\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back[conflict-409-revision_conflict]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back[lost-503-write_outcome_unknown]\nFAILED account-pool\\tests\\account_pool\\test_cockpit_policy.py::test_policy_management_disabled_without_cockpit_client\n14 failed, 1 warning in 2.53s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d22-red"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_admin.py",
+      "account-pool/tests/account_pool/test_management.py",
+      "account-pool/tests/account_pool/test_gateway_service.py",
+      "account-pool/tests/account_pool/test_policies.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_management.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-20261023-202213/tmp-regression"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "........................................................................ [ 30%]\n........................................................................ [ 60%]\n........................................................................ [ 90%]\n........................                                                 [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n240 passed, 1 warning in 79.19s (0:01:19)\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-regression"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "basedpyright",
+      "--project",
+      ".superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-pyright.json",
+      "--pythonpath",
+      "D:/Work2api/litellm/.venv/Scripts/python.exe"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-types-final"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "basedpyright",
+      "--project",
+      ".superpowers/sdd/2026-10-23-cockpit-reuse-audit/d22-pyright.json",
+      "--pythonpath",
+      "D:/Work2api/litellm/.venv/Scripts/python.exe"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d22-types"
+  },
+  {
+    "label": "CODE_BASELINE",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-BASELINE-management.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"input\": {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"routing_strategy\": \"custom\"}, \"manager_calls\": [], \"read_status\": 404, \"save_body\": {\"detail\": \"Not Found\"}, \"save_status\": 404, \"secret_exposed\": false, \"stale_status\": 404}\n",
+    "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_MODIFIED",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_management.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"input\": {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"routing_strategy\": \"custom\"}, \"manager_calls\": [\"GET /api/cockpit/policy\", \"PUT /api/cockpit/policy\", \"PUT /api/cockpit/policy\"], \"read_status\": 200, \"save_body\": {\"account_ids\": [\"account-a\"], \"blocked_reason\": null, \"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"editable\": true, \"revision\": \"\\\"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\\\"\", \"routing_strategy\": \"custom\", \"runtime_activation\": \"restart_required_or_unverified\", \"scope\": \"codex_pool_global\", \"supported_strategies\": [\"auto\", \"random\", \"quota_high_first\", \"quota_low_first\", \"plan_high_first\", \"plan_low_first\", \"expiry_soon_first\", \"custom\"], \"unsupported_fields\": [\"account_enabled\", \"candidate_scope\", \"fallback_enabled\", \"max_attempts\", \"cooldown\", \"session_affinity\"]}, \"save_status\": 200, \"secret_exposed\": false, \"stale_status\": 409}\n",
+    "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_PATCH",
+    "command": [
+      "C:/Program Files/Git/usr/bin/patch.exe",
+      "--batch",
+      "--binary",
+      "-p1",
+      "-d",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\reconstructed-code",
+      "-i",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code.patch"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "patching file account-pool/account_pool/api.py\npatching file account-pool/account_pool/cockpit_policy.py\npatching file account-pool/account_pool/management_api.py\npatching file account-pool/tests/account_pool/test_cockpit_policy.py\npatching file litellm/proxy/management_endpoints/account_pool_management.py\npatching file litellm/proxy/management_endpoints/account_pool_management_models.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py\npatching file ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts\npatching file ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx\npatching file ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx\npatching file ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx\npatching file ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.tsx\npatching file ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts\npatching file ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.test.ts\npatching file ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.ts\npatching file ui/litellm-dashboard/src/lib/http/schema.d.ts\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_ROLLBACK",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-code-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-management.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"input\": {\"custom_rules\": [{\"account_id\": \"account-a\", \"is_backup\": false, \"is_preferred\": true, \"priority\": 3, \"weight\": 2}], \"revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"routing_strategy\": \"custom\"}, \"manager_calls\": [], \"read_status\": 404, \"save_body\": {\"detail\": \"Not Found\"}, \"save_status\": 404, \"secret_exposed\": false, \"stale_status\": 404}\n",
+    "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_ROLLBACK_COMMAND",
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-management.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d22-BASELINE-management.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "PLAN_BASELINE",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "missing=7 forbidden=2\n",
+    "stderr": "",
+    "exit_status": 1
+  },
+  {
+    "label": "PLAN_MODIFIED",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "missing=0 forbidden=0\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "PLAN_PATCH",
+    "command": [
+      "C:/Program Files/Git/usr/bin/patch.exe",
+      "--binary",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\reconstructed-plan.md",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "patching file 'C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\reconstructed-plan.md'\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "PLAN_ROLLBACK",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-plan.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "missing=7 forbidden=2\n",
+    "stderr": "",
+    "exit_status": 1
+  },
+  {
+    "label": "PLAN_ROLLBACK_COMMAND",
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d22-20261023-202213\\rollback-plan.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0
+  }
+]

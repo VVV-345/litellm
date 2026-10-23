@@ -1,0 +1,1791 @@
+diff --git a/account-pool/account_pool/api.py b/account-pool/account_pool/api.py
+index 50d7eda4e1..14ef8ba410 100644
+--- a/account-pool/account_pool/api.py
++++ b/account-pool/account_pool/api.py
+@@ -1116,0 +1117 @@ def create_router(
++                cockpit_admin=cockpit_admin,
+diff --git a/account-pool/account_pool/cockpit_policy.py b/account-pool/account_pool/cockpit_policy.py
+new file mode 100644
+index 0000000000..2b74ac525b
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_policy.py
+@@ -0,0 +1,219 @@
++"""条件写入 Cockpit 原生 Codex 池策略；不迁移授权、凭据或自动重启。"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Final, Literal, Self
++
++from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
++
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, ManifestSnapshot
++
++CockpitStrategy = Literal[
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
++]
++STRATEGIES: Final[tuple[CockpitStrategy, ...]] = (
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
++)
++
++
++class CockpitRoutingRule(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    account_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
++    priority: int = Field(default=0, ge=-10000, le=10000, strict=True)
++    weight: int = Field(default=1, ge=1, le=10000, strict=True)
++    is_backup: bool = Field(default=False, strict=True)
++    is_preferred: bool = Field(default=False, strict=True)
++
++    @model_validator(mode="after")
++    def check_role(self) -> Self:
++        if self.is_backup and self.is_preferred:
++            raise ValueError("An account cannot be both backup and preferred")
++        return self
++
++
++class CockpitPolicyUpdate(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    routing_strategy: CockpitStrategy
++    custom_rules: tuple[CockpitRoutingRule, ...] = Field(max_length=256)
++
++
++class CockpitPolicyView(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    routing_strategy: str
++    custom_rules: tuple[CockpitRoutingRule, ...]
++    account_ids: tuple[str, ...]
++    editable: bool
++    blocked_reason: Literal["unsupported_account_or_rule", "unsupported_strategy"] | None
++    scope: Literal["codex_pool_global"] = "codex_pool_global"
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++    supported_strategies: tuple[CockpitStrategy, ...] = STRATEGIES
++    unsupported_fields: tuple[str, ...] = (
++        "account_enabled",
++        "candidate_scope",
++        "fallback_enabled",
++        "max_attempts",
++        "cooldown",
++        "session_affinity",
++    )
++
++
++@dataclass(frozen=True, slots=True)
++class PolicyFailure:
++    status: int
++    code: Literal[
++        "unavailable",
++        "invalid_response",
++        "unsupported_account_or_rule",
++        "unsupported_strategy",
++        "revision_conflict",
++        "invalid_rule_accounts",
++        "write_outcome_unknown",
++        "write_rejected",
++    ]
++
++
++class _Account(BaseModel):
++    model_config = ConfigDict(strict=True)
++    id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
++    authKind: str = ""
++
++
++class _Manifest(BaseModel):
++    routingStrategy: str = "auto"
++    accounts: tuple[_Account, ...] | None = None
++    customRoutingRules: tuple[dict[str, JsonValue], ...] | None = None
++
++
++def _rule(raw: dict[str, JsonValue]) -> CockpitRoutingRule:
++    return CockpitRoutingRule.model_validate(
++        {
++            "account_id": raw.get("accountId"),
++            "priority": raw.get("priority", 0),
++            "weight": raw.get("weight", 1),
++            "is_backup": raw.get("isBackup", False),
++            "is_preferred": raw.get("isPreferred", False),
++        }
++    )
++
++
++def _view(snapshot: ManifestSnapshot) -> CockpitPolicyView | PolicyFailure:
++    try:
++        manifest: Final = _Manifest.model_validate(snapshot.data)
++        rules: Final = tuple(_rule(raw) for raw in manifest.customRoutingRules or ())
++    except ValidationError:
++        return PolicyFailure(502, "invalid_response")
++    ids: Final = tuple(account.id for account in manifest.accounts or ())
++    rule_ids: Final = tuple(rule.account_id for rule in rules)
++    # 全局排序只作用于 Codex 池；不声称 providerGateway 或其他凭据路径具备同等语义。
++    account_blocked: Final = (
++        not ids
++        or len(ids) > 256
++        or len(set(ids)) != len(ids)
++        or len(set(rule_ids)) != len(rule_ids)
++        or any(rule_id not in ids for rule_id in rule_ids)
++        or any(account.authKind not in {"", "oauth"} for account in manifest.accounts or ())
++    )
++    reason: Final = (
++        "unsupported_account_or_rule"
++        if account_blocked
++        else "unsupported_strategy"
++        if manifest.routingStrategy not in STRATEGIES
++        else None
++    )
++    return CockpitPolicyView(
++        revision=snapshot.revision,
++        routing_strategy=manifest.routingStrategy,
++        custom_rules=rules,
++        account_ids=ids,
++        editable=reason is None,
++        blocked_reason=reason,
++    )
++
++
++async def read_cockpit_policy(client: CockpitAdminClient | None) -> CockpitPolicyView | PolicyFailure:
++    if client is None:
++        return PolicyFailure(503, "unavailable")
++    snapshot: Final = await client.read_manifest()
++    if isinstance(snapshot, CockpitFailure):
++        return PolicyFailure(
++            503 if snapshot.category == "transport" or snapshot.status_code == 503 else 502, "unavailable"
++        )
++    return _view(snapshot)
++
++
++async def save_cockpit_policy(
++    client: CockpitAdminClient | None,
++    request: CockpitPolicyUpdate,
++) -> CockpitPolicyView | PolicyFailure:
++    if client is None:
++        return PolicyFailure(503, "unavailable")
++    snapshot: Final = await client.read_manifest()
++    if isinstance(snapshot, CockpitFailure):
++        return PolicyFailure(503, "unavailable")
++    if snapshot.revision != request.revision:
++        return PolicyFailure(409, "revision_conflict")
++    view: Final = _view(snapshot)
++    if isinstance(view, PolicyFailure):
++        return view
++    if view.blocked_reason is not None:
++        return PolicyFailure(422, view.blocked_reason)
++    ids: Final = tuple(rule.account_id for rule in request.custom_rules)
++    if len(ids) != len(set(ids)) or any(account_id not in view.account_ids for account_id in ids):
++        return PolicyFailure(422, "invalid_rule_accounts")
++    manifest: Final = _Manifest.model_validate(snapshot.data)
++    old_rules: Final = {
++        raw.get("accountId"): raw for raw in manifest.customRoutingRules or () if isinstance(raw.get("accountId"), str)
++    }
++    data: Final[dict[str, JsonValue]] = {
++        **snapshot.data,
++        "routingStrategy": request.routing_strategy,
++        "customRoutingRules": [
++            {
++                **old_rules.get(rule.account_id, {}),
++                "accountId": rule.account_id,
++                "priority": rule.priority,
++                "weight": rule.weight,
++                "isBackup": rule.is_backup,
++                "isPreferred": rule.is_preferred,
++            }
++            for rule in request.custom_rules
++        ],
++    }
++    # 单次 CAS 更新，不写第二份策略或凭据。响应丢失时不能盲目补偿覆盖并发管理员。
++    receipt: Final = await client.write_manifest(data, request.revision)
++    if isinstance(receipt, CockpitFailure):
++        if receipt.category == "precondition":
++            return PolicyFailure(409, "revision_conflict")
++        if receipt.category in {"transport", "invalid_response"} or (receipt.status_code or 0) >= 500:
++            return PolicyFailure(503, "write_outcome_unknown")
++        return PolicyFailure(502, "write_rejected")
++    if receipt.revision is None:
++        return PolicyFailure(503, "write_outcome_unknown")
++    return CockpitPolicyView(
++        revision=receipt.revision,
++        routing_strategy=request.routing_strategy,
++        custom_rules=request.custom_rules,
++        account_ids=view.account_ids,
++        editable=True,
++        blocked_reason=None,
++    )
+diff --git a/account-pool/account_pool/management_api.py b/account-pool/account_pool/management_api.py
+index ff3ef50805..ac5beb86e6 100644
+--- a/account-pool/account_pool/management_api.py
++++ b/account-pool/account_pool/management_api.py
+@@ -16,0 +17,8 @@ from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService,
++from account_pool.cockpit_admin import CockpitAdminClient
++from account_pool.cockpit_policy import (
++    CockpitPolicyUpdate,
++    CockpitPolicyView,
++    PolicyFailure,
++    read_cockpit_policy,
++    save_cockpit_policy,
++)
+@@ -68,0 +77 @@ def create_management_router(
++    cockpit_admin: CockpitAdminClient | None = None,
+@@ -72,0 +82,15 @@ def create_management_router(
++    def policy_result(result: CockpitPolicyView | PolicyFailure) -> CockpitPolicyView:
++        if isinstance(result, PolicyFailure):
++            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
++        return result
++
++    @router.get("/cockpit/policy")
++    async def get_cockpit_policy(response: Response) -> CockpitPolicyView:
++        response.headers["Cache-Control"] = "no-store"
++        return policy_result(await read_cockpit_policy(cockpit_admin))
++
++    @router.put("/cockpit/policy")
++    async def put_cockpit_policy(request: CockpitPolicyUpdate, response: Response) -> CockpitPolicyView:
++        response.headers["Cache-Control"] = "no-store"
++        return policy_result(await save_cockpit_policy(cockpit_admin, request))
++
+diff --git a/account-pool/tests/account_pool/test_cockpit_policy.py b/account-pool/tests/account_pool/test_cockpit_policy.py
+new file mode 100644
+index 0000000000..a89f5d4a7d
+--- /dev/null
++++ b/account-pool/tests/account_pool/test_cockpit_policy.py
+@@ -0,0 +1,264 @@
++"""验证版本化 Cockpit 原生策略管理，只使用本地 HTTP fixture，不改凭据或运行态。"""
++
++from __future__ import annotations
++
++import asyncio
++import copy
++from pathlib import Path
++from typing import Final
++
++import httpx
++import pytest
++from account_pool.card_keys import CardKeyService
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig
++from account_pool.domain import EnvironmentStatus
++from account_pool.management_api import create_management_router
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from pydantic import SecretStr
++from test_account_pool import MemoryRepository, _record
++from test_management import MemoryKeys, MemoryLogs, MemoryPolicies
++
++R1: Final = '"sha256-' + "a" * 64 + '"'
++R2: Final = '"sha256-' + "b" * 64 + '"'
++BODY: Final = {
++    "revision": R1,
++    "routing_strategy": "custom",
++    "custom_rules": [{"account_id": "account-a", "priority": 5, "weight": 2, "is_backup": False, "is_preferred": True}],
++}
++
++
++class ManifestFixture:
++    def __init__(self, *, mode: str = "ok") -> None:
++        self.revision = R1
++        self.mode = mode
++        self.calls: list[httpx.Request] = []
++        self.data = {
++            "routingStrategy": "auto",
++            "accounts": [{"id": "account-a", "authId": "private.json"}],
++            "apiKeys": [{"id": "private", "enabled": True, "key": "PRIVATE", "accountIds": ["account-a"]}],
++            "customRoutingRules": [{"accountId": "account-a", "priority": 1, "weight": 1, "futureRule": 42}],
++            "futureRoot": {"secret": "PRIVATE"},
++        }
++
++    def handle(self, request: httpx.Request) -> httpx.Response:
++        import json
++
++        self.calls.append(request)
++        assert request.url.path == "/admin/v1/manifest"
++        if request.method == "GET":
++            return httpx.Response(200, headers={"ETag": self.revision}, json=self.data)
++        assert request.method == "PUT" and request.headers["If-Match"] == R1
++        if self.mode == "conflict":
++            return httpx.Response(412, text="PRIVATE")
++        if self.mode == "lost":
++            raise httpx.ReadTimeout("PRIVATE", request=request)
++        self.data = json.loads(request.content)
++        self.revision = R2
++        return httpx.Response(202, headers={"ETag": R2}, json={"status": "persisted", "restartRequired": True})
++
++
++def app_for(fixture: ManifestFixture) -> tuple[FastAPI, httpx.AsyncClient]:
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++    app: Final = FastAPI()
++    # 独立测试管理子路由；外层 Token 鉴权另由集成测试覆盖。
++    app.include_router(
++        create_management_router(
++            CardKeyService(MemoryKeys()),
++            MemoryLogs(),
++            MemoryRepository(_record(status=EnvironmentStatus.READY)),
++            lambda: None,
++            MemoryPolicies(),
++            cockpit_admin=admin,
++        )
++    )
++    return app, http
++
++
++def test_policy_read_save_preserves_credentials_and_unknown_fields_without_restart() -> None:
++    fixture: Final = ManifestFixture()
++    original: Final = copy.deepcopy(fixture.data)
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        before: Final = client.get("/api/cockpit/policy")
++        saved: Final = client.put("/api/cockpit/policy", json=BODY)
++        after: Final = client.get("/api/cockpit/policy")
++    asyncio.run(http.aclose())
++    assert before.status_code == 200 and before.json()["revision"] == R1
++    assert saved.status_code == 200 and saved.json()["revision"] == R2
++    assert saved.json()["runtime_activation"] == "restart_required_or_unverified"
++    assert after.json()["routing_strategy"] == "custom"
++    assert after.json()["custom_rules"][0]["priority"] == 5
++    assert after.headers["cache-control"] == "no-store"
++    assert "PRIVATE" not in after.text and "private.json" not in after.text
++    assert fixture.data["accounts"] == original["accounts"]
++    assert fixture.data["apiKeys"] == original["apiKeys"]
++    assert fixture.data["futureRoot"] == original["futureRoot"]
++    assert fixture.data["customRoutingRules"][0]["futureRule"] == 42
++    assert [(r.method, r.url.path) for r in fixture.calls] == [
++        ("GET", "/admin/v1/manifest"),
++        ("GET", "/admin/v1/manifest"),
++        ("PUT", "/admin/v1/manifest"),
++        ("GET", "/admin/v1/manifest"),
++    ]
++
++
++@pytest.mark.parametrize(
++    "extra",
++    [
++        {"routing_strategy": "priority"},
++        {"fallback_enabled": True},
++        {"max_attempts": 4},
++        {"session_affinity": True},
++        {"account_ids": ["other"]},
++        {"custom_rules": [{"account_id": "account-a", "weight": 0}]},
++        {"custom_rules": [{"account_id": "account-a", "is_backup": True, "is_preferred": True}]},
++    ],
++)
++def test_unsupported_policy_fields_are_rejected_before_upstream(extra: dict[str, object]) -> None:
++    fixture: Final = ManifestFixture()
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.put("/api/cockpit/policy", json={**BODY, **extra})
++    asyncio.run(http.aclose())
++    assert response.status_code == 422
++    assert fixture.calls == []
++
++
++@pytest.mark.parametrize("rules", [[{"account_id": "other"}], [{"account_id": "account-a"}] * 2])
++def test_unknown_or_duplicate_rule_accounts_cannot_be_saved(rules: list[dict[str, str]]) -> None:
++    fixture: Final = ManifestFixture()
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.put("/api/cockpit/policy", json={**BODY, "custom_rules": rules})
++    asyncio.run(http.aclose())
++    assert response.status_code == 422
++    assert all(r.method == "GET" for r in fixture.calls)
++
++
++def test_two_admins_cannot_overwrite_new_revision() -> None:
++    fixture: Final = ManifestFixture()
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        assert client.put("/api/cockpit/policy", json=BODY).status_code == 200
++        stale: Final = client.put("/api/cockpit/policy", json={**BODY, "routing_strategy": "random"})
++    asyncio.run(http.aclose())
++    assert stale.status_code == 409
++    assert fixture.data["routingStrategy"] == "custom"
++    assert sum(r.method == "PUT" for r in fixture.calls) == 1
++
++
++@pytest.mark.parametrize(
++    "mode,status,detail", [("conflict", 409, "revision_conflict"), ("lost", 503, "write_outcome_unknown")]
++)
++def test_conditional_conflict_or_lost_receipt_never_retries_or_rolls_back(mode: str, status: int, detail: str) -> None:
++    fixture: Final = ManifestFixture(mode=mode)
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.put("/api/cockpit/policy", json=BODY)
++    asyncio.run(http.aclose())
++    assert response.status_code == status and response.json()["detail"] == detail
++    assert "PRIVATE" not in response.text
++    assert response.headers["cache-control"] == "no-store"
++    assert [r.method for r in fixture.calls] == ["GET", "PUT"]
++
++
++def test_policy_management_disabled_without_cockpit_client() -> None:
++    app: Final = FastAPI()
++    app.include_router(
++        create_management_router(
++            CardKeyService(MemoryKeys()),
++            MemoryLogs(),
++            MemoryRepository(_record(status=EnvironmentStatus.READY)),
++            lambda: None,
++            MemoryPolicies(),
++        )
++    )
++    with TestClient(app) as client:
++        assert client.get("/api/cockpit/policy").status_code == 503
++        assert client.put("/api/cockpit/policy", json=BODY).status_code == 503
++
++
++@pytest.mark.parametrize("mode", ["api_key", "unknown", "empty", "future_strategy"])
++def test_unsupported_pool_is_readable_but_not_writable(mode: str) -> None:
++    fixture: Final = ManifestFixture()
++    if mode in {"api_key", "unknown"}:
++        fixture.data["accounts"][0]["authKind"] = mode
++    elif mode == "empty":
++        fixture.data["accounts"] = []
++    else:
++        fixture.data["routingStrategy"] = "future_strategy"
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        read: Final = client.get("/api/cockpit/policy")
++        write: Final = client.put("/api/cockpit/policy", json=BODY)
++    asyncio.run(http.aclose())
++    assert read.status_code == 200 and read.json()["editable"] is False
++    assert write.status_code == 422 and all(r.method == "GET" for r in fixture.calls)
++
++
++def test_policy_contract_matches_proxy_and_preserves_outer_manager_authorization(tmp_path: Path) -> None:
++    from account_pool.api import create_router
++    from account_pool.cockpit_policy import CockpitPolicyUpdate, CockpitPolicyView
++    from test_account_pool import FakeCLIProxy, _service
++
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitPolicyUpdate as PublicUpdate,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitPolicyView as PublicView,
++    )
++
++    assert CockpitPolicyUpdate.model_json_schema() == PublicUpdate.model_json_schema()
++    assert CockpitPolicyView.model_json_schema() == PublicView.model_json_schema()
++    fixture: Final = ManifestFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    record: Final = _record(status=EnvironmentStatus.READY)
++    app: Final = FastAPI()
++    app.include_router(
++        create_router(
++            _service(record, FakeCLIProxy(), tmp_path),
++            "m" * 32,
++            keys=CardKeyService(MemoryKeys()),
++            logs=MemoryLogs(),
++            environments=MemoryRepository(record),
++            policies=MemoryPolicies(),
++            cockpit_admin=CockpitAdminClient(
++                CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http
++            ),
++        )
++    )
++    with TestClient(app) as client:
++        assert client.put("/api/cockpit/policy", json=BODY).status_code == 401
++        assert fixture.calls == []
++        assert (
++            client.put("/api/cockpit/policy", json=BODY, headers={"Authorization": "Bearer " + "m" * 32}).status_code
++            == 200
++        )
++    asyncio.run(http.aclose())
++
++
++def test_invalid_manifest_never_becomes_default_policy() -> None:
++    fixture: Final = ManifestFixture()
++    fixture.data["customRoutingRules"] = [{"accountId": "account-a", "weight": "bad"}]
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        read: Final = client.get("/api/cockpit/policy")
++        write: Final = client.put("/api/cockpit/policy", json=BODY)
++    asyncio.run(http.aclose())
++    assert read.status_code == write.status_code == 502
++    assert all(r.method == "GET" for r in fixture.calls)
++
++def test_more_than_256_accounts_is_explicitly_read_only() -> None:
++    fixture: Final = ManifestFixture()
++    fixture.data["accounts"] = [{"id": f"account-{i}"} for i in range(257)]
++    fixture.data["customRoutingRules"] = []
++    app, http = app_for(fixture)
++    with TestClient(app) as client:
++        response: Final = client.get("/api/cockpit/policy")
++        write: Final = client.put("/api/cockpit/policy", json={**BODY, "custom_rules": []})
++    asyncio.run(http.aclose())
++    assert response.status_code == 200 and response.json()["editable"] is False
++    assert write.status_code == 422
++    assert all(r.method == "GET" for r in fixture.calls)
+diff --git a/litellm/proxy/management_endpoints/account_pool_management.py b/litellm/proxy/management_endpoints/account_pool_management.py
+index f059609ef4..3426f30fe4 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management.py
++++ b/litellm/proxy/management_endpoints/account_pool_management.py
+@@ -11 +11 @@ from fastapi import APIRouter, Depends, HTTPException, Response
+-from pydantic import TypeAdapter
++from pydantic import TypeAdapter, ValidationError
+@@ -28,0 +29,2 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
++    CockpitPolicyUpdate,
++    CockpitPolicyView,
+@@ -73,0 +76,40 @@ def create_management_router(
++    async def cockpit_policy_call(method: Literal["GET", "PUT"], body: bytes | None = None) -> CockpitPolicyView:
++        try:
++            upstream: Final = await request_manager(method, "/api/cockpit/policy", body)
++        except HTTPException:
++            raise HTTPException(503, "write_outcome_unknown" if method == "PUT" else "unavailable",
++                                headers={"Cache-Control": "no-store"}) from None
++        if upstream.status_code != 200:
++            safe_codes: Final = {
++                409: frozenset({"revision_conflict"}),
++                422: frozenset({"unsupported_account_or_rule", "unsupported_strategy", "invalid_rule_accounts"}),
++                503: frozenset({"unavailable", "write_outcome_unknown"}),
++            }
++            try:
++                error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
++            except ValidationError:
++                raise HTTPException(503 if method == "PUT" else 502,
++                                    "write_outcome_unknown" if method == "PUT" else "unavailable",
++                                    headers={"Cache-Control": "no-store"}) from None
++            detail: Final = error.get("detail", "")
++            accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
++            raise HTTPException(upstream.status_code if accepted else 503 if method == "PUT" else 502,
++                                detail if accepted else "write_outcome_unknown" if method == "PUT" else "unavailable",
++                                headers={"Cache-Control": "no-store"})
++        try:
++            return CockpitPolicyView.model_validate_json(upstream.content)
++        except ValidationError:
++            raise HTTPException(503 if method == "PUT" else 502,
++                                "write_outcome_unknown" if method == "PUT" else "invalid_response",
++                                headers={"Cache-Control": "no-store"}) from None
++
++    @router.get("/cockpit/policy")
++    async def get_cockpit_policy(response: Response) -> CockpitPolicyView:
++        response.headers["Cache-Control"] = "no-store"
++        return await cockpit_policy_call("GET")
++
++    @router.put("/cockpit/policy")
++    async def put_cockpit_policy(request: CockpitPolicyUpdate, response: Response) -> CockpitPolicyView:
++        response.headers["Cache-Control"] = "no-store"
++        return await cockpit_policy_call("PUT", request.model_dump_json().encode())
++
+diff --git a/litellm/proxy/management_endpoints/account_pool_management_models.py b/litellm/proxy/management_endpoints/account_pool_management_models.py
+index 97ea43602e..60884ed7f5 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management_models.py
++++ b/litellm/proxy/management_endpoints/account_pool_management_models.py
+@@ -6 +6 @@ from datetime import datetime, timezone
+-from typing import Annotated, Final, Literal, TypeAlias
++from typing import Annotated, Final, Literal, Self, TypeAlias
+@@ -21,0 +22,50 @@ from pydantic import (
++CockpitStrategy = Literal[
++    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
++    "expiry_soon_first", "custom",
++]
++_COCKPIT_STRATEGIES: Final[tuple[CockpitStrategy, ...]] = (
++    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
++    "expiry_soon_first", "custom",
++)
++
++
++class CockpitRoutingRule(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    account_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
++    priority: int = Field(default=0, ge=-10000, le=10000, strict=True)
++    weight: int = Field(default=1, ge=1, le=10000, strict=True)
++    is_backup: bool = Field(default=False, strict=True)
++    is_preferred: bool = Field(default=False, strict=True)
++
++    @model_validator(mode="after")
++    def check_role(self) -> Self:
++        if self.is_backup and self.is_preferred:
++            raise ValueError("An account cannot be both backup and preferred")
++        return self
++
++
++class CockpitPolicyUpdate(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    routing_strategy: CockpitStrategy
++    custom_rules: tuple[CockpitRoutingRule, ...] = Field(max_length=256)
++
++
++class CockpitPolicyView(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    routing_strategy: str
++    custom_rules: tuple[CockpitRoutingRule, ...]
++    account_ids: tuple[str, ...]
++    editable: bool
++    blocked_reason: Literal["unsupported_account_or_rule", "unsupported_strategy"] | None
++    scope: Literal["codex_pool_global"] = "codex_pool_global"
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++    supported_strategies: tuple[CockpitStrategy, ...] = _COCKPIT_STRATEGIES
++    unsupported_fields: tuple[str, ...] = (
++        "account_enabled", "candidate_scope", "fallback_enabled", "max_attempts", "cooldown", "session_affinity",
++    )
++
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+index aa156eb8d0..04fb9a8412 100644
+--- a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+@@ -1346 +1346 @@ def test_cockpit_status_proxy_sanitizes_manager_errors() -> None:
+-    assert response.headers["cache-control"] == "no-store"
++    assert response.headers["cache-control"] == "no-store"
+@@ -1388 +1388,52 @@ def test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors(status: int
+-    assert response.headers["cache-control"] == "no-store"
++    assert response.headers["cache-control"] == "no-store"
++
++def test_cockpit_policy_proxy_requires_admin_and_preserves_conflict() -> None:
++    calls: Final[list[str]] = []
++    def factory() -> AccountPoolManagerClient:
++        def handler(request: httpx.Request) -> httpx.Response:
++            calls.append(request.method)
++            assert request.url.path == "/api/cockpit/policy"
++            if request.method == "PUT":
++                return httpx.Response(409, json={"detail": "revision_conflict", "secret": "PRIVATE"})
++            return httpx.Response(200, json={"revision": '"sha256-' + 'a' * 64 + '"', "routing_strategy": "auto",
++                "custom_rules": [], "account_ids": ["account-a"], "editable": True, "blocked_reason": None,
++                "raw_manifest": "PRIVATE"})
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
++            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
++    body: Final = {"revision": '"sha256-' + 'a' * 64 + '"', "routing_strategy": "random", "custom_rules": []}
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
++        assert client.get("/account_pool/cockpit/policy").status_code == 403
++        assert client.put("/account_pool/cockpit/policy", json=body).status_code == 403
++    assert calls == []
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        read: Final = client.get("/account_pool/cockpit/policy")
++        conflict: Final = client.put("/account_pool/cockpit/policy", json=body)
++    assert read.status_code == 200 and "PRIVATE" not in read.text
++    assert read.json()["runtime_activation"] == "restart_required_or_unverified"
++    assert conflict.status_code == 409 and conflict.json() == {"detail": "revision_conflict"}
++    assert conflict.headers["cache-control"] == "no-store"
++    assert calls == ["GET", "PUT"]
++
++
++@pytest.mark.parametrize("status,detail", [(503, "write_outcome_unknown"), (422, "invalid_rule_accounts"),
++    (500, "PRIVATE")])
++def test_cockpit_policy_proxy_sanitizes_errors(status: int, detail: str) -> None:
++    def factory() -> AccountPoolManagerClient:
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
++            transport=httpx.MockTransport(lambda _: httpx.Response(status, json={"detail": detail}))))
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        response: Final = client.put("/account_pool/cockpit/policy", json={
++            "revision": '"sha256-' + 'a' * 64 + '"', "routing_strategy": "auto", "custom_rules": []})
++    assert response.status_code == (503 if status == 500 else status)
++    assert response.json()["detail"] == ("write_outcome_unknown" if status == 500 else detail)
++    assert response.headers["cache-control"] == "no-store"
++
++@pytest.mark.parametrize("status,body", [(200, {"revision": "bad"}), (503, {"unexpected": 5})])
++def test_cockpit_policy_put_invalid_receipt_requires_reread(status: int, body: dict[str, object]) -> None:
++    def factory() -> AccountPoolManagerClient:
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
++            transport=httpx.MockTransport(lambda _: httpx.Response(status, json=body))))
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
++        response: Final = client.put("/account_pool/cockpit/policy", json={
++            "revision": '"sha256-' + 'a' * 64 + '"', "routing_strategy": "auto", "custom_rules": []})
++    assert response.status_code == 503 and response.json() == {"detail": "write_outcome_unknown"}
+diff --git a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
+index 3238ea0466..fdebdb0586 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
++++ b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
+@@ -2,0 +3 @@
++import { z } from "zod";
+@@ -7,0 +9,3 @@ import { serverRootPath } from "@/lib/serverRootPath";
++export type CockpitPolicyView = components["schemas"]["CockpitPolicyView"];
++export type CockpitPolicyUpdate = components["schemas"]["CockpitPolicyUpdate"];
++export type CockpitRoutingRule = components["schemas"]["CockpitRoutingRule"];
+@@ -76,0 +81,46 @@ export const createAccountPoolJobId = (): string => {
++const cockpitRoutingRuleShape = {
++  account_id: z.string(),
++  priority: z.number(),
++  weight: z.number(),
++  is_backup: z.boolean(),
++  is_preferred: z.boolean(),
++};
++const cockpitPolicyResponseShape = {
++  revision: z.string().regex(/^"sha256-[a-f0-9]{64}"$/),
++  routing_strategy: z.string(),
++  custom_rules: z.array(z.object(cockpitRoutingRuleShape)),
++  account_ids: z.array(z.string()),
++  editable: z.boolean(),
++  blocked_reason: z.enum(["unsupported_strategy", "unsupported_account_or_rule"]).nullable(),
++  scope: z.literal("codex_pool_global"),
++  runtime_activation: z.literal("restart_required_or_unverified"),
++  supported_strategies: z.array(
++    z.enum([
++      "auto",
++      "random",
++      "quota_high_first",
++      "quota_low_first",
++      "plan_high_first",
++      "plan_low_first",
++      "expiry_soon_first",
++      "custom",
++    ]),
++  ),
++  unsupported_fields: z.array(z.string()),
++};
++const cockpitPolicyResponse: z.ZodType<CockpitPolicyView> = z.object(cockpitPolicyResponseShape);
++
++const readCockpitPolicyResponse = (response: unknown): CockpitPolicyView => {
++  const result = cockpitPolicyResponse.safeParse(response);
++  if (!result.success) throw new Error("策略响应无效，必须重新读取");
++  return result.data;
++};
++
++export const getAccountPoolCockpitPolicy = async (accessToken: string) =>
++  readCockpitPolicyResponse(
++    await apiClient.get<unknown>("/account_pool/cockpit/policy", { accessToken, cache: "no-store" }),
++  );
++
++export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate) =>
++  readCockpitPolicyResponse(await apiClient.put<unknown>("/account_pool/cockpit/policy", { accessToken, body }));
++
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
+new file mode 100644
+index 0000000000..631e574252
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
+@@ -0,0 +1,250 @@
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { afterEach, beforeEach, expect, it, vi } from "vitest";
++import i18n from "@/i18n";
++import type { CockpitPolicyView } from "../../api/AccountPoolManagementApi";
++import { AccountPoolCockpitPolicyPanel } from "./AccountPoolCockpitPolicyPanel";
++
++const initialPolicy: CockpitPolicyView = {
++  revision: '"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"',
++  routing_strategy: "auto",
++  custom_rules: [{ account_id: "account-a", priority: 0, weight: 1, is_backup: false, is_preferred: false }],
++  account_ids: ["account-a"],
++  editable: true,
++  blocked_reason: null,
++  scope: "codex_pool_global",
++  runtime_activation: "restart_required_or_unverified",
++  supported_strategies: [
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
++  ],
++  unsupported_fields: [
++    "account_enabled",
++    "candidate_scope",
++    "fallback_enabled",
++    "max_attempts",
++    "cooldown",
++    "session_affinity",
++  ],
++};
++
++beforeEach(async () => {
++  await i18n.changeLanguage("zh-CN");
++});
++afterEach(() => vi.unstubAllGlobals());
++
++function mountPanel(respond: (init?: RequestInit) => Response | Promise<Response>) {
++  const requests: { method: string; body: unknown }[] = [];
++  vi.stubGlobal(
++    "fetch",
++    vi.fn<typeof fetch>(async (input, init) => {
++      const path = new URL(String(input), "http://localhost").pathname;
++      if (path !== "/account_pool/cockpit/policy") throw new Error(`Unexpected request: ${path}`);
++      requests.push({ method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
++      return respond(init);
++    }),
++  );
++  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
++  render(
++    <QueryClientProvider client={client}>
++      <AccountPoolCockpitPolicyPanel accessToken="admin-token" />
++    </QueryClientProvider>,
++  );
++  return { requests, client };
++}
++
++it("sends edited global fields and the original revision only on explicit save, without claiming activation", async () => {
++  const { requests, client } = mountPanel((init) =>
++    Response.json(
++      init?.method === "PUT"
++        ? {
++            ...initialPolicy,
++            ...JSON.parse(String(init.body)),
++            revision: '"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"',
++          }
++        : initialPolicy,
++    ),
++  );
++  const user = userEvent.setup();
++  const strategy = await screen.findByRole("combobox", { name: "选择策略" });
++  expect(screen.getByText(/整个 Codex 号池/)).toBeInTheDocument();
++  expect(screen.getByText("Cockpit Codex 号池全局策略")).toBeInTheDocument();
++  expect(screen.getByText(/不切换现有 LiteLLM 流量/)).toBeInTheDocument();
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  await user.click(strategy);
++  await user.click(screen.getByRole("option", { name: "自定义优先级与权重" }));
++  fireEvent.change(screen.getByRole("spinbutton", { name: "account-a 优先级" }), { target: { value: "9" } });
++  fireEvent.change(screen.getByRole("spinbutton", { name: "account-a 权重" }), { target: { value: "3" } });
++  await user.click(screen.getByRole("checkbox", { name: "account-a 优先使用" }));
++  expect(requests).toEqual([{ method: "GET", body: null }]);
++  await user.click(screen.getByRole("button", { name: "保存全局策略" }));
++  expect(await screen.findByRole("status")).toHaveTextContent("已保存，待重启或运行状态确认");
++  expect(requests).toEqual([
++    { method: "GET", body: null },
++    {
++      method: "PUT",
++      body: {
++        revision: '"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"',
++        routing_strategy: "custom",
++        custom_rules: [{ account_id: "account-a", priority: 9, weight: 3, is_backup: false, is_preferred: true }],
++      },
++    },
++  ]);
++  expect(screen.queryByText(/已生效/)).not.toBeInTheDocument();
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  client.clear();
++});
++
++it.each([409, 503])(
++  "requires a successful re-read after save status %s and never retries the write",
++  async (status) => {
++    let reads = 0;
++    const { requests, client } = mountPanel((init) => {
++      if (init?.method === "PUT")
++        return Response.json(
++          {
++            detail: status === 409 ? "revision_conflict" : "write_outcome_unknown",
++          },
++          { status },
++        );
++      reads += 1;
++      if (reads === 2) return Response.json({ detail: "read unavailable" }, { status: 503 });
++      return Response.json({
++        ...initialPolicy,
++        revision:
++          reads === 1
++            ? initialPolicy.revision
++            : '"sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"',
++      });
++    });
++    const user = userEvent.setup();
++    await user.click(await screen.findByRole("checkbox", { name: "account-a 优先使用" }));
++    await user.click(screen.getByRole("button", { name: "保存全局策略" }));
++    expect(await screen.findByRole("alert")).toHaveTextContent("必须重新读取");
++    expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++    expect(requests.map(({ method }) => method)).toEqual(["GET", "PUT"]);
++    await user.click(screen.getByRole("button", { name: "重新读取策略" }));
++    expect(await screen.findByText(/read unavailable/)).toBeInTheDocument();
++    expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++    await user.click(screen.getByRole("button", { name: "重新读取策略" }));
++    await waitFor(() => expect(screen.queryByText(/必须重新读取/)).not.toBeInTheDocument());
++    await user.click(screen.getByRole("checkbox", { name: "account-a 优先使用" }));
++    await user.click(screen.getByRole("button", { name: "保存全局策略" }));
++    await screen.findByRole("alert");
++    expect(requests.map(({ method }) => method)).toEqual(["GET", "PUT", "GET", "GET", "PUT"]);
++    expect(requests[4].body).toMatchObject({
++      revision: '"sha256-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"',
++    });
++    client.clear();
++  },
++);
++
++it("shows read errors without inventing defaults or allowing writes", async () => {
++  const { requests, client } = mountPanel(() => Response.json({ detail: "policy unavailable" }, { status: 503 }));
++  expect(await screen.findByRole("alert")).toHaveTextContent("policy unavailable");
++  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  expect(requests).toEqual([{ method: "GET", body: null }]);
++  client.clear();
++});
++
++it("preserves unsupported strategy visibility and refuses edits when the server disables the policy", async () => {
++  const blockedPolicy = {
++    ...initialPolicy,
++    routing_strategy: "unknown-strategy",
++    editable: false,
++    blocked_reason: "unsupported_strategy",
++  };
++  const { requests, client } = mountPanel(() => Response.json(blockedPolicy));
++  expect(await screen.findByText("当前保存的选择策略不受支持，已禁用编辑")).toBeInTheDocument();
++  expect(screen.getByText("unknown-strategy")).toBeInTheDocument();
++  expect(screen.getByRole("combobox", { name: "选择策略" })).toBeDisabled();
++  expect(screen.getByRole("spinbutton", { name: "account-a 优先级" })).toBeDisabled();
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  expect(requests).toEqual([{ method: "GET", body: null }]);
++  client.clear();
++});
++
++it("locks edits while saving and makes preferred and backup flags mutually exclusive", async () => {
++  let finish!: () => void;
++  const pending = new Promise<void>((resolve) => {
++    finish = resolve;
++  });
++  const { requests, client } = mountPanel(async (init) => {
++    if (init?.method !== "PUT") return Response.json(initialPolicy);
++    await pending;
++    return Response.json({
++      ...initialPolicy,
++      ...JSON.parse(String(init.body)),
++      revision: '"sha256-dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"',
++    });
++  });
++  const user = userEvent.setup();
++  const preferred = await screen.findByRole("checkbox", { name: "account-a 优先使用" });
++  await user.click(preferred);
++  await user.click(screen.getByRole("checkbox", { name: "account-a 备用账号" }));
++  expect(preferred).not.toBeChecked();
++  await user.click(screen.getByRole("button", { name: "保存全局策略" }));
++  expect(screen.getByRole("button", { name: "正在保存策略" })).toBeDisabled();
++  expect(preferred).toHaveAttribute("aria-disabled", "true");
++  await act(async () => {
++    finish();
++  });
++  expect(await screen.findByRole("status")).toHaveTextContent("待重启或运行状态确认");
++  expect(requests[1].body).toMatchObject({
++    custom_rules: [{ account_id: "account-a", priority: 0, weight: 1, is_backup: true, is_preferred: false }],
++  });
++  client.clear();
++});
++
++it("recovers from the initial read failure through an explicit re-read", async () => {
++  let reads = 0;
++  const { requests, client } = mountPanel(() => {
++    reads += 1;
++    return reads === 1
++      ? Response.json({ detail: "temporarily unavailable" }, { status: 503 })
++      : Response.json(initialPolicy);
++  });
++  const user = userEvent.setup();
++  expect(await screen.findByRole("alert")).toHaveTextContent("temporarily unavailable");
++  await user.click(screen.getByRole("button", { name: "重新读取策略" }));
++  expect(await screen.findByRole("spinbutton", { name: "account-a 优先级" })).toBeEnabled();
++  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
++  await user.click(screen.getByRole("checkbox", { name: "account-a 优先使用" }));
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeEnabled();
++  expect(requests).toEqual([
++    { method: "GET", body: null },
++    { method: "GET", body: null },
++  ]);
++  client.clear();
++});
++
++it.each([null, {}])("rejects an incomplete 200 save receipt %j and requires a re-read", async (receipt) => {
++  const { requests, client } = mountPanel((init) => {
++    if (init?.method !== "PUT") return Response.json(initialPolicy);
++    return receipt === null ? new Response(null, { status: 200 }) : Response.json(receipt);
++  });
++  const user = userEvent.setup();
++  await user.click(await screen.findByRole("checkbox", { name: "account-a 优先使用" }));
++  await user.click(screen.getByRole("button", { name: "保存全局策略" }));
++  expect(await screen.findByRole("alert")).toHaveTextContent("必须重新读取");
++  expect(screen.queryByText("已保存，待重启或运行状态确认")).not.toBeInTheDocument();
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  expect(requests.map(({ method }) => method)).toEqual(["GET", "PUT"]);
++  client.clear();
++});
++
++it("rejects an invalid read revision instead of enabling writes", async () => {
++  const { client } = mountPanel(() => Response.json({ ...initialPolicy, revision: "invalid-revision" }));
++  expect(await screen.findByRole("alert")).toHaveTextContent("响应无效");
++  expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
++  expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  client.clear();
++});
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
+new file mode 100644
+index 0000000000..74cf57500e
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
+@@ -0,0 +1,246 @@
++/** 读取并显式保存 Cockpit 全局号池策略，保留版本冲突和待确认状态。 */
++"use client";
++
++import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
++import { useState } from "react";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
++import { Checkbox } from "@/components/ui/checkbox";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
++import {
++  getAccountPoolCockpitPolicy,
++  saveAccountPoolCockpitPolicy,
++  type CockpitPolicyUpdate,
++  type CockpitPolicyView,
++} from "../../api/AccountPoolManagementApi";
++import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
++import { cockpitPolicyDraft, cockpitPolicyUpdate, type CockpitPolicyDraft } from "../../utils/cockpitPolicyDraft";
++
++const strategies: Record<string, string> = {
++  auto: "自动",
++  random: "随机",
++  quota_high_first: "剩余额度高优先",
++  quota_low_first: "剩余额度低优先",
++  plan_high_first: "套餐等级高优先",
++  plan_low_first: "套餐等级低优先",
++  expiry_soon_first: "到期时间近优先",
++  custom: "自定义优先级与权重",
++};
++
++const blockedReasons: Record<NonNullable<CockpitPolicyView["blocked_reason"]>, string> = {
++  unsupported_strategy: "当前保存的选择策略不受支持，已禁用编辑",
++  unsupported_account_or_rule: "账号类型、已有规则或账号数量不受支持，已禁用编辑",
++};
++
++export function AccountPoolCockpitPolicyPanel({ accessToken }: { accessToken: string }) {
++  return <CockpitPolicyEditor key={accessToken} accessToken={accessToken} />;
++}
++
++function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++  const client = useQueryClient();
++  const queryKey = accountPoolQueryKeys.cockpitPolicy(accessToken);
++  const queryOptions = {
++    queryKey,
++    queryFn: () => getAccountPoolCockpitPolicy(accessToken),
++    retry: false,
++    refetchOnWindowFocus: false,
++    refetchOnReconnect: false,
++    staleTime: 0,
++  };
++  const query = useQuery(queryOptions);
++  const [draft, setDraft] = useState<CockpitPolicyDraft | null>(null);
++  const save = useMutation({
++    mutationFn: (body: CockpitPolicyUpdate) => saveAccountPoolCockpitPolicy(accessToken, body),
++    retry: false,
++    onSuccess: (data) => {
++      client.setQueryData(queryKey, data);
++      setDraft(null);
++    },
++  });
++  const reload = useMutation({
++    mutationFn: () => getAccountPoolCockpitPolicy(accessToken),
++    retry: false,
++    onSuccess: (data) => {
++      client.setQueryData(queryKey, data);
++      setDraft(null);
++      save.reset();
++    },
++  });
++  const data = query.data;
++  const form = draft ?? (data ? cockpitPolicyDraft(data) : null);
++  const busy = query.isFetching || save.isPending || reload.isPending;
++  const failed = query.isError || save.isError || reload.isError;
++  const disabled = busy || !data?.editable || failed;
++  const payload = form && data ? cockpitPolicyUpdate(form, data.supported_strategies) : null;
++  const edit = (changes: Partial<CockpitPolicyDraft>) => {
++    if (!form || disabled) return;
++    setDraft({ ...form, ...changes });
++    save.reset();
++  };
++  const error = reload.error ?? query.error;
++
++  return (
++    <Card>
++      <CardHeader>
++        <CardTitle>Cockpit Codex 号池全局策略</CardTitle>
++        <CardDescription>
++          作用于整个 Codex 号池，不是单卡、密钥或团队策略，不切换现有 LiteLLM
++          流量。保存只写入配置，不会重启服务，也不确认运行中已经采用此策略。
++        </CardDescription>
++      </CardHeader>
++      <CardContent className="space-y-4">
++        <p className="text-sm text-amber-700 dark:text-amber-400">待重启或运行状态确认，运行中的策略可能与保存值不同</p>
++        <p className="text-xs text-muted-foreground">
++          当前仅支持 OAuth 账号子集，最多 256 个账号。此处不修改账号启用、候选范围、回退、最多尝试次数、冷却或会话亲和性
++        </p>
++        {query.isPending && <p role="status">正在读取全局策略…</p>}
++        <CockpitPolicyError readError={error} saveError={save.error} />
++        {data && form && (
++          <CockpitPolicyFields data={data} form={form} disabled={disabled} valid={payload !== null} onChange={edit} />
++        )}
++        <div className="flex flex-wrap gap-2">
++          <Button
++            disabled={disabled || !draft || !payload}
++            onClick={() => {
++              if (!disabled && draft && payload) save.mutate(payload);
++            }}
++          >
++            {save.isPending ? "正在保存策略" : "保存全局策略"}
++          </Button>
++          <Button variant="outline" disabled={busy} onClick={() => reload.mutate()}>
++            重新读取策略
++          </Button>
++        </div>
++        {save.isSuccess && <p role="status">已保存，待重启或运行状态确认</p>}
++      </CardContent>
++    </Card>
++  );
++}
++
++function CockpitPolicyFields({
++  data,
++  form,
++  disabled,
++  valid,
++  onChange,
++}: {
++  data: CockpitPolicyView;
++  form: CockpitPolicyDraft;
++  disabled: boolean;
++  valid: boolean;
++  onChange: (changes: Partial<CockpitPolicyDraft>) => void;
++}) {
++  const editRule = (index: number, changes: Partial<CockpitPolicyDraft["custom_rules"][number]>) => {
++    onChange({
++      custom_rules: form.custom_rules.map((rule, position) => (position === index ? { ...rule, ...changes } : rule)),
++    });
++  };
++  return (
++    <>
++      {!data.editable && (
++        <p>{data.blocked_reason ? blockedReasons[data.blocked_reason] : "当前号池没有可编辑的账号"}</p>
++      )}
++      <div className="space-y-2">
++        <Label htmlFor="cockpit-strategy">选择策略</Label>
++        <Select
++          value={form.routing_strategy}
++          onValueChange={(value) => {
++            if (value) onChange({ routing_strategy: value });
++          }}
++          disabled={disabled}
++        >
++          <SelectTrigger id="cockpit-strategy" className="w-full">
++            <SelectValue>{strategies[form.routing_strategy] ?? form.routing_strategy}</SelectValue>
++          </SelectTrigger>
++          <SelectContent>
++            {data.supported_strategies.map((strategy) => (
++              <SelectItem key={strategy} value={strategy}>
++                {strategies[strategy]}
++              </SelectItem>
++            ))}
++          </SelectContent>
++        </Select>
++      </div>
++      <p className="text-xs text-muted-foreground">
++        自定义策略按优先级从高到低选择，同优先级按权重（1 至 10000）选择。优先使用和备用账号互斥，适用于所有策略。
++      </p>
++      <div className="space-y-3">
++        {form.custom_rules.map((rule, index) => (
++          <fieldset key={rule.account_id} className="rounded-lg border p-3">
++            <legend className="max-w-full break-all px-1 text-sm">{rule.account_id}</legend>
++            <div className="grid gap-3 sm:grid-cols-2">
++              <label className="space-y-1 text-sm">
++                <span>优先级</span>
++                <Input
++                  aria-label={`${rule.account_id} 优先级`}
++                  min="-10000"
++                  max="10000"
++                  type="number"
++                  step="1"
++                  value={rule.priority}
++                  disabled={disabled}
++                  onChange={(event) => editRule(index, { priority: event.target.value })}
++                />
++              </label>
++              <label className="space-y-1 text-sm">
++                <span>权重</span>
++                <Input
++                  aria-label={`${rule.account_id} 权重`}
++                  type="number"
++                  min="1"
++                  max="10000"
++                  step="1"
++                  value={rule.weight}
++                  disabled={disabled}
++                  onChange={(event) => editRule(index, { weight: event.target.value })}
++                />
++              </label>
++              <label className="flex items-center gap-2 text-sm">
++                <Checkbox
++                  checked={rule.is_preferred}
++                  disabled={disabled}
++                  onCheckedChange={(checked) =>
++                    editRule(index, { is_preferred: checked, ...(checked ? { is_backup: false } : {}) })
++                  }
++                />
++                <span>
++                  <span className="sr-only">{rule.account_id}</span> 优先使用
++                </span>
++              </label>
++              <label className="flex items-center gap-2 text-sm">
++                <Checkbox
++                  checked={rule.is_backup}
++                  disabled={disabled}
++                  onCheckedChange={(checked) =>
++                    editRule(index, { is_backup: checked, ...(checked ? { is_preferred: false } : {}) })
++                  }
++                />
++                <span>
++                  <span className="sr-only">{rule.account_id}</span> 备用账号
++                </span>
++              </label>
++            </div>
++          </fieldset>
++        ))}
++      </div>
++      {!valid && data.editable && (
++        <p role="alert">
++          请选择支持的策略，优先级须为 -10000 至 10000 的整数，权重须为 1 至 10000
++          的整数，优先使用与备用账号不能同时选中
++        </p>
++      )}
++    </>
++  );
++}
++
++function CockpitPolicyError({ readError, saveError }: { readError: Error | null; saveError: Error | null }) {
++  if (!readError && !saveError) return null;
++  return (
++    <p role="alert" className="text-sm text-destructive">
++      {saveError && `保存未确认，必须重新读取策略后才能再次编辑或保存：${saveError.message}。`}
++      {readError && `读取失败：${readError.message}`}
++    </p>
++  );
++}
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx
+index 4c718756e7..66866d8231 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx
+@@ -8,0 +9,12 @@ vi.mock("../../api/AccountPoolManagementApi", () => ({
++  getAccountPoolCockpitPolicy: async () => ({
++    revision: '"sha256-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"',
++    routing_strategy: "auto",
++    custom_rules: [],
++    account_ids: [],
++    editable: false,
++    blocked_reason: null,
++    scope: "codex_pool_global",
++    runtime_activation: "restart_required_or_unverified",
++    supported_strategies: ["auto"],
++    unsupported_fields: [],
++  }),
+@@ -56,0 +69,6 @@ describe("global settings overview", () => {
++  it("mounts the global Cockpit policy separately from native router settings", async () => {
++    renderOverview();
++    expect(await screen.findByText("Cockpit Codex 号池全局策略")).toBeInTheDocument();
++    expect(screen.getByText(/整个 Codex 号池/)).toBeInTheDocument();
++    expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
++  });
+@@ -65,4 +83 @@ describe("global settings overview", () => {
+-    expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute(
+-      "href",
+-      "/ui/policy-center",
+-    );
++    expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute("href", "/ui/policy-center");
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.tsx
+index d2f5468387..24cc72d9bb 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.tsx
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.tsx
+@@ -33,0 +34 @@ import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePan
++import { AccountPoolCockpitPolicyPanel } from "./AccountPoolCockpitPolicyPanel";
+@@ -411,0 +413,3 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
++        <div className="md:col-span-2 2xl:col-span-3">
++          <AccountPoolCockpitPolicyPanel accessToken={accessToken} />
++        </div>
+diff --git a/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts b/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts
+index 8852248fdf..69f977a5c6 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts
++++ b/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts
+@@ -21,0 +22 @@ export const accountPoolQueryKeys = {
++  cockpitPolicy: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "cockpit-policy", accessToken] as const,
+diff --git a/ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.test.ts b/ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.test.ts
+new file mode 100644
+index 0000000000..aad850c02a
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.test.ts
+@@ -0,0 +1,59 @@
++import { expect, it } from "vitest";
++import type { CockpitPolicyView } from "../api/AccountPoolManagementApi";
++import { cockpitPolicyDraft, cockpitPolicyUpdate } from "./cockpitPolicyDraft";
++
++const policy: CockpitPolicyView = {
++  revision: '"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"',
++  routing_strategy: "auto",
++  custom_rules: [],
++  account_ids: ["account-a"],
++  editable: true,
++  blocked_reason: null,
++  scope: "codex_pool_global",
++  runtime_activation: "restart_required_or_unverified",
++  supported_strategies: ["auto", "custom"],
++  unsupported_fields: [],
++};
++
++it("materializes sparse rules using Cockpit defaults without changing the read revision", () => {
++  expect(cockpitPolicyUpdate(cockpitPolicyDraft(policy), policy.supported_strategies)).toEqual({
++    revision: '"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"',
++    routing_strategy: "auto",
++    custom_rules: [{ account_id: "account-a", priority: 0, weight: 1, is_backup: false, is_preferred: false }],
++  });
++});
++
++it.each([
++  { priority: "" },
++  { priority: "1.5" },
++  { priority: "-10001" },
++  { priority: "10001" },
++  { weight: "" },
++  { weight: "0" },
++  { weight: "10001" },
++  { weight: "1.5" },
++  { is_backup: true, is_preferred: true },
++])("rejects invalid rule %j rather than silently repairing it", (invalid) => {
++  const draft = cockpitPolicyDraft(policy);
++  expect(
++    cockpitPolicyUpdate(
++      { ...draft, custom_rules: [{ ...draft.custom_rules[0], ...invalid }] },
++      policy.supported_strategies,
++    ),
++  ).toBeNull();
++});
++
++it("does not convert unsupported saved strategies to auto", () => {
++  const draft = cockpitPolicyDraft({ ...policy, routing_strategy: "unknown" });
++  expect(draft.routing_strategy).toBe("unknown");
++  expect(cockpitPolicyUpdate(draft, policy.supported_strategies)).toBeNull();
++});
++
++it("keeps invalid existing weights visible rather than applying defaults", () => {
++  const draft = cockpitPolicyDraft({
++    ...policy,
++    custom_rules: [{ account_id: "account-a", priority: 3, weight: 0, is_backup: false, is_preferred: false }],
++  });
++  expect(draft.custom_rules[0].weight).toBe("0");
++  expect(cockpitPolicyUpdate(draft, policy.supported_strategies)).toBeNull();
++});
+diff --git a/ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.ts b/ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.ts
+new file mode 100644
+index 0000000000..8ccb4b8d69
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/utils/cockpitPolicyDraft.ts
+@@ -0,0 +1,50 @@
++/** 转换 Cockpit 策略草稿并校验可保存字段，不修补已保存的无效值。 */
++import type { CockpitPolicyUpdate, CockpitPolicyView, CockpitRoutingRule } from "../api/AccountPoolManagementApi";
++
++type RuleDraft = Omit<CockpitRoutingRule, "priority" | "weight"> & { priority: string; weight: string };
++export type CockpitPolicyDraft = { revision: string; routing_strategy: string; custom_rules: RuleDraft[] };
++
++export function cockpitPolicyDraft(policy: CockpitPolicyView): CockpitPolicyDraft {
++  return {
++    revision: policy.revision,
++    routing_strategy: policy.routing_strategy,
++    custom_rules: policy.account_ids.map((account_id) => {
++      const rule = policy.custom_rules.find((item) => item.account_id === account_id);
++      return {
++        account_id,
++        priority: String(rule?.priority ?? 0),
++        weight: String(rule?.weight ?? 1),
++        is_backup: rule?.is_backup ?? false,
++        is_preferred: rule?.is_preferred ?? false,
++      };
++    }),
++  };
++}
++
++export function cockpitPolicyUpdate(
++  draft: CockpitPolicyDraft,
++  supported: CockpitPolicyView["supported_strategies"],
++): CockpitPolicyUpdate | null {
++  const strategy = supported.find((value) => value === draft.routing_strategy);
++  if (
++    !strategy ||
++    draft.custom_rules.some((rule) => {
++      const priority = Number(rule.priority);
++      const weight = Number(rule.weight);
++      const validPriority = rule.priority.trim() !== "" && Number.isInteger(priority) && Math.abs(priority) <= 10000;
++      const validWeight = Number.isInteger(weight) && weight >= 1 && weight <= 10000;
++      const validRole = !(rule.is_backup && rule.is_preferred);
++      return !(validPriority && validWeight && validRole);
++    })
++  )
++    return null;
++  return {
++    revision: draft.revision,
++    routing_strategy: strategy,
++    custom_rules: draft.custom_rules.map((rule) => ({
++      ...rule,
++      priority: Number(rule.priority),
++      weight: Number(rule.weight),
++    })),
++  };
++}
+diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+index 5b37645ca8..1baeb6d952 100644
+--- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
++++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+@@ -806,0 +807,52 @@ export interface paths {
++    "/account_pool/cockpit/policy": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Get Cockpit Policy */
++        get: operations["get_cockpit_policy_account_pool_cockpit_policy_get"];
++        /** Put Cockpit Policy */
++        put: operations["put_cockpit_policy_account_pool_cockpit_policy_put"];
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/preflight": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Check Cockpit Mapping */
++        post: operations["check_cockpit_mapping_account_pool_cockpit_preflight_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/status": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Get Cockpit Status */
++        get: operations["get_cockpit_status_account_pool_cockpit_status_get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
+@@ -28683,0 +28736,192 @@ export interface components {
++        /** CockpitAccountPreflight */
++        CockpitAccountPreflight: {
++            /** Blockers */
++            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
++            /**
++             * Card Id
++             * Format: uuid
++             */
++            card_id: string;
++            /** Source Version */
++            source_version: number | null;
++            /**
++             * Target Account Id
++             * Format: uuid
++             */
++            target_account_id: string;
++        };
++        /** CockpitPolicyUpdate */
++        CockpitPolicyUpdate: {
++            /** Custom Rules */
++            custom_rules: components["schemas"]["CockpitRoutingRule"][];
++            /** Revision */
++            revision: string;
++            /**
++             * Routing Strategy
++             * @enum {string}
++             */
++            routing_strategy: "auto" | "random" | "quota_high_first" | "quota_low_first" | "plan_high_first" | "plan_low_first" | "expiry_soon_first" | "custom";
++        };
++        /** CockpitPolicyView */
++        CockpitPolicyView: {
++            /** Account Ids */
++            account_ids: string[];
++            /** Blocked Reason */
++            blocked_reason: ("unsupported_account_or_rule" | "unsupported_strategy") | null;
++            /** Custom Rules */
++            custom_rules: components["schemas"]["CockpitRoutingRule"][];
++            /** Editable */
++            editable: boolean;
++            /** Revision */
++            revision: string;
++            /** Routing Strategy */
++            routing_strategy: string;
++            /**
++             * Runtime Activation
++             * @default restart_required_or_unverified
++             * @constant
++             */
++            runtime_activation: "restart_required_or_unverified";
++            /**
++             * Scope
++             * @default codex_pool_global
++             * @constant
++             */
++            scope: "codex_pool_global";
++            /**
++             * Supported Strategies
++             * @default [
++             *       "auto",
++             *       "random",
++             *       "quota_high_first",
++             *       "quota_low_first",
++             *       "plan_high_first",
++             *       "plan_low_first",
++             *       "expiry_soon_first",
++             *       "custom"
++             *     ]
++             */
++            supported_strategies: ("auto" | "random" | "quota_high_first" | "quota_low_first" | "plan_high_first" | "plan_low_first" | "expiry_soon_first" | "custom")[];
++            /**
++             * Unsupported Fields
++             * @default [
++             *       "account_enabled",
++             *       "candidate_scope",
++             *       "fallback_enabled",
++             *       "max_attempts",
++             *       "cooldown",
++             *       "session_affinity"
++             *     ]
++             */
++            unsupported_fields: string[];
++        };
++        /** CockpitPreflightReport */
++        CockpitPreflightReport: {
++            /** Accounts */
++            accounts: components["schemas"]["CockpitAccountPreflight"][];
++            /** Authorized Account Ids */
++            authorized_account_ids: string[];
++            /** Blockers */
++            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
++            /**
++             * Card Id
++             * Format: uuid
++             */
++            card_id: string;
++            /**
++             * Pending Checks
++             * @default [
++             *       "runtime_eligibility_unverified",
++             *       "credentials_and_ownership_unverified",
++             *       "models_proxy_quota_unmapped",
++             *       "policy_behavior_unverified",
++             *       "native_subject_mapping_unimplemented",
++             *       "runtime_activation_unverified"
++             *     ]
++             */
++            pending_checks: ("runtime_eligibility_unverified" | "credentials_and_ownership_unverified" | "models_proxy_quota_unmapped" | "policy_behavior_unverified" | "native_subject_mapping_unimplemented" | "runtime_activation_unverified")[];
++            /** Persisted Manifest Revision */
++            persisted_manifest_revision: string;
++            /** Policy Version */
++            policy_version: number;
++            /**
++             * Ready To Migrate
++             * @default false
++             * @constant
++             */
++            ready_to_migrate: false;
++            /** Scope Valid */
++            scope_valid: boolean;
++            /** Settings Version */
++            settings_version: number | null;
++            /**
++             * Source Strategy
++             * @enum {string}
++             */
++            source_strategy: "auto" | "random" | "priority" | "quota" | "plan" | "expiry" | "custom";
++            /**
++             * Subject Kind
++             * @enum {string}
++             */
++            subject_kind: "legacy_card_key" | "litellm_key";
++        };
++        /** CockpitPreflightRequest */
++        CockpitPreflightRequest: {
++            /** Candidate Ids */
++            candidate_ids?: string[] | null;
++            /**
++             * Card Id
++             * Format: uuid
++             */
++            card_id: string;
++            /** Expected Key Id */
++            expected_key_id?: string | null;
++            /**
++             * Subject Kind
++             * @enum {string}
++             */
++            subject_kind: "legacy_card_key" | "litellm_key";
++        };
++        /** CockpitRoutingRule */
++        CockpitRoutingRule: {
++            /** Account Id */
++            account_id: string;
++            /**
++             * Is Backup
++             * @default false
++             */
++            is_backup: boolean;
++            /**
++             * Is Preferred
++             * @default false
++             */
++            is_preferred: boolean;
++            /**
++             * Priority
++             * @default 0
++             */
++            priority: number;
++            /**
++             * Weight
++             * @default 1
++             */
++            weight: number;
++        };
++        /** CockpitStatus */
++        CockpitStatus: {
++            /** Account Count */
++            account_count: number;
++            /** Configured */
++            configured: boolean;
++            /** Credential Count */
++            credential_count: number;
++            /** Enabled Key Count */
++            enabled_key_count: number;
++            /** Persisted Manifest Revision */
++            persisted_manifest_revision: string | null;
++            /**
++             * Runtime Activation
++             * @constant
++             */
++            runtime_activation: "restart_required_or_unverified";
++        };
+@@ -45862,0 +46107,106 @@ export interface operations {
++    get_cockpit_policy_account_pool_cockpit_policy_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyView"];
++                };
++            };
++        };
++    };
++    put_cockpit_policy_account_pool_cockpit_policy_put: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitPolicyUpdate"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    check_cockpit_mapping_account_pool_cockpit_preflight_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitPreflightRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPreflightReport"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    get_cockpit_status_account_pool_cockpit_status_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitStatus"];
++                };
++            };
++        };
++    };

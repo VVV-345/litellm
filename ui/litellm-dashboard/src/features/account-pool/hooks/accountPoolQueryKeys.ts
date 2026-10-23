@@ -19,6 +19,7 @@ export const accountPoolQueryKeys = {
   batches: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "batches", accessToken] as const,
   oauthBrowserSession: (accessToken: string, sessionId: string | null) =>
     [...ACCOUNT_POOL_ROOT, "oauth-browser-session", accessToken, sessionId] as const,
+  cockpitPolicy: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "cockpit-policy", accessToken] as const,
   policies: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "policies", accessToken] as const,
   policy: (accessToken: string | null, cardId: string) =>
     [...ACCOUNT_POOL_ROOT, "policy", accessToken, cardId] as const,

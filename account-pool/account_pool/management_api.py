@@ -14,6 +14,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.application.effective_policy import effective_policy
 from account_pool.card_keys import CardKeyChange, CardKeyIssue, CardKeyService, CardKeyStatus
+from account_pool.cockpit_admin import CockpitAdminClient
+from account_pool.cockpit_policy import (
+    CockpitPolicyUpdate,
+    CockpitPolicyView,
+    PolicyFailure,
+    read_cockpit_policy,
+    save_cockpit_policy,
+)
 from account_pool.domain import EnvironmentRecord, utc_now
 from account_pool.error_logs import (
     ErrorLogDetail,
@@ -66,9 +74,25 @@ def create_management_router(
     sync_policy: Callable[[EnvironmentRecord, AccountPolicy], Awaitable[None]] | None = None,
     upstream_sync: GitHubUpstreamSyncService | None = None,
     litellm_upstream_sync: GitHubUpstreamSyncService | None = None,
+    cockpit_admin: CockpitAdminClient | None = None,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/api", dependencies=[Depends(authorize)])
     settings_update_lock: Final = asyncio.Lock()
+
+    def policy_result(result: CockpitPolicyView | PolicyFailure) -> CockpitPolicyView:
+        if isinstance(result, PolicyFailure):
+            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
+        return result
+
+    @router.get("/cockpit/policy")
+    async def get_cockpit_policy(response: Response) -> CockpitPolicyView:
+        response.headers["Cache-Control"] = "no-store"
+        return policy_result(await read_cockpit_policy(cockpit_admin))
+
+    @router.put("/cockpit/policy")
+    async def put_cockpit_policy(request: CockpitPolicyUpdate, response: Response) -> CockpitPolicyView:
+        response.headers["Cache-Control"] = "no-store"
+        return policy_result(await save_cockpit_policy(cockpit_admin, request))
 
     async def card(card_id: UUID) -> EnvironmentRecord:
         record: Final = await environments.get(card_id)

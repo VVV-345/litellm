@@ -1,0 +1,246 @@
+/** 读取并显式保存 Cockpit 全局号池策略，保留版本冲突和待确认状态。 */
+"use client";
+
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  getAccountPoolCockpitPolicy,
+  saveAccountPoolCockpitPolicy,
+  type CockpitPolicyUpdate,
+  type CockpitPolicyView,
+} from "../../api/AccountPoolManagementApi";
+import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { cockpitPolicyDraft, cockpitPolicyUpdate, type CockpitPolicyDraft } from "../../utils/cockpitPolicyDraft";
+
+const strategies: Record<string, string> = {
+  auto: "自动",
+  random: "随机",
+  quota_high_first: "剩余额度高优先",
+  quota_low_first: "剩余额度低优先",
+  plan_high_first: "套餐等级高优先",
+  plan_low_first: "套餐等级低优先",
+  expiry_soon_first: "到期时间近优先",
+  custom: "自定义优先级与权重",
+};
+
+const blockedReasons: Record<NonNullable<CockpitPolicyView["blocked_reason"]>, string> = {
+  unsupported_strategy: "当前保存的选择策略不受支持，已禁用编辑",
+  unsupported_account_or_rule: "账号类型、已有规则或账号数量不受支持，已禁用编辑",
+};
+
+export function AccountPoolCockpitPolicyPanel({ accessToken }: { accessToken: string }) {
+  return <CockpitPolicyEditor key={accessToken} accessToken={accessToken} />;
+}
+
+function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+  const client = useQueryClient();
+  const queryKey = accountPoolQueryKeys.cockpitPolicy(accessToken);
+  const queryOptions = {
+    queryKey,
+    queryFn: () => getAccountPoolCockpitPolicy(accessToken),
+    retry: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    staleTime: 0,
+  };
+  const query = useQuery(queryOptions);
+  const [draft, setDraft] = useState<CockpitPolicyDraft | null>(null);
+  const save = useMutation({
+    mutationFn: (body: CockpitPolicyUpdate) => saveAccountPoolCockpitPolicy(accessToken, body),
+    retry: false,
+    onSuccess: (data) => {
+      client.setQueryData(queryKey, data);
+      setDraft(null);
+    },
+  });
+  const reload = useMutation({
+    mutationFn: () => getAccountPoolCockpitPolicy(accessToken),
+    retry: false,
+    onSuccess: (data) => {
+      client.setQueryData(queryKey, data);
+      setDraft(null);
+      save.reset();
+    },
+  });
+  const data = query.data;
+  const form = draft ?? (data ? cockpitPolicyDraft(data) : null);
+  const busy = query.isFetching || save.isPending || reload.isPending;
+  const failed = query.isError || save.isError || reload.isError;
+  const disabled = busy || !data?.editable || failed;
+  const payload = form && data ? cockpitPolicyUpdate(form, data.supported_strategies) : null;
+  const edit = (changes: Partial<CockpitPolicyDraft>) => {
+    if (!form || disabled) return;
+    setDraft({ ...form, ...changes });
+    save.reset();
+  };
+  const error = reload.error ?? query.error;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Cockpit Codex 号池全局策略</CardTitle>
+        <CardDescription>
+          作用于整个 Codex 号池，不是单卡、密钥或团队策略，不切换现有 LiteLLM
+          流量。保存只写入配置，不会重启服务，也不确认运行中已经采用此策略。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-amber-700 dark:text-amber-400">待重启或运行状态确认，运行中的策略可能与保存值不同</p>
+        <p className="text-xs text-muted-foreground">
+          当前仅支持 OAuth 账号子集，最多 256 个账号。此处不修改账号启用、候选范围、回退、最多尝试次数、冷却或会话亲和性
+        </p>
+        {query.isPending && <p role="status">正在读取全局策略…</p>}
+        <CockpitPolicyError readError={error} saveError={save.error} />
+        {data && form && (
+          <CockpitPolicyFields data={data} form={form} disabled={disabled} valid={payload !== null} onChange={edit} />
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            disabled={disabled || !draft || !payload}
+            onClick={() => {
+              if (!disabled && draft && payload) save.mutate(payload);
+            }}
+          >
+            {save.isPending ? "正在保存策略" : "保存全局策略"}
+          </Button>
+          <Button variant="outline" disabled={busy} onClick={() => reload.mutate()}>
+            重新读取策略
+          </Button>
+        </div>
+        {save.isSuccess && <p role="status">已保存，待重启或运行状态确认</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function CockpitPolicyFields({
+  data,
+  form,
+  disabled,
+  valid,
+  onChange,
+}: {
+  data: CockpitPolicyView;
+  form: CockpitPolicyDraft;
+  disabled: boolean;
+  valid: boolean;
+  onChange: (changes: Partial<CockpitPolicyDraft>) => void;
+}) {
+  const editRule = (index: number, changes: Partial<CockpitPolicyDraft["custom_rules"][number]>) => {
+    onChange({
+      custom_rules: form.custom_rules.map((rule, position) => (position === index ? { ...rule, ...changes } : rule)),
+    });
+  };
+  return (
+    <>
+      {!data.editable && (
+        <p>{data.blocked_reason ? blockedReasons[data.blocked_reason] : "当前号池没有可编辑的账号"}</p>
+      )}
+      <div className="space-y-2">
+        <Label htmlFor="cockpit-strategy">选择策略</Label>
+        <Select
+          value={form.routing_strategy}
+          onValueChange={(value) => {
+            if (value) onChange({ routing_strategy: value });
+          }}
+          disabled={disabled}
+        >
+          <SelectTrigger id="cockpit-strategy" className="w-full">
+            <SelectValue>{strategies[form.routing_strategy] ?? form.routing_strategy}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {data.supported_strategies.map((strategy) => (
+              <SelectItem key={strategy} value={strategy}>
+                {strategies[strategy]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        自定义策略按优先级从高到低选择，同优先级按权重（1 至 10000）选择。优先使用和备用账号互斥，适用于所有策略。
+      </p>
+      <div className="space-y-3">
+        {form.custom_rules.map((rule, index) => (
+          <fieldset key={rule.account_id} className="rounded-lg border p-3">
+            <legend className="max-w-full break-all px-1 text-sm">{rule.account_id}</legend>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span>优先级</span>
+                <Input
+                  aria-label={`${rule.account_id} 优先级`}
+                  min="-10000"
+                  max="10000"
+                  type="number"
+                  step="1"
+                  value={rule.priority}
+                  disabled={disabled}
+                  onChange={(event) => editRule(index, { priority: event.target.value })}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span>权重</span>
+                <Input
+                  aria-label={`${rule.account_id} 权重`}
+                  type="number"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  value={rule.weight}
+                  disabled={disabled}
+                  onChange={(event) => editRule(index, { weight: event.target.value })}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={rule.is_preferred}
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    editRule(index, { is_preferred: checked, ...(checked ? { is_backup: false } : {}) })
+                  }
+                />
+                <span>
+                  <span className="sr-only">{rule.account_id}</span> 优先使用
+                </span>
+              </label>
+              <label className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  checked={rule.is_backup}
+                  disabled={disabled}
+                  onCheckedChange={(checked) =>
+                    editRule(index, { is_backup: checked, ...(checked ? { is_preferred: false } : {}) })
+                  }
+                />
+                <span>
+                  <span className="sr-only">{rule.account_id}</span> 备用账号
+                </span>
+              </label>
+            </div>
+          </fieldset>
+        ))}
+      </div>
+      {!valid && data.editable && (
+        <p role="alert">
+          请选择支持的策略，优先级须为 -10000 至 10000 的整数，权重须为 1 至 10000
+          的整数，优先使用与备用账号不能同时选中
+        </p>
+      )}
+    </>
+  );
+}
+
+function CockpitPolicyError({ readError, saveError }: { readError: Error | null; saveError: Error | null }) {
+  if (!readError && !saveError) return null;
+  return (
+    <p role="alert" className="text-sm text-destructive">
+      {saveError && `保存未确认，必须重新读取策略后才能再次编辑或保存：${saveError.message}。`}
+      {readError && `读取失败：${readError.message}`}
+    </p>
+  );
+}

@@ -1,10 +1,14 @@
 /** 本文件封装账号策略、供应商配置和额度管理请求。 */
 
+import { z } from "zod";
 import { apiClient } from "@/components/networking";
 import { normalizeRootPath } from "@/lib/http/resolveApiBase";
 import type { components } from "@/lib/http/schema";
 import { serverRootPath } from "@/lib/serverRootPath";
 
+export type CockpitPolicyView = components["schemas"]["CockpitPolicyView"];
+export type CockpitPolicyUpdate = components["schemas"]["CockpitPolicyUpdate"];
+export type CockpitRoutingRule = components["schemas"]["CockpitRoutingRule"];
 export type PolicyView = components["schemas"]["PolicyView"];
 export type AccountPoolRoutingStatus = components["schemas"]["AccountPoolRoutingStatus"];
 export type AccountPolicy = components["schemas"]["AccountPolicy"];
@@ -73,6 +77,52 @@ export const createAccountPoolJobId = (): string => {
   const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 };
+
+const cockpitRoutingRuleShape = {
+  account_id: z.string(),
+  priority: z.number(),
+  weight: z.number(),
+  is_backup: z.boolean(),
+  is_preferred: z.boolean(),
+};
+const cockpitPolicyResponseShape = {
+  revision: z.string().regex(/^"sha256-[a-f0-9]{64}"$/),
+  routing_strategy: z.string(),
+  custom_rules: z.array(z.object(cockpitRoutingRuleShape)),
+  account_ids: z.array(z.string()),
+  editable: z.boolean(),
+  blocked_reason: z.enum(["unsupported_strategy", "unsupported_account_or_rule"]).nullable(),
+  scope: z.literal("codex_pool_global"),
+  runtime_activation: z.literal("restart_required_or_unverified"),
+  supported_strategies: z.array(
+    z.enum([
+      "auto",
+      "random",
+      "quota_high_first",
+      "quota_low_first",
+      "plan_high_first",
+      "plan_low_first",
+      "expiry_soon_first",
+      "custom",
+    ]),
+  ),
+  unsupported_fields: z.array(z.string()),
+};
+const cockpitPolicyResponse: z.ZodType<CockpitPolicyView> = z.object(cockpitPolicyResponseShape);
+
+const readCockpitPolicyResponse = (response: unknown): CockpitPolicyView => {
+  const result = cockpitPolicyResponse.safeParse(response);
+  if (!result.success) throw new Error("策略响应无效，必须重新读取");
+  return result.data;
+};
+
+export const getAccountPoolCockpitPolicy = async (accessToken: string) =>
+  readCockpitPolicyResponse(
+    await apiClient.get<unknown>("/account_pool/cockpit/policy", { accessToken, cache: "no-store" }),
+  );
+
+export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate) =>
+  readCockpitPolicyResponse(await apiClient.put<unknown>("/account_pool/cockpit/policy", { accessToken, body }));
 
 const policyPath = (cardId: string) => `/account_pool/environments/${encodeURIComponent(cardId)}/policy`;
 

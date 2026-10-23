@@ -6,6 +6,18 @@ import { AccountPoolSettingsOverview } from "./AccountPoolSettingsOverview";
 const getSettings = vi.fn();
 vi.mock("../../api/AccountPoolManagementApi", () => ({
   getAccountPoolSettings: (...args: unknown[]) => getSettings(...args),
+  getAccountPoolCockpitPolicy: async () => ({
+    revision: '"sha256-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"',
+    routing_strategy: "auto",
+    custom_rules: [],
+    account_ids: [],
+    editable: false,
+    blocked_reason: null,
+    scope: "codex_pool_global",
+    runtime_activation: "restart_required_or_unverified",
+    supported_strategies: ["auto"],
+    unsupported_fields: [],
+  }),
 }));
 vi.mock("@/components/networking", () => ({
   serverRootPath: "",
@@ -54,6 +66,12 @@ describe("global settings overview", () => {
       },
     });
   });
+  it("mounts the global Cockpit policy separately from native router settings", async () => {
+    renderOverview();
+    expect(await screen.findByText("Cockpit Codex 号池全局策略")).toBeInTheDocument();
+    expect(screen.getByText(/整个 Codex 号池/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "保存全局策略" })).toBeDisabled();
+  });
   it("shows server values, card overrides and direct destinations without editors", async () => {
     renderOverview();
     expect(await screen.findByText(/配置版本 17/)).toBeInTheDocument();
@@ -62,10 +80,7 @@ describe("global settings overview", () => {
     expect(screen.getByText("关闭")).toBeInTheDocument();
     expect(screen.getByText(/Card streaming/)).toHaveTextContent("card-a");
     expect(await screen.findByText("simple-shuffle")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute(
-      "href",
-      "/ui/policy-center",
-    );
+    expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute("href", "/ui/policy-center");
     expect(screen.getByRole("link", { name: "流式传输" })).toHaveAttribute("href", "/ui/policy-center");
     expect(screen.getByRole("link", { name: "日常日志与完整日志" })).toHaveAttribute(
       "href",

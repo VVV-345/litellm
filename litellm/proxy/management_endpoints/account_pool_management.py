@@ -8,7 +8,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
@@ -26,6 +26,8 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolSettingsView,
     BatchJob,
     BatchRequest,
+    CockpitPolicyUpdate,
+    CockpitPolicyView,
     CodexReviewPackage,
     PolicyUpdate,
     PolicyView,
@@ -70,6 +72,46 @@ def create_management_router(
                 )
             raise HTTPException(response.status_code, "Account pool operation failed; refresh and retry")
         return response.content
+
+    async def cockpit_policy_call(method: Literal["GET", "PUT"], body: bytes | None = None) -> CockpitPolicyView:
+        try:
+            upstream: Final = await request_manager(method, "/api/cockpit/policy", body)
+        except HTTPException:
+            raise HTTPException(503, "write_outcome_unknown" if method == "PUT" else "unavailable",
+                                headers={"Cache-Control": "no-store"}) from None
+        if upstream.status_code != 200:
+            safe_codes: Final = {
+                409: frozenset({"revision_conflict"}),
+                422: frozenset({"unsupported_account_or_rule", "unsupported_strategy", "invalid_rule_accounts"}),
+                503: frozenset({"unavailable", "write_outcome_unknown"}),
+            }
+            try:
+                error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
+            except ValidationError:
+                raise HTTPException(503 if method == "PUT" else 502,
+                                    "write_outcome_unknown" if method == "PUT" else "unavailable",
+                                    headers={"Cache-Control": "no-store"}) from None
+            detail: Final = error.get("detail", "")
+            accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
+            raise HTTPException(upstream.status_code if accepted else 503 if method == "PUT" else 502,
+                                detail if accepted else "write_outcome_unknown" if method == "PUT" else "unavailable",
+                                headers={"Cache-Control": "no-store"})
+        try:
+            return CockpitPolicyView.model_validate_json(upstream.content)
+        except ValidationError:
+            raise HTTPException(503 if method == "PUT" else 502,
+                                "write_outcome_unknown" if method == "PUT" else "invalid_response",
+                                headers={"Cache-Control": "no-store"}) from None
+
+    @router.get("/cockpit/policy")
+    async def get_cockpit_policy(response: Response) -> CockpitPolicyView:
+        response.headers["Cache-Control"] = "no-store"
+        return await cockpit_policy_call("GET")
+
+    @router.put("/cockpit/policy")
+    async def put_cockpit_policy(request: CockpitPolicyUpdate, response: Response) -> CockpitPolicyView:
+        response.headers["Cache-Control"] = "no-store"
+        return await cockpit_policy_call("PUT", request.model_dump_json().encode())
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])

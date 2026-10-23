@@ -1114,6 +1114,7 @@ def create_router(
                 sync_policy,
                 upstream_sync,
                 litellm_upstream_sync,
+                cockpit_admin=cockpit_admin,
             )
         )
     if gateway_service is not None:
