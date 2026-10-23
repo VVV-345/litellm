@@ -22,6 +22,8 @@
 
 发布回归曾在修复前观察到 4 个 `AttributeError: 'ReleasePair' object has no attribute 'image_id'`。修复后四种情况均按预期：精确 ISP schema additions 接受；Prisma 变化、额外 DDL、修改 DDL 拒绝。对应实现按 current/target 两个镜像分别读取 Manager 源码和 LiteLLM `schema.prisma`。
 
+首次 GitHub 发布门禁的 1209 项通过、1 项跳过，但发现版本回归测试仍固定期待 `v1.6`。现已改为从 `deploy/VERSION` 动态读取当前系列，并据此计算下一 patch 版本；部署版本测试文件本地复跑 17 项通过。修复已单独提交并重推后，仍需以对应 GitHub 工作流结果确认发布。
+
 UI ESLint exit 0，但有 31 条 warning。Manager 严格类型检查从隔离基线的 65 项诊断降低到 33 项，仍未通过；不把它描述为通过。
 
 ## 未执行的验收

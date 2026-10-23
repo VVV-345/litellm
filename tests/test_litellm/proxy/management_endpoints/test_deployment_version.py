@@ -81,19 +81,21 @@ def test_explicit_release_series_starts_at_requested_version(tmp_path, tags, wan
     assert successful.read_text(encoding="utf-8") == tags
 
 
-def test_plan_a_product_release_starts_at_v16(tmp_path):
+def test_plan_a_product_release_starts_at_configured_series(tmp_path):
     version = SCRIPT.parent / "VERSION"
-    assert version.read_text(encoding="utf-8").strip() == "v1.6"
+    configured_version = version.read_text(encoding="utf-8").strip()
+    major, minor, *patch = (int(part) for part in configured_version.removeprefix("v").split("."))
+    next_patch = f"v{major}.{minor}.{patch[0] + 1 if patch else 1}"
     successful = tmp_path / "tags.txt"
     successful.write_text("v1.3.9-1111111111\nv1.4.2-2222222222\n", encoding="utf-8")
     command = [sys.executable, str(SCRIPT), str(version), "a" * 40, "--tags-file", str(successful)]
     first = subprocess.run(command, capture_output=True, text=True)
     retry = subprocess.run(command, capture_output=True, text=True)
     assert first.returncode == 0, first.stderr
-    assert "release_version=v1.6\n" in first.stdout
-    assert "versioned_tag=v1.6-aaaaaaaaaa\n" in first.stdout
+    assert f"release_version={configured_version}\n" in first.stdout
+    assert f"versioned_tag={configured_version}-aaaaaaaaaa\n" in first.stdout
     assert retry.stdout == first.stdout
-    successful.write_text("v1.6-1111111111\n", encoding="utf-8")
+    successful.write_text(f"{configured_version}-1111111111\n", encoding="utf-8")
     following = subprocess.run(command, capture_output=True, text=True)
     assert following.returncode == 0, following.stderr
-    assert "release_version=v1.6.1\n" in following.stdout
+    assert f"release_version={next_patch}\n" in following.stdout
