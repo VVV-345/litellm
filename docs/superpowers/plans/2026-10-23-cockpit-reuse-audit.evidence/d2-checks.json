@@ -1,0 +1,396 @@
+[
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_policies.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-resume-baseline"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "...                                                                      [100%]\n3 passed in 0.52s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-resume-baseline"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "\n=================================== ERRORS ====================================\n________ ERROR collecting tests/account_pool/test_cockpit_preflight.py ________\nImportError while importing test module 'C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\tests\\account_pool\\test_cockpit_preflight.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\n..\\..\\..\\..\\MiniConda3\\Lib\\importlib\\__init__.py:90: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\naccount-pool\\tests\\account_pool\\test_cockpit_preflight.py:19: in <module>\n    from account_pool.cockpit_preflight import CockpitPreflightRequest, cockpit_preflight\nE   ModuleNotFoundError: No module named 'account_pool.cockpit_preflight'\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nERROR account-pool\\tests\\account_pool\\test_cockpit_preflight.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 warning, 1 error in 3.33s\n",
+    "stderr": "",
+    "exit_status": 2,
+    "label": "d2-red"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-green-initial"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": ".......................                                                  [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n23 passed, 1 warning in 1.94s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-green-initial"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "-k",
+      "cockpit_preflight",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-proxy-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "FFF                                                                      [100%]\n================================== FAILURES ===================================\n______ test_cockpit_preflight_proxy_enforces_admin_contract_and_redacts _______\n\n    def test_cockpit_preflight_proxy_enforces_admin_contract_and_redacts() -> None:\n        calls: Final[list[str]] = []\n        body: Final = {\"card_id\": str(_ENVIRONMENT_ID), \"subject_kind\": \"legacy_card_key\", \"candidate_ids\": []}\n        def factory() -> AccountPoolManagerClient:\n            def handler(request: httpx.Request) -> httpx.Response:\n                calls.append(request.url.path)\n                assert request.method == \"POST\"\n                assert request.headers[\"Authorization\"] == \"Bearer \" + _MANAGER_TOKEN\n                assert json.loads(request.content)[\"candidate_ids\"] == []\n                return httpx.Response(200, json={\n                    \"card_id\": str(_ENVIRONMENT_ID), \"subject_kind\": \"legacy_card_key\",\n                    \"authorized_account_ids\": [], \"scope_valid\": False, \"source_strategy\": \"auto\",\n                    \"policy_version\": 1, \"settings_version\": None,\n                    \"persisted_manifest_revision\": '\"sha256-' + 'a' * 64 + '\"',\n                    \"accounts\": [], \"blockers\": [\"empty_candidates\"], \"ready_to_migrate\": False,\n                    \"pending_checks\": [\"runtime_eligibility_unverified\"], \"raw_manifest\": \"PRIVATE\"})\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN,\n                client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:\n>           assert client.post(\"/account_pool/cockpit/preflight\", json=body).status_code == 403\nE           AssertionError: assert 404 == 403\nE            +  where 404 = <Response [404 Not Found]>.status_code\nE            +    where <Response [404 Not Found]> = post('/account_pool/cockpit/preflight', json={'candidate_ids': [], 'card_id': '8a18a524-0577-40f2-9d4a-9f794803a930', 'subject_kind': 'legacy_card_key'})\nE            +      where post = <starlette.testclient.TestClient object at 0x00000180E02C35C0>.post\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1367: AssertionError\n---------------------------- Captured stdout setup ----------------------------\n[conftest] Module setup complete (worker: master)\n_ test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors[200-body1] _\n\nstatus = 200, body = {'ready_to_migrate': True}\n\n    @pytest.mark.parametrize(\"status,body\", [(502, {\"detail\": \"PRIVATE\"}), (200, {\"ready_to_migrate\": True})])\n    def test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors(status: int, body: dict) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json=body))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.post(\"/account_pool/cockpit/preflight\",\n                json={\"card_id\": str(_ENVIRONMENT_ID), \"subject_kind\": \"legacy_card_key\"})\n>       assert response.status_code == 502 and \"PRIVATE\" not in response.text\nE       assert (404 == 502)\nE        +  where 404 = <Response [404 Not Found]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1387: AssertionError\n_ test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors[502-body0] _\n\nstatus = 502, body = {'detail': 'PRIVATE'}\n\n    @pytest.mark.parametrize(\"status,body\", [(502, {\"detail\": \"PRIVATE\"}), (200, {\"ready_to_migrate\": True})])\n    def test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors(status: int, body: dict) -> None:\n        def factory() -> AccountPoolManagerClient:\n            return AccountPoolManagerClient(\"http://manager.test\", _MANAGER_TOKEN, client=httpx.AsyncClient(\n                transport=httpx.MockTransport(lambda _: httpx.Response(status, json=body))))\n        with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:\n            response: Final = client.post(\"/account_pool/cockpit/preflight\",\n                json={\"card_id\": str(_ENVIRONMENT_ID), \"subject_kind\": \"legacy_card_key\"})\n>       assert response.status_code == 502 and \"PRIVATE\" not in response.text\nE       assert (404 == 502)\nE        +  where 404 = <Response [404 Not Found]>.status_code\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_endpoints.py:1387: AssertionError\n-------------------------- Captured stdout teardown ---------------------------\n[conftest] Module teardown complete (worker: master)\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n=========================== short test summary info ===========================\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_preflight_proxy_enforces_admin_contract_and_redacts\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors[200-body1]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors[502-body0]\n3 failed, 60 deselected, 1 warning in 13.96s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d2-proxy-red"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "-k",
+      "cockpit_preflight",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-proxy-green"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "...                                                                      [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n3 passed, 60 deselected, 1 warning in 10.28s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-proxy-green"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "basedpyright",
+      "--pythonpath",
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "account-pool/account_pool/cockpit_preflight.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:9:6 - error: Stub file not found for \"account_pool.application.effective_policy\" (reportMissingTypeStubs)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:10:6 - error: Stub file not found for \"account_pool.card_keys\" (reportMissingTypeStubs)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:11:6 - error: Stub file not found for \"account_pool.cockpit_admin\" (reportMissingTypeStubs)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:12:6 - error: Stub file not found for \"account_pool.domain\" (reportMissingTypeStubs)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:13:6 - error: Stub file not found for \"account_pool.policies\" (reportMissingTypeStubs)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:14:6 - error: Stub file not found for \"account_pool.ports\" (reportMissingTypeStubs)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py:15:6 - error: Stub file not found for \"account_pool.settings\" (reportMissingTypeStubs)\n7 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d2-types"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "basedpyright",
+      "--project",
+      ".superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-pyright.json",
+      "--pythonpath",
+      "D:/Work2api/litellm/.venv/Scripts/python.exe"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-types-fixed"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "account-pool/account_pool/cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/account_pool/api.py",
+      "litellm/proxy/management_endpoints/account_pool_endpoints.py",
+      "litellm/proxy/management_endpoints/account_pool_management_models.py",
+      "--select",
+      "E9,F,I"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "I001 [*] Import block is un-sorted or un-formatted\n  --> account-pool\\tests\\account_pool\\test_cockpit_preflight.py:2:1\n   |\n 1 |   \"\"\"验证 Cockpit 映射预检只读、授权收窄及供应商隔离，不发送模型请求。\"\"\"\n 2 | / from __future__ import annotations\n 3 | |\n 4 | | import asyncio\n 5 | | from dataclasses import replace\n 6 | | from pathlib import Path\n 7 | | from typing import Final\n 8 | | from uuid import UUID, uuid4\n 9 | |\n10 | | import httpx\n11 | | import pytest\n12 | | from fastapi import FastAPI\n13 | | from fastapi.testclient import TestClient\n14 | | from pydantic import JsonValue, SecretStr\n15 | |\n16 | | from account_pool.api import create_router\n17 | | from account_pool.card_keys import CardKeyService, issue_card_key\n18 | | from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig\n19 | | from account_pool.cockpit_preflight import CockpitPreflightRequest, cockpit_preflight\n20 | | from account_pool.domain import EnvironmentRecord, EnvironmentStatus, SupplierKind, utc_now\n21 | | from account_pool.policies import AccountPolicy, PolicyView, RoutingPolicy\n22 | | from test_account_pool import FakeCLIProxy, MemoryRepository, _record, _service\n23 | | from test_management import MemoryKeys, MemoryPolicies\n   | |______________________________________________________^\n24 |\n25 |   REVISION: Final = '\"sha256-' + 'a' * 64 + '\"'\n   |\nhelp: Organize imports\n\nI001 [*] Import block is un-sorted or un-formatted\n   --> account-pool\\tests\\account_pool\\test_cockpit_preflight.py:202:5\n    |\n201 |   def test_manager_preflight_reads_only_and_matches_public_contract(tmp_path: Path) -> None:\n202 | /     from litellm.proxy.management_endpoints.account_pool_management_models import (\n203 | |         CockpitPreflightReport as PublicReport, CockpitPreflightRequest as PublicRequest,\n204 | |     )\n205 | |     from account_pool.cockpit_preflight import CockpitPreflightReport\n    | |_____________________________________________________________________^\n206 |\n207 |       a: Final = _record(status=EnvironmentStatus.READY)\n    |\nhelp: Organize imports\n\nI001 [*] Import block is un-sorted or un-formatted\n  --> litellm\\proxy\\management_endpoints\\account_pool_endpoints.py:3:1\n   |\n 1 |   \"\"\"本模块为 Dashboard 代理固定的号池管理接口，浏览器不会接触 Manager 内部令牌。\"\"\"\n 2 |\n 3 | / from __future__ import annotations\n 4 | |\n 5 | | import asyncio\n 6 | | import json\n 7 | | import os\n 8 | | from collections.abc import Awaitable, Callable, Iterable, Mapping\n 9 | | from contextlib import AbstractAsyncContextManager\n10 | | from datetime import datetime, timezone\n11 | | from typing import Annotated, Final, Literal, Protocol, TypeVar\n12 | | from urllib.parse import quote\n13 | | from uuid import UUID\n14 | |\n15 | | import httpx\n16 | | from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status\n17 | | from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError\n18 | | from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState\n19 | | from websockets.asyncio.client import connect\n20 | | from websockets.exceptions import ConnectionClosed, WebSocketException\n21 | |\n22 | | from litellm._logging import verbose_proxy_logger\n23 | | from litellm.proxy._types import UserAPIKeyAuth\n24 | | from litellm.proxy.auth.user_api_key_auth import user_api_key_auth\n25 | | from litellm.proxy.common_utils.resource_ownership import is_proxy_admin\n26 | | from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router\n27 | | from litellm.proxy.management_endpoints.account_pool_management import create_management_router\n28 | | from litellm.proxy.management_endpoints.account_pool_management_models import (\n29 | |     AccountPoolRoutingStatus, CockpitPreflightReport, CockpitPreflightRequest, CockpitStatus,\n30 | | )\n31 | | from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router\n32 | | from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard\n33 | | from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router\n34 | | from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router\n35 | | from litellm.proxy.management_endpoints.account_pool_reconciler import (\n36 | |     ReconcilerStatus,\n37 | |     reconcile_configured_account_pool,\n38 | |     reconciler_status,\n39 | | )\n40 | | from litellm.proxy.management_endpoints.account_pool_releases import create_release_router\n41 | | from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router\n42 | | from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router\n   | |__________________________________________________________________________________________________________________^\n43 |\n44 |   _Method = Literal[\"DELETE\", \"GET\", \"PATCH\", \"POST\", \"PUT\"]\n   |\nhelp: Organize imports\n\nFound 3 errors.\n[*] 3 fixable with the `--fix` option.\n",
+    "stderr": "",
+    "exit_status": 1,
+    "label": "d2-lint-initial"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "account-pool/account_pool/cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/account_pool/api.py",
+      "litellm/proxy/management_endpoints/account_pool_endpoints.py",
+      "litellm/proxy/management_endpoints/account_pool_management_models.py",
+      "--select",
+      "E9,F,I"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-lint-final"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_admin.py",
+      "account-pool/tests/account_pool/test_management.py",
+      "account-pool/tests/account_pool/test_gateway_service.py",
+      "account-pool/tests/account_pool/test_policies.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-regression"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "........................................................................ [ 33%]\n........................................................................ [ 67%]\n......................................................................   [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n214 passed, 1 warning in 65.98s (0:01:05)\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-regression"
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_conversation.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_session.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_observability.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-routing"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": "........................................................................ [ 19%]\n........................................................................ [ 38%]\n........................................................................ [ 58%]\n........................................................................ [ 77%]\n.s...................................................................... [ 97%]\n...........                                                              [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py::test_explicit_output_cap_is_included_in_token_reservation\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\pydantic\\_internal\\_generate_schema.py:1480: UserWarning: Items 'mode', 'ttl' on TypedDict class 'PromptCacheOptions' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.\n    warnings.warn(\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py::test_explicit_output_cap_is_included_in_token_reservation\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\pydantic\\_internal\\_generate_schema.py:1480: UserWarning: Item 'prompt_cache_options' on TypedDict class 'ResponsesAPIOptionalRequestParams' is using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.\n    warnings.warn(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n370 passed, 1 skipped, 3 warnings in 210.52s (0:03:30)\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-routing-regression"
+  },
+  {
+    "label": "CODE_BASELINE",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d2-code-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d2-BASELINE-endpoints.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"body\": {\"detail\": \"Not Found\"}, \"cache_control\": null, \"http_status\": 404, \"input\": {\"candidate_ids\": [\"00000000-0000-0000-0000-000000000001\"], \"card_id\": \"00000000-0000-0000-0000-000000000001\", \"expected_key_id\": \"00000000-0000-0000-0000-000000000001\", \"subject_kind\": \"legacy_card_key\"}, \"manager_requests\": [], \"secret_exposed\": false}\n",
+    "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_MODIFIED",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d2-code-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_endpoints.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"body\": {\"accounts\": [], \"authorized_account_ids\": [\"00000000-0000-0000-0000-000000000001\"], \"blockers\": [\"strategy_mapping_unverified\"], \"card_id\": \"00000000-0000-0000-0000-000000000001\", \"pending_checks\": [\"runtime_eligibility_unverified\"], \"persisted_manifest_revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"policy_version\": 1, \"ready_to_migrate\": false, \"scope_valid\": true, \"settings_version\": null, \"source_strategy\": \"auto\", \"subject_kind\": \"legacy_card_key\"}, \"cache_control\": \"no-store\", \"http_status\": 200, \"input\": {\"candidate_ids\": [\"00000000-0000-0000-0000-000000000001\"], \"card_id\": \"00000000-0000-0000-0000-000000000001\", \"expected_key_id\": \"00000000-0000-0000-0000-000000000001\", \"subject_kind\": \"legacy_card_key\"}, \"manager_requests\": [\"POST /api/cockpit/preflight\"], \"secret_exposed\": false}\n",
+    "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_PATCH",
+    "command": [
+      "C:/Program Files/Git/usr/bin/patch.exe",
+      "--batch",
+      "--binary",
+      "-p1",
+      "-d",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\reconstructed-code",
+      "-i",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d2-code.patch"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "patching file account-pool/account_pool/api.py\npatching file litellm/proxy/management_endpoints/account_pool_endpoints.py\npatching file litellm/proxy/management_endpoints/account_pool_management_models.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py\npatching file account-pool/account_pool/cockpit_preflight.py\npatching file account-pool/tests/account_pool/test_cockpit_preflight.py\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_ROLLBACK",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d2-code-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\d2-rollback-endpoints.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"body\": {\"detail\": \"Not Found\"}, \"cache_control\": null, \"http_status\": 404, \"input\": {\"candidate_ids\": [\"00000000-0000-0000-0000-000000000001\"], \"card_id\": \"00000000-0000-0000-0000-000000000001\", \"expected_key_id\": \"00000000-0000-0000-0000-000000000001\", \"subject_kind\": \"legacy_card_key\"}, \"manager_requests\": [], \"secret_exposed\": false}\n",
+    "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+    "exit_status": 0
+  },
+  {
+    "label": "CODE_ROLLBACK_COMMAND",
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\d2-rollback-endpoints.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\d2-BASELINE-endpoints.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "PLAN_BASELINE",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "missing=7 forbidden=2\n",
+    "stderr": "",
+    "exit_status": 1
+  },
+  {
+    "label": "PLAN_MODIFIED",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "missing=0 forbidden=0\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "PLAN_PATCH",
+    "command": [
+      "C:/Program Files/Git/usr/bin/patch.exe",
+      "--binary",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\d2-reconstructed-plan.md",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "patching file 'C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\d2-reconstructed-plan.md'\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "label": "PLAN_ROLLBACK",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\d2-rollback-plan.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "missing=7 forbidden=2\n",
+    "stderr": "",
+    "exit_status": 1
+  },
+  {
+    "label": "PLAN_ROLLBACK_COMMAND",
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\d2-20261023-174940\\d2-rollback-plan.md"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0
+  },
+  {
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-k",
+      "cockpit_preflight",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/d2-20261023-174940/tmp-final-focus"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "account-pool",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+      "PYTHONIOENCODING": "utf-8"
+    },
+    "stdout": ".............................                                            [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n29 passed, 60 deselected, 1 warning in 11.40s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "label": "d2-final-focus"
+  }
+]

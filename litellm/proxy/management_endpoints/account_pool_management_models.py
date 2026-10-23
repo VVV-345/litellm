@@ -31,6 +31,57 @@ class CockpitStatus(BaseModel):
     runtime_activation: Literal["restart_required_or_unverified"]
 
 
+class CockpitPreflightRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    card_id: UUID
+    subject_kind: Literal["legacy_card_key", "litellm_key"]
+    expected_key_id: UUID | None = None
+    candidate_ids: tuple[UUID, ...] | None = Field(default=None, max_length=256)
+
+
+PreflightBlocker = Literal[
+    "source_card_missing", "source_card_unavailable", "subject_binding_unverified", "empty_candidates",
+    "duplicate_candidates", "outside_authorized_scope", "source_account_missing", "supplier_mismatch",
+    "account_unavailable", "source_credential_missing", "supplier_mapping_unsupported",
+    "target_account_missing", "target_account_collision", "target_credential_missing",
+    "target_auth_kind_unsupported", "target_identity_unverified", "strategy_mapping_unverified",
+    "legacy_account_scope_unsupported",
+]
+
+
+class CockpitAccountPreflight(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    card_id: UUID
+    target_account_id: UUID
+    source_version: int | None
+    blockers: tuple[PreflightBlocker, ...]
+
+
+class CockpitPreflightReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    card_id: UUID
+    subject_kind: Literal["legacy_card_key", "litellm_key"]
+    authorized_account_ids: tuple[UUID, ...]
+    scope_valid: bool
+    source_strategy: Literal["auto", "random", "priority", "quota", "plan", "expiry", "custom"]
+    policy_version: int
+    settings_version: int | None
+    persisted_manifest_revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+    accounts: tuple[CockpitAccountPreflight, ...]
+    blockers: tuple[PreflightBlocker, ...]
+    ready_to_migrate: Literal[False] = False
+    pending_checks: tuple[Literal[
+        "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
+        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",
+    ], ...] = (
+        "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
+        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",
+    )
+
+
 ChannelKind = Literal["openai_compatible", "cliproxyapi"]
 SupplierKind = Literal[
     "openai_compatible",

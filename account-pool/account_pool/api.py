@@ -25,6 +25,7 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, CockpitStatus, cockpit_status
+from account_pool.cockpit_preflight import CockpitPreflightReport, CockpitPreflightRequest, cockpit_preflight
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import (
     AuthorizationFlow,
@@ -320,6 +321,19 @@ def create_router(
             raise HTTPException(
                 503 if result.category == "transport" or result.status_code == 503 else 502,
                 "Cockpit admin status unavailable", headers={"Cache-Control": "no-store"},
+            )
+        return result
+
+    @router.post("/api/cockpit/preflight", dependencies=[Depends(require_manager)])
+    async def check_cockpit_mapping(request: CockpitPreflightRequest, response: Response) -> CockpitPreflightReport:
+        response.headers["Cache-Control"] = "no-store"
+        if cockpit_admin is None or environments is None or policies is None or keys is None:
+            raise HTTPException(503, "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"})
+        result: Final = await cockpit_preflight(request, environments, policies, keys, cockpit_admin, settings)
+        if isinstance(result, CockpitFailure):
+            raise HTTPException(
+                503 if result.category == "transport" or result.status_code == 503 else 502,
+                "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"},
             )
         return result
 

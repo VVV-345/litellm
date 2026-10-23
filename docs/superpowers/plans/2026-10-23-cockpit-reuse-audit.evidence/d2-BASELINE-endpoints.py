@@ -1,0 +1,1418 @@
+"""本模块为 Dashboard 代理固定的号池管理接口，浏览器不会接触 Manager 内部令牌。"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from collections.abc import Awaitable, Callable, Iterable, Mapping
+from contextlib import AbstractAsyncContextManager
+from datetime import datetime, timezone
+from typing import Annotated, Final, Literal, Protocol, TypeVar
+from urllib.parse import quote
+from uuid import UUID
+
+import httpx
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError
+from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
+from websockets.asyncio.client import connect
+from websockets.exceptions import ConnectionClosed, WebSocketException
+
+from litellm._logging import verbose_proxy_logger
+from litellm.proxy._types import UserAPIKeyAuth
+from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
+from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
+from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
+from litellm.proxy.management_endpoints.account_pool_management import create_management_router
+from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus, CockpitStatus
+from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
+from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
+from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
+from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
+from litellm.proxy.management_endpoints.account_pool_reconciler import (
+    ReconcilerStatus,
+    reconcile_configured_account_pool,
+    reconciler_status,
+)
+from litellm.proxy.management_endpoints.account_pool_releases import create_release_router
+from litellm.proxy.management_endpoints.request_log_endpoints import create_request_log_router
+from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router
+
+_Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
+
+
+class _BrowserWebSocket(Protocol):
+    async def send(self, message: str | bytes) -> None: ...
+
+    async def recv(self) -> str | bytes: ...
+
+
+def _browser_relay_host(session_id: UUID) -> str:
+    return f"account-pool-oauth-browser-{session_id.hex}-callback-relay"
+
+
+def _browser_relay_url(
+    session_id: UUID,
+    path: str,
+    query_params: Iterable[tuple[str, str]],
+    *,
+    scheme: Literal["http", "ws"] = "http",
+) -> str:
+    target_path: Final = path or "vnc.html"
+    target_url: Final = httpx.URL(f"{scheme}://{_browser_relay_host(session_id)}:8093/{target_path}")
+    filtered_params: Final = tuple((key, value) for key, value in query_params if key != "ticket")
+    return str(target_url.copy_merge_params(filtered_params))
+
+
+def _connect_browser_websocket(url: str) -> AbstractAsyncContextManager[_BrowserWebSocket]:
+    return connect(url, proxy=None, open_timeout=30, close_timeout=10, max_size=16 * 1024 * 1024)
+
+
+async def _close_browser_websocket(websocket: WebSocket, code: int, reason: str) -> None:
+    if (
+        websocket.client_state is not WebSocketState.DISCONNECTED
+        and websocket.application_state is not WebSocketState.DISCONNECTED
+    ):
+        await websocket.close(code=code, reason=reason)
+
+
+async def _relay_browser_websocket(
+    websocket: WebSocket,
+    upstream: _BrowserWebSocket,
+    validate: Callable[[], Awaitable[object]] | None = None,
+) -> None:
+    async def from_browser() -> None:
+        while True:
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                return
+            if isinstance(text := message.get("text"), str):
+                await upstream.send(text)
+            elif isinstance(data := message.get("bytes"), bytes):
+                await upstream.send(data)
+
+    async def to_browser() -> None:
+        while True:
+            message = await upstream.recv()
+            if isinstance(message, bytes):
+                await websocket.send_bytes(message)
+            else:
+                await websocket.send_text(message)
+
+    async def check_session() -> None:
+        while validate is not None:
+            await asyncio.sleep(2)
+            await validate()
+
+    tasks: Final = (
+        asyncio.create_task(from_browser()),
+        asyncio.create_task(to_browser()),
+        *((asyncio.create_task(check_session()),) if validate is not None else ()),
+    )
+    try:
+        done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for task in done:
+            task.result()
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+class AccountPoolQuotaWindow(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    used_percent: float
+    remaining_percent: float
+    window_minutes: int
+    starts_at: str | None = None
+    resets_at: str | None = None
+    used: float | None = None
+    total: float | None = None
+    remaining: float | None = None
+    unit: str | None = None
+
+
+class AccountPoolQuotaBalance(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    available: float
+    minimum_required: float | None = None
+    unit: str | None = None
+
+
+class AccountPoolProviderFamily(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    kind: str
+    display_name: str
+    supplier: str | None = None
+    authentication: str
+    available: bool
+    description: str
+    card_count: int = Field(ge=0)
+
+
+class AccountPoolOpenAICompatibleKey(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    weight: int = Field(default=1, ge=1, le=10000)
+
+
+class AccountPoolOpenAICompatibleConfig(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    base_url: HttpUrl
+    prefix: str = Field(default="", max_length=120)
+    priority: int = Field(default=0, ge=-10000, le=10000)
+    test_model: str = Field(min_length=1, max_length=256)
+    api_keys: tuple[AccountPoolOpenAICompatibleKey, ...] = Field(min_length=1, max_length=1)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
+    custom_models: tuple[str, ...] = Field(default=(), max_length=500)
+
+
+class AccountPoolDirectAPIKey(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    api_key: str = Field(min_length=1, max_length=4096, repr=False)
+    prefix: str = Field(default="", max_length=120)
+    priority: int = Field(default=0, ge=-10000, le=10000)
+    weight: int = Field(default=1, ge=1, le=1000000)
+    base_url: HttpUrl | None = None
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
+
+
+class AccountPoolDirectCredentialCreateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1, max_length=80)
+    supplier: Literal["gemini", "gemini_interactions", "xai"]
+    credential: AccountPoolDirectAPIKey
+
+
+class AccountPoolQuotaSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    observed_at: str | None = None
+    refresh_attempted_at: str | None = None
+    source: Literal["provider_api", "cliproxyapi_cache", "stored_cache"] | None = None
+    plan_type: str | None = None
+    auth_file_plan_type: str | None = None
+    subscription_status: str | None = None
+    subscription_active_start: str | None = None
+    subscription_active_until: str | None = None
+    reset_credits_available: int | None = None
+    prepaid_balance: float | None = None
+    extra_usage_enabled: bool | None = None
+    has_grok_code_access: bool | None = None
+    refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
+    refresh_error: str | None = None
+    windows: tuple[AccountPoolQuotaWindow, ...] = ()
+    balances: tuple[AccountPoolQuotaBalance, ...] = ()
+
+
+class AccountPoolModelQuotaSnapshot(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    quota: AccountPoolQuotaSnapshot
+
+
+class AccountPoolModelCooldown(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    model: str
+    retry_at: str
+    reason: str = "upstream_error"
+
+
+class AccountPoolEnvironment(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    version: int = Field(ge=0)
+    desired_state: str | None = None
+    operation_id: str | None = None
+    desired_configuration_version: int = Field(default=0, ge=0)
+    observed_configuration_version: int = Field(default=0, ge=0)
+    name: str
+    provider: Literal["openai"]
+    channel: Literal["openai_compatible", "cliproxyapi"] = "cliproxyapi"
+    supplier: Literal[
+        "openai_codex",
+        "openai_compatible",
+        "anthropic_claude",
+        "google_antigravity",
+        "kimi",
+        "xai",
+        "gemini",
+        "gemini_interactions",
+        "vertex",
+    ] = "openai_codex"
+    authorization_flow: Literal["browser_oauth", "device_code", "direct_credential"] = "browser_oauth"
+    configuration_pending: bool = False
+    status: Literal[
+        "provisioning",
+        "awaiting_authorization",
+        "validating",
+        "ready",
+        "cooling_down",
+        "disabled",
+        "error",
+        "deleting",
+    ]
+    enabled: bool
+    manual_cooldown: bool
+    concurrency_limit: int = Field(ge=0, le=1000)
+    proxy_mode: Literal["default_gateway", "profile"]
+    proxy_profile_id: str | None
+    available_models: tuple[str, ...]
+    enabled_models: tuple[str, ...]
+    quota: AccountPoolQuotaSnapshot
+    model_quotas: tuple[AccountPoolModelQuotaSnapshot, ...] = ()
+    model_cooldowns: tuple[AccountPoolModelCooldown, ...] = ()
+    cooldown_until: str | None
+    automatic_cooldown: bool = False
+    last_error: str | None
+    created_at: str
+    updated_at: str
+
+
+class AccountPoolQuotaRefreshResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    refreshed: tuple[AccountPoolEnvironment, ...]
+    failed_card_ids: tuple[UUID, ...] = ()
+
+
+class AccountPoolQuotaRefreshStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    interval_minutes: int = Field(ge=5, le=60)
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    next_refresh_at: str | None = None
+    last_failed_count: int | None = Field(default=None, ge=0)
+
+
+class AccountPoolQuotaRefreshIntervalRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    interval_minutes: Literal[5, 15, 30, 60]
+
+
+class AccountPoolAuthFileRefreshStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    interval_minutes: int = Field(ge=5, le=60)
+    running: bool = False
+    last_started_at: str | None = None
+    last_completed_at: str | None = None
+    next_refresh_at: str | None = None
+    last_failed_count: int | None = Field(default=None, ge=0)
+
+
+class AccountPoolAuthFileRefreshIntervalRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    interval_minutes: Literal[5, 15, 30, 60]
+
+
+class AccountPoolAuthFileStatusRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    disabled: bool
+
+
+class AccountPoolAuthFileFieldsRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fields: dict[str, object]
+
+
+class AccountPoolPluginInstallRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    version: str = Field(min_length=1, max_length=64)
+    source: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class AccountPoolCreateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str = Field(min_length=1, max_length=80)
+    provider: Literal["openai"] = "openai"
+    channel: Literal["openai_compatible", "cliproxyapi"] = "cliproxyapi"
+    supplier: Literal[
+        "openai_codex",
+        "openai_compatible",
+        "anthropic_claude",
+        "google_antigravity",
+        "kimi",
+        "xai",
+        "gemini",
+        "gemini_interactions",
+        "vertex",
+    ] = "openai_codex"
+    provider_family: str | None = Field(default=None, max_length=80)
+    openai_compatible: AccountPoolOpenAICompatibleConfig | None = None
+    proxy_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class AccountPoolUpdateRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    version: int = Field(ge=0)
+    operation_id: str | None = Field(default=None, max_length=160)
+    name: str = Field(min_length=1, max_length=80)
+    concurrency_limit: int = Field(ge=0, le=1000)
+    enabled: bool
+    manual_cooldown: bool
+    proxy_mode: Literal["default_gateway", "profile"]
+    proxy_profile_id: str | None = Field(default=None, max_length=120)
+    enabled_models: tuple[str, ...]
+
+
+class AccountPoolAuthorization(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    environment: AccountPoolEnvironment
+    flow: Literal["browser_oauth", "device_code"]
+    authorization_url: HttpUrl
+    ssh_command: str | None
+    user_code: str | None
+    expires_at: str
+
+
+class AccountPoolOAuthBrowserSession(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: UUID
+    environment_id: UUID
+    status: Literal["starting", "active", "callback_pending", "completed", "cancelled", "failed", "expired"]
+    created_at: str
+    expires_at: str
+
+
+class AccountPoolOAuthBrowserSessionStart(AccountPoolOAuthBrowserSession):
+    ticket: str = Field(repr=False)
+
+
+class AccountPoolProxyProfile(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    name: str
+    protocol: str | None = None
+
+
+class AccountPoolProxyGateway(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    port: int
+    profile_id: str
+    name: str
+    proxy_url: str
+    current_node: str | None = None
+    isp_profile_id: UUID | None = None
+
+
+class AccountPoolProxyGatewayConfiguration(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    config_path: str | None = None
+
+
+class AccountPoolProxyGatewayConfigurationRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str | None = Field(default=None, max_length=120)
+
+    content: str | None = Field(default=None, max_length=2_097_152)
+    url: str | None = Field(default=None, max_length=2048)
+
+
+class AccountPoolProxyGatewayDelay(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    port: int
+    current_node: str | None
+    status: Literal["ok", "timeout", "error"]
+    delay_ms: int | None
+    checked_at: str
+    gateway_status: Literal["ok", "timeout", "error"] = "error"
+    gateway_delay_ms: int | None = None
+
+
+class AccountPoolClashNode(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    proxy_type: str
+
+
+class AccountPoolGatewaySwitchRequest(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    node_name: str = Field(min_length=1, max_length=256)
+
+
+class AccountPoolGatewayISPBinding(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    profile_id: UUID
+
+
+_ENVIRONMENTS: Final = TypeAdapter(tuple[AccountPoolEnvironment, ...])
+_PROVIDER_FAMILIES: Final = TypeAdapter(tuple[AccountPoolProviderFamily, ...])
+_QUOTA_REFRESH: Final = TypeAdapter(AccountPoolQuotaRefreshResult)
+_AUTH_FILE_REFRESH_STATUS: Final = TypeAdapter(AccountPoolAuthFileRefreshStatus)
+_ENVIRONMENT: Final = TypeAdapter(AccountPoolEnvironment)
+_AUTHORIZATION: Final = TypeAdapter(AccountPoolAuthorization)
+_OAUTH_BROWSER_SESSION: Final = TypeAdapter(AccountPoolOAuthBrowserSession)
+_OAUTH_BROWSER_SESSION_START: Final = TypeAdapter(AccountPoolOAuthBrowserSessionStart)
+_PROFILES: Final = TypeAdapter(tuple[AccountPoolProxyProfile, ...])
+_GATEWAYS: Final = TypeAdapter(tuple[AccountPoolProxyGateway, ...])
+_GATEWAY_CONFIGURATION: Final = TypeAdapter(AccountPoolProxyGatewayConfiguration)
+_GATEWAY_DELAYS: Final = TypeAdapter(tuple[AccountPoolProxyGatewayDelay, ...])
+_CLASH_NODES: Final = TypeAdapter(tuple[AccountPoolClashNode, ...])
+_GATEWAY_ADAPTER: Final = TypeAdapter(AccountPoolProxyGateway)
+
+
+class AccountPoolManagerClient:
+    def __init__(
+        self,
+        base_url: str,
+        token: str | None,
+        client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._base_url: Final = base_url.rstrip("/")
+        self._token: Final = token
+        self._client: Final = client or httpx.AsyncClient(timeout=30.0, trust_env=False)
+        self._owns_client: Final = client is None
+
+    async def close(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    async def request(
+        self,
+        method: _Method,
+        path: str,
+        body: bytes | None = None,
+        idempotency_key: str | None = None,
+    ) -> httpx.Response:
+        if self._token is None or len(self._token) < 32:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is not configured",
+            )
+        try:
+            headers: Final = {
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+                **({"Idempotency-Key": idempotency_key} if idempotency_key is not None else {}),
+            }
+            return await self._client.request(
+                method,
+                f"{self._base_url}{path}",
+                headers=headers,
+                content=body,
+                timeout=120.0 if path.endswith("/oauth-browser-sessions") and method == "POST" else self._client.timeout,
+            )
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is unavailable",
+            ) from error
+
+    async def request_with_token(self, method: _Method, path: str, token: str) -> httpx.Response:
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="OAuth browser ticket is required")
+        try:
+            return await self._client.request(
+                method,
+                f"{self._base_url}{path}",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            )
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is unavailable",
+            ) from error
+
+    async def request_multipart(
+        self,
+        path: str,
+        fields: dict[str, str],
+        filename: str,
+        content: bytes,
+        content_type: str | None,
+        idempotency_key: str | None = None,
+    ) -> httpx.Response:
+        if self._token is None or len(self._token) < 32:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is not configured",
+            )
+        try:
+            headers: Final = {
+                "Authorization": f"Bearer {self._token}",
+                **({"Idempotency-Key": idempotency_key} if idempotency_key is not None else {}),
+            }
+            files: Final = {"file": (filename, content, content_type or "application/octet-stream")}
+            return await self._client.post(f"{self._base_url}{path}", headers=headers, data=fields, files=files)
+        except httpx.HTTPError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Account Pool Manager is unavailable",
+            ) from error
+
+
+ManagerClientFactory = Callable[[], AccountPoolManagerClient]
+
+
+async def _manager_request(
+    client_factory: ManagerClientFactory,
+    method: _Method,
+    path: str,
+    body: bytes | None = None,
+    idempotency_key: str | None = None,
+) -> httpx.Response:
+    client: Final = client_factory()
+    try:
+        return await client.request(method, path, body, idempotency_key)
+    finally:
+        await client.close()
+
+
+async def _manager_request_multipart(
+    client_factory: ManagerClientFactory,
+    path: str,
+    fields: dict[str, str],
+    filename: str,
+    content: bytes,
+    content_type: str | None,
+    idempotency_key: str | None = None,
+) -> httpx.Response:
+    client: Final = client_factory()
+    try:
+        return await client.request_multipart(path, fields, filename, content, content_type, idempotency_key)
+    finally:
+        await client.close()
+
+
+def _default_client() -> AccountPoolManagerClient:
+    return AccountPoolManagerClient(
+        base_url=os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091"),
+        token=os.getenv("ACCOUNT_POOL_MANAGER_TOKEN"),
+    )
+
+
+def create_account_pool_router(
+    client_factory: ManagerClientFactory = _default_client,
+    *,
+    dashboard_reader: Callable[[], Awaitable[AccountPoolDashboardStats]] = standard_dashboard,
+    release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
+    browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
+    browser_websocket_connect: Callable[[str], AbstractAsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
+) -> APIRouter:
+    router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
+
+    @router.get("/cockpit/status", response_model=CockpitStatus)
+    async def get_cockpit_status(
+        response: Response,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> CockpitStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            upstream: Final = await _manager_request(client_factory, "GET", "/api/cockpit/status")
+        except HTTPException:
+            raise HTTPException(503, "Cockpit status unavailable", headers={"Cache-Control": "no-store"}) from None
+        if upstream.status_code != 200:
+            raise HTTPException(
+                503 if upstream.status_code == 503 else 502,
+                "Cockpit status unavailable", headers={"Cache-Control": "no-store"},
+            )
+        try:
+            return CockpitStatus.model_validate_json(upstream.content)
+        except ValidationError:
+            raise HTTPException(502, "Invalid Cockpit status", headers={"Cache-Control": "no-store"}) from None
+
+    async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
+        return await _manager_request(client_factory, method, path, body)
+
+    async def feedback_multipart(
+        path: str, fields: dict[str, str], filename: str, content: bytes, content_type: str | None,
+    ) -> httpx.Response:
+        return await _manager_request_multipart(client_factory, path, fields, filename, content, content_type)
+
+    @router.get("/environments", response_model=tuple[AccountPoolEnvironment, ...])
+    async def list_environments(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolEnvironment, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/environments")
+        return _validate_response(response, _ENVIRONMENTS)
+
+    @router.get("/provider-families", response_model=tuple[AccountPoolProviderFamily, ...])
+    async def list_provider_families(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProviderFamily, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/provider-families")
+        return _validate_response(response, _PROVIDER_FAMILIES)
+
+    @router.get("/dashboard", response_model=AccountPoolDashboardStats)
+    async def dashboard_stats(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolDashboardStats:
+        _require_proxy_admin(user_api_key_dict)
+        return await dashboard_reader()
+
+    @router.get("/reconciler", response_model=ReconcilerStatus)
+    async def reconciler_health(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> ReconcilerStatus:
+        _require_proxy_admin(user_api_key_dict)
+        return reconciler_status()
+
+    @router.get("/routing-status", response_model=AccountPoolRoutingStatus)
+    async def routing_status(
+        card_id: UUID,
+        model: str,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolRoutingStatus:
+        from litellm.proxy.management_endpoints.account_pool_native_routing import explain, now_utc, snapshots
+
+        _require_proxy_admin(user_api_key_dict)
+        snapshot: Final = snapshots.values.get(str(card_id))
+        if snapshot is None:
+            raise HTTPException(status_code=404, detail="Routing snapshot is not available for this card")
+        return explain(card_id, snapshot, model, now_utc())
+
+    @router.post("/quotas/refresh", response_model=AccountPoolQuotaRefreshResult)
+    async def refresh_quotas(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolQuotaRefreshResult:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/quotas/refresh")
+        return _validate_response(response, _QUOTA_REFRESH)
+
+    @router.get("/quotas/refresh/status", response_model=AccountPoolQuotaRefreshStatus)
+    async def quota_refresh_status(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolQuotaRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/quotas/refresh/status")
+        return _validate_response(response, TypeAdapter(AccountPoolQuotaRefreshStatus))
+
+    @router.put("/quotas/refresh/interval", response_model=AccountPoolQuotaRefreshStatus)
+    async def set_quota_refresh_interval(
+        request: AccountPoolQuotaRefreshIntervalRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolQuotaRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            "/api/quotas/refresh/interval",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, TypeAdapter(AccountPoolQuotaRefreshStatus))
+
+    @router.post("/auth-files/refresh", response_model=AccountPoolAuthFileRefreshStatus)
+    async def refresh_auth_files(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAuthFileRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/auth-files/refresh")
+        return _validate_response(response, _AUTH_FILE_REFRESH_STATUS)
+
+    @router.get("/auth-files/refresh/status", response_model=AccountPoolAuthFileRefreshStatus)
+    async def auth_file_refresh_status(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAuthFileRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/auth-files/refresh/status")
+        return _validate_response(response, _AUTH_FILE_REFRESH_STATUS)
+
+    @router.put("/auth-files/refresh/interval", response_model=AccountPoolAuthFileRefreshStatus)
+    async def set_auth_file_refresh_interval(
+        request: AccountPoolAuthFileRefreshIntervalRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAuthFileRefreshStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            "/api/auth-files/refresh/interval",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, _AUTH_FILE_REFRESH_STATUS)
+
+    @router.post("/auth-files", response_model=AccountPoolEnvironment)
+    async def upload_auth_file(
+        card_id: Annotated[UUID, Form()],
+        file: Annotated[UploadFile, File()],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        replace: Annotated[bool, Form()] = False,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        filename: Final = file.filename or "auth.json"
+        if len(filename) > 256 or "\\" in filename or "/" in filename:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "invalid auth file name")
+        content: Final = await file.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
+        response: Final = await _manager_request_multipart(
+            client_factory,
+            "/api/auth-files",
+            {"card_id": str(card_id), "replace": str(replace).lower()},
+            filename,
+            content,
+            file.content_type,
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.get("/environments/{environment_id}/auth-file/download")
+    async def download_auth_file(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> Response:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/auth-file/download"
+        )
+        _raise_for_upstream_error(response)
+        return Response(
+            content=response.content,
+            media_type=response.headers.get("content-type", "application/json"),
+            headers={
+                "Content-Disposition": response.headers.get("content-disposition", 'attachment; filename="auth.json"')
+            },
+        )
+
+    @router.delete("/environments/{environment_id}/auth-file", response_model=AccountPoolEnvironment)
+    async def delete_auth_file(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "DELETE", f"/api/environments/{environment_id}/auth-file"
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.patch("/environments/{environment_id}/auth-file/status", response_model=AccountPoolEnvironment)
+    async def patch_auth_file_status(
+        environment_id: UUID,
+        request: AccountPoolAuthFileStatusRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PATCH",
+            f"/api/environments/{environment_id}/auth-file/status",
+            request.model_dump_json().encode("utf-8"),
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.patch("/environments/{environment_id}/auth-file/fields", response_model=AccountPoolEnvironment)
+    async def patch_auth_file_fields(
+        environment_id: UUID,
+        request: AccountPoolAuthFileFieldsRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PATCH",
+            f"/api/environments/{environment_id}/auth-file/fields",
+            request.model_dump_json().encode("utf-8"),
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.get("/environments/{environment_id}/auth-file/models", response_model=tuple[str, ...])
+    async def auth_file_models(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[str, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/auth-file/models"
+        )
+        return _validate_response(response, TypeAdapter(tuple[str, ...]))
+
+    @router.post("/environments", response_model=AccountPoolAuthorization)
+    async def create_environment(
+        request: AccountPoolCreateRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolAuthorization:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            "/api/environments",
+            request.model_dump_json(exclude_none=True).encode("utf-8"),
+            idempotency_key,
+        )
+        return _validate_response(response, _AUTHORIZATION)
+
+    @router.post("/openai-compatible", response_model=AccountPoolEnvironment)
+    async def create_openai_compatible(
+        request: AccountPoolCreateRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            "/api/openai-compatible",
+            request.model_dump_json().encode("utf-8"),
+            idempotency_key,
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.post("/direct-credentials", response_model=AccountPoolEnvironment)
+    async def create_direct_credential(
+        request: AccountPoolDirectCredentialCreateRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            "/api/direct-credentials",
+            request.model_dump_json().encode("utf-8"),
+            idempotency_key,
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.post("/vertex", response_model=AccountPoolEnvironment)
+    async def create_vertex(
+        name: Annotated[str, Form(min_length=1, max_length=80)],
+        file: Annotated[UploadFile, File()],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        location: Annotated[str, Form(pattern=r"^[a-z0-9][a-z0-9-]{0,62}$")] = "us-central1",
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        content: Final = await file.read(1024 * 1024 + 1)
+        if not content or len(content) > 1024 * 1024:
+            raise HTTPException(status_code=422, detail="Vertex credential must be a JSON file no larger than 1 MiB")
+        response: Final = await _manager_request_multipart(
+            client_factory,
+            "/api/vertex",
+            {"name": name, "location": location},
+            file.filename or "vertex-service-account.json",
+            content,
+            file.content_type,
+            idempotency_key,
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.get("/environments/{environment_id}", response_model=AccountPoolEnvironment)
+    async def get_environment(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", f"/api/environments/{environment_id}")
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.post("/environments/{environment_id}/refresh", response_model=AccountPoolEnvironment)
+    async def refresh_environment(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", f"/api/environments/{environment_id}/refresh")
+        return _validate_response(response, _ENVIRONMENT)
+
+    @router.put("/environments/{environment_id}", response_model=AccountPoolEnvironment)
+    async def update_environment(
+        environment_id: UUID,
+        request: AccountPoolUpdateRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            f"/api/environments/{environment_id}",
+            request.model_dump_json().encode("utf-8"),
+            idempotency_key,
+        )
+        environment: Final = _validate_response(response, _ENVIRONMENT)
+        await _reconcile_after_saved_change()
+        return environment
+
+    @router.post("/environments/{environment_id}/authorize", response_model=AccountPoolAuthorization)
+    async def authorize_environment(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> AccountPoolAuthorization:
+        _require_proxy_admin(user_api_key_dict)
+        path: Final = f"/api/environments/{environment_id}/authorize"
+        response: Final = await _manager_request(client_factory, "POST", path, idempotency_key=idempotency_key)
+        authorization: Final = _validate_response(response, _AUTHORIZATION)
+        return authorization
+
+    @router.post(
+        "/environments/{environment_id}/oauth-browser-sessions",
+        response_model=AccountPoolOAuthBrowserSessionStart,
+    )
+    async def start_oauth_browser_session(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolOAuthBrowserSessionStart:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "POST", f"/api/environments/{environment_id}/oauth-browser-sessions"
+        )
+        return _validate_response(response, _OAUTH_BROWSER_SESSION_START)
+
+    @router.get("/oauth-browser-sessions/{session_id}", response_model=AccountPoolOAuthBrowserSession)
+    async def get_oauth_browser_session(
+        session_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolOAuthBrowserSession:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", f"/api/oauth-browser-sessions/{session_id}")
+        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+
+    @router.delete("/oauth-browser-sessions/{session_id}", response_model=AccountPoolOAuthBrowserSession)
+    async def cancel_oauth_browser_session(
+        session_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolOAuthBrowserSession:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "DELETE", f"/api/oauth-browser-sessions/{session_id}")
+        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+
+    async def browser_ticket(
+        session_id: UUID,
+        ticket: str,
+        *,
+        consume: bool,
+    ) -> AccountPoolOAuthBrowserSession:
+        suffix: Final = "consume" if consume else "validate"
+        client: Final = client_factory()
+        try:
+            response: Final = await client.request_with_token(
+                "POST", f"/internal/oauth-browser-sessions/{session_id}/ticket/{suffix}", ticket
+            )
+        finally:
+            await client.close()
+        if response.is_error:
+            raise HTTPException(response.status_code, "OAuth browser session is unavailable")
+        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+
+    @router.post("/oauth-browser-sessions/{session_id}/browser", status_code=204)
+    async def connect_oauth_browser(
+        session_id: UUID,
+        request: Request,
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> Response:
+        scheme, _, ticket = (authorization or "").partition(" ")
+        if scheme.lower() != "bearer" or not ticket:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "OAuth browser ticket is required")
+        session: Final = await browser_ticket(session_id, ticket, consume=True)
+        expires: Final = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
+        seconds: Final = max(0, int((expires - datetime.now(timezone.utc)).total_seconds()))
+        if session.status != "active" or seconds == 0:
+            raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+        response: Final = Response(status_code=204, headers={"Cache-Control": "no-store"})
+        root_path: Final = value.rstrip("/") if isinstance(value := request.scope.get("root_path"), str) else ""
+        response.set_cookie(
+            "account_pool_browser_ticket",
+            ticket,
+            max_age=min(600, seconds),
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path=f"{root_path}/account_pool/oauth-browser-sessions/{session_id}/browser/",
+        )
+        return response
+
+    @router.get("/oauth-browser-sessions/{session_id}/browser/{path:path}")
+    async def browser_http(session_id: UUID, request: Request, path: str) -> Response:
+        supplied: Final = request.cookies.get("account_pool_browser_ticket")
+        if supplied is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "OAuth browser ticket is required")
+        session: Final = await browser_ticket(session_id, supplied, consume=False)
+        if session.status != "active":
+            raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+        if not path or any(part in {".", ".."} for part in path.split("/")) or "\\" in path:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "OAuth browser asset not found")
+        target_url: Final = _browser_relay_url(session_id, quote(path, safe="/"), request.query_params.multi_items())
+        relay_client: Final = browser_client_factory()
+        try:
+            upstream: Final = await relay_client.get(target_url)
+        except httpx.HTTPError as error:
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "OAuth browser relay is unavailable") from error
+        finally:
+            await relay_client.aclose()
+        if not upstream.is_success:
+            return Response(
+                status_code=502, content=b"OAuth browser relay request failed", headers={"Cache-Control": "no-store"}
+            )
+        return Response(
+            content=upstream.content,
+            status_code=upstream.status_code,
+            headers={
+                "Content-Type": upstream.headers.get("content-type", "application/octet-stream"),
+                "Cache-Control": "no-store",
+                "Referrer-Policy": "no-referrer",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": "frame-ancestors 'self'",
+            },
+        )
+
+    @router.websocket("/oauth-browser-sessions/{session_id}/browser/websockify")
+    async def browser_websocket(websocket: WebSocket, session_id: UUID) -> None:
+        origin: Final = websocket.headers.get("origin")
+        expected_origin: Final = str(
+            websocket.url.replace(scheme="https" if websocket.url.scheme == "wss" else "http", path="", query="")
+        )
+        if origin != expected_origin:
+            await _close_browser_websocket(websocket, 1008, "OAuth browser origin is invalid")
+            return
+        supplied: Final = websocket.cookies.get("account_pool_browser_ticket")
+        if supplied is None:
+            await _close_browser_websocket(websocket, 1008, "OAuth browser ticket is required")
+            return
+
+        async def validate_session() -> AccountPoolOAuthBrowserSession:
+            session: Final = await browser_ticket(session_id, supplied, consume=False)
+            if session.status != "active":
+                raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+            return session
+
+        try:
+            session: Final = await validate_session()
+            expires: Final = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
+            seconds: Final = max(0, (expires - datetime.now(timezone.utc)).total_seconds())
+            protocols: Final = websocket.scope.get("subprotocols", ())
+            await websocket.accept(subprotocol="binary" if "binary" in protocols else None)
+            async with browser_websocket_connect(
+                _browser_relay_url(session_id, "websockify", (), scheme="ws"),
+            ) as upstream:
+                await asyncio.wait_for(_relay_browser_websocket(websocket, upstream, validate_session), timeout=seconds)
+            await _close_browser_websocket(websocket, 1000, "OAuth browser session closed")
+        except HTTPException:
+            await _close_browser_websocket(websocket, 1008, "OAuth browser session is unavailable")
+        except (WebSocketDisconnect, ConnectionClosed):
+            await _close_browser_websocket(websocket, 1000, "OAuth browser session closed")
+        except (WebSocketException, OSError, TimeoutError):
+            await _close_browser_websocket(websocket, 1011, "OAuth browser relay failed")
+
+    @router.delete("/environments/{environment_id}/oauth-session", response_model=AccountPoolEnvironment)
+    async def cancel_oauth_session(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "DELETE", f"/api/environments/{environment_id}/oauth-session"
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    async def _card_plugin_request(
+        environment_id: UUID,
+        method: _Method,
+        suffix: str,
+        user_api_key_dict: UserAPIKeyAuth,
+        body: Mapping[str, object] | None = None,
+    ) -> dict[str, object]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            method,
+            f"/api/environments/{environment_id}/plugins{suffix}",
+            None if body is None else json.dumps(body).encode("utf-8"),
+        )
+        return _validate_response(response, TypeAdapter(dict[str, object]))
+
+    @router.get("/environments/{environment_id}/plugins", response_model=dict[str, object])
+    async def list_card_plugins(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        return await _card_plugin_request(environment_id, "GET", "", user_api_key_dict)
+
+    @router.get("/environments/{environment_id}/plugin-store", response_model=dict[str, object])
+    async def list_card_plugin_store(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/plugin-store"
+        )
+        return _validate_response(response, TypeAdapter(dict[str, object]))
+
+    @router.post("/environments/{environment_id}/plugins/{plugin_id}/install", response_model=dict[str, object])
+    async def install_card_plugin(
+        environment_id: UUID,
+        plugin_id: str,
+        request: AccountPoolPluginInstallRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(
+            environment_id,
+            "POST",
+            f"/{safe_plugin_id}/install",
+            user_api_key_dict,
+            request.model_dump(mode="json", exclude_none=True),
+        )
+
+    @router.patch("/environments/{environment_id}/plugins/{plugin_id}/enabled", response_model=dict[str, object])
+    async def set_card_plugin_enabled(
+        environment_id: UUID,
+        plugin_id: str,
+        request: dict[str, object],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(
+            environment_id, "PATCH", f"/{safe_plugin_id}/enabled", user_api_key_dict, request
+        )
+
+    @router.delete("/environments/{environment_id}/plugins/{plugin_id}", response_model=dict[str, object])
+    async def uninstall_card_plugin(
+        environment_id: UUID,
+        plugin_id: str,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "DELETE", f"/{safe_plugin_id}", user_api_key_dict)
+
+    @router.get("/environments/{environment_id}/plugins/{plugin_id}/config", response_model=dict[str, object])
+    async def get_card_plugin_config(
+        environment_id: UUID,
+        plugin_id: str,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(environment_id, "GET", f"/{safe_plugin_id}/config", user_api_key_dict)
+
+    @router.put("/environments/{environment_id}/plugins/{plugin_id}/config", response_model=dict[str, object])
+    async def put_card_plugin_config(
+        environment_id: UUID,
+        plugin_id: str,
+        request: dict[str, object],
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> dict[str, object]:
+        safe_plugin_id: Final = quote(plugin_id, safe=".-_")
+        return await _card_plugin_request(
+            environment_id, "PUT", f"/{safe_plugin_id}/config", user_api_key_dict, request
+        )
+
+    @router.delete("/environments/{environment_id}", status_code=status.HTTP_204_NO_CONTENT)
+    async def delete_environment(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
+    ) -> None:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "DELETE",
+            f"/api/environments/{environment_id}",
+            idempotency_key=idempotency_key,
+        )
+        _raise_for_upstream_error(response)
+        await _reconcile_after_saved_change()
+
+    @router.get("/proxy-profiles", response_model=tuple[AccountPoolProxyProfile, ...])
+    async def list_proxy_profiles(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProxyProfile, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-profiles")
+        return _validate_response(response, _PROFILES)
+
+    @router.get("/proxy-gateways", response_model=tuple[AccountPoolProxyGateway, ...])
+    async def list_proxy_gateways(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProxyGateway, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways")
+        return _validate_response(response, _GATEWAYS)
+
+    @router.post("/proxy-gateways/delay", response_model=tuple[AccountPoolProxyGatewayDelay, ...])
+    async def measure_proxy_gateway_delays(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolProxyGatewayDelay, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/proxy-gateways/delay")
+        return _validate_response(response, _GATEWAY_DELAYS)
+
+    @router.get("/proxy-gateways/configuration", response_model=AccountPoolProxyGatewayConfiguration)
+    async def get_proxy_gateway_configuration(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGatewayConfiguration:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways/configuration")
+        return _validate_response(response, _GATEWAY_CONFIGURATION)
+
+    @router.put("/proxy-gateways/configuration", response_model=AccountPoolProxyGatewayConfiguration)
+    async def update_proxy_gateway_configuration(
+        request: AccountPoolProxyGatewayConfigurationRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGatewayConfiguration:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            "/api/proxy-gateways/configuration",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, _GATEWAY_CONFIGURATION)
+
+    @router.get("/proxy-gateways/nodes", response_model=tuple[AccountPoolClashNode, ...])
+    async def list_clash_nodes(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[AccountPoolClashNode, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", "/api/proxy-gateways/nodes")
+        return _validate_response(response, _CLASH_NODES)
+
+    @router.put("/proxy-gateways/{port}", response_model=AccountPoolProxyGateway)
+    async def switch_proxy_gateway(
+        port: int,
+        request: AccountPoolGatewaySwitchRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            f"/api/proxy-gateways/{port}",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, _GATEWAY_ADAPTER)
+
+    @router.post("/proxy-gateways", response_model=AccountPoolProxyGateway, status_code=201)
+    async def add_proxy_gateway(
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", "/api/proxy-gateways")
+        return _validate_response(response, _GATEWAY_ADAPTER)
+
+    @router.delete("/proxy-gateways/{port}", status_code=204)
+    async def remove_proxy_gateway(
+        port: int,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> None:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "DELETE", f"/api/proxy-gateways/{port}")
+        if response.is_error:
+            raise HTTPException(
+                response.status_code, "Proxy gateway deletion failed; remove account references and retry"
+            )
+
+    @router.put("/proxy-gateways/{port}/isp", response_model=AccountPoolProxyGateway)
+    async def bind_gateway_isp(
+        port: int,
+        request: AccountPoolGatewayISPBinding,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "PUT", f"/api/proxy-gateways/{port}/isp", request.model_dump_json().encode()
+        )
+        return _validate_response(response, _GATEWAY_ADAPTER)
+
+    router.include_router(create_proxy_catalog_router(management_request, _require_proxy_admin))
+    router.include_router(create_management_router(management_request, _require_proxy_admin))
+    router.include_router(create_feedback_router(management_request, _require_proxy_admin, feedback_multipart))
+    router.include_router(create_model_test_router(management_request, _require_proxy_admin))
+    router.include_router(create_onboarding_router(management_request, _require_proxy_admin))
+    router.include_router(create_release_router(_require_proxy_admin, release_client_factory))
+    return router
+
+
+def _require_proxy_admin(user_api_key_dict: UserAPIKeyAuth) -> None:
+    if not is_proxy_admin(user_api_key_dict):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only proxy admins can manage the account pool"
+        )
+
+
+def _raise_for_upstream_error(response: httpx.Response) -> None:
+    if response.is_error:
+        raise HTTPException(status_code=response.status_code, detail=_upstream_error(response))
+
+
+T = TypeVar("T")
+
+
+def _validate_response(response: httpx.Response, adapter: TypeAdapter[T]) -> T:
+    if response.is_error:
+        detail: Final = _upstream_error(response)
+        raise HTTPException(status_code=response.status_code, detail=detail)
+    try:
+        return adapter.validate_json(response.content)
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Account Pool Manager returned an invalid response",
+        ) from error
+
+
+def _upstream_error(response: httpx.Response) -> str:
+    try:
+        payload: Final = TypeAdapter(dict[str, object]).validate_json(response.content)
+    except ValueError:
+        return "Account Pool Manager request failed"
+    detail: Final = payload.get("detail")
+    return detail if isinstance(detail, str) else "Account Pool Manager request failed"
+
+
+async def _reconcile_after_saved_change() -> None:
+    try:
+        await reconcile_configured_account_pool()
+    except Exception as error:
+        verbose_proxy_logger.warning("Account pool settings saved, but deployment reconciliation failed: %s", error)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Settings were saved, but gateway routing is still retrying synchronization",
+        ) from error
+
+
+router: Final = create_account_pool_router()
+
+
+async def _log_manager_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
+    return await _manager_request(_default_client, method, path, body)
+
+
+request_log_router: Final = create_request_log_router(_log_manager_request, _require_proxy_admin)
+
+
+runtime_configuration_router: Final = create_runtime_configuration_router(_log_manager_request, _require_proxy_admin)

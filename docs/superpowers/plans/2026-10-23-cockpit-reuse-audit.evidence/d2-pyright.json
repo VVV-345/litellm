@@ -1,0 +1,10 @@
+{
+  "extends": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\pyrightconfig.json",
+  "extraPaths": [
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm"
+  ],
+  "include": [
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_preflight.py"
+  ]
+}

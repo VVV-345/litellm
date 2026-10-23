@@ -1344,3 +1344,45 @@ def test_cockpit_status_proxy_sanitizes_manager_errors() -> None:
         response: Final = client.get("/account_pool/cockpit/status")
     assert response.status_code == 502 and "PRIVATE" not in response.text
     assert response.headers["cache-control"] == "no-store"
+
+def test_cockpit_preflight_proxy_enforces_admin_contract_and_redacts() -> None:
+    calls: Final[list[str]] = []
+    body: Final = {"card_id": str(_ENVIRONMENT_ID), "subject_kind": "legacy_card_key", "candidate_ids": []}
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls.append(request.url.path)
+            assert request.method == "POST"
+            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
+            assert json.loads(request.content)["candidate_ids"] == []
+            return httpx.Response(200, json={
+                "card_id": str(_ENVIRONMENT_ID), "subject_kind": "legacy_card_key",
+                "authorized_account_ids": [], "scope_valid": False, "source_strategy": "auto",
+                "policy_version": 1, "settings_version": None,
+                "persisted_manifest_revision": '"sha256-' + 'a' * 64 + '"',
+                "accounts": [], "blockers": ["empty_candidates"], "ready_to_migrate": False,
+                "pending_checks": ["runtime_eligibility_unverified"], "raw_manifest": "PRIVATE"})
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.post("/account_pool/cockpit/preflight", json=body).status_code == 403
+    assert calls == []
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        assert client.post("/account_pool/cockpit/preflight", json={**body, "authorized_account_ids": []}).status_code == 422
+        assert calls == []
+        response: Final = client.post("/account_pool/cockpit/preflight", json=body)
+    assert response.status_code == 200 and response.json()["ready_to_migrate"] is False
+    assert response.headers["cache-control"] == "no-store"
+    assert "PRIVATE" not in response.text and "raw_manifest" not in response.text
+    assert calls == ["/api/cockpit/preflight"]
+
+
+@pytest.mark.parametrize("status,body", [(502, {"detail": "PRIVATE"}), (200, {"ready_to_migrate": True})])
+def test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors(status: int, body: dict) -> None:
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(status, json=body))))
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response: Final = client.post("/account_pool/cockpit/preflight",
+            json={"card_id": str(_ENVIRONMENT_ID), "subject_kind": "legacy_card_key"})
+    assert response.status_code == 502 and "PRIVATE" not in response.text
+    assert response.headers["cache-control"] == "no-store"

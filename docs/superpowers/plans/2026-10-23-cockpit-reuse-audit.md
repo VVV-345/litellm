@@ -146,7 +146,7 @@
 
 **按原 D2 顺序追加验收：**
 
-- [ ] D2.1 映射预检：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
+- [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
 - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
 - [ ] D2.3 请求接管：按 scope 发布 Cockpit 路由，验证外层 retry/fallback 不会再次发请求，验证原有 LiteLLM 标准 token/spend 统计继续归属原用户/Key；客户端协议不新增内部管理 Token
 - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
@@ -159,7 +159,23 @@
 3. 数据面接线：按已验证主体 scope 发布 Cockpit deployment，保留 LiteLLM 标准统计；对 Cockpit 路由取消外层重复 resolve/acquire、重试/换卡/续聊 owner，旧路径仅作为另一条显式回滚配置；不能只替换 upstream URL
 4. 将旧行为矩阵变为 Cockpit 契约，覆盖额度换卡、续聊、stream/tool/image 重放边界和用量归属；验证各供应商加载路径。当前 manifest Codex token 注册要求 provider=codex，不能将九类供应商凭据一律按 Codex 导入
 
-恢复执行先读取此 D2 状态与 D1 已完成提交，不重新实施 D1。下一可执行操作：先为账号/主体映射 dry-run 的空范围、越界范围和供应商不匹配写失败测试，再实现只读映射报告；不自动启用生产路由
+恢复执行先读取此 D2 状态与 D1 已完成提交，不重新实施 D1 或 D2.1。下一可执行操作：D2.2 版本化策略同步，先补不支持能力拒绝保存、版本冲突和持久化后待生效的失败测试，再实现最小受保护读写；原生 Key 主体映射、凭据归属、运行态验证未完成前不得发布请求路由
+
+### D2.1 本地代码结果（2026-10-23）
+
+已新增 Manager `POST /api/cockpit/preflight` 与 LiteLLM `POST /account_pool/cockpit/preflight`。输入为 card_id、subject_kind、expected_key_id 与可选 candidate_ids；浏览器传 authorized_account_ids 等未定义字段返回 422。Manager 校验内部 Token，外层仅 proxy admin 可调用，成功与上游错误响应不缓存
+
+旧卡 Key 依据服务端尚未撤销的绑定和有效 fallback 策略推导同供应商、同渠道范围，preferred_account_ids 不扩大权限；显式空候选与省略候选含义不同。原生 LiteLLM Key 尚无可验证的主体映射入口，返回 subject_binding_unverified 和空授权范围，不照搬旧卡 Key 的 fallback 权限
+
+报告分开返回 authorized_account_ids、scope_valid、账号 blockers 和 pending_checks。scope_valid 仅说明候选在本次读取的静态授权范围内，不等于账号可用或能迁移。停用、待配置、手工冷却、缺凭据、跨供应商、重复目标、缺失目标均报告；ready_to_migrate 固定为 false。预检对非 READY 来源保守阻断，不改变现有网关的状态判定
+
+以卡片 UUID 作为拟议目标 ID，只检查现有目标投影；不会创建、覆盖或改名账号。相同 UUID/authId 或凭据文件存在不构成所有权证据，仍返回 target_identity_unverified。仅定位 Codex token 导入路径，其他供应商及 api_key 路径暂不自动映射；所有策略枚举均保留原值并报告 strategy_mapping_unverified，不静默转 auto
+
+仅执行 Cockpit manifest 与 auth-files 元数据 GET，不读取凭据正文，不发供应商请求，不写策略、发 Key、获取租约或重启。报告包含源账号/策略/设置版本和持久化 manifest revision，但不是原子快照或执行许可，后续写入及请求时必须重新校验版本、授权、可用性和重放边界
+
+本轮新增预检与代理用例 29 项；连同现有 Manager 管理、网关与代理用例共 214 项通过。新预检源文件严格类型检查 0 错误；定向 Ruff 通过。独立审阅代理因上游上下文解密错误未运行，由主执行者完成定向自查，不能宣称独立审阅通过。完整原始命令、输出与三态回滚保存在既有四角色的 d2 附件
+
+D2.2 策略保存/冲突/显式生效、D2.3 请求接管、D2.4 行为兼容、D2.5 页面编辑仍未完成。当前号池页面、LiteLLM 统计和额度换卡/续聊数据面没有切到 Cockpit，不应将本次管理 API 进展描述为整体后台替换完成
 
 ### 替换阶段 E：行为兼容与差异验收
 
