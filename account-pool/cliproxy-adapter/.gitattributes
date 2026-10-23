@@ -1,0 +1,2 @@
+# 补丁上下文空白属于文件格式，源码空白由 apply.py 在应用时检查。
+*.patch -whitespace

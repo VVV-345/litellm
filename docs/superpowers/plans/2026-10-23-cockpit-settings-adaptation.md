@@ -20,8 +20,8 @@
 
 ## 阶段与验收
 
-- [ ] 1. 固定源码与来源：`account-pool/cliproxy-adapter/sources.json` 对照 Git HEAD，保留许可和九供应商映射，commit
-- [ ] 2. 底层适配：复用 Cockpit managed_identity 模块，补充服务器持久化、HTTP/SSE/WS 接入和能力接口；先失败测试再修复；验证刷新、重启、并发、坏文件、已知字段精确改写、两开关组合；保存可重建 patch，commit
+- [x] 1. 固定源码与来源：`account-pool/cliproxy-adapter/sources.json` 对照 Git HEAD，保留许可和九供应商映射，commit `f1289af7b3`
+- [x] 2. 底层适配：复用 Cockpit managed_identity 模块，补充服务器持久化、HTTP/SSE/WS 接入和能力接口；先失败测试再修复；验证刷新、重启、并发、坏文件、已知字段精确改写、两开关组合；保存可重建 patch，commit
 - [ ] 3. Manager/UI：扩展已有 identity_fingerprint_mode 的 managed 选项，先检查运行中底层能力再下发；修复 Claude/Kimi 保存与消费不同步，验证其他供应商映射、默认值、重试归属；生成 API types，跑定向测试，commit
 - [ ] 4. 回归与回滚：跑现有换卡、续聊与不可重放边界测试；固定输入执行 BASELINE/MODIFIED/ROLLBACK，恢复哈希相等；记录验证范围、未做的真实供应商验收，commit
 
@@ -30,3 +30,9 @@
 `account-pool/cliproxy-adapter/` 保存版本锁、来源说明、补丁及可重复应用入口，不引入完整第二份引擎。Manager 复用 `channels/cliproxyapi/client.py` 的传输和 `settings_sync.py` 的同步入口；策略枚举在 `policies.py` 与代理模型同步。前端复用 `AccountPoolProviderPolicyFields.tsx`，不复制 Cockpit Tauri 页面
 
 本次四角色证据固定在 `.local/cockpit-adaptation/transaction/`：`MODIFIED_FILE.tar`、`DIFF_FILE.patch`、`VERIFICATION.txt`、`ROLLBACK.sh`。补充日志延伸这些角色，不替换它们
+
+## 已执行记录
+
+阶段 1 提交为 `f1289af7b3`。阶段 2 的补丁已在固定提交的干净源码副本应用，17 个文件逐字节匹配开发副本；五个 Go 包的定向回归与 server 构建通过。新增真实 localhost HTTP/SSE/compact/WS 请求观测覆盖 identity_confuse 两种状态，跨进程身份保持、API-key 范围和能力接口鉴权通过。此处的 localhost 上游是测试服务，不是真实供应商
+
+底层源码、构建工具和日志留在本地隔离目录，补丁与应用入口纳入版本库。未更新默认镜像、未部署、未推送
