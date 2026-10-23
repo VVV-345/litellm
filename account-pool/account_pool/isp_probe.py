@@ -8,12 +8,16 @@ from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from time import perf_counter
-from typing import Final
+from typing import Final, Literal
 
 import httpx
 from pydantic import BaseModel, Field, IPvAnyAddress
 
 from account_pool.proxy_catalog import ISPProbeResult, ISPProxyProfile
+
+_MAX_PROBE_RESPONSE_BYTES: Final = 64 * 1024
+_OPENAI_MODELS_URL: Final = "https://api.openai.com/v1/models"
+_EXIT_IP_URL: Final = "https://api.ipify.org?format=json"
 
 
 class _ExitIP(BaseModel):
@@ -31,6 +35,21 @@ class _Location(BaseModel):
     region: str | None = Field(default=None, max_length=200)
     city: str | None = Field(default=None, max_length=200)
     connection: _Connection = Field(default_factory=_Connection)
+
+
+class GatewayISPProbeResult(BaseModel):
+    model_config = {"frozen": True}
+
+    port: int = Field(ge=1, le=65535)
+    checked_at: datetime
+    ip_status: Literal["ok", "timeout", "error"]
+    exit_ip: str | None = None
+    country: str | None = None
+    region: str | None = None
+    city: str | None = None
+    isp: str | None = None
+    openai_status: Literal["response", "timeout", "error"]
+    openai_http_status: int | None = Field(default=None, ge=100, le=599)
 
 
 def _client(proxy: str) -> httpx.AsyncClient:
@@ -84,3 +103,84 @@ class ISPProbe:
                     })
             except (httpx.HTTPError, ValueError, TimeoutError):
                 return result
+
+
+class GatewayISPProbe:
+    def __init__(
+        self,
+        client_factory: Callable[[str], AbstractAsyncContextManager[httpx.AsyncClient]] = _client,
+    ) -> None:
+        self._client_factory: Final = client_factory
+        self._slots: Final = asyncio.Semaphore(3)
+
+    async def probe(self, port: int, proxy_url: str) -> GatewayISPProbeResult:
+        checked_at: Final = datetime.now(timezone.utc)
+        ip_status: Literal["ok", "timeout", "error"] = "error"
+        exit_ip: str | None = None
+        country: str | None = None
+        region: str | None = None
+        city: str | None = None
+        isp: str | None = None
+        openai_status: Literal["response", "timeout", "error"] = "error"
+        openai_http_status: int | None = None
+        try:
+            async with asyncio.timeout(18), self._slots:
+                async with self._client_factory(proxy_url) as client:
+                    try:
+                        body: Final = await self._read_limited(client, _EXIT_IP_URL)
+                        address: Final = str(_ExitIP.model_validate_json(body).ip)
+                        if not ip_address(address).is_global:
+                            raise ValueError("exit IP is not public")
+                        ip_status = "ok"
+                        exit_ip = address
+                        try:
+                            location_body: Final = await self._read_limited(client, f"https://ipwho.is/{address}")
+                            location: Final = _Location.model_validate_json(location_body)
+                            if location.success and str(location.ip) == address:
+                                country = location.country
+                                region = location.region
+                                city = location.city
+                                isp = location.connection.isp
+                        except (httpx.HTTPError, ValueError, TimeoutError):
+                            pass
+                    except (httpx.TimeoutException, TimeoutError):
+                        ip_status = "timeout"
+                    except (httpx.HTTPError, ValueError):
+                        ip_status = "error"
+                    try:
+                        async with client.stream("GET", _OPENAI_MODELS_URL) as response:
+                            openai_http_status = response.status_code
+                        openai_status = "response"
+                    except (httpx.TimeoutException, TimeoutError):
+                        openai_status = "timeout"
+                    except httpx.HTTPError:
+                        openai_status = "error"
+        except (httpx.TimeoutException, TimeoutError):
+            ip_status = "timeout"
+            openai_status = "timeout"
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError):
+            ip_status = "error"
+            openai_status = "error"
+        return GatewayISPProbeResult(
+            port=port,
+            checked_at=checked_at,
+            ip_status=ip_status,
+            exit_ip=exit_ip,
+            country=country,
+            region=region,
+            city=city,
+            isp=isp,
+            openai_status=openai_status,
+            openai_http_status=openai_http_status,
+        )
+
+    @staticmethod
+    async def _read_limited(client: httpx.AsyncClient, url: str) -> bytes:
+        async with client.stream("GET", url) as response:
+            response.raise_for_status()
+            body: bytes = b""
+            async for chunk in response.aiter_bytes():
+                if len(body) + len(chunk) > _MAX_PROBE_RESPONSE_BYTES:
+                    raise ValueError("probe response is too large")
+                body += chunk
+        return body

@@ -54,6 +54,12 @@ export const accountPoolQueryKeys = {
   proxyConfigurations: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "proxy-configurations", accessToken] as const,
   proxyIsps: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "proxy-isps", accessToken] as const,
+  proxyISPSubscription: (accessToken: string | null) =>
+    [...ACCOUNT_POOL_ROOT, "proxy-isp-subscription", accessToken] as const,
   proxyGatewayNodes: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "proxy-gateway-nodes", accessToken] as const,
+  proxyGatewayISPProbesRoot: (accessToken: string | null) =>
+    [...ACCOUNT_POOL_ROOT, "proxy-gateway-isp-probes", accessToken] as const,
+  proxyGatewayISPProbe: (accessToken: string | null, port: number) =>
+    [...ACCOUNT_POOL_ROOT, "proxy-gateway-isp-probes", accessToken, port] as const,
 } as const;

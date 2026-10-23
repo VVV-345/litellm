@@ -421,6 +421,28 @@ class AccountPoolProxyGateway(BaseModel):
     proxy_url: str
     current_node: str | None = None
     isp_profile_id: UUID | None = None
+    front_node_name: str | None = None
+
+
+class AccountPoolGatewayFrontBinding(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    node_name: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class AccountPoolGatewayISPProbe(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    port: int
+    checked_at: datetime
+    ip_status: Literal["ok", "timeout", "error"]
+    exit_ip: str | None = None
+    country: str | None = None
+    region: str | None = None
+    city: str | None = None
+    isp: str | None = None
+    openai_status: Literal["response", "timeout", "error"]
+    openai_http_status: int | None = None
 
 
 class AccountPoolProxyGatewayConfiguration(BaseModel):
@@ -482,6 +504,7 @@ _GATEWAY_CONFIGURATION: Final = TypeAdapter(AccountPoolProxyGatewayConfiguration
 _GATEWAY_DELAYS: Final = TypeAdapter(tuple[AccountPoolProxyGatewayDelay, ...])
 _CLASH_NODES: Final = TypeAdapter(tuple[AccountPoolClashNode, ...])
 _GATEWAY_ADAPTER: Final = TypeAdapter(AccountPoolProxyGateway)
+_GATEWAY_ISP_PROBE: Final = TypeAdapter(AccountPoolGatewayISPProbe)
 
 
 class AccountPoolManagerClient:
@@ -1326,6 +1349,30 @@ def create_account_pool_router(
             client_factory, "PUT", f"/api/proxy-gateways/{port}/isp", request.model_dump_json().encode()
         )
         return _validate_response(response, _GATEWAY_ADAPTER)
+
+    @router.put("/proxy-gateways/{port}/front", response_model=AccountPoolProxyGateway)
+    async def bind_gateway_front(
+        port: int,
+        request: AccountPoolGatewayFrontBinding,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolProxyGateway:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "PUT",
+            f"/api/proxy-gateways/{port}/front",
+            request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, _GATEWAY_ADAPTER)
+
+    @router.post("/proxy-gateways/{port}/probe", response_model=AccountPoolGatewayISPProbe)
+    async def probe_gateway_isp(
+        port: int,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolGatewayISPProbe:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "POST", f"/api/proxy-gateways/{port}/probe")
+        return _validate_response(response, _GATEWAY_ISP_PROBE)
 
     router.include_router(create_proxy_catalog_router(management_request, _require_proxy_admin))
     router.include_router(create_management_router(management_request, _require_proxy_admin))

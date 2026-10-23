@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 _ALIASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("name", ("name", "label", "备注", "名称")),
@@ -76,6 +76,19 @@ class ISPProxyProfile(BaseModel):
         return self.expires_on is not None and self.expires_on <= today
 
 
+class ISPSubscriptionNodeProfile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: UUID
+    name: str = Field(min_length=1, max_length=120)
+    proxy_type: str
+    config: dict[str, JsonValue] = Field(repr=False)
+    enabled: bool = True
+
+
+ISPProxyCatalogProfile = ISPProxyProfile | ISPSubscriptionNodeProfile
+
+
 class ISPProbeResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -96,14 +109,25 @@ class ISPProxyProfileView(BaseModel):
 
     id: UUID
     name: str
-    protocol: Literal["http", "https", "socks5"]
-    host: str
-    port: int
+    source: Literal["manual", "subscription"] = "manual"
+    protocol: Literal["http", "https", "socks5"] | None = None
+    host: str | None = None
+    port: int | None = None
+    proxy_type: str | None = None
     expires_on: date | None
     enabled: bool
     credentials_configured: bool
     bound_ports: tuple[int, ...] = ()
     last_probe: ISPProbeResult | None = None
+
+
+class ISPSubscriptionView(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    configured: bool
+    refreshed_at: datetime | None = None
+    node_count: int = Field(ge=0)
+    enabled_node_count: int = Field(ge=0)
 
 
 class ProxyConfigurationProfile(BaseModel):

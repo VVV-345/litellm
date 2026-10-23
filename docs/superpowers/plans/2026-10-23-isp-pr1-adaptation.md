@@ -24,36 +24,36 @@ Push is authorized, but direct server deployment is not. The successful version 
 - [x] Verify a clean tracked tree, switch to the specified branch, fast-forward pull and fetch the pinned PR head
 - [x] Record the existing Manager proxy, LiteLLM API and Dashboard proxy test results
 - [x] Preserve pristine affected bytes and reuse the four transaction roles under `.local/cockpit-adaptation/transaction`
-- [ ] Commit this scoped plan after baseline checks
+- [x] Commit this scoped plan after baseline checks (`d7a9dcf7e9`)
 
 ## Task 2: merge and backend fixes
 
 Files: `account-pool/account_pool/proxy_gateways.py`, existing proxy gateway and PostgreSQL tests, and the PR's ISP catalog modules
 
-- [ ] Start a non-committing merge of the pinned PR head, retaining the existing identity fields
-- [ ] Add failing tests for hostnames resolving to non-public addresses, redirects, oversized streamed responses and failure recovery with foreign-key-constrained bindings
-- [ ] Validate and pin the connection destination while preserving HTTP Host and TLS server-name verification; stop reading immediately at the byte limit
-- [ ] Restore a deleted port before restoring its ISP/front bindings when deletion fails
-- [ ] Verify ordinary airport mode, explicit chain activation, incomplete-chain rejection, independent gateway bindings and configuration restoration
+- [x] Start a non-committing merge of the pinned PR head, retaining the existing identity fields
+- [x] Add failing tests for hostnames resolving to non-public addresses, redirects, oversized streamed responses and failure recovery with foreign-key-constrained bindings
+- [x] Validate and pin the connection destination while preserving HTTP Host and TLS server-name verification; stop reading immediately at the byte limit
+- [x] Restore a deleted port before restoring its ISP/front bindings when deletion fails
+- [x] Verify ordinary airport mode, explicit chain activation, incomplete-chain rejection, independent gateway bindings and configuration restoration
 
 ## Task 3: Dashboard and API coexistence
 
 Files: `ISPProxyCatalogPanel.tsx`, its existing integration test, `AccountPoolApi` and the generated schema
 
-- [ ] Add a failing mixed manual/subscription-source batch detection test
-- [ ] Probe only manual records in the catalog batch action; retain per-gateway probing for subscription chains
-- [ ] Preserve `identity_fingerprint_mode=managed` and `identity_confuse` alongside the new proxy APIs
-- [ ] Generate schema with `npm run gen:api`, never hand-edit it
+- [x] Add a failing mixed manual/subscription-source batch detection test
+- [x] Probe only manual records in the catalog batch action; retain per-gateway probing for subscription chains
+- [x] Preserve `identity_fingerprint_mode=managed` and `identity_confuse` alongside the new proxy APIs
+- [x] Generate schema with `npm run gen:api`, never hand-edit it
 - [ ] Run the explicit proxy/API and identity settings integration tests, then commit the verified merge and fixes
 
 ## Task 4: final verification, rollback and release
 
-- [ ] Run focused Manager proxy/catalog/probe/release tests, LiteLLM management/session/conversation/quota failover tests, UI tests, source typing and relevant lint
-- [ ] Run real PostgreSQL checks in a disposable local database if the runtime is available; do not use production data
-- [ ] Verify chained transport and fail-closed behavior with a disposable proxy fixture where feasible; distinguish this from live ISP/provider acceptance
-- [ ] Extend the same modified archive, reconstructing patch, evidence ledger and executable rollback with this task's affected files
+- [x] Run focused Manager proxy/catalog/probe/release tests, LiteLLM management/session/conversation/quota failover tests, UI tests, source typing and relevant lint
+- [x] Run real PostgreSQL checks in a disposable local database if the runtime is available; do not use production data
+- [x] Verify fail-closed, config parsing and routing behavior with local test fixtures; no live ISP/airport/provider acceptance is claimed
+- [x] Extend the same modified archive, reconstructing patch, evidence ledger and executable rollback with this task's affected files
 - [ ] Execute identical baseline/modified/rollback probes on disposable copies and verify pristine restored hashes
-- [ ] Set `deploy/VERSION` to `v1.7`, record the exact verified scope and remaining live-service gates, and commit
+- [x] Set `deploy/VERSION` to `v1.7`, record the exact verified scope and remaining live-service gates, and prepare the release-stage commit
 - [ ] Confirm staged content and branch, push without force, inspect the matching image workflow and report its actual result
 
 ## Required evidence
@@ -67,3 +67,13 @@ The existing four roles remain the only delivery roles; supplemental logs and co
 At `086c0f391a`, Manager's six proxy files: 65 passed, 2 PostgreSQL checks skipped; LiteLLM management API: 56 passed; the two explicit Dashboard proxy/API files: 24 passed. Python emitted an existing Starlette deprecation warning; Vitest emitted existing configuration/type-testing notices
 
 The Docker client exists but its Linux-engine named pipe is unavailable (observed exit 1). No production database or server was contacted. Disposable PostgreSQL availability is being checked separately
+
+## Integration evidence
+
+The current Manager proxy/config/catalog/probe scope passes 121 tests against disposable PostgreSQL 17.6. Failed deletion restores manual, subscription and inactive-subscription bindings; normal API binding still rejects inactive nodes. Invalid configuration shapes leave the active file unchanged
+
+The release runtime had an existing `ReleasePair`/`ReleaseImage` argument error in its additive schema path. Four regression cases reproduced the `AttributeError` before the fix. The runtime now reads each pair's Manager sources and LiteLLM Prisma; it permits the exact ISP additions and rejects changed Prisma, extra DDL and modified DDL. The release suite passes 200 tests after this fix
+
+Other observed checks: Manager identity/settings 143 passed; LiteLLM management/session/conversation/failover 220 passed; Dashboard proxy/API 32 passed; Dashboard identity settings 26 passed. Generated API types, isolated Dashboard source typing and the webpack production build pass. UI lint exits zero with 31 warnings. The scoped strict Manager proxy-module type check still reports 33 errors, down from 65 in the original isolated source; this is not a passing type gate
+
+Read-only review found no remaining P1/P2 integration blocker. The additive DDL gate is an exact schema allowlist, not a complete source-digest audit. No live ISP/airport/model-provider acceptance or production deployment has been performed

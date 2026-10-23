@@ -18,7 +18,7 @@ import type {
   AccountPoolProxyGateway,
   AccountPoolProxyGatewayDelay,
 } from "../../utils/AccountPoolTypes";
-import { useProxyGateways } from "../../hooks/useProxyGateways";
+import { useProxyGateways, useProxyGatewayISPProbe } from "../../hooks/useProxyGateways";
 import { ISPProxyCatalogPanel } from "./ISPProxyCatalogPanel";
 
 interface ProxyManagerPanelProps {
@@ -56,6 +56,9 @@ export const ProxyManagerPanel = ({
     configurationActivateMutation,
     configurationDeleteMutation,
     isps,
+    ispSubscription,
+    ispSubscriptionLoading,
+    ispSubscriptionError,
     ispsLoading,
     ispsError,
     ispImportMutation,
@@ -63,6 +66,9 @@ export const ProxyManagerPanel = ({
     ispDeleteMutation,
     ispProbeMutation,
     bindISPMutation,
+    bindFrontMutation,
+    configureISPSubscriptionMutation,
+    refreshISPSubscriptionMutation,
   } = useProxyGateways(accessToken, enabled);
   const [configurationContent, setConfigurationContent] = useState("");
   const [configurationUrl, setConfigurationUrl] = useState("");
@@ -73,7 +79,12 @@ export const ProxyManagerPanel = ({
 
   if (!enabled) return null;
 
-  const switching = switchMutation.isPending || bindISPMutation.isPending || addMutation.isPending || deleteMutation.isPending;
+  const switching =
+    switchMutation.isPending ||
+    bindISPMutation.isPending ||
+    bindFrontMutation.isPending ||
+    addMutation.isPending ||
+    deleteMutation.isPending;
   const configurationBusy = configurationMutation.isPending;
   const profileBusy =
     configurationSaveMutation.isPending ||
@@ -148,9 +159,20 @@ export const ProxyManagerPanel = ({
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
       <ISPProxyCatalogPanel
+        subscription={ispSubscription}
+        subscriptionLoading={ispSubscriptionLoading}
+        subscriptionFailed={
+          ispSubscriptionError || configureISPSubscriptionMutation.isError || refreshISPSubscriptionMutation.isError
+        }
         probing={ispProbeMutation.isPending}
         probeFailed={ispProbeMutation.isError}
         onProbe={(ids) => ispProbeMutation.mutate(ids)}
+        onConfigureSubscription={async (url) => {
+          await configureISPSubscriptionMutation.mutateAsync(url);
+        }}
+        onRefreshSubscription={async () => {
+          await refreshISPSubscriptionMutation.mutateAsync();
+        }}
         profiles={isps}
         loading={ispsLoading}
         failed={ispsError}
@@ -159,12 +181,12 @@ export const ProxyManagerPanel = ({
           profileBusy ||
           configurationBusy ||
           ispImportMutation.isPending ||
+          configureISPSubscriptionMutation.isPending ||
+          refreshISPSubscriptionMutation.isPending ||
           ispUpdateMutation.isPending ||
           ispDeleteMutation.isPending
         }
-        mutationFailed={
-          ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError
-        }
+        mutationFailed={ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError}
         onImport={async (content) => {
           await ispImportMutation.mutateAsync(content);
         }}
@@ -185,7 +207,6 @@ export const ProxyManagerPanel = ({
           <p className="mt-1 text-xs text-muted-foreground">{t("accountPool.proxyGateways.delayTarget")}</p>
         </div>
         <div className="flex shrink-0 gap-1">
-
           <Button
             type="button"
             variant="ghost"
@@ -383,6 +404,7 @@ export const ProxyManagerPanel = ({
               <GatewayRow
                 key={gateway.profile_id}
                 gateway={gateway}
+                accessToken={accessToken}
                 nodes={nodes}
                 isps={isps}
                 cardCount={
@@ -398,6 +420,7 @@ export const ProxyManagerPanel = ({
                 disabled={switching || delaysLoading || nodesLoading || (nodes.length === 0 && isps.length === 0)}
                 onSelectNode={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
                 onBindISP={(profileId) => bindISPMutation.mutate({ port: gateway.port, profileId })}
+                onBindFront={(nodeName) => bindFrontMutation.mutate({ port: gateway.port, nodeName })}
                 onDelete={() => deleteMutation.mutate(gateway.port)}
               />
             ))}
@@ -463,6 +486,7 @@ const ConfigurationProfileRow = ({ profile, disabled, onActivate, onDelete }: Co
 
 interface GatewayRowProps {
   gateway: AccountPoolProxyGateway;
+  accessToken: string | null;
   nodes: { name: string; proxy_type: string }[];
   isps: AccountPoolISPProxy[];
   cardCount: number | null;
@@ -472,6 +496,7 @@ interface GatewayRowProps {
   disabled: boolean;
   onSelectNode: (nodeName: string) => void;
   onBindISP: (profileId: string) => void;
+  onBindFront: (nodeName: string) => void;
   onDelete: () => void;
 }
 
@@ -483,6 +508,7 @@ const getDelayStatus = (delay: AccountPoolProxyGatewayDelay | undefined, loading
 
 const GatewayRow = ({
   gateway,
+  accessToken,
   nodes,
   isps,
   cardCount,
@@ -492,9 +518,11 @@ const GatewayRow = ({
   disabled,
   onSelectNode,
   onBindISP,
+  onBindFront,
   onDelete,
 }: GatewayRowProps) => {
   const { t } = useTranslation();
+  const gatewayProbeQuery = useProxyGatewayISPProbe(accessToken, gateway.port);
   const delayStatus = getDelayStatus(delay, delaysLoading, delaysError);
   const delayText =
     delayStatus === "ok" && delay?.delay_ms != null
@@ -506,19 +534,38 @@ const GatewayRow = ({
       ? t("accountPool.proxyGateways.delayValue", { delay: delay.gateway_delay_ms })
       : t(`accountPool.proxyGateways.delay_${gatewayDelayStatus}`);
   const boundISP = isps.find((profile) => profile.id === gateway.isp_profile_id);
-  const nodeOptions = nodes.filter((node) => !node.name.startsWith("account-pool-isp-"));
+  const nodeOptions = nodes.filter(
+    (node) =>
+      !node.name.startsWith("account-pool-isp-") &&
+      !node.name.startsWith("account-pool-front-") &&
+      !["DIRECT", "REJECT"].includes(node.name.toUpperCase()) &&
+      !["compatible", "direct", "fallback", "loadbalance", "pass", "reject", "relay", "selector", "urltest"].includes(
+        node.proxy_type.toLowerCase(),
+      ),
+  );
   const selectedNodeValue = gateway.current_node ? `node:${gateway.current_node}` : undefined;
-  const selectedValue = gateway.isp_profile_id
-    ? `isp:${gateway.isp_profile_id}`
-    : selectedNodeValue;
+  const selectedValue = gateway.isp_profile_id ? `isp:${gateway.isp_profile_id}` : selectedNodeValue;
+  const chainBound = gateway.isp_profile_id != null;
+  const frontAvailable =
+    gateway.front_node_name != null && nodeOptions.some((node) => node.name === gateway.front_node_name);
+  const chainReady = chainBound && boundISP?.enabled === true && frontAvailable;
   const currentNodeLabel = gateway.current_node
     ? t("accountPool.proxyGateways.currentNode", { node: gateway.current_node })
     : t("accountPool.proxyGateways.currentNodeUnknown");
-  const currentNodeText = boundISP
-    ? t(boundISP.enabled ? "accountPool.proxyGateways.currentISP" : "accountPool.proxyGateways.blockedISP", {
-        name: boundISP.name,
-      })
-    : currentNodeLabel;
+  const currentNodeText = (() => {
+    if (!chainBound) return currentNodeLabel;
+    if (boundISP != null && !boundISP.enabled) {
+      return t("accountPool.proxyGateways.blockedISP", { name: boundISP.name });
+    }
+    if (chainReady) {
+      return t("accountPool.proxyGateways.currentISP", {
+        name: boundISP?.name ?? t("accountPool.proxyGateways.ispUnknown"),
+      });
+    }
+    return t("accountPool.proxyGateways.blockedISPChain", {
+      name: boundISP?.name ?? t("accountPool.proxyGateways.ispUnknown"),
+    });
+  })();
   return (
     <div className="flex min-w-0 flex-col gap-3 border-b border-border/60 py-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -547,50 +594,117 @@ const GatewayRow = ({
           {t("accountPool.proxyGateways.gatewayDelayLabel", { value: gatewayDelayText })}
         </p>
       </div>
-      <div className="flex min-w-0 gap-1 sm:w-64 sm:shrink-0">
-        <Select
-          value={selectedValue}
-          onValueChange={(value) => {
-            if (!value) return;
-            if (value.startsWith("isp:")) onBindISP(value.slice(4));
-            else if (value.startsWith("node:")) onSelectNode(value.slice(5));
-          }}
-          disabled={disabled}
-        >
-          <SelectTrigger
-            className="w-full"
-            aria-label={t("accountPool.proxyGateways.selectNode", { name: gateway.name })}
+      <div className="flex min-w-0 flex-col gap-1 sm:w-80 sm:shrink-0">
+        <div className="flex min-w-0 gap-1">
+          <Select
+            value={selectedValue}
+            onValueChange={(value) => {
+              if (!value) return;
+              if (value.startsWith("isp:")) onBindISP(value.slice(4));
+              else if (value.startsWith("node:")) onSelectNode(value.slice(5));
+            }}
+            disabled={disabled}
           >
-            <SelectValue placeholder={t("accountPool.proxyGateways.selectNodePlaceholder")} />
-          </SelectTrigger>
-          <SelectContent>
-            {nodeOptions.map((node) => (
-              <SelectItem key={node.name} value={`node:${node.name}`}>
-                {node.name}
-              </SelectItem>
-            ))}
-            {isps.map((profile) => (
-              <SelectItem key={profile.id} value={`isp:${profile.id}`} disabled={!profile.enabled}>
-                {profile.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="shrink-0 text-destructive"
-          disabled={disabled}
-          onClick={() => {
-            if (window.confirm(t("accountPool.proxyGateways.deleteConfirm", { name: gateway.name }))) onDelete();
-          }}
-          aria-label={t("accountPool.proxyGateways.delete", { name: gateway.name })}
-          title={t("accountPool.proxyGateways.delete", { name: gateway.name })}
-        >
-          <Trash2 className="size-4" />
-        </Button>
+            <SelectTrigger
+              className="w-full"
+              aria-label={t("accountPool.proxyGateways.selectNode", { name: gateway.name })}
+            >
+              <SelectValue placeholder={t("accountPool.proxyGateways.selectNodePlaceholder")} />
+            </SelectTrigger>
+            <SelectContent>
+              {nodeOptions.map((node) => (
+                <SelectItem key={node.name} value={`node:${node.name}`}>
+                  {node.name}
+                </SelectItem>
+              ))}
+              {isps.map((profile) => (
+                <SelectItem key={profile.id} value={`isp:${profile.id}`} disabled={!profile.enabled}>
+                  {profile.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-destructive"
+            disabled={disabled}
+            onClick={() => {
+              if (window.confirm(t("accountPool.proxyGateways.deleteConfirm", { name: gateway.name }))) onDelete();
+            }}
+            aria-label={t("accountPool.proxyGateways.delete", { name: gateway.name })}
+            title={t("accountPool.proxyGateways.delete", { name: gateway.name })}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+        {gateway.isp_profile_id && (
+          <div className="flex min-w-0 gap-1">
+            <Select
+              value={gateway.front_node_name ?? undefined}
+              onValueChange={(value) => {
+                if (value) onBindFront(value);
+              }}
+              disabled={disabled}
+            >
+              <SelectTrigger
+                className="w-full"
+                aria-label={t("accountPool.proxyGateways.selectFront", { name: gateway.name })}
+              >
+                <SelectValue placeholder={t("accountPool.proxyGateways.selectFrontPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {nodeOptions.map((node) => (
+                  <SelectItem key={node.name} value={node.name}>
+                    {node.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              disabled={disabled || gatewayProbeQuery.isFetching}
+              onClick={() => void gatewayProbeQuery.refetch()}
+              aria-label={t("accountPool.proxyGateways.probeGateway", { name: gateway.name })}
+              title={t("accountPool.proxyGateways.probeGateway", { name: gateway.name })}
+            >
+              <RefreshCw className={gatewayProbeQuery.isFetching ? "size-4 animate-spin" : "size-4"} />
+            </Button>
+          </div>
+        )}
       </div>
+      {chainBound && !frontAvailable && (
+        <p className="text-xs text-destructive" role="status">
+          {t("accountPool.proxyGateways.ispFrontRequired")}
+        </p>
+      )}
+      {gateway.isp_profile_id && gatewayProbeQuery.data && (
+        <div className="min-w-0 text-xs text-muted-foreground" aria-live="polite">
+          <p>
+            {gatewayProbeQuery.data.ip_status === "ok"
+              ? t("accountPool.proxyGateways.gatewayProbeExit", {
+                  isp: gatewayProbeQuery.data.isp ?? t("accountPool.proxyGateways.ispUnknown"),
+                  ip: gatewayProbeQuery.data.exit_ip ?? t("accountPool.proxyGateways.ispUnknown"),
+                })
+              : t(`accountPool.proxyGateways.gatewayProbeIp_${gatewayProbeQuery.data.ip_status}`)}
+          </p>
+          <p>
+            {gatewayProbeQuery.data.openai_status === "response"
+              ? t("accountPool.proxyGateways.gatewayProbeOpenAIResponse", {
+                  status: gatewayProbeQuery.data.openai_http_status ?? t("accountPool.proxyGateways.ispUnknown"),
+                })
+              : t(`accountPool.proxyGateways.gatewayProbeOpenAI_${gatewayProbeQuery.data.openai_status}`)}
+          </p>
+        </div>
+      )}
+      {gateway.isp_profile_id && gatewayProbeQuery.isError && (
+        <p className="text-xs text-destructive" role="alert">
+          {t("accountPool.proxyGateways.gatewayProbeFailed")}
+        </p>
+      )}
     </div>
   );
 };

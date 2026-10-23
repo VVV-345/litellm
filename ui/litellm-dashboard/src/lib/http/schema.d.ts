@@ -1896,6 +1896,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/proxy-gateways/{port}/front": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Bind Gateway Front */
+        put: operations["bind_gateway_front_account_pool_proxy_gateways__port__front_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/proxy-gateways/{port}/isp": {
         parameters: {
             query?: never;
@@ -1907,6 +1924,23 @@ export interface paths {
         /** Bind Gateway Isp */
         put: operations["bind_gateway_isp_account_pool_proxy_gateways__port__isp_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-gateways/{port}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Probe Gateway Isp */
+        post: operations["probe_gateway_isp_account_pool_proxy_gateways__port__probe_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1941,6 +1975,41 @@ export interface paths {
         put?: never;
         /** Import Isps */
         post: operations["import_isps_account_pool_proxy_isps_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-isps/subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Isp Subscription */
+        get: operations["get_isp_subscription_account_pool_proxy_isps_subscription_get"];
+        /** Configure Isp Subscription */
+        put: operations["configure_isp_subscription_account_pool_proxy_isps_subscription_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/proxy-isps/subscription/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Isp Subscription */
+        post: operations["refresh_isp_subscription_account_pool_proxy_isps_subscription_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -24815,6 +24884,11 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** AccountPoolGatewayFrontBinding */
+        AccountPoolGatewayFrontBinding: {
+            /** Node Name */
+            node_name?: string | null;
+        };
         /** AccountPoolGatewayISPBinding */
         AccountPoolGatewayISPBinding: {
             /**
@@ -24822,6 +24896,38 @@ export interface components {
              * Format: uuid
              */
             profile_id: string;
+        };
+        /** AccountPoolGatewayISPProbe */
+        AccountPoolGatewayISPProbe: {
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /** City */
+            city?: string | null;
+            /** Country */
+            country?: string | null;
+            /** Exit Ip */
+            exit_ip?: string | null;
+            /**
+             * Ip Status
+             * @enum {string}
+             */
+            ip_status: "ok" | "timeout" | "error";
+            /** Isp */
+            isp?: string | null;
+            /** Openai Http Status */
+            openai_http_status?: number | null;
+            /**
+             * Openai Status
+             * @enum {string}
+             */
+            openai_status: "response" | "timeout" | "error";
+            /** Port */
+            port: number;
+            /** Region */
+            region?: string | null;
         };
         /** AccountPoolGatewaySwitchRequest */
         AccountPoolGatewaySwitchRequest: {
@@ -24877,9 +24983,9 @@ export interface components {
             /** Enabled */
             enabled: boolean;
             /** Expires On */
-            expires_on: string | null;
+            expires_on?: string | null;
             /** Host */
-            host: string;
+            host?: string | null;
             /**
              * Id
              * Format: uuid
@@ -24889,12 +24995,33 @@ export interface components {
             /** Name */
             name: string;
             /** Port */
-            port: number;
+            port?: number | null;
+            /** Protocol */
+            protocol?: ("http" | "https" | "socks5") | null;
+            /** Proxy Type */
+            proxy_type?: string | null;
             /**
-             * Protocol
+             * Source
+             * @default manual
              * @enum {string}
              */
-            protocol: "http" | "https" | "socks5";
+            source: "manual" | "subscription";
+        };
+        /** AccountPoolISPSubscription */
+        AccountPoolISPSubscription: {
+            /** Configured */
+            configured: boolean;
+            /** Enabled Node Count */
+            enabled_node_count: number;
+            /** Node Count */
+            node_count: number;
+            /** Refreshed At */
+            refreshed_at?: string | null;
+        };
+        /** AccountPoolISPSubscriptionConfigure */
+        AccountPoolISPSubscriptionConfigure: {
+            /** Url */
+            url: string;
         };
         /** AccountPoolISPUpdate */
         AccountPoolISPUpdate: {
@@ -25199,6 +25326,8 @@ export interface components {
         AccountPoolProxyGateway: {
             /** Current Node */
             current_node?: string | null;
+            /** Front Node Name */
+            front_node_name?: string | null;
             /** Isp Profile Id */
             isp_profile_id?: string | null;
             /** Name */
@@ -48301,6 +48430,41 @@ export interface operations {
             };
         };
     };
+    bind_gateway_front_account_pool_proxy_gateways__port__front_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolGatewayFrontBinding"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolProxyGateway"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     bind_gateway_isp_account_pool_proxy_gateways__port__isp_put: {
         parameters: {
             query?: never;
@@ -48323,6 +48487,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolProxyGateway"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    probe_gateway_isp_account_pool_proxy_gateways__port__probe_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                port: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolGatewayISPProbe"];
                 };
             };
             /** @description Validation Error */
@@ -48385,6 +48580,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_isp_subscription_account_pool_proxy_isps_subscription_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolISPSubscription"];
+                };
+            };
+        };
+    };
+    configure_isp_subscription_account_pool_proxy_isps_subscription_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolISPSubscriptionConfigure"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolISPSubscription"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_isp_subscription_account_pool_proxy_isps_subscription_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolISPSubscription"];
                 };
             };
         };

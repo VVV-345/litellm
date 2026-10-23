@@ -762,6 +762,58 @@ def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
     assert not additive_manager_schema_upgrade(baseline, (*baseline, (catalog[0], catalog[1].replace(b"enabled boolean", b"enabled text"))))
 
 
+@pytest.mark.parametrize("change,allowed", (("isp", True), ("prisma", False), ("extra", False), ("modified", False)))
+def test_additive_upgrade_runtime_inspects_both_images(tmp_path: Path, change: str, allowed: bool) -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    settings: Final = ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy")
+    current: Final = DockerReleaseRuntime(settings, Commands()).current()
+    target: Final = image_pair(tuple(
+        image.model_copy(update={"image_id": "sha256:" + ("c" if image.service == "litellm" else "d") * 64})
+        for image in current.images
+    ))
+    old_schema: Final = tuple(
+        statement for statement in _SCHEMA if "subscription" not in statement and "front_bindings" not in statement
+    )
+    new_schema: Final = (
+        (*_SCHEMA, "CREATE TABLE account_pool_unreviewed (id uuid)") if change == "extra"
+        else tuple(statement.replace("enabled boolean", "enabled text") for statement in _SCHEMA)
+        if change == "modified" else _SCHEMA
+    )
+    archives: Final = {
+        current.images[0].image_id: {"schema.prisma": b"model A { id String @id }"},
+        current.images[1].image_id: {"account_pool/catalog.py": f"SQL = {old_schema!r}".encode()},
+        target.images[0].image_id: {
+            "schema.prisma": b"model B { id String @id }" if change == "prisma" else b"model A { id String @id }",
+        },
+        target.images[1].image_id: {"account_pool/catalog.py": f"SQL = {new_schema!r}".encode()},
+    }
+    containers: Final[dict[str, str]] = {}
+
+    def command(*args: str, timeout: int = 120) -> bytes:
+        if args[0] == "create":
+            assert args[3:7] == ("--network", "none", "--entrypoint", "/bin/true")
+            containers[args[2]] = args[-1]
+            return b""
+        if args[0] == "rm":
+            del containers[args[-1]]
+            return b""
+        assert args[0] == "cp"
+        name, _, path = args[1].partition(":")
+        assert path in ("/app/account_pool", "/app/schema.prisma")
+        output: Final = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as archive:
+            for filename, body in archives[containers[name]].items():
+                member: Final = tarfile.TarInfo(filename)
+                member.size = len(body)
+                archive.addfile(member, io.BytesIO(body))
+        return output.getvalue()
+
+    runtime: Final = DockerReleaseRuntime(settings, command)
+    assert runtime.is_additive_manager_schema_upgrade(current, target) is allowed
+    assert not containers
+
+
 def test_isp_probe_upgrade_allows_only_the_exact_additive_table() -> None:
     from account_pool.proxy_catalog_repository import _SCHEMA
 

@@ -18,6 +18,8 @@ import type {
   AccountPoolProxyGatewayConfigurationRequest,
   AccountPoolISPProxy,
   AccountPoolISPProbe,
+  AccountPoolGatewayISPProbe,
+  AccountPoolISPSubscription,
   AccountPoolISPProxyUpdateRequest,
   AccountPoolProxyConfigurationProfile,
   AccountPoolProxyConfigurationProfileRequest,
@@ -260,6 +262,21 @@ export const updateAccountPoolISPProxy = (
 export const deleteAccountPoolISPProxy = (accessToken: string, profileId: string): Promise<void> =>
   apiClient.delete<void>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}`, { accessToken });
 
+export const getAccountPoolISPSubscription = (accessToken: string): Promise<AccountPoolISPSubscription> =>
+  apiClient.get<AccountPoolISPSubscription>("/account_pool/proxy-isps/subscription", { accessToken });
+
+export const configureAccountPoolISPSubscription = (
+  accessToken: string,
+  url: string,
+): Promise<AccountPoolISPSubscription> =>
+  apiClient.put<AccountPoolISPSubscription>("/account_pool/proxy-isps/subscription", {
+    accessToken,
+    body: { url },
+  });
+
+export const refreshAccountPoolISPSubscription = (accessToken: string): Promise<AccountPoolISPSubscription> =>
+  apiClient.post<AccountPoolISPSubscription>("/account_pool/proxy-isps/subscription/refresh", { accessToken });
+
 export const listAccountPoolClashNodes = (accessToken: string): Promise<AccountPoolClashNode[]> =>
   apiClient.get<AccountPoolClashNode[]>("/account_pool/proxy-gateways/nodes", { accessToken });
 
@@ -282,6 +299,22 @@ export const bindAccountPoolProxyGatewayISP = (
     accessToken,
     body: { profile_id: profileId },
   });
+
+export const bindAccountPoolProxyGatewayFront = (
+  accessToken: string,
+  port: number,
+  nodeName: string | null,
+): Promise<AccountPoolProxyGateway> =>
+  apiClient.put<AccountPoolProxyGateway>(`/account_pool/proxy-gateways/${port}/front`, {
+    accessToken,
+    body: { node_name: nodeName },
+  });
+
+export const probeAccountPoolProxyGatewayISP = (
+  accessToken: string,
+  port: number,
+): Promise<AccountPoolGatewayISPProbe> =>
+  apiClient.post<AccountPoolGatewayISPProbe>(`/account_pool/proxy-gateways/${port}/probe`, { accessToken });
 
 export const addAccountPoolProxyGateway = (accessToken: string): Promise<AccountPoolProxyGateway> =>
   apiClient.post<AccountPoolProxyGateway>("/account_pool/proxy-gateways", { accessToken });

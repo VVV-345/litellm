@@ -26,8 +26,8 @@ from account_pool.release_compatibility import (
     STARTUP_SOURCES,
     OAuthBrowserSchemaEvidence,
     RollbackEvidence,
-    credential_contract,
     additive_manager_schema_upgrade,
+    credential_contract,
     digest_sources,
     forward_compatible_manager_upgrade,
     manager_source_digest,
@@ -395,7 +395,18 @@ class DockerReleaseRuntime:
         )
 
     def is_additive_manager_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
-        return additive_manager_schema_upgrade(self._upgrade_sources(current), self._upgrade_sources(target))
+        return additive_manager_schema_upgrade(
+            tuple(
+                (name, source) for image in current.images
+                for name, source in self._upgrade_sources(image)
+                if image.service == "account-pool" or name == "schema.prisma"
+            ),
+            tuple(
+                (name, source) for image in target.images
+                for name, source in self._upgrade_sources(image)
+                if image.service == "account-pool" or name == "schema.prisma"
+            ),
+        )
 
     def is_forward_compatible_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
         current_pool: Final = next(image for image in current.images if image.service == "account-pool")

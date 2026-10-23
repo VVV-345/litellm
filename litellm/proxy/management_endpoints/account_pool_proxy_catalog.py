@@ -54,14 +54,31 @@ class AccountPoolISPProxy(BaseModel):
     model_config = ConfigDict(frozen=True)
     id: UUID
     name: str
-    protocol: Literal["http", "https", "socks5"]
-    host: str
-    port: int
-    expires_on: date | None
+    source: Literal["manual", "subscription"] = "manual"
+    protocol: Literal["http", "https", "socks5"] | None = None
+    host: str | None = None
+    port: int | None = None
+    proxy_type: str | None = None
+    expires_on: date | None = None
     enabled: bool
     credentials_configured: bool
     bound_ports: tuple[int, ...] = ()
     last_probe: AccountPoolISPProbe | None = None
+
+
+class AccountPoolISPSubscription(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    configured: bool
+    refreshed_at: datetime | None = None
+    node_count: int = Field(ge=0)
+    enabled_node_count: int = Field(ge=0)
+
+
+class AccountPoolISPSubscriptionConfigure(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    url: str = Field(min_length=1, max_length=2048, repr=False)
 
 
 class AccountPoolISPUpdate(BaseModel):
@@ -109,6 +126,25 @@ def create_proxy_catalog_router(
     @router.get("/proxy-isps")
     async def list_isps() -> tuple[AccountPoolISPProxy, ...]:
         return parse_response(await call("GET", '/proxy-isps'), TypeAdapter(tuple[AccountPoolISPProxy, ...]))
+
+    @router.get("/proxy-isps/subscription")
+    async def get_isp_subscription() -> AccountPoolISPSubscription:
+        return parse_response(
+            await call("GET", "/proxy-isps/subscription"), TypeAdapter(AccountPoolISPSubscription)
+        )
+
+    @router.put("/proxy-isps/subscription")
+    async def configure_isp_subscription(request: AccountPoolISPSubscriptionConfigure) -> AccountPoolISPSubscription:
+        return parse_response(
+            await call("PUT", "/proxy-isps/subscription", request.model_dump_json().encode()),
+            TypeAdapter(AccountPoolISPSubscription),
+        )
+
+    @router.post("/proxy-isps/subscription/refresh")
+    async def refresh_isp_subscription() -> AccountPoolISPSubscription:
+        return parse_response(
+            await call("POST", "/proxy-isps/subscription/refresh"), TypeAdapter(AccountPoolISPSubscription)
+        )
 
     async def probe_isp(profile_id: UUID) -> AccountPoolISPProbe:
         return parse_response(

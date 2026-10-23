@@ -160,13 +160,70 @@ async def test_invalid_saved_proxy_address_returns_redacted_failure():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, "ip_timeout", "ip_error", "openai_timeout", "openai_error"])
+async def test_gateway_probe_uses_listener_and_separates_ip_and_openai_outcomes(failure):
+    from account_pool.isp_probe import GatewayISPProbe
+
+    requests = []
+    proxies = []
+
+    def handler(request):
+        requests.append(request)
+        if request.url.host == "api.ipify.org":
+            if failure == "ip_timeout":
+                raise httpx.ReadTimeout("sensitive upstream body", request=request)
+            if failure == "ip_error":
+                raise httpx.ConnectError("sensitive upstream body", request=request)
+            return httpx.Response(200, json={"ip": "8.8.8.8"})
+        if request.url.host == "ipwho.is":
+            return httpx.Response(200, json={
+                "success": True,
+                "ip": "8.8.8.8",
+                "country": "United States",
+                "region": "California",
+                "city": "Mountain View",
+                "connection": {"isp": "Example operator"},
+            })
+        assert str(request.url) == "https://api.openai.com/v1/models"
+        if failure == "openai_timeout":
+            raise httpx.ReadTimeout("sensitive upstream body", request=request)
+        if failure == "openai_error":
+            raise httpx.ConnectError("sensitive upstream body", request=request)
+        return httpx.Response(401, json={"error": {"message": "sensitive upstream body"}})
+
+    @asynccontextmanager
+    async def factory(proxy):
+        proxies.append(proxy)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            yield client
+
+    result = await GatewayISPProbe(client_factory=factory).probe(7891, "http://host.docker.internal:7891")
+
+    assert result.port == 7891
+    assert proxies == ["http://host.docker.internal:7891"]
+    expected_hosts = ["api.ipify.org"]
+    if failure not in {"ip_timeout", "ip_error"}:
+        expected_hosts.append("ipwho.is")
+    expected_hosts.append("api.openai.com")
+    assert [request.url.host for request in requests] == expected_hosts
+    assert result.ip_status == (
+        "timeout" if failure == "ip_timeout" else "error" if failure == "ip_error" else "ok"
+    )
+    assert result.exit_ip == (None if failure in {"ip_timeout", "ip_error"} else "8.8.8.8")
+    assert result.openai_status == (
+        "timeout" if failure == "openai_timeout" else "error" if failure == "openai_error" else "response"
+    )
+    assert result.openai_http_status == (None if failure in {"openai_timeout", "openai_error"} else 401)
+    assert "sensitive upstream body" not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ("list", "probe", "import", "update", "delete"))
 async def test_manager_isp_storage_failure_is_explicit_and_redacted(operation):
     import psycopg
-    from fastapi import FastAPI
-
     from account_pool.api import create_router
     from account_pool.proxy_catalog_service import ProxyCatalogService
+    from fastapi import FastAPI
 
     class Repository:
         async def list_isps(self):
@@ -205,13 +262,13 @@ async def test_manager_isp_storage_failure_is_explicit_and_redacted(operation):
 
 @pytest.mark.asyncio
 async def test_probe_save_failure_is_not_reported_as_a_successful_measurement():
-    import psycopg
-    from fastapi import FastAPI
     from datetime import datetime, timezone
 
+    import psycopg
     from account_pool.api import create_router
     from account_pool.isp_probe import ISPProbeResult
     from account_pool.proxy_catalog_service import ProxyCatalogService
+    from fastapi import FastAPI
 
     profile = ISPProxyProfile(id=uuid4(), name="ISP", protocol="http", host="proxy.example", port=80)
 
@@ -241,9 +298,8 @@ async def test_probe_save_failure_is_not_reported_as_a_successful_measurement():
 @pytest.mark.asyncio
 @pytest.mark.parametrize("operation", ("import", "update"))
 async def test_invalid_isp_request_does_not_echo_credentials(operation):
-    from fastapi import FastAPI
-
     from account_pool.api import create_router
+    from fastapi import FastAPI
 
     secret = "must-not-echo-private-password"
     path, body = (

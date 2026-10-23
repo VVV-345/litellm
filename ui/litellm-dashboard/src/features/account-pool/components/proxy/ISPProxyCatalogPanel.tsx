@@ -9,13 +9,22 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import type { AccountPoolISPProxy, AccountPoolISPProxyUpdateRequest } from "../../utils/AccountPoolTypes";
+import type {
+  AccountPoolISPProxy,
+  AccountPoolISPProxyUpdateRequest,
+  AccountPoolISPSubscription,
+} from "../../utils/AccountPoolTypes";
 
 interface ISPProxyCatalogPanelProps {
   profiles: AccountPoolISPProxy[];
+  subscription: AccountPoolISPSubscription | null;
+  subscriptionLoading: boolean;
+  subscriptionFailed: boolean;
   probing: boolean;
   probeFailed: boolean;
   onProbe: (ids: string[]) => void;
+  onConfigureSubscription: (url: string) => Promise<void>;
+  onRefreshSubscription: () => Promise<void>;
   loading: boolean;
   failed: boolean;
   busy: boolean;
@@ -27,7 +36,7 @@ interface ISPProxyCatalogPanelProps {
 
 interface ISPProxyDraft {
   name: string;
-  protocol: AccountPoolISPProxy["protocol"];
+  protocol: "http" | "https" | "socks5";
   host: string;
   port: string;
   expires_on: string;
@@ -41,9 +50,9 @@ const ISP_PROBE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const draftFrom = (profile: AccountPoolISPProxy): ISPProxyDraft => ({
   name: profile.name,
-  protocol: profile.protocol,
-  host: profile.host,
-  port: String(profile.port),
+  protocol: profile.protocol ?? "http",
+  host: profile.host ?? "",
+  port: profile.port == null ? "" : String(profile.port),
   expires_on: profile.expires_on ?? "",
   username: "",
   password: "",
@@ -53,9 +62,14 @@ const draftFrom = (profile: AccountPoolISPProxy): ISPProxyDraft => ({
 
 export const ISPProxyCatalogPanel = ({
   profiles,
+  subscription,
+  subscriptionLoading,
+  subscriptionFailed,
   probing,
   probeFailed,
   onProbe,
+  onConfigureSubscription,
+  onRefreshSubscription,
   loading,
   failed,
   busy,
@@ -66,9 +80,11 @@ export const ISPProxyCatalogPanel = ({
 }: ISPProxyCatalogPanelProps) => {
   const { t } = useTranslation();
   const [source, setSource] = useState("");
+  const [subscriptionUrl, setSubscriptionUrl] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ISPProxyDraft | null>(null);
   const [imported, setImported] = useState(false);
+  const [subscriptionSaved, setSubscriptionSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedProfileId, setSavedProfileId] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now);
@@ -79,6 +95,7 @@ export const ISPProxyCatalogPanel = ({
   }, []);
 
   const disabled = busy || saving || probing;
+  const probeableProfiles = profiles.filter((profile) => (profile.source ?? "manual") === "manual");
   const unknown = t("accountPool.proxyGateways.ispUnknown");
 
   const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -95,6 +112,33 @@ export const ISPProxyCatalogPanel = ({
       setImported(true);
     } catch {
       setImported(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const configureSubscription = async () => {
+    setSaving(true);
+    setSubscriptionSaved(false);
+    try {
+      await onConfigureSubscription(subscriptionUrl.trim());
+      setSubscriptionUrl("");
+      setSubscriptionSaved(true);
+    } catch {
+      setSubscriptionSaved(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const refreshSubscription = async () => {
+    setSaving(true);
+    setSubscriptionSaved(false);
+    try {
+      await onRefreshSubscription();
+      setSubscriptionSaved(true);
+    } catch {
+      setSubscriptionSaved(false);
     } finally {
       setSaving(false);
     }
@@ -121,10 +165,80 @@ export const ISPProxyCatalogPanel = ({
         </h3>
         <span className="text-xs tabular-nums text-muted-foreground">{profiles.length}</span>
       </div>
+      <div className="mt-3 grid gap-2 border-b border-border/60 pb-3">
+        <Input
+          type="url"
+          value={subscriptionUrl}
+          onChange={(event) => {
+            setSubscriptionUrl(event.target.value);
+            setSubscriptionSaved(false);
+          }}
+          placeholder="https://example.com/isp.yaml"
+          aria-label={t("accountPool.proxyGateways.ispSubscriptionUrl")}
+          disabled={disabled}
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || !subscriptionUrl.trim()}
+            onClick={() => void configureSubscription()}
+          >
+            {t("accountPool.proxyGateways.ispSubscriptionImport")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={disabled || !subscription?.configured}
+            onClick={() => void refreshSubscription()}
+          >
+            {t("accountPool.proxyGateways.ispSubscriptionRefresh")}
+          </Button>
+          {subscription && (
+            <span className="text-xs text-muted-foreground" role="status">
+              {subscription.configured
+                ? t("accountPool.proxyGateways.ispSubscriptionConfigured", {
+                    enabled: subscription.enabled_node_count,
+                    total: subscription.node_count,
+                  })
+                : t("accountPool.proxyGateways.ispSubscriptionNotConfigured")}
+            </span>
+          )}
+          {subscriptionLoading && (
+            <span className="text-xs text-muted-foreground">
+              {t("accountPool.proxyGateways.ispSubscriptionLoading")}
+            </span>
+          )}
+          {subscription?.refreshed_at && (
+            <span className="text-xs text-muted-foreground">
+              {t("accountPool.proxyGateways.ispSubscriptionRefreshedAt", {
+                value: new Date(subscription.refreshed_at).toLocaleString(),
+              })}
+            </span>
+          )}
+          {subscriptionSaved && (
+            <span className="text-xs text-muted-foreground" role="status">
+              {t("accountPool.proxyGateways.ispSubscriptionSaved")}
+            </span>
+          )}
+        </div>
+        {subscriptionFailed && (
+          <p className="text-xs text-destructive" role="alert">
+            {t("accountPool.proxyGateways.ispSubscriptionFailed")}
+          </p>
+        )}
+      </div>
       <p className="mt-2 text-xs text-muted-foreground">{t("accountPool.proxyGateways.ispProbeHint")}</p>
-      <Button type="button" variant="outline" size="sm" className="mt-2"
-        disabled={disabled || loading || profiles.length === 0}
-        onClick={() => onProbe(profiles.map((profile) => profile.id))}>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-2"
+        disabled={disabled || loading || probeableProfiles.length === 0}
+        onClick={() => onProbe(probeableProfiles.map((profile) => profile.id))}
+      >
         {t("accountPool.proxyGateways.ispProbeAll")}
       </Button>
       {probeFailed && (
@@ -185,221 +299,264 @@ export const ISPProxyCatalogPanel = ({
         {profiles.map((profile) => {
           const probe = profile.last_probe;
           const stale = probe != null && now - new Date(probe.checked_at).getTime() > ISP_PROBE_MAX_AGE_MS;
-          const cardProbeLabel = probe?.status === "ok" && probe.delay_ms != null
-            ? t("accountPool.proxyGateways.ispCardLatency", {
-                value: probe.delay_ms,
-                stale: stale ? t("accountPool.proxyGateways.ispProbeStale") : "",
-              })
-            : t(`accountPool.proxyGateways.ispProbe_${probe?.status ?? "unknown"}`);
+          const cardProbeLabel =
+            probe?.status === "ok" && probe.delay_ms != null
+              ? t("accountPool.proxyGateways.ispCardLatency", {
+                  value: probe.delay_ms,
+                  stale: stale ? t("accountPool.proxyGateways.ispProbeStale") : "",
+                })
+              : t(`accountPool.proxyGateways.ispProbe_${probe?.status ?? "unknown"}`);
           return (
-          <article key={profile.id} className="min-w-0 rounded-md border border-border/70 p-3">
-            <div className="flex min-w-0 items-start justify-between gap-2">
-              <div className="min-w-0">
-                <p className="break-words text-sm font-medium">
-                  {profile.name}
-                  <span className="ml-2 text-xs font-normal text-muted-foreground">{cardProbeLabel}</span>
+            <article key={profile.id} className="min-w-0 rounded-md border border-border/70 p-3">
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="break-words text-sm font-medium">
+                    {profile.name}
+                    <span className="ml-2 text-xs font-normal text-muted-foreground">{cardProbeLabel}</span>
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {profile.source === "manual" && profile.protocol && profile.host && profile.port != null
+                      ? `${profile.protocol}://${profile.host}:${profile.port}`
+                      : profile.proxy_type}
+                  </p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="text-xs text-muted-foreground">
+                    {t(
+                      profile.source === "manual"
+                        ? "accountPool.proxyGateways.ispSourceManual"
+                        : "accountPool.proxyGateways.ispSourceSubscription",
+                    )}
+                  </span>
+                  <span className={`${profile.enabled ? "text-emerald-700" : "text-muted-foreground"} text-xs`}>
+                    {t(
+                      profile.enabled
+                        ? "accountPool.proxyGateways.ispEnabled"
+                        : "accountPool.proxyGateways.ispDisabled",
+                    )}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("accountPool.proxyGateways.ispExpires", {
+                  date: profile.expires_on ?? t("accountPool.proxyGateways.ispNoExpiry"),
+                })}
+                {profile.bound_ports.length > 0 &&
+                  ` · ${t("accountPool.proxyGateways.ispPorts", { ports: profile.bound_ports.join(", ") })}`}
+              </p>
+              <div className="mt-2 space-y-1 break-words text-xs text-muted-foreground" aria-live="polite">
+                <p>
+                  {t("accountPool.proxyGateways.ispProbeStatus", {
+                    value: t(`accountPool.proxyGateways.ispProbe_${probe?.status ?? "unknown"}`),
+                  })}
                 </p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {profile.protocol}://{profile.host}:{profile.port}
+                <p>{t("accountPool.proxyGateways.ispExitIp", { value: probe?.exit_ip ?? unknown })}</p>
+                <p>
+                  {t("accountPool.proxyGateways.ispLocation", {
+                    value: [probe?.country, probe?.region, probe?.city].filter(Boolean).join(" / ") || unknown,
+                  })}
+                </p>
+                <p>{t("accountPool.proxyGateways.ispOperator", { value: probe?.isp ?? unknown })}</p>
+                <p>
+                  {t("accountPool.proxyGateways.ispLatency", {
+                    value: probe?.delay_ms != null ? `${probe.delay_ms} ms` : unknown,
+                  })}
+                </p>
+                <p>
+                  {t("accountPool.proxyGateways.ispCheckedAt", {
+                    value: probe ? new Date(probe.checked_at).toLocaleString() : unknown,
+                  })}
                 </p>
               </div>
-              <span className={`shrink-0 text-xs ${profile.enabled ? "text-emerald-700" : "text-muted-foreground"}`}>
-                {t(profile.enabled ? "accountPool.proxyGateways.ispEnabled" : "accountPool.proxyGateways.ispDisabled")}
-              </span>
-            </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t("accountPool.proxyGateways.ispExpires", {
-                date: profile.expires_on ?? t("accountPool.proxyGateways.ispNoExpiry"),
-              })}
-              {profile.bound_ports.length > 0 &&
-                ` · ${t("accountPool.proxyGateways.ispPorts", { ports: profile.bound_ports.join(", ") })}`}
-            </p>
-            <div className="mt-2 space-y-1 break-words text-xs text-muted-foreground" aria-live="polite">
-              <p>{t("accountPool.proxyGateways.ispProbeStatus", {
-                value: t(`accountPool.proxyGateways.ispProbe_${probe?.status ?? "unknown"}`),
-              })}</p>
-              <p>{t("accountPool.proxyGateways.ispExitIp", { value: probe?.exit_ip ?? unknown })}</p>
-              <p>{t("accountPool.proxyGateways.ispLocation", {
-                value: [probe?.country, probe?.region, probe?.city].filter(Boolean).join(" / ") || unknown,
-              })}</p>
-              <p>{t("accountPool.proxyGateways.ispOperator", { value: probe?.isp ?? unknown })}</p>
-              <p>{t("accountPool.proxyGateways.ispLatency", {
-                value: probe?.delay_ms != null ? `${probe.delay_ms} ms` : unknown,
-              })}</p>
-              <p>{t("accountPool.proxyGateways.ispCheckedAt", {
-                value: probe ? new Date(probe.checked_at).toLocaleString() : unknown,
-              })}</p>
-            </div>
-            {savedProfileId === profile.id && (
-              <p className="mt-1 text-xs text-muted-foreground" role="status">
-                {t("accountPool.proxyGateways.ispSaved")}
-              </p>
-            )}
-            <div className="mt-2 flex justify-end gap-1">
-              <Button type="button" variant="outline" size="sm" disabled={disabled}
-                aria-label={t("accountPool.proxyGateways.ispProbeOne", { name: profile.name })}
-                onClick={() => onProbe([profile.id])}>
-                {t(probing ? "accountPool.proxyGateways.ispProbing" : "accountPool.proxyGateways.ispProbe")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("accountPool.proxyGateways.editIsp", { name: profile.name })}
-                title={t("accountPool.proxyGateways.editIsp", { name: profile.name })}
-                disabled={disabled}
-                onClick={() => {
-                  setEditingId(profile.id);
-                  setDraft(draftFrom(profile));
-                }}
-              >
-                <Pencil className="size-4" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("accountPool.proxyGateways.deleteIsp", { name: profile.name })}
-                title={t("accountPool.proxyGateways.deleteIsp", { name: profile.name })}
-                disabled={disabled || profile.bound_ports.length > 0}
-                onClick={() => {
-                  if (window.confirm(t("accountPool.proxyGateways.deleteIspConfirm", { name: profile.name }))) {
-                    onDelete(profile.id);
-                  }
-                }}
-              >
-                <Trash2 className="size-4" />
-              </Button>
-            </div>
-            {editingId === profile.id && draft && (
-              <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border/60 pt-3">
-                <Input
-                  value={draft.name}
-                  onChange={(event) => setDraft({ ...draft, name: event.target.value })}
-                  aria-label={t("accountPool.proxyGateways.ispName")}
-                  disabled={disabled}
-                />
-                <Select
-                  value={draft.protocol}
-                  onValueChange={(value) => {
-                    if (value === "http" || value === "https" || value === "socks5") {
-                      setDraft({ ...draft, protocol: value });
-                    }
-                  }}
-                  disabled={disabled}
-                >
-                  <SelectTrigger aria-label={t("accountPool.proxyGateways.ispProtocol")}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="http">HTTP</SelectItem>
-                    <SelectItem value="https">HTTPS</SelectItem>
-                    <SelectItem value="socks5">SOCKS5</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  value={draft.host}
-                  onChange={(event) => setDraft({ ...draft, host: event.target.value })}
-                  aria-label={t("accountPool.proxyGateways.ispHost")}
-                  disabled={disabled}
-                />
-                <Input
-                  type="number"
-                  min={1}
-                  max={65535}
-                  value={draft.port}
-                  onChange={(event) => setDraft({ ...draft, port: event.target.value })}
-                  aria-label={t("accountPool.proxyGateways.ispPort")}
-                  disabled={disabled}
-                />
-                <Input
-                  type="date"
-                  value={draft.expires_on}
-                  onChange={(event) => setDraft({ ...draft, expires_on: event.target.value })}
-                  aria-label={t("accountPool.proxyGateways.ispExpiration")}
-                  disabled={disabled}
-                />
-                <label className="flex items-center gap-2 text-xs">
-                  <input
-                    type="checkbox"
-                    checked={draft.enabled}
-                    onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
+              {savedProfileId === profile.id && (
+                <p className="mt-1 text-xs text-muted-foreground" role="status">
+                  {t("accountPool.proxyGateways.ispSaved")}
+                </p>
+              )}
+              <div className="mt-2 flex justify-end gap-1">
+                {profile.source === "manual" && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={disabled}
+                    aria-label={t("accountPool.proxyGateways.ispProbeOne", { name: profile.name })}
+                    onClick={() => onProbe([profile.id])}
+                  >
+                    {t(probing ? "accountPool.proxyGateways.ispProbing" : "accountPool.proxyGateways.ispProbe")}
+                  </Button>
+                )}
+                {profile.source === "manual" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("accountPool.proxyGateways.editIsp", { name: profile.name })}
+                    title={t("accountPool.proxyGateways.editIsp", { name: profile.name })}
+                    disabled={disabled}
+                    onClick={() => {
+                      setEditingId(profile.id);
+                      setDraft(draftFrom(profile));
+                    }}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                )}
+                {profile.source === "manual" && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t("accountPool.proxyGateways.deleteIsp", { name: profile.name })}
+                    title={t("accountPool.proxyGateways.deleteIsp", { name: profile.name })}
+                    disabled={disabled || profile.bound_ports.length > 0}
+                    onClick={() => {
+                      if (window.confirm(t("accountPool.proxyGateways.deleteIspConfirm", { name: profile.name }))) {
+                        onDelete(profile.id);
+                      }
+                    }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
+              </div>
+              {editingId === profile.id && draft && (
+                <div className="mt-2 grid grid-cols-2 gap-2 border-t border-border/60 pt-3">
+                  <Input
+                    value={draft.name}
+                    onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                    aria-label={t("accountPool.proxyGateways.ispName")}
                     disabled={disabled}
                   />
-                  {t("accountPool.proxyGateways.ispEnabled")}
-                </label>
-                <Input
-                  value={draft.username}
-                  onChange={(event) => setDraft({ ...draft, username: event.target.value, clear_credentials: false })}
-                  placeholder={t(profile.credentials_configured && !draft.clear_credentials
-                    ? "accountPool.proxyGateways.ispUsernamePlaceholder"
-                    : "accountPool.proxyGateways.ispUsername")}
-                  aria-label={t("accountPool.proxyGateways.ispUsername")}
-                  disabled={disabled}
-                />
-                <Input
-                  type="password"
-                  value={draft.password}
-                  onChange={(event) => setDraft({ ...draft, password: event.target.value, clear_credentials: false })}
-                  placeholder={t(profile.credentials_configured && !draft.clear_credentials
-                    ? "accountPool.proxyGateways.ispPasswordPlaceholder"
-                    : "accountPool.proxyGateways.ispPassword")}
-                  aria-label={t("accountPool.proxyGateways.ispPassword")}
-                  disabled={disabled}
-                />
-                <div className="col-span-2 space-y-1 text-xs text-muted-foreground">
-                  <p>{t(profile.credentials_configured
-                    ? "accountPool.proxyGateways.ispCredentialsConfigured"
-                    : "accountPool.proxyGateways.ispCredentialsNotConfigured")}</p>
-                  {draft.clear_credentials && (
-                    <p className="text-destructive" role="alert">
-                      {t("accountPool.proxyGateways.ispCredentialsWillClear")}
-                    </p>
-                  )}
-                </div>
-                <div className="col-span-2 flex justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={disabled || !profile.credentials_configured}
-                    onClick={() => setDraft({ ...draft, username: "", password: "", clear_credentials: true })}
-                  >
-                    {t("accountPool.proxyGateways.ispClearCredentials")}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setEditingId(null)}
+                  <Select
+                    value={draft.protocol}
+                    onValueChange={(value) => {
+                      if (value === "http" || value === "https" || value === "socks5") {
+                        setDraft({ ...draft, protocol: value });
+                      }
+                    }}
                     disabled={disabled}
                   >
-                    {t("accountPool.cancel")}
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={disabled || !draft.name.trim() || !draft.host.trim() || !draft.port}
-                    onClick={() =>
-                      void saveProfile(profile.id, {
-                        name: draft.name.trim(),
-                        protocol: draft.protocol,
-                        host: draft.host.trim(),
-                        port: Number(draft.port),
-                        expires_on: draft.expires_on || null,
-                        enabled: draft.enabled,
-                        username: draft.username || null,
-                        password: draft.password || null,
-                        clear_credentials: draft.clear_credentials,
-                      })
-                    }
-                  >
-                    {t("accountPool.save")}
-                  </Button>
+                    <SelectTrigger aria-label={t("accountPool.proxyGateways.ispProtocol")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="http">HTTP</SelectItem>
+                      <SelectItem value="https">HTTPS</SelectItem>
+                      <SelectItem value="socks5">SOCKS5</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    value={draft.host}
+                    onChange={(event) => setDraft({ ...draft, host: event.target.value })}
+                    aria-label={t("accountPool.proxyGateways.ispHost")}
+                    disabled={disabled}
+                  />
+                  <Input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={draft.port}
+                    onChange={(event) => setDraft({ ...draft, port: event.target.value })}
+                    aria-label={t("accountPool.proxyGateways.ispPort")}
+                    disabled={disabled}
+                  />
+                  <Input
+                    type="date"
+                    value={draft.expires_on}
+                    onChange={(event) => setDraft({ ...draft, expires_on: event.target.value })}
+                    aria-label={t("accountPool.proxyGateways.ispExpiration")}
+                    disabled={disabled}
+                  />
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={draft.enabled}
+                      onChange={(event) => setDraft({ ...draft, enabled: event.target.checked })}
+                      disabled={disabled}
+                    />
+                    {t("accountPool.proxyGateways.ispEnabled")}
+                  </label>
+                  <Input
+                    value={draft.username}
+                    onChange={(event) => setDraft({ ...draft, username: event.target.value, clear_credentials: false })}
+                    placeholder={t(
+                      profile.credentials_configured && !draft.clear_credentials
+                        ? "accountPool.proxyGateways.ispUsernamePlaceholder"
+                        : "accountPool.proxyGateways.ispUsername",
+                    )}
+                    aria-label={t("accountPool.proxyGateways.ispUsername")}
+                    disabled={disabled}
+                  />
+                  <Input
+                    type="password"
+                    value={draft.password}
+                    onChange={(event) => setDraft({ ...draft, password: event.target.value, clear_credentials: false })}
+                    placeholder={t(
+                      profile.credentials_configured && !draft.clear_credentials
+                        ? "accountPool.proxyGateways.ispPasswordPlaceholder"
+                        : "accountPool.proxyGateways.ispPassword",
+                    )}
+                    aria-label={t("accountPool.proxyGateways.ispPassword")}
+                    disabled={disabled}
+                  />
+                  <div className="col-span-2 space-y-1 text-xs text-muted-foreground">
+                    <p>
+                      {t(
+                        profile.credentials_configured
+                          ? "accountPool.proxyGateways.ispCredentialsConfigured"
+                          : "accountPool.proxyGateways.ispCredentialsNotConfigured",
+                      )}
+                    </p>
+                    {draft.clear_credentials && (
+                      <p className="text-destructive" role="alert">
+                        {t("accountPool.proxyGateways.ispCredentialsWillClear")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="col-span-2 flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={disabled || !profile.credentials_configured}
+                      onClick={() => setDraft({ ...draft, username: "", password: "", clear_credentials: true })}
+                    >
+                      {t("accountPool.proxyGateways.ispClearCredentials")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingId(null)}
+                      disabled={disabled}
+                    >
+                      {t("accountPool.cancel")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={disabled || !draft.name.trim() || !draft.host.trim() || !draft.port}
+                      onClick={() =>
+                        void saveProfile(profile.id, {
+                          name: draft.name.trim(),
+                          protocol: draft.protocol,
+                          host: draft.host.trim(),
+                          port: Number(draft.port),
+                          expires_on: draft.expires_on || null,
+                          enabled: draft.enabled,
+                          username: draft.username || null,
+                          password: draft.password || null,
+                          clear_credentials: draft.clear_credentials,
+                        })
+                      }
+                    >
+                      {t("accountPool.save")}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </article>
+              )}
+            </article>
           );
         })}
       </div>

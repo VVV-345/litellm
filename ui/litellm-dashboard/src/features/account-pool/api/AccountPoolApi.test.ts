@@ -4,7 +4,12 @@ import { ApiError } from "@/lib/http/client";
 
 import {
   createAccountPoolEnvironment,
+  bindAccountPoolProxyGatewayFront,
+  configureAccountPoolISPSubscription,
   deleteAccountPoolEnvironment,
+  getAccountPoolISPSubscription,
+  probeAccountPoolProxyGatewayISP,
+  refreshAccountPoolISPSubscription,
   updateAccountPoolProxyGatewayConfiguration,
 } from "./AccountPoolApi";
 import type { AccountPoolCreateRequest } from "../utils/AccountPoolTypes";
@@ -12,12 +17,14 @@ import type { AccountPoolCreateRequest } from "../utils/AccountPoolTypes";
 const postMock = vi.fn();
 const deleteMock = vi.fn();
 const putMock = vi.fn();
+const getMock = vi.fn();
 
 vi.mock("uuid", () => ({ v4: () => "operation-123" }));
 
 vi.mock("@/components/networking", () => ({
   apiClient: {
     delete: (...args: unknown[]) => deleteMock(...args),
+    get: (...args: unknown[]) => getMock(...args),
     post: (...args: unknown[]) => postMock(...args),
     put: (...args: unknown[]) => putMock(...args),
   },
@@ -28,6 +35,7 @@ describe("createAccountPoolEnvironment", () => {
     deleteMock.mockReset();
     postMock.mockReset();
     putMock.mockReset();
+    getMock.mockReset();
     postMock.mockResolvedValue({});
     putMock.mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
   });
@@ -89,6 +97,48 @@ describe("createAccountPoolEnvironment", () => {
     expect(putMock).toHaveBeenCalledWith("/account_pool/proxy-gateways/configuration", {
       accessToken: "token-123",
       body: requestBody,
+    });
+  });
+
+  it("exposes the ISP subscription and per-gateway chain API operations", async () => {
+    const api = await import("./AccountPoolApi");
+
+    expect(Object.keys(api)).toEqual(
+      expect.arrayContaining([
+        "getAccountPoolISPSubscription",
+        "configureAccountPoolISPSubscription",
+        "refreshAccountPoolISPSubscription",
+        "bindAccountPoolProxyGatewayFront",
+        "probeAccountPoolProxyGatewayISP",
+      ]),
+    );
+  });
+
+  it("sends ISP subscription and gateway chain requests to their typed routes", async () => {
+    getMock.mockResolvedValue({ configured: false });
+    putMock.mockResolvedValue({});
+    postMock.mockResolvedValue({});
+
+    await getAccountPoolISPSubscription("token-123");
+    await configureAccountPoolISPSubscription("token-123", "https://isp.example/sub.yaml");
+    await refreshAccountPoolISPSubscription("token-123");
+    await bindAccountPoolProxyGatewayFront("token-123", 7891, "airport-a");
+    await probeAccountPoolProxyGatewayISP("token-123", 7891);
+
+    expect(getMock).toHaveBeenCalledWith("/account_pool/proxy-isps/subscription", { accessToken: "token-123" });
+    expect(putMock).toHaveBeenCalledWith("/account_pool/proxy-isps/subscription", {
+      accessToken: "token-123",
+      body: { url: "https://isp.example/sub.yaml" },
+    });
+    expect(postMock).toHaveBeenCalledWith("/account_pool/proxy-isps/subscription/refresh", {
+      accessToken: "token-123",
+    });
+    expect(putMock).toHaveBeenCalledWith("/account_pool/proxy-gateways/7891/front", {
+      accessToken: "token-123",
+      body: { node_name: "airport-a" },
+    });
+    expect(postMock).toHaveBeenCalledWith("/account_pool/proxy-gateways/7891/probe", {
+      accessToken: "token-123",
     });
   });
 });

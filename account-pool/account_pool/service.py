@@ -66,6 +66,7 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.error_logs import ErrorLogService, LogStage
+from account_pool.isp_probe import GatewayISPProbeResult
 from account_pool.policies import AccountPolicy, PolicyRepository, PolicyView
 from account_pool.ports import (
     CLIProxyClient,
@@ -504,6 +505,25 @@ class EnvironmentService:
             view: Final = await self._proxy_gateways.bind_isp_gateway(port, profile_id)
             await self._proxy_gateways.sync_profiles()
             return view
+
+    async def bind_proxy_gateway_front(self, port: int, node_name: str | None) -> GatewayView:
+        gateway_profile_id: Final = self._proxy_gateways.gateway_profile_id(port)
+        async with self._proxy_gateways.profile_operation(gateway_profile_id):
+            records: Final = await self._repository.list()
+            now: Final = utc_now()
+            if any(
+                record.proxy_profile_id == gateway_profile_id and _oauth_proxy_in_use(record, now)
+                for record in records
+            ):
+                raise ClashError("gateway cannot be changed during OAuth authorization")
+            view: Final = await self._proxy_gateways.bind_front_node(port, node_name)
+            await self._proxy_gateways.sync_profiles()
+            return view
+
+    async def probe_proxy_gateway_isp(self, port: int) -> GatewayISPProbeResult:
+        gateway_profile_id: Final = self._proxy_gateways.gateway_profile_id(port)
+        async with self._proxy_gateways.profile_operation(gateway_profile_id):
+            return await self._proxy_gateways.probe_gateway(port)
 
     async def add_proxy_gateway(self) -> GatewayView:
         return await self._proxy_gateways.add_gateway()

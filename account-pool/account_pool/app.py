@@ -104,7 +104,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if controller is not None
         else ProxyGatewayService.disabled(resolved, profiles, catalog=proxy_catalog_repository)
     )
-    proxy_catalog: Final = ProxyCatalogService(proxy_catalog_repository, proxy_gateways.reconcile_isp_bindings)
+    proxy_catalog: Final = ProxyCatalogService(
+        proxy_catalog_repository,
+        proxy_gateways.reconcile_isp_bindings,
+        fetch_subscription=proxy_gateways.fetch_isp_subscription,
+    )
     proxy_expiry_scheduler: Final = ISPExpiryScheduler(proxy_catalog, proxy_gateways)
     service: Final = EnvironmentService(
         settings=resolved,
