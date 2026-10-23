@@ -25,7 +25,12 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, CockpitStatus, cockpit_status
-from account_pool.cockpit_preflight import CockpitPreflightReport, CockpitPreflightRequest, cockpit_preflight
+from account_pool.cockpit_preflight import (
+    CockpitNativeMappingRequest,
+    CockpitPreflightReport,
+    CockpitPreflightRequest,
+    cockpit_preflight,
+)
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import (
     AuthorizationFlow,
@@ -330,6 +335,24 @@ def create_router(
         if cockpit_admin is None or environments is None or policies is None or keys is None:
             raise HTTPException(503, "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"})
         result: Final = await cockpit_preflight(request, environments, policies, keys, cockpit_admin, settings)
+        if isinstance(result, CockpitFailure):
+            raise HTTPException(
+                503 if result.category == "transport" or result.status_code == 503 else 502,
+                "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"},
+            )
+        return result
+
+    @router.post("/api/cockpit/native-preflight", dependencies=[Depends(require_manager)])
+    async def check_native_cockpit_mapping(
+        request: CockpitNativeMappingRequest, response: Response,
+    ) -> CockpitPreflightReport:
+        response.headers["Cache-Control"] = "no-store"
+        if cockpit_admin is None or environments is None or policies is None:
+            raise HTTPException(503, "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"})
+        result: Final = await cockpit_preflight(
+            CockpitPreflightRequest(card_id=request.card_id, subject_kind="litellm_key", candidate_ids=request.candidate_ids),
+            environments, policies, None, cockpit_admin, settings, native_card_id=request.card_id,
+        )
         if isinstance(result, CockpitFailure):
             raise HTTPException(
                 503 if result.category == "transport" or result.status_code == 503 else 502,

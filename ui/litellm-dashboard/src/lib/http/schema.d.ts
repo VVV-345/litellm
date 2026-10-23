@@ -24362,6 +24362,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/cockpit/native-preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Native Cockpit Mapping */
+        post: operations["check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -28788,7 +28805,7 @@ export interface components {
         /** CockpitAccountPreflight */
         CockpitAccountPreflight: {
             /** Blockers */
-            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
+            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported" | "source_credential_collision" | "target_credential_collision")[];
             /**
              * Card Id
              * Format: uuid
@@ -28874,7 +28891,7 @@ export interface components {
             /** Authorized Account Ids */
             authorized_account_ids: string[];
             /** Blockers */
-            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
+            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported" | "source_credential_collision" | "target_credential_collision")[];
             /**
              * Card Id
              * Format: uuid
@@ -28891,7 +28908,7 @@ export interface components {
              *       "runtime_activation_unverified"
              *     ]
              */
-            pending_checks: ("runtime_eligibility_unverified" | "credentials_and_ownership_unverified" | "models_proxy_quota_unmapped" | "policy_behavior_unverified" | "native_subject_mapping_unimplemented" | "runtime_activation_unverified")[];
+            pending_checks: ("runtime_eligibility_unverified" | "credentials_and_ownership_unverified" | "models_proxy_quota_unmapped" | "policy_behavior_unverified" | "native_subject_mapping_unimplemented" | "native_runtime_authorization_unverified" | "runtime_activation_unverified")[];
             /** Persisted Manifest Revision */
             persisted_manifest_revision: string;
             /** Policy Version */
@@ -45208,6 +45225,39 @@ export interface components {
             watsonx_region_name?: string | null;
         } & {
             [key: string]: unknown;
+        };
+        /** NativeSubjectResult */
+        NativeSubjectResult: {
+            /** Card Id */
+            card_id?: string | null;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "verified" | "missing" | "revoked" | "blocked" | "expired" | "legacy_subject" | "card_scope_unverified" | "model_scope_unverified" | "invalid_record" | "unavailable";
+        };
+        /** CockpitNativePreflightReport */
+        CockpitNativePreflightReport: {
+            mapping?: components["schemas"]["CockpitPreflightReport"] | null;
+            /**
+             * Ready To Migrate
+             * @default false
+             * @constant
+             */
+            ready_to_migrate: false;
+            subject: components["schemas"]["NativeSubjectResult"];
+        };
+        /** CockpitNativePreflightRequest */
+        CockpitNativePreflightRequest: {
+            /** Candidate Ids */
+            candidate_ids?: string[] | null;
+            /** Key Hash */
+            key_hash: string;
         };
     };
     responses: never;
@@ -78301,6 +78351,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitNativePreflightRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitNativePreflightReport"];
                 };
             };
             /** @description Validation Error */

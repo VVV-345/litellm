@@ -159,7 +159,7 @@
 3. 数据面接线：按已验证主体 scope 发布 Cockpit deployment，保留 LiteLLM 标准统计；对 Cockpit 路由取消外层重复 resolve/acquire、重试/换卡/续聊 owner，旧路径仅作为另一条显式回滚配置；不能只替换 upstream URL
 4. 将旧行为矩阵变为 Cockpit 契约，覆盖额度换卡、续聊、stream/tool/image 重放边界和用量归属；验证各供应商加载路径。当前 manifest Codex token 注册要求 provider=codex，不能将九类供应商凭据一律按 Codex 导入
 
-恢复执行先读取此 D2 状态与已完成提交，不重新实施 D1、D2.1 或全局策略保存/应用。下一可执行操作：继续 D2.2 的授权主体与凭据映射协议，先为原生 LiteLLM Key、账号范围交集、供应商通道和缺失凭据写离线失败测试，再实现不写真实凭据的映射预检。真实凭据迁移、发布请求路由和 D2.3 切流仍未授权执行
+恢复执行先读取此 D2 状态与已完成提交，不重新实施 D1、D2.1、全局策略保存/应用或下述单卡原生 Key 预检。下一可执行操作：继续 D2.2 的复杂主体权限映射，先为带用户/团队/项目和模型限制的原生 Key 建立离线失败用例，再复用现有授权规则解析可证明的范围；不能删掉保守阻断来扩大支持。可信凭据迁移回执、按 scope 发布和 D2.3 唯一请求 owner 接线仍待实现；真实凭据迁移和实际切流继续禁止
 
 ### D2.1 本地代码结果（2026-10-23）
 
@@ -212,6 +212,24 @@ Manager 与 LiteLLM 暴露 GET `/api/cockpit/policy/runtime`、POST `/api/cockpi
 本轮 Manager/代理/原网关定向回归 269 项通过；前端相关 66 项通过；Go 包 172 个顶层测试和 69 个子测试通过。新运行模块及管理客户端严格 Python 类型检查、聚焦前端源码与测试 tsc 通过。Go race 检查实际因缺少 gcc 失败，未安装编译器；前端 ESLint 无错误，保留一个复杂度警告。上轮全量前端 tsc 失败仍未解决，本轮未运行全量 tsc、生产构建或浏览器目视测试
 
 独立审阅未发现本段阻塞问题，补充覆盖了未知/矛盾收据、严格布尔值、已保存与运行版本各自不匹配、管理接口禁用/未授权及 Go 管理 PUT 与 apply 并发。后续仍需主体/凭据映射、按 scope 发布、唯一请求 owner 接线、计费与续聊行为矩阵；这些完成前不得标记整体后台替换完成
+
+### D2.2 第三段本地代码结果：原生 Key 单卡预检与凭据冲突检查
+
+本段基于 LiteLLM `fe31c59cc1`，继续使用 `codex/cockpit-reuse-plan`。Cockpit 保持 `ec9989c0` 和原有未提交 workflow 文件不动；原 `CLIProxyAPI分支` 不改、不提交。没有推送、镜像构建、部署、生产数据库访问、真实供应商请求或真实凭据迁移
+
+新增 `POST /account_pool/cockpit/native-preflight`，仅管理员可调用，公开输入只有 64 位小写 Key hash 和可选 candidate_ids，不接受明文 Key、card_id、metadata 或 ACL。成功、入参校验和 Manager 错误响应不缓存；校验失败不回显误填的秘密。`inspect_native_subject` 只读取 writer 数据库中的 live Key 和撤销 tombstone，不读缓存、不注册或生成 Key。live 查询在同一 SQL 快照排除 tombstone，避免先读撤销表后删除竞争复活 Key
+
+首期只核验无复杂权限、无关联主体的有效原生单卡 Key。缺失、撤销、禁用、过期、非法记录、旧卡 Key、无绑定或数据库失败均不返回卡片范围。带用户/团队/项目/组织等关联，或模型、路由、配置、访问组等限制时返回 `model_scope_unverified`；许多实际 Key 会属于这一未支持范围，不能把本段说成全量原生 Key 授权已完成
+
+LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保护的 `/api/cockpit/native-preflight`，不转发 Key hash。Manager 不查询旧卡 Key，也不继承其 fallback 权限；候选只能缩小范围，不能扩大权限。公开代理再次拒绝返回错卡、错主体种类或扩张范围的回执。`scope_valid` 仅表示本次静态账号上界内的候选关系，`ready_to_migrate` 始终为 false，保留 `native_runtime_authorization_unverified`、模型、凭据、策略和运行资格检查；报告不是原子授权快照或请求执行许可
+
+凭据预检补充 source fingerprint 交集冲突、target authId 重用、大小写和 Linux basename 别名冲突。只允许 CLIProxyAPI 的 Codex OAuth/default 候选；API key、access-token、agent identity 和未知模式阻断，缺省 authKind 也检查 accessTokenOnly/upstreamApiKey，矛盾字段保守拒绝。源所有权 HMAC 与目标文件 SHA256 不是同类证据，UUID、文件名或账号声明一致仍不能解除 `target_identity_unverified`。其他供应商及 OpenAI-compatible 独立通道继续未映射
+
+未扩展号池页面，本段先提供受保护的离线 API。生成类型仅增加一个公开路径、一个操作、三个 schema，并更新既有两个预检 schema；通过 OpenAPI 与固定 openapi-typescript 7.13.0 生成后按 TypeScript AST 合并，没有手写整份 schema
+
+本轮最终定向回归 366 项通过，原 failover/quota/gateway/conversation/native-routing/accounting 六文件 431 项通过，均为离线或模拟集成测试；分别有 93 和 9 条既有依赖警告。新 reader 源码及测试、Manager preflight 严格类型检查通过，改动 Python 文件定向 Ruff 与生成声明 tsc 通过。未运行全仓检查、前端生产构建、浏览器目视、真实数据库或供应商验收；上段 Go race 缺 gcc 和全量前端既有类型问题仍未解决
+
+独立审阅的两项 P2 已修复并定向复审关闭：非法请求回显秘密、空 authKind 隐含非 OAuth 认证。三态源码副本验证：BASELINE 原生接口 404、冲突夹具仅报告身份未验证；MODIFIED 接口 200、单卡上界且仍不可迁移，非法输入 422 脱敏并报告三类凭据阻断；ROLLBACK 恢复 404 和原阻断行为，三个进程退出均为 0，回滚源码包 hash 等于基线。现有四角色继续保留，完整原始输出、失败尝试及补丁见 scope 附件
 
 ### 替换阶段 E：行为兼容与差异验收
 

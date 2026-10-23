@@ -35,6 +35,7 @@ async def check(
     manifest: dict[str, JsonValue] | None = None,
     strategy: str = "auto",
     preferred: tuple[UUID, ...] = (),
+    native_card_id: UUID | None = None,
 ) -> CockpitPreflightReport:
     environments: Final = MemoryRepository(records[0])
     environments.records = {record.id: record for record in records}
@@ -75,6 +76,7 @@ async def check(
             policies,
             CardKeyService(keys),
             CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
+            **({"native_card_id": native_card_id} if native_card_id is not None else {}),
         )
     assert environments.records == {record.id: record for record in records}
     assert policies.records[records[0].id].version == 2
@@ -316,9 +318,92 @@ def test_manager_preflight_reads_only_and_matches_public_contract(tmp_path: Path
     assert PublicRequest.model_json_schema() == CockpitPreflightRequest.model_json_schema()
 
 
+def test_native_manager_preflight_requires_internal_token_and_has_single_card_scope(tmp_path: Path) -> None:
+    a: Final = _record(status=EnvironmentStatus.READY)
+    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
+        200, headers={"ETag": REVISION},
+        json={"accounts": []} if request.url.path.endswith("manifest") else {"files": []},
+    )))
+    app: Final = FastAPI()
+    app.include_router(create_router(
+        _service(a, FakeCLIProxy(), tmp_path), "m" * 32,
+        environments=MemoryRepository(a), policies=MemoryPolicies(),
+        cockpit_admin=CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
+    ))
+    body: Final = {"card_id": str(a.id)}
+    headers: Final = {"Authorization": "Bearer " + "m" * 32}
+    with TestClient(app) as client:
+        assert client.post("/api/cockpit/native-preflight", json=body).status_code == 401
+        assert client.post("/api/cockpit/native-preflight", headers=headers,
+                           json={**body, "authorized_account_ids": []}).status_code == 422
+        response: Final = client.post("/api/cockpit/native-preflight", headers=headers, json=body)
+    asyncio.run(http.aclose())
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["authorized_account_ids"] == [str(a.id)]
+    assert response.json()["subject_kind"] == "litellm_key"
+    assert response.json()["ready_to_migrate"] is False
+
+
 @pytest.mark.asyncio
 async def test_duplicate_candidates_and_unmapped_supplier_are_blocked() -> None:
     a: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"supplier": SupplierKind.KIMI})
     report: Final = await check((a,), candidates=(a.id, a.id))
     assert report.scope_valid is False and "duplicate_candidates" in report.blockers
     assert "supplier_mapping_unsupported" in report.accounts[0].blockers
+
+
+@pytest.mark.asyncio
+async def test_verified_native_single_card_never_inherits_legacy_fallback() -> None:
+    a, b = _record(status=EnvironmentStatus.READY), _record(status=EnvironmentStatus.READY)
+    report: Final = await check((a, b), subject="litellm_key", fallback=True, native_card_id=a.id, key_state="missing")
+    assert report.authorized_account_ids == (a.id,)
+    assert report.scope_valid is True
+    assert "subject_binding_unverified" not in report.blockers
+    assert "native_subject_mapping_unimplemented" not in report.pending_checks
+    assert "native_runtime_authorization_unverified" in report.pending_checks
+    outside: Final = await check((a, b), subject="litellm_key", fallback=True, native_card_id=a.id, candidates=(b.id,))
+    assert outside.scope_valid is False
+    assert outside.authorized_account_ids == (a.id,)
+    assert "outside_authorized_scope" in outside.accounts[0].blockers
+    mismatch: Final = await check((a, b), subject="litellm_key", native_card_id=b.id)
+    assert mismatch.authorized_account_ids == ()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("auth_kind", ["api_key", "access_token", "agent_identity", "unknown"])
+async def test_preflight_only_accepts_supported_oauth_auth_kind(auth_kind: str) -> None:
+    a: Final = _record(status=EnvironmentStatus.READY)
+    report: Final = await check((a,), manifest={"accounts": [
+        {"id": str(a.id), "authId": "private.json", "authKind": auth_kind},
+    ]})
+    assert "target_auth_kind_unsupported" in report.accounts[0].blockers
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("flags", [{"accessTokenOnly": True}, {"upstreamApiKey": "PRIVATE"}])
+async def test_default_auth_kind_does_not_hide_non_oauth_credentials(flags: dict[str, JsonValue]) -> None:
+    a: Final = _record(status=EnvironmentStatus.READY)
+    report: Final = await check((a,), manifest={"accounts": [{"id": str(a.id), "authId": "private.json", **flags}]})
+    assert "target_auth_kind_unsupported" in report.accounts[0].blockers
+    assert "PRIVATE" not in report.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("alias", ["private.json", "PRIVATE.JSON", "sub/private.json", " sub/PRIVATE.json "])
+async def test_target_auth_alias_collision_blocks_mapping(alias: str) -> None:
+    a, b = _record(status=EnvironmentStatus.READY), _record(status=EnvironmentStatus.READY)
+    report: Final = await check((a,), manifest={"accounts": [
+        {"id": str(a.id), "authId": "private.json"}, {"id": str(b.id), "authId": alias},
+    ]})
+    assert "target_credential_collision" in report.accounts[0].blockers
+    assert report.ready_to_migrate is False
+
+
+@pytest.mark.asyncio
+async def test_source_ownership_overlap_is_not_an_independent_account() -> None:
+    a: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"credential_fingerprints": ("one", "shared")})
+    b: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"credential_fingerprints": ("shared", "two")})
+    report: Final = await check((a, b), fallback=True)
+    assert all("source_credential_collision" in account.blockers for account in report.accounts)
+    assert "shared" not in report.model_dump_json()

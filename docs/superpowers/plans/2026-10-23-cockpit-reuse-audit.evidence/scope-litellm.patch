@@ -1,0 +1,915 @@
+diff --git a/account-pool/account_pool/api.py b/account-pool/account_pool/api.py
+index 14ef8ba410..dfcbbcc72a 100644
+--- a/account-pool/account_pool/api.py
++++ b/account-pool/account_pool/api.py
+@@ -28 +28,6 @@ from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, Cockp
+-from account_pool.cockpit_preflight import CockpitPreflightReport, CockpitPreflightRequest, cockpit_preflight
++from account_pool.cockpit_preflight import (
++    CockpitNativeMappingRequest,
++    CockpitPreflightReport,
++    CockpitPreflightRequest,
++    cockpit_preflight,
++)
+@@ -338,0 +344,18 @@ def create_router(
++
++    @router.post("/api/cockpit/native-preflight", dependencies=[Depends(require_manager)])
++    async def check_native_cockpit_mapping(
++        request: CockpitNativeMappingRequest, response: Response,
++    ) -> CockpitPreflightReport:
++        response.headers["Cache-Control"] = "no-store"
++        if cockpit_admin is None or environments is None or policies is None:
++            raise HTTPException(503, "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"})
++        result: Final = await cockpit_preflight(
++            CockpitPreflightRequest(card_id=request.card_id, subject_kind="litellm_key", candidate_ids=request.candidate_ids),
++            environments, policies, None, cockpit_admin, settings, native_card_id=request.card_id,
++        )
++        if isinstance(result, CockpitFailure):
++            raise HTTPException(
++                503 if result.category == "transport" or result.status_code == 503 else 502,
++                "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"},
++            )
++        return result
+diff --git a/account-pool/account_pool/cockpit_preflight.py b/account-pool/account_pool/cockpit_preflight.py
+index a6f1e627d3..82ab2b7f58 100644
+--- a/account-pool/account_pool/cockpit_preflight.py
++++ b/account-pool/account_pool/cockpit_preflight.py
+@@ -4,0 +5 @@ from __future__ import annotations
++from pathlib import PurePosixPath
+@@ -27,0 +29,7 @@ class CockpitPreflightRequest(BaseModel):
++class CockpitNativeMappingRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    card_id: UUID
++    candidate_ids: tuple[UUID, ...] | None = Field(default=None, max_length=256)
++
++
+@@ -46,0 +55,2 @@ PreflightBlocker = Literal[
++    "source_credential_collision",
++    "target_credential_collision",
+@@ -79,0 +90 @@ class CockpitPreflightReport(BaseModel):
++            "native_runtime_authorization_unverified",
+@@ -98,0 +110,2 @@ class _TargetAccount(BaseModel):
++    accessTokenOnly: bool = False
++    upstreamApiKey: str = Field(default="", repr=False)
+@@ -114,0 +128,5 @@ def _available(record: EnvironmentRecord) -> bool:
++def _auth_aliases(auth_id: str) -> frozenset[str]:
++    value: Final = auth_id.strip().lower()
++    return frozenset((value, PurePosixPath(value).name)) if value else frozenset()
++
++
+@@ -121,0 +140 @@ def _account_report(
++    records: tuple[EnvironmentRecord, ...],
+@@ -133 +152 @@ def _account_report(
+-    matches: Final = tuple(target for target in targets if target.id == str(account_id))
++    matches: Final = tuple(target for target in targets if target.id.strip() == str(account_id))
+@@ -144,0 +164,5 @@ def _account_report(
++        (
++            any(record.id != source.id and set(record.credential_fingerprints).intersection(source.credential_fingerprints)
++                for record in records),
++            "source_credential_collision",
++        ),
+@@ -148 +172,12 @@ def _account_report(
+-        (len(matches) == 1 and matches[0].authKind == "api_key", "target_auth_kind_unsupported"),
++        (
++            len(matches) == 1 and (matches[0].authKind not in ("", "oauth")
++                                  or matches[0].accessTokenOnly or bool(matches[0].upstreamApiKey.strip())),
++            "target_auth_kind_unsupported",
++        ),
++        (
++            len(matches) == 1 and (
++                sum(bool(_auth_aliases(target.authId) & _auth_aliases(matches[0].authId)) for target in targets) > 1
++                or sum(bool(_auth_aliases(file.id) & _auth_aliases(matches[0].authId)) for file in files) > 1
++            ),
++            "target_credential_collision",
++        ),
+@@ -163 +198 @@ async def cockpit_preflight(
+-    keys: CardKeyService,
++    keys: CardKeyService | None,
+@@ -165,0 +201,2 @@ async def cockpit_preflight(
++    *,
++    native_card_id: UUID | None = None,
+@@ -176,2 +213,2 @@ async def cockpit_preflight(
+-    binding: Final = await keys.status(request.card_id)
+-    # 原生 Key 的授权在 LiteLLM 数据库，不能用卡片绑定状态或浏览器声明替代其主体校验。
++    binding: Final = await keys.status(request.card_id) if keys is not None and request.subject_kind == "legacy_card_key" else None
++    # native_card_id 仅由内部管理接口接收 LiteLLM 服务端证明，公开请求不能提供。
+@@ -183 +220 @@ async def cockpit_preflight(
+-    )
++    ) or (request.subject_kind == "litellm_key" and native_card_id == request.card_id)
+@@ -192 +229 @@ async def cockpit_preflight(
+-        and (record.id == origin.id or policy.routing.fallback_enabled)
++        and (record.id == origin.id or (request.subject_kind == "legacy_card_key" and policy.routing.fallback_enabled))
+@@ -212,0 +250 @@ async def cockpit_preflight(
++            tuple(records),
+@@ -237,0 +276,7 @@ async def cockpit_preflight(
++        pending_checks=(
++            "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
++            "policy_behavior_unverified",
++            "native_runtime_authorization_unverified" if native_card_id is not None and verified_subject
++            else "native_subject_mapping_unimplemented",
++            "runtime_activation_unverified",
++        ),
+diff --git a/account-pool/tests/account_pool/test_cockpit_preflight.py b/account-pool/tests/account_pool/test_cockpit_preflight.py
+index 8a62a2058d..eee181ea67 100644
+--- a/account-pool/tests/account_pool/test_cockpit_preflight.py
++++ b/account-pool/tests/account_pool/test_cockpit_preflight.py
+@@ -37,0 +38 @@ async def check(
++    native_card_id: UUID | None = None,
+@@ -77,0 +79 @@ async def check(
++            **({"native_card_id": native_card_id} if native_card_id is not None else {}),
+@@ -318,0 +321,27 @@ def test_manager_preflight_reads_only_and_matches_public_contract(tmp_path: Path
++def test_native_manager_preflight_requires_internal_token_and_has_single_card_scope(tmp_path: Path) -> None:
++    a: Final = _record(status=EnvironmentStatus.READY)
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
++        200, headers={"ETag": REVISION},
++        json={"accounts": []} if request.url.path.endswith("manifest") else {"files": []},
++    )))
++    app: Final = FastAPI()
++    app.include_router(create_router(
++        _service(a, FakeCLIProxy(), tmp_path), "m" * 32,
++        environments=MemoryRepository(a), policies=MemoryPolicies(),
++        cockpit_admin=CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
++    ))
++    body: Final = {"card_id": str(a.id)}
++    headers: Final = {"Authorization": "Bearer " + "m" * 32}
++    with TestClient(app) as client:
++        assert client.post("/api/cockpit/native-preflight", json=body).status_code == 401
++        assert client.post("/api/cockpit/native-preflight", headers=headers,
++                           json={**body, "authorized_account_ids": []}).status_code == 422
++        response: Final = client.post("/api/cockpit/native-preflight", headers=headers, json=body)
++    asyncio.run(http.aclose())
++    assert response.status_code == 200
++    assert response.headers["cache-control"] == "no-store"
++    assert response.json()["authorized_account_ids"] == [str(a.id)]
++    assert response.json()["subject_kind"] == "litellm_key"
++    assert response.json()["ready_to_migrate"] is False
++
++
+@@ -324,0 +354,56 @@ async def test_duplicate_candidates_and_unmapped_supplier_are_blocked() -> None:
++
++
++@pytest.mark.asyncio
++async def test_verified_native_single_card_never_inherits_legacy_fallback() -> None:
++    a, b = _record(status=EnvironmentStatus.READY), _record(status=EnvironmentStatus.READY)
++    report: Final = await check((a, b), subject="litellm_key", fallback=True, native_card_id=a.id, key_state="missing")
++    assert report.authorized_account_ids == (a.id,)
++    assert report.scope_valid is True
++    assert "subject_binding_unverified" not in report.blockers
++    assert "native_subject_mapping_unimplemented" not in report.pending_checks
++    assert "native_runtime_authorization_unverified" in report.pending_checks
++    outside: Final = await check((a, b), subject="litellm_key", fallback=True, native_card_id=a.id, candidates=(b.id,))
++    assert outside.scope_valid is False
++    assert outside.authorized_account_ids == (a.id,)
++    assert "outside_authorized_scope" in outside.accounts[0].blockers
++    mismatch: Final = await check((a, b), subject="litellm_key", native_card_id=b.id)
++    assert mismatch.authorized_account_ids == ()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("auth_kind", ["api_key", "access_token", "agent_identity", "unknown"])
++async def test_preflight_only_accepts_supported_oauth_auth_kind(auth_kind: str) -> None:
++    a: Final = _record(status=EnvironmentStatus.READY)
++    report: Final = await check((a,), manifest={"accounts": [
++        {"id": str(a.id), "authId": "private.json", "authKind": auth_kind},
++    ]})
++    assert "target_auth_kind_unsupported" in report.accounts[0].blockers
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("flags", [{"accessTokenOnly": True}, {"upstreamApiKey": "PRIVATE"}])
++async def test_default_auth_kind_does_not_hide_non_oauth_credentials(flags: dict[str, JsonValue]) -> None:
++    a: Final = _record(status=EnvironmentStatus.READY)
++    report: Final = await check((a,), manifest={"accounts": [{"id": str(a.id), "authId": "private.json", **flags}]})
++    assert "target_auth_kind_unsupported" in report.accounts[0].blockers
++    assert "PRIVATE" not in report.model_dump_json()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("alias", ["private.json", "PRIVATE.JSON", "sub/private.json", " sub/PRIVATE.json "])
++async def test_target_auth_alias_collision_blocks_mapping(alias: str) -> None:
++    a, b = _record(status=EnvironmentStatus.READY), _record(status=EnvironmentStatus.READY)
++    report: Final = await check((a,), manifest={"accounts": [
++        {"id": str(a.id), "authId": "private.json"}, {"id": str(b.id), "authId": alias},
++    ]})
++    assert "target_credential_collision" in report.accounts[0].blockers
++    assert report.ready_to_migrate is False
++
++
++@pytest.mark.asyncio
++async def test_source_ownership_overlap_is_not_an_independent_account() -> None:
++    a: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"credential_fingerprints": ("one", "shared")})
++    b: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"credential_fingerprints": ("shared", "two")})
++    report: Final = await check((a, b), fallback=True)
++    assert all("source_credential_collision" in account.blockers for account in report.accounts)
++    assert "shared" not in report.model_dump_json()
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py b/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py
+new file mode 100644
+index 0000000000..deda7b574a
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py
+@@ -0,0 +1,201 @@
++"""从主库读取原生 Key 的静态单卡上界；不注册密钥、不缓存，也不替代运行时鉴权。"""
++
++from __future__ import annotations
++
++import re
++from collections.abc import Mapping
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from typing import Annotated, Final, Literal, Protocol, Self, cast
++from uuid import UUID
++
++from pydantic import (
++    AwareDatetime,
++    BaseModel,
++    BeforeValidator,
++    ConfigDict,
++    JsonValue,
++    StrictBool,
++    StrictStr,
++    TypeAdapter,
++    ValidationError,
++    field_validator,
++    model_validator,
++)
++
++from litellm.proxy.management_endpoints.account_pool_integration import CardScope
++from litellm.repositories.verification_token_repository import TokenQueryDatabase
++
++NativeSubjectStatus = Literal[
++    "verified", "missing", "revoked", "blocked", "expired", "legacy_subject",
++    "card_scope_unverified", "model_scope_unverified", "invalid_record", "unavailable",
++]
++_KEY_HASH: Final = re.compile(r"[0-9a-f]{64}")
++_JSON_OBJECT: Final = TypeAdapter(dict[str, JsonValue])
++
++
++class NativeSubjectResult(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    status: NativeSubjectStatus
++    card_id: UUID | None = None
++    checked_at: AwareDatetime
++
++    @model_validator(mode="after")
++    def verified_card_only(self) -> Self:
++        if (self.status == "verified") != (self.card_id is not None):
++            raise ValueError("Only verified subjects have a card scope")
++        return self
++
++
++def _decode_object(value: object) -> object:
++    return _JSON_OBJECT.validate_json(value) if isinstance(value, str) else value
++
++
++JsonObject = Annotated[Mapping[str, JsonValue], BeforeValidator(_decode_object)]
++
++
++class _LiveState(BaseModel):
++    model_config = ConfigDict(frozen=True, from_attributes=True)
++
++    token: StrictStr
++    blocked: StrictBool | None
++    expires: datetime | None
++    metadata: JsonObject
++
++    @field_validator("expires", mode="before")
++    @classmethod
++    def validate_expiry(cls, value: object) -> object:
++        if value is not None and not isinstance(value, (datetime, str)):
++            raise ValueError("Expiry must be a timestamp")
++        return value
++
++
++class _PermissionScope(BaseModel):
++    model_config = ConfigDict(frozen=True, from_attributes=True)
++
++    models: tuple[StrictStr, ...]
++    aliases: JsonObject
++    config: JsonObject
++    permissions: JsonObject
++    router_settings: JsonObject | None
++    access_group_ids: tuple[StrictStr, ...]
++    policies: tuple[StrictStr, ...]
++    allowed_routes: tuple[StrictStr, ...]
++    allowed_cache_controls: tuple[StrictStr, ...]
++    key_type: StrictStr | None
++    model_max_budget: JsonObject
++    budget_fallbacks: JsonObject
++    budget_limits: JsonValue
++    user_id: StrictStr | None
++    team_id: StrictStr | None
++    project_id: StrictStr | None
++    organization_id: StrictStr | None
++    agent_id: StrictStr | None
++    object_permission_id: StrictStr | None
++    budget_id: StrictStr | None
++
++    def unrestricted(self) -> bool:
++        return self.key_type in (None, "default") and not any(
++            (
++                self.models, self.aliases, self.config, self.permissions, self.router_settings,
++                self.access_group_ids, self.policies, self.allowed_routes, self.allowed_cache_controls,
++                self.model_max_budget, self.budget_fallbacks, self.budget_limits,
++            )
++        ) and all(
++            owner is None for owner in (
++                self.user_id, self.team_id, self.project_id, self.organization_id,
++                self.agent_id, self.object_permission_id, self.budget_id,
++            )
++        )
++
++
++class NativeSubjectRepository(Protocol):
++    async def find_deleted(self, key_hash: str) -> object | None: ...
++
++    async def find_live(self, key_hash: str) -> object | None: ...
++
++
++@dataclass(frozen=True, slots=True)
++class WriterNativeSubjectRepository:
++    database: TokenQueryDatabase
++
++    async def find_deleted(self, key_hash: str) -> object | None:
++        rows: Final = await self.database.query_raw(
++            'SELECT token FROM "LiteLLM_DeletedVerificationToken" WHERE token = $1 LIMIT 1', key_hash
++        )
++        return rows[0] if rows else None
++
++    async def find_live(self, key_hash: str) -> object | None:
++        rows: Final = await self.database.query_raw(
++            'SELECT * FROM "LiteLLM_VerificationToken" WHERE token = $1 '
++            'AND NOT EXISTS (SELECT 1 FROM "LiteLLM_DeletedVerificationToken" WHERE token = $1) LIMIT 1', key_hash
++        )
++        return rows[0] if rows else None
++
++
++async def inspect_native_subject_with_repository(
++    key_hash: str, repository: NativeSubjectRepository, *, now: datetime
++) -> NativeSubjectResult:
++    checked_at: Final = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
++
++    def result(status: NativeSubjectStatus, card_id: UUID | None = None) -> NativeSubjectResult:
++        return NativeSubjectResult(status=status, card_id=card_id, checked_at=checked_at)
++
++    if _KEY_HASH.fullmatch(key_hash) is None:
++        return result("invalid_record")
++    try:
++        if await repository.find_deleted(key_hash) is not None:
++            return result("revoked")
++        row: Final = await repository.find_live(key_hash)
++    except Exception:
++        return result("unavailable")
++    if row is None:
++        return result("missing")
++    try:
++        state: Final = _LiveState.model_validate(row)
++        scope: Final = CardScope.model_validate(state.metadata)
++    except ValidationError:
++        return result("invalid_record")
++    if state.token != key_hash:
++        return result("invalid_record")
++    if state.blocked is True:
++        return result("blocked")
++    expiry: Final = (
++        state.expires.replace(tzinfo=timezone.utc)
++        if state.expires is not None and state.expires.tzinfo is None
++        else state.expires
++    )
++    if expiry is not None and expiry <= checked_at:
++        return result("expired")
++    if scope.binding_id is not None:
++        return result("legacy_subject")
++    if scope.card_id is None:
++        return result("card_scope_unverified")
++    try:
++        permission: Final = _PermissionScope.model_validate(row)
++    except ValidationError:
++        return result("model_scope_unverified")
++    if not permission.unrestricted() or any(
++        field not in ("account_pool_card_id", "account_pool_binding_id") for field in state.metadata
++    ):
++        return result("model_scope_unverified")
++    return result("verified", scope.card_id)
++
++
++async def inspect_native_subject(key_hash: str) -> NativeSubjectResult:
++    checked_at: Final = datetime.now(timezone.utc)
++    if _KEY_HASH.fullmatch(key_hash) is None:
++        return NativeSubjectResult(status="invalid_record", checked_at=checked_at)
++    try:
++        from litellm.proxy.proxy_server import prisma_client
++
++        if prisma_client is None:
++            return NativeSubjectResult(status="unavailable", checked_at=checked_at)
++        database: Final = cast(
++            TokenQueryDatabase, prisma_client.writer_db
++        )  # cast-ok: PrismaWrapper 动态代理 query_raw，撤销检查只能使用主库
++        repository: Final = WriterNativeSubjectRepository(database)
++        return await inspect_native_subject_with_repository(key_hash, repository, now=checked_at)
++    except Exception:
++        return NativeSubjectResult(status="unavailable", checked_at=checked_at)
+diff --git a/litellm/proxy/management_endpoints/account_pool_endpoints.py b/litellm/proxy/management_endpoints/account_pool_endpoints.py
+index 989139ee99..a2414df3da 100644
+--- a/litellm/proxy/management_endpoints/account_pool_endpoints.py
++++ b/litellm/proxy/management_endpoints/account_pool_endpoints.py
+@@ -8 +8 @@ import os
+-from collections.abc import Awaitable, Callable, Iterable, Mapping
++from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
+@@ -16,0 +17,2 @@ from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Reque
++from fastapi.exceptions import RequestValidationError
++from fastapi.routing import APIRoute
+@@ -25,0 +28 @@ from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult, inspect_native_subject
+@@ -49,0 +53,30 @@ _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
++class CockpitNativePreflightRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    key_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
++    candidate_ids: tuple[UUID, ...] | None = Field(default=None, max_length=256)
++
++
++class CockpitNativePreflightReport(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject: NativeSubjectResult
++    mapping: CockpitPreflightReport | None = None
++    ready_to_migrate: Literal[False] = False
++
++
++class _NativePreflightRoute(APIRoute):
++    def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
++        original: Final = super().get_route_handler()
++
++        async def handle(request: Request) -> Response:
++            try:
++                return await original(request)
++            except RequestValidationError:
++                raise HTTPException(
++                    422, "Invalid Cockpit preflight request", headers={"Cache-Control": "no-store"},
++                ) from None
++
++        return handle
++
++
+@@ -625,0 +659 @@ def create_account_pool_router(
++    native_subject_reader: Callable[[str], Awaitable[NativeSubjectResult]] = inspect_native_subject,
+@@ -676,0 +711,39 @@ def create_account_pool_router(
++    native_router: Final = APIRouter(route_class=_NativePreflightRoute)
++
++    @native_router.post("/cockpit/native-preflight", response_model=CockpitNativePreflightReport)
++    async def check_native_cockpit_mapping(
++        request: CockpitNativePreflightRequest,
++        response: Response,
++        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
++    ) -> CockpitNativePreflightReport:
++        _require_proxy_admin(user_api_key_dict)
++        response.headers["Cache-Control"] = "no-store"
++        subject: Final = await native_subject_reader(request.key_hash)
++        if subject.status != "verified" or subject.card_id is None:
++            return CockpitNativePreflightReport(subject=subject)
++        body: Final = json.dumps({
++            "card_id": str(subject.card_id),
++            "candidate_ids": None if request.candidate_ids is None else tuple(str(value) for value in request.candidate_ids),
++        }).encode()
++        try:
++            upstream: Final = await _manager_request(client_factory, "POST", "/api/cockpit/native-preflight", body)
++        except HTTPException:
++            raise HTTPException(503, "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"}) from None
++        if upstream.status_code != 200:
++            raise HTTPException(
++                503 if upstream.status_code == 503 else 502,
++                "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"},
++            )
++        try:
++            mapping: Final = CockpitPreflightReport.model_validate_json(upstream.content)
++        except ValidationError:
++            raise HTTPException(502, "Invalid Cockpit preflight", headers={"Cache-Control": "no-store"}) from None
++        if (
++            mapping.card_id != subject.card_id or mapping.subject_kind != "litellm_key"
++            or any(card != subject.card_id for card in mapping.authorized_account_ids)
++        ):
++            raise HTTPException(502, "Invalid Cockpit preflight", headers={"Cache-Control": "no-store"})
++        return CockpitNativePreflightReport(subject=subject, mapping=mapping)
++
++    router.include_router(native_router)
++
+diff --git a/litellm/proxy/management_endpoints/account_pool_management_models.py b/litellm/proxy/management_endpoints/account_pool_management_models.py
+index ad4933b7db..cc74e7b108 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management_models.py
++++ b/litellm/proxy/management_endpoints/account_pool_management_models.py
+@@ -99,0 +100 @@ PreflightBlocker = Literal[
++    "source_credential_collision", "target_credential_collision",
+@@ -128 +129,2 @@ class CockpitPreflightReport(BaseModel):
+-        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",
++        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "native_runtime_authorization_unverified",
++        "runtime_activation_unverified",
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py
+new file mode 100644
+index 0000000000..d7af17ca94
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py
+@@ -0,0 +1,222 @@
++"""离线验证原生 Key 的单卡上界，禁止缓存、撤销复活和复杂权限推断。"""
++
++from collections.abc import Mapping, Sequence
++from dataclasses import dataclass
++from datetime import datetime, timedelta, timezone
++from typing import Final, Literal
++from uuid import UUID
++
++import pytest
++from pydantic import ValidationError
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject import (
++    NativeSubjectResult,
++    WriterNativeSubjectRepository,
++    inspect_native_subject,
++    inspect_native_subject_with_repository,
++)
++
++KEY: Final = "a" * 64
++CARD: Final = UUID("e515c2db-08dc-443c-b85a-7936d2d42f2f")
++NOW: Final = datetime(2026, 10, 23, tzinfo=timezone.utc)
++
++
++def record(**changes: object) -> Mapping[str, object]:
++    return {
++        "token": KEY, "blocked": None, "expires": None,
++        "metadata": {"account_pool_card_id": str(CARD)},
++        "models": [], "aliases": {}, "config": {}, "permissions": {},
++        "router_settings": None, "access_group_ids": [], "policies": [],
++        "allowed_routes": [], "allowed_cache_controls": [], "key_type": None,
++        "model_max_budget": {}, "budget_fallbacks": {}, "budget_limits": None,
++        "user_id": None, "team_id": None, "project_id": None, "organization_id": None,
++        "agent_id": None, "object_permission_id": None, "budget_id": None,
++        **changes,
++    }
++
++
++@dataclass(frozen=True)
++class Repository:
++    live: object | None
++    deleted: object | None = None
++    failure: Literal["live", "deleted"] | None = None
++
++    async def find_live(self, key_hash: str) -> object | None:
++        assert key_hash == KEY
++        assert self.deleted is None, "Revocation must be checked before reading live state"
++        if self.failure == "live":
++            raise RuntimeError("private database error")
++        return self.live
++
++    async def find_deleted(self, key_hash: str) -> object | None:
++        assert key_hash == KEY
++        if self.failure == "deleted":
++            raise RuntimeError("private database error")
++        return self.deleted
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("key", ("sk-plaintext", "A" * 64, "a" * 63, "a" * 65, KEY + "\n"))
++async def test_invalid_hash_is_rejected_before_repository_access(key: str) -> None:
++    result: Final = await inspect_native_subject_with_repository(key, Repository(record()), now=NOW)
++    assert result.status == "invalid_record"
++    assert result.card_id is None
++
++
++@pytest.mark.asyncio
++async def test_only_active_unrestricted_native_single_card_is_verified() -> None:
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record()), now=NOW)
++    assert result.status == "verified"
++    assert result.card_id == CARD
++    assert result.checked_at == NOW
++    assert set(result.model_dump()) == {"status", "card_id", "checked_at"}
++    assert KEY not in result.model_dump_json()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "repository,expected",
++    (
++        (Repository(None), "missing"),
++        (Repository(record(), {"token": KEY}), "revoked"),
++        (Repository(None, {"token": KEY}), "revoked"),
++        (Repository(record(), failure="live"), "unavailable"),
++        (Repository(record(), failure="deleted"), "unavailable"),
++        (Repository(record(blocked=True)), "blocked"),
++        (Repository(record(expires=NOW)), "expired"),
++        (Repository(record(expires=NOW - timedelta(seconds=1))), "expired"),
++        (Repository(record(token="b" * 64)), "invalid_record"),
++        (Repository(record(blocked="false")), "invalid_record"),
++        (Repository(record(expires="nonsense")), "invalid_record"),
++        (Repository(record(expires=123)), "invalid_record"),
++        (Repository(record(metadata=None)), "invalid_record"),
++        (Repository(record(metadata="not-json")), "invalid_record"),
++        (Repository(record(metadata=[])), "invalid_record"),
++        (Repository(record(metadata={})), "card_scope_unverified"),
++        (Repository(record(metadata={"account_pool_card_id": "bad"})), "invalid_record"),
++        (Repository(record(metadata={"account_pool_card_id": [str(CARD)]})), "invalid_record"),
++        (Repository(record(metadata={"account_pool_card_id": str(CARD), "account_pool_binding_id": str(CARD)})), "legacy_subject"),
++        (Repository(record(metadata={"account_pool_binding_id": str(CARD)})), "legacy_subject"),
++    ),
++)
++async def test_fail_closed_status_never_exposes_card_scope(repository: Repository, expected: str) -> None:
++    result: Final = await inspect_native_subject_with_repository(KEY, repository, now=NOW)
++    assert result.status == expected
++    assert result.card_id is None
++    assert result.checked_at == NOW
++    assert "private database error" not in result.model_dump_json()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "field,value",
++    (
++        ("models", ["restricted-model"]), ("models", ["all-proxy-models"]),
++        ("models", None), ("models", [7]),
++        ("aliases", {"alias": "restricted-model"}), ("config", {"model_list": []}),
++        ("permissions", {"allowed": False}), ("router_settings", {"fallbacks": []}),
++        ("access_group_ids", ["group"]), ("allowed_routes", ["/chat/completions"]),
++        ("policies", ["policy"]), ("model_max_budget", {"restricted-model": 1}),
++        ("budget_fallbacks", {"restricted-model": ["fallback"]}),
++        ("budget_limits", [{"budget_amount": 1}]), ("key_type", "management"),
++        ("user_id", "owner"), ("team_id", "owner"), ("project_id", "owner"),
++        ("organization_id", "owner"), ("agent_id", "owner"),
++        ("object_permission_id", "owner"), ("budget_id", "owner"),
++        ("user_id", ""),
++        ("metadata", {"account_pool_card_id": str(CARD), "allowed_passthrough_routes": ["/private"]}),
++    ),
++)
++async def test_complex_or_incomplete_permissions_never_expand_scope(field: str, value: object) -> None:
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**{field: value})), now=NOW)
++    assert result.status == "model_scope_unverified"
++    assert result.card_id is None
++
++
++@pytest.mark.asyncio
++async def test_missing_permission_field_is_not_assumed_unrestricted() -> None:
++    incomplete: Final = {key: value for key, value in record().items() if key != "models"}
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(incomplete), now=NOW)
++    assert result.status == "model_scope_unverified"
++    assert result.card_id is None
++
++
++@pytest.mark.asyncio
++async def test_writer_json_fields_and_future_expiry_are_supported() -> None:
++    row: Final = record(
++        metadata='{"account_pool_card_id":"e515c2db-08dc-443c-b85a-7936d2d42f2f"}',
++        aliases="{}", config="{}", permissions="{}", router_settings="{}",
++        model_max_budget="{}", budget_fallbacks="{}", expires="2026-10-24T00:00:00Z",
++    )
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(row), now=NOW)
++    assert result.status == "verified"
++    assert result.card_id == CARD
++
++
++@dataclass(frozen=True)
++class WriterDatabase:
++    revoked: bool = False
++
++    async def query_raw(self, query: str, *args: object) -> Sequence[Mapping[str, object]]:
++        assert args == (KEY,)
++        assert "$1" in query and KEY not in query
++        assert query.startswith("SELECT ") and "LIMIT 1" in query
++        if query.startswith("SELECT token "):
++            assert '"LiteLLM_DeletedVerificationToken"' in query
++            return ({"token": KEY},) if self.revoked else ()
++        assert '"LiteLLM_VerificationToken"' in query
++        assert 'NOT EXISTS (SELECT 1 FROM "LiteLLM_DeletedVerificationToken" WHERE token = $1)' in query
++        assert not self.revoked
++        return (record(),)
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("revoked,expected", ((False, "verified"), (True, "revoked")))
++async def test_writer_repository_uses_bounded_parameterized_reads(revoked: bool, expected: str) -> None:
++    repository: Final = WriterNativeSubjectRepository(WriterDatabase(revoked=revoked))
++    result: Final = await inspect_native_subject_with_repository(KEY, repository, now=NOW)
++    assert result.status == expected
++    assert result.card_id == (None if revoked else CARD)
++
++
++def test_result_cannot_expose_unverified_scope_or_verify_without_card() -> None:
++    with pytest.raises(ValidationError):
++        NativeSubjectResult(status="revoked", card_id=CARD, checked_at=NOW)
++    with pytest.raises(ValidationError):
++        NativeSubjectResult(status="verified", checked_at=NOW)
++
++
++@dataclass(frozen=True)
++class PrismaClientFixture:
++    writer_db: WriterDatabase
++
++    @property
++    def db(self) -> object:
++        raise AssertionError("Default database may be replica-routed")
++
++    @property
++    def read_db(self) -> object:
++        raise AssertionError("Replica cannot determine revocation")
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("revoked,expected", ((False, "verified"), (True, "revoked")))
++async def test_runtime_entry_reads_writer_not_replica(
++    monkeypatch: pytest.MonkeyPatch, revoked: bool, expected: str
++) -> None:
++    from litellm.proxy import proxy_server
++
++    monkeypatch.setattr(proxy_server, "prisma_client", PrismaClientFixture(WriterDatabase(revoked)))
++    result: Final = await inspect_native_subject(KEY)
++    assert result.status == expected
++    assert result.card_id == (None if revoked else CARD)
++    assert result.checked_at.utcoffset() == timedelta(0)
++
++
++@pytest.mark.asyncio
++async def test_runtime_without_database_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
++    from litellm.proxy import proxy_server
++
++    monkeypatch.setattr(proxy_server, "prisma_client", None)
++    result: Final = await inspect_native_subject(KEY)
++    assert result.status == "unavailable"
++    assert result.card_id is None
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+index ced820c7cc..809f68ede9 100644
+--- a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+@@ -1378,0 +1379,66 @@ def test_cockpit_preflight_proxy_enforces_admin_contract_and_redacts() -> None:
++def test_cockpit_native_preflight_admin_gate_precedes_subject_lookup() -> None:
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), _manager_factory)) as client:
++        assert client.post("/account_pool/cockpit/native-preflight", json={"key_hash": "a" * 64}).status_code == 403
++
++
++@pytest.mark.parametrize("extra", [{"card_id": str(_ENVIRONMENT_ID)}, {"authorized_account_ids": []},
++                                  {"metadata": {}}, {"key": "sk-PRIVATE"}])
++def test_cockpit_native_preflight_rejects_browser_authorization_claims(extra: dict) -> None:
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)) as client:
++        response: Final = client.post("/account_pool/cockpit/native-preflight", json={"key_hash": "a" * 64, **extra})
++    assert response.status_code == 422
++
++
++@pytest.mark.parametrize("verified,drift", [(False, "none"), (True, "none"), (True, "card"), (True, "scope"),
++                                           (True, "kind"), (True, "malformed"), (True, "error")])
++def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(verified: bool, drift: str) -> None:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult
++
++    async def inspect(key_hash: str) -> NativeSubjectResult:
++        assert key_hash == "a" * 64
++        return NativeSubjectResult(status="verified" if verified else "revoked",
++                                   card_id=_ENVIRONMENT_ID if verified else None, checked_at=datetime.now(timezone.utc))
++
++    calls: Final[list[dict]] = []
++
++    def factory() -> AccountPoolManagerClient:
++        def handler(request: httpx.Request) -> httpx.Response:
++            assert request.url.path == "/api/cockpit/native-preflight"
++            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
++            calls.append(json.loads(request.content))
++            if drift in ("malformed", "error"):
++                return httpx.Response(200 if drift == "malformed" else 503, json={"secret": "PRIVATE"})
++            return httpx.Response(200, json={
++                "card_id": str(uuid4() if drift == "card" else _ENVIRONMENT_ID),
++                "subject_kind": "legacy_card_key" if drift == "kind" else "litellm_key",
++                "authorized_account_ids": [str(uuid4() if drift == "scope" else _ENVIRONMENT_ID)],
++                "scope_valid": True, "source_strategy": "auto",
++                "policy_version": 1, "settings_version": None,
++                "persisted_manifest_revision": '\"sha256-' + 'a' * 64 + '\"',
++                "accounts": [], "blockers": [], "ready_to_migrate": False,
++                "pending_checks": ["native_runtime_authorization_unverified"], "secret": "PRIVATE"})
++        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
++                                       client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
++
++    app: Final = FastAPI()
++    app.include_router(create_account_pool_router(factory, native_subject_reader=inspect))
++    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
++    with TestClient(app) as client:
++        response: Final = client.post("/account_pool/cockpit/native-preflight", json={"key_hash": "a" * 64})
++    if drift != "none":
++        assert response.status_code == (503 if drift == "error" else 502)
++        assert response.headers["cache-control"] == "no-store"
++        assert "PRIVATE" not in response.text
++        return
++    assert response.status_code == 200
++    assert response.headers["cache-control"] == "no-store"
++    assert response.json()["subject"]["status"] == ("verified" if verified else "revoked")
++    assert response.json()["ready_to_migrate"] is False
++    assert "key_hash" not in response.text and "PRIVATE" not in response.text
++    if verified:
++        assert calls == [{"card_id": str(_ENVIRONMENT_ID), "candidate_ids": None}]
++        assert response.json()["mapping"]["authorized_account_ids"] == [str(_ENVIRONMENT_ID)]
++    else:
++        assert calls == [] and response.json()["mapping"] is None
++
++
+@@ -1489,0 +1556,10 @@ def test_cockpit_runtime_proxy_rejects_unknown_or_mismatched_apply_receipts(
++
++
++@pytest.mark.parametrize("body", [{"key_hash": "sk-PRIVATE"}, {"key_hash": "a" * 64, "key": "sk-PRIVATE"},
++                                 {"key_hash": "a" * 64, "metadata": {"token": "PRIVATE"}}])
++def test_cockpit_native_preflight_validation_does_not_echo_secrets(body: dict) -> None:
++    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)) as client:
++        response: Final = client.post("/account_pool/cockpit/native-preflight", json=body)
++    assert response.status_code == 422
++    assert "PRIVATE" not in response.text and "input" not in response.text
++    assert response.headers["cache-control"] == "no-store"
+diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+index 14cf4989e3..792e43c659 100644
+--- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
++++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+@@ -24364,0 +24365,17 @@ export interface paths {
++    "/account_pool/cockpit/native-preflight": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Check Native Cockpit Mapping */
++        post: operations["check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
+@@ -28791 +28808 @@ export interface components {
+-            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
++            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported" | "source_credential_collision" | "target_credential_collision")[];
+@@ -28877 +28894 @@ export interface components {
+-            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported")[];
++            blockers: ("source_card_missing" | "source_card_unavailable" | "subject_binding_unverified" | "empty_candidates" | "duplicate_candidates" | "outside_authorized_scope" | "source_account_missing" | "supplier_mismatch" | "account_unavailable" | "source_credential_missing" | "supplier_mapping_unsupported" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_auth_kind_unsupported" | "target_identity_unverified" | "strategy_mapping_unverified" | "legacy_account_scope_unsupported" | "source_credential_collision" | "target_credential_collision")[];
+@@ -28894 +28911 @@ export interface components {
+-            pending_checks: ("runtime_eligibility_unverified" | "credentials_and_ownership_unverified" | "models_proxy_quota_unmapped" | "policy_behavior_unverified" | "native_subject_mapping_unimplemented" | "runtime_activation_unverified")[];
++            pending_checks: ("runtime_eligibility_unverified" | "credentials_and_ownership_unverified" | "models_proxy_quota_unmapped" | "policy_behavior_unverified" | "native_subject_mapping_unimplemented" | "native_runtime_authorization_unverified" | "runtime_activation_unverified")[];
+@@ -45211,0 +45229,33 @@ export interface components {
++        /** NativeSubjectResult */
++        NativeSubjectResult: {
++            /** Card Id */
++            card_id?: string | null;
++            /**
++             * Checked At
++             * Format: date-time
++             */
++            checked_at: string;
++            /**
++             * Status
++             * @enum {string}
++             */
++            status: "verified" | "missing" | "revoked" | "blocked" | "expired" | "legacy_subject" | "card_scope_unverified" | "model_scope_unverified" | "invalid_record" | "unavailable";
++        };
++        /** CockpitNativePreflightReport */
++        CockpitNativePreflightReport: {
++            mapping?: components["schemas"]["CockpitPreflightReport"] | null;
++            /**
++             * Ready To Migrate
++             * @default false
++             * @constant
++             */
++            ready_to_migrate: false;
++            subject: components["schemas"]["NativeSubjectResult"];
++        };
++        /** CockpitNativePreflightRequest */
++        CockpitNativePreflightRequest: {
++            /** Candidate Ids */
++            candidate_ids?: string[] | null;
++            /** Key Hash */
++            key_hash: string;
++        };
+@@ -78316,0 +78367,33 @@ export interface operations {
++    check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitNativePreflightRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitNativePreflightReport"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };

@@ -1,0 +1,20 @@
+{
+  "reviewer": "scope_final_review",
+  "base": "fe31c59cc11e0744f2a10f6f846cec5b69731b8c",
+  "findings": [
+    {
+      "priority": "P2",
+      "finding": "native validation echoed rejected secrets",
+      "resolution": "endpoint-scoped RequestValidationError redaction + no-store",
+      "status": "closed after red/green and independent recheck"
+    },
+    {
+      "priority": "P2",
+      "finding": "default authKind hid api_key/access_token flags",
+      "resolution": "read and conservatively reject accessTokenOnly and upstreamApiKey",
+      "status": "closed after red/green and independent recheck"
+    }
+  ],
+  "remaining_blockers": [],
+  "review_scope": "No independent real provider, database, build, or full test execution"
+}

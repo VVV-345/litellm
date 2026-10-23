@@ -1,0 +1,52 @@
+{
+  "command": [
+    "C:/Program Files/Git/usr/bin/patch.exe",
+    "--binary",
+    "-p1",
+    "-d",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-reconstructed",
+    "-i",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-litellm.patch"
+  ],
+  "stdout": "patching file account-pool/account_pool/api.py\npatching file account-pool/account_pool/cockpit_preflight.py\npatching file account-pool/tests/account_pool/test_cockpit_preflight.py\npatching file litellm/proxy/management_endpoints/account_pool_cockpit_subject.py\npatching file litellm/proxy/management_endpoints/account_pool_endpoints.py\npatching file litellm/proxy/management_endpoints/account_pool_management_models.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py\npatching file ui/litellm-dashboard/src/lib/http/schema.d.ts\n",
+  "stderr": "",
+  "exit_status": 0,
+  "files": {
+    "account-pool/account_pool/cockpit_preflight.py": {
+      "modified": "5913ccec8b8891fa3e480a55baa1143f87f89e4bd344194a3667b66027a50b4e",
+      "reconstructed": "5913ccec8b8891fa3e480a55baa1143f87f89e4bd344194a3667b66027a50b4e"
+    },
+    "account-pool/account_pool/api.py": {
+      "modified": "4b9b5d9aa217b24b1f47b743f33766edbc2b80460fee9f149e8060b17aac71a4",
+      "reconstructed": "4b9b5d9aa217b24b1f47b743f33766edbc2b80460fee9f149e8060b17aac71a4"
+    },
+    "litellm/proxy/management_endpoints/account_pool_management_models.py": {
+      "modified": "7cc97921a9234e36b6ca4f56c84cc3119bae944c41d07864c91dbb79e5dfb7a8",
+      "reconstructed": "7cc97921a9234e36b6ca4f56c84cc3119bae944c41d07864c91dbb79e5dfb7a8"
+    },
+    "litellm/proxy/management_endpoints/account_pool_endpoints.py": {
+      "modified": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871",
+      "reconstructed": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871"
+    },
+    "account-pool/tests/account_pool/test_cockpit_preflight.py": {
+      "modified": "bd0aea2b9d177cd6ef5434cf18d5cf408c281d3fd43662e9e613df051e26c1bc",
+      "reconstructed": "bd0aea2b9d177cd6ef5434cf18d5cf408c281d3fd43662e9e613df051e26c1bc"
+    },
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py": {
+      "modified": "15240ac6e45e9fccc6dc41ae13b89a1c8ace3f00e4eef934bc99df521e69af0b",
+      "reconstructed": "15240ac6e45e9fccc6dc41ae13b89a1c8ace3f00e4eef934bc99df521e69af0b"
+    },
+    "ui/litellm-dashboard/src/lib/http/schema.d.ts": {
+      "modified": "2f9134fb0c9c83b6fa7db0b95d88927aa0fb5bdca1ccc34f239ad4ddc48b945e",
+      "reconstructed": "2f9134fb0c9c83b6fa7db0b95d88927aa0fb5bdca1ccc34f239ad4ddc48b945e"
+    },
+    "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py": {
+      "modified": "166e790d3fe120982323e0eb0ca929387581be81a3ac3eecb661856d845c1537",
+      "reconstructed": "166e790d3fe120982323e0eb0ca929387581be81a3ac3eecb661856d845c1537"
+    },
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py": {
+      "modified": "7426b858120a5c04a31445d8fb75fb892789fc72f2285f03aabb97cbac2efcc0",
+      "reconstructed": "7426b858120a5c04a31445d8fb75fb892789fc72f2285f03aabb97cbac2efcc0"
+    }
+  }
+}

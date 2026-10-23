@@ -1948,3 +1948,341 @@ PATCH FORMAT REVERIFICATION
     }
   ]
 }
+
+
+=== D2.2 scope continuation: native single-card and credential collision preflight ===
+BASE commit: fe31c59cc11e0744f2a10f6f846cec5b69731b8c, branch codex/cockpit-reuse-plan
+Changed symbols: inspect_native_subject, WriterNativeSubjectRepository.find_live, cockpit_preflight(native_card_id), _account_report, check_native_cockpit_mapping, _NativePreflightRoute
+No actual traffic cutover, real DB/provider/credentials, push, image build or deployment. Complex native ACL remains unverified.
+All attempts and literal stdout/stderr/exit statuses (JSON escaped losslessly): C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\scope-checks.json
+Code patch, 9-file reconstruction, and three-state archive rollback: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\scope-litellm.patch; C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\scope-patch-verification.json; C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\scope-three-state.json
+Historical checks elsewhere in this ledger do not become new results. Initial integration 175 passed/2 expected reader REDs, later 361 passed, final 366 passed.
+
+scope-final-regression.json
+command: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "account-pool/tests/account_pool/test_cockpit_preflight.py", "account-pool/tests/account_pool/test_cockpit_admin.py", "account-pool/tests/account_pool/test_cockpit_policy.py", "account-pool/tests/account_pool/test_cockpit_runtime.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839/tmp-final-regression"]
+stdout:
+........................................................................ [ 19%]
+........................................................................ [ 39%]
+........................................................................ [ 59%]
+........................................................................ [ 78%]
+........................................................................ [ 98%]
+......                                                                   [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py: 76 warnings
+  D:\Work2api\litellm\.venv\Lib\site-packages\pydantic\_internal\_generate_schema.py:1480: UserWarning: Items 'supports_prompt_cache_breakpoint', 'supports_legacy_thinking', 'thinking_always_on', 'reasoning_effort_levels', 'default_reasoning_effort', 'input_cost_per_token_ultrafast', 'cache_creation_input_token_cost_ultrafast', 'cache_read_input_token_cost_ultrafast', 'output_cost_per_token_ultrafast', 'regional_endpoint_uplift_multiplier', 'output_cost_per_second_480p', 'output_cost_per_second_4k', 'google_maps_grounding_cost_per_query' on TypedDict class 'ModelInfo' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+  C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\litellm\litellm_core_utils\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_computed_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.
+    attribute: Final[_AttributeView] = {"value": getattr(source, name)}
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+  C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\litellm\litellm_core_utils\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.
+    attribute: Final[_AttributeView] = {"value": getattr(source, name)}
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+366 passed, 93 warnings in 149.19s (0:02:29)
+
+stderr:
+
+exit_status: 0
+
+scope-data-plane-regression.json
+command: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_failover.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_conversation.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_native_routing.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839/tmp-data-plane"]
+stdout:
+........................................................................ [ 16%]
+........................................................................ [ 33%]
+........................................................................ [ 50%]
+........................................................................ [ 66%]
+........................................................................ [ 83%]
+.......................................................................  [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_cached_input_is_not_charged_twice[True-10]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides1-None-100-0.228]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides2-None-100-0.048]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides3-None-100-0.2]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides4-None-100-0]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides5-priority-100-0.416]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides6-None-300000-600.832]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides7-None-100-0.126]
+  D:\Work2api\litellm\.venv\Lib\site-packages\pydantic\_internal\_generate_schema.py:1480: UserWarning: Items 'supports_prompt_cache_breakpoint', 'supports_legacy_thinking', 'thinking_always_on', 'reasoning_effort_levels', 'default_reasoning_effort', 'input_cost_per_token_ultrafast', 'cache_creation_input_token_cost_ultrafast', 'cache_read_input_token_cost_ultrafast', 'output_cost_per_token_ultrafast', 'regional_endpoint_uplift_multiplier', 'output_cost_per_second_480p', 'output_cost_per_second_4k', 'google_maps_grounding_cost_per_query' on TypedDict class 'ModelInfo' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+431 passed, 9 warnings in 268.30s (0:04:28)
+
+stderr:
+
+exit_status: 0
+
+scope-final-lint.json
+command: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "--select", "E9,F,I", "account-pool/account_pool/cockpit_preflight.py", "account-pool/account_pool/api.py", "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py", "litellm/proxy/management_endpoints/account_pool_endpoints.py", "litellm/proxy/management_endpoints/account_pool_management_models.py", "account-pool/tests/account_pool/test_cockpit_preflight.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py"]
+stdout:
+All checks passed!
+
+stderr:
+
+exit_status: 0
+
+scope-final-preflight-types.json
+command: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "basedpyright", "-p", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839/preflight-pyright.json"]
+stdout:
+0 errors, 0 warnings, 0 notes
+
+stderr:
+
+exit_status: 0
+
+scope-final-schema-types.json
+command: ["C:/Program Files/nodejs/node.exe", "ui/litellm-dashboard/node_modules/typescript/bin/tsc", "--noEmit", "--strict", "--target", "ES2020", "--skipLibCheck", "false", "ui/litellm-dashboard/src/lib/http/schema.d.ts"]
+stdout:
+
+stderr:
+
+exit_status: 0
+
+scope-three-state.json
+{
+  "events": [
+    {
+      "label": "SCOPE_ROLLBACK_COMMAND",
+      "command": [
+        "C:/Program Files/Git/bin/bash.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback.tar.gz",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-baseline.tar.gz"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "SCOPE_BASELINE",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-baseline"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"credential_blockers\": [\"target_identity_unverified\"], \"invalid\": {\"detail\": \"Not Found\"}, \"invalid_status\": 404, \"manager_calls\": [], \"native\": {\"detail\": \"Not Found\"}, \"native_status\": 404, \"secret_exposed\": false}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    },
+    {
+      "label": "SCOPE_MODIFIED",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-modified"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"credential_blockers\": [\"source_credential_collision\", \"target_auth_kind_unsupported\", \"target_credential_collision\", \"target_identity_unverified\"], \"invalid\": {\"detail\": \"Invalid Cockpit preflight request\"}, \"invalid_status\": 422, \"manager_calls\": [{\"body\": {\"candidate_ids\": null, \"card_id\": \"00000000-0000-0000-0000-000000000001\"}, \"path\": \"/api/cockpit/native-preflight\"}], \"native\": {\"mapping\": {\"accounts\": [], \"authorized_account_ids\": [\"00000000-0000-0000-0000-000000000001\"], \"blockers\": [], \"card_id\": \"00000000-0000-0000-0000-000000000001\", \"pending_checks\": [\"native_runtime_authorization_unverified\"], \"persisted_manifest_revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"policy_version\": 0, \"ready_to_migrate\": false, \"scope_valid\": true, \"settings_version\": null, \"source_strategy\": \"auto\", \"subject_kind\": \"litellm_key\"}, \"ready_to_migrate\": false, \"subject\": {\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-23T00:00:00Z\", \"status\": \"verified\"}}, \"native_status\": 200, \"secret_exposed\": false}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    },
+    {
+      "label": "SCOPE_ROLLBACK",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-rollback"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"credential_blockers\": [\"target_identity_unverified\"], \"invalid\": {\"detail\": \"Not Found\"}, \"invalid_status\": 404, \"manager_calls\": [], \"native\": {\"detail\": \"Not Found\"}, \"native_status\": 404, \"secret_exposed\": false}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    }
+  ],
+  "hashes": {
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-baseline.tar.gz": "30e0999d04f67b2411ba693c745076b149c69c7878e0466f37ed53e943a16b49",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-modified.tar.gz": "eae9fa22ed0fba92839d71684e05b303edb02d8ced831a8e506c4692572c2060",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback.tar.gz": "30e0999d04f67b2411ba693c745076b149c69c7878e0466f37ed53e943a16b49"
+  },
+  "files": {
+    "account-pool/account_pool/cockpit_preflight.py": "5913ccec8b8891fa3e480a55baa1143f87f89e4bd344194a3667b66027a50b4e",
+    "account-pool/account_pool/api.py": "4b9b5d9aa217b24b1f47b743f33766edbc2b80460fee9f149e8060b17aac71a4",
+    "litellm/proxy/management_endpoints/account_pool_management_models.py": "7cc97921a9234e36b6ca4f56c84cc3119bae944c41d07864c91dbb79e5dfb7a8",
+    "litellm/proxy/management_endpoints/account_pool_endpoints.py": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871",
+    "account-pool/tests/account_pool/test_cockpit_preflight.py": "bd0aea2b9d177cd6ef5434cf18d5cf408c281d3fd43662e9e613df051e26c1bc",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py": "15240ac6e45e9fccc6dc41ae13b89a1c8ace3f00e4eef934bc99df521e69af0b",
+    "ui/litellm-dashboard/src/lib/http/schema.d.ts": "2f9134fb0c9c83b6fa7db0b95d88927aa0fb5bdca1ccc34f239ad4ddc48b945e",
+    "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py": "166e790d3fe120982323e0eb0ca929387581be81a3ac3eecb661856d845c1537",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py": "7426b858120a5c04a31445d8fb75fb892789fc72f2285f03aabb97cbac2efcc0"
+  }
+}
+
+scope-plan-verification.json
+{
+  "events": [
+    {
+      "label": "PLAN_PATCH",
+      "command": [
+        "C:/Program Files/Git/usr/bin/patch.exe",
+        "--binary",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-reconstructed-plan.md",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "patching file 'C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-reconstructed-plan.md'\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "PLAN_ROLLBACK_COMMAND",
+      "command": [
+        "C:/Program Files/Git/bin/bash.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback-plan.md"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "BASELINE",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "missing=7 forbidden=2\n",
+      "stderr": "",
+      "exit_status": 1
+    },
+    {
+      "label": "MODIFIED",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "missing=0 forbidden=0\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "ROLLBACK",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback-plan.md"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "missing=7 forbidden=2\n",
+      "stderr": "",
+      "exit_status": 1
+    }
+  ],
+  "hashes": {
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\CONTINUATION_BASELINE.md": "45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md": "5442dd8cd3ce6e0024b473b8a452d80d617640c911243b9274d2a5351936d000",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-reconstructed-plan.md": "5442dd8cd3ce6e0024b473b8a452d80d617640c911243b9274d2a5351936d000",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback-plan.md": "45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b"
+  }
+}
+
+scope-patch-verification.json
+{
+  "command": [
+    "C:/Program Files/Git/usr/bin/patch.exe",
+    "--binary",
+    "-p1",
+    "-d",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-reconstructed",
+    "-i",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-litellm.patch"
+  ],
+  "stdout": "patching file account-pool/account_pool/api.py\npatching file account-pool/account_pool/cockpit_preflight.py\npatching file account-pool/tests/account_pool/test_cockpit_preflight.py\npatching file litellm/proxy/management_endpoints/account_pool_cockpit_subject.py\npatching file litellm/proxy/management_endpoints/account_pool_endpoints.py\npatching file litellm/proxy/management_endpoints/account_pool_management_models.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py\npatching file tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py\npatching file ui/litellm-dashboard/src/lib/http/schema.d.ts\n",
+  "stderr": "",
+  "exit_status": 0,
+  "files": {
+    "account-pool/account_pool/cockpit_preflight.py": {
+      "modified": "5913ccec8b8891fa3e480a55baa1143f87f89e4bd344194a3667b66027a50b4e",
+      "reconstructed": "5913ccec8b8891fa3e480a55baa1143f87f89e4bd344194a3667b66027a50b4e"
+    },
+    "account-pool/account_pool/api.py": {
+      "modified": "4b9b5d9aa217b24b1f47b743f33766edbc2b80460fee9f149e8060b17aac71a4",
+      "reconstructed": "4b9b5d9aa217b24b1f47b743f33766edbc2b80460fee9f149e8060b17aac71a4"
+    },
+    "litellm/proxy/management_endpoints/account_pool_management_models.py": {
+      "modified": "7cc97921a9234e36b6ca4f56c84cc3119bae944c41d07864c91dbb79e5dfb7a8",
+      "reconstructed": "7cc97921a9234e36b6ca4f56c84cc3119bae944c41d07864c91dbb79e5dfb7a8"
+    },
+    "litellm/proxy/management_endpoints/account_pool_endpoints.py": {
+      "modified": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871",
+      "reconstructed": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871"
+    },
+    "account-pool/tests/account_pool/test_cockpit_preflight.py": {
+      "modified": "bd0aea2b9d177cd6ef5434cf18d5cf408c281d3fd43662e9e613df051e26c1bc",
+      "reconstructed": "bd0aea2b9d177cd6ef5434cf18d5cf408c281d3fd43662e9e613df051e26c1bc"
+    },
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py": {
+      "modified": "15240ac6e45e9fccc6dc41ae13b89a1c8ace3f00e4eef934bc99df521e69af0b",
+      "reconstructed": "15240ac6e45e9fccc6dc41ae13b89a1c8ace3f00e4eef934bc99df521e69af0b"
+    },
+    "ui/litellm-dashboard/src/lib/http/schema.d.ts": {
+      "modified": "2f9134fb0c9c83b6fa7db0b95d88927aa0fb5bdca1ccc34f239ad4ddc48b945e",
+      "reconstructed": "2f9134fb0c9c83b6fa7db0b95d88927aa0fb5bdca1ccc34f239ad4ddc48b945e"
+    },
+    "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py": {
+      "modified": "166e790d3fe120982323e0eb0ca929387581be81a3ac3eecb661856d845c1537",
+      "reconstructed": "166e790d3fe120982323e0eb0ca929387581be81a3ac3eecb661856d845c1537"
+    },
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py": {
+      "modified": "7426b858120a5c04a31445d8fb75fb892789fc72f2285f03aabb97cbac2efcc0",
+      "reconstructed": "7426b858120a5c04a31445d8fb75fb892789fc72f2285f03aabb97cbac2efcc0"
+    }
+  }
+}
+
+scope-review.json
+{
+  "reviewer": "scope_final_review",
+  "base": "fe31c59cc11e0744f2a10f6f846cec5b69731b8c",
+  "findings": [
+    {
+      "priority": "P2",
+      "finding": "native validation echoed rejected secrets",
+      "resolution": "endpoint-scoped RequestValidationError redaction + no-store",
+      "status": "closed after red/green and independent recheck"
+    },
+    {
+      "priority": "P2",
+      "finding": "default authKind hid api_key/access_token flags",
+      "resolution": "read and conservatively reject accessTokenOnly and upstreamApiKey",
+      "status": "closed after red/green and independent recheck"
+    }
+  ],
+  "remaining_blockers": [],
+  "review_scope": "No independent real provider, database, build, or full test execution"
+}
+SHA256 5442dd8cd3ce6e0024b473b8a452d80d617640c911243b9274d2a5351936d000 C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.md
+SHA256 1a224eb60cbd0fccdb48012debe59b4026be0e3cffcea28c4e22b9bbe6b9f823 C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\DIFF_FILE.patch
+SHA256 183794dab12c9de5fe1d6ab82d8a3714dbd4bee454173685e512c55cf81d960a C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\ROLLBACK.sh
+Reader source+tests strict basedpyright passed; generated declarations tsc passed, not full UI check. Full repo/build/browser/production checks not performed; prior Go race gcc blocker/full UI diagnostics unresolved.

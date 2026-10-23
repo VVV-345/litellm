@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
 from typing import Annotated, Final, Literal, Protocol, TypeVar
@@ -14,6 +14,8 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from websockets.asyncio.client import connect
@@ -23,6 +25,7 @@ from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
+from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult, inspect_native_subject
 from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 from litellm.proxy.management_endpoints.account_pool_management_models import (
@@ -45,6 +48,36 @@ from litellm.proxy.management_endpoints.request_log_endpoints import create_requ
 from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
+
+
+class CockpitNativePreflightRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    key_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
+    candidate_ids: tuple[UUID, ...] | None = Field(default=None, max_length=256)
+
+
+class CockpitNativePreflightReport(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    subject: NativeSubjectResult
+    mapping: CockpitPreflightReport | None = None
+    ready_to_migrate: Literal[False] = False
+
+
+class _NativePreflightRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
+        original: Final = super().get_route_handler()
+
+        async def handle(request: Request) -> Response:
+            try:
+                return await original(request)
+            except RequestValidationError:
+                raise HTTPException(
+                    422, "Invalid Cockpit preflight request", headers={"Cache-Control": "no-store"},
+                ) from None
+
+        return handle
 
 
 class _BrowserWebSocket(Protocol):
@@ -623,6 +656,7 @@ def create_account_pool_router(
     client_factory: ManagerClientFactory = _default_client,
     *,
     dashboard_reader: Callable[[], Awaitable[AccountPoolDashboardStats]] = standard_dashboard,
+    native_subject_reader: Callable[[str], Awaitable[NativeSubjectResult]] = inspect_native_subject,
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_websocket_connect: Callable[[str], AbstractAsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
@@ -673,6 +707,45 @@ def create_account_pool_router(
             return CockpitPreflightReport.model_validate_json(upstream.content)
         except ValidationError:
             raise HTTPException(502, "Invalid Cockpit preflight", headers={"Cache-Control": "no-store"}) from None
+
+    native_router: Final = APIRouter(route_class=_NativePreflightRoute)
+
+    @native_router.post("/cockpit/native-preflight", response_model=CockpitNativePreflightReport)
+    async def check_native_cockpit_mapping(
+        request: CockpitNativePreflightRequest,
+        response: Response,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> CockpitNativePreflightReport:
+        _require_proxy_admin(user_api_key_dict)
+        response.headers["Cache-Control"] = "no-store"
+        subject: Final = await native_subject_reader(request.key_hash)
+        if subject.status != "verified" or subject.card_id is None:
+            return CockpitNativePreflightReport(subject=subject)
+        body: Final = json.dumps({
+            "card_id": str(subject.card_id),
+            "candidate_ids": None if request.candidate_ids is None else tuple(str(value) for value in request.candidate_ids),
+        }).encode()
+        try:
+            upstream: Final = await _manager_request(client_factory, "POST", "/api/cockpit/native-preflight", body)
+        except HTTPException:
+            raise HTTPException(503, "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"}) from None
+        if upstream.status_code != 200:
+            raise HTTPException(
+                503 if upstream.status_code == 503 else 502,
+                "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"},
+            )
+        try:
+            mapping: Final = CockpitPreflightReport.model_validate_json(upstream.content)
+        except ValidationError:
+            raise HTTPException(502, "Invalid Cockpit preflight", headers={"Cache-Control": "no-store"}) from None
+        if (
+            mapping.card_id != subject.card_id or mapping.subject_kind != "litellm_key"
+            or any(card != subject.card_id for card in mapping.authorized_account_ids)
+        ):
+            raise HTTPException(502, "Invalid Cockpit preflight", headers={"Cache-Control": "no-store"})
+        return CockpitNativePreflightReport(subject=subject, mapping=mapping)
+
+    router.include_router(native_router)
 
     async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
         return await _manager_request(client_factory, method, path, body)

@@ -97,6 +97,7 @@ PreflightBlocker = Literal[
     "target_account_missing", "target_account_collision", "target_credential_missing",
     "target_auth_kind_unsupported", "target_identity_unverified", "strategy_mapping_unverified",
     "legacy_account_scope_unsupported",
+    "source_credential_collision", "target_credential_collision",
 ]
 
 
@@ -125,7 +126,8 @@ class CockpitPreflightReport(BaseModel):
     ready_to_migrate: Literal[False] = False
     pending_checks: tuple[Literal[
         "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
-        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",
+        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "native_runtime_authorization_unverified",
+        "runtime_activation_unverified",
     ], ...] = (
         "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
         "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",

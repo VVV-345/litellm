@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Final, Literal
 from uuid import UUID
 
@@ -25,6 +26,13 @@ class CockpitPreflightRequest(BaseModel):
     candidate_ids: tuple[UUID, ...] | None = Field(default=None, max_length=256)
 
 
+class CockpitNativeMappingRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    card_id: UUID
+    candidate_ids: tuple[UUID, ...] | None = Field(default=None, max_length=256)
+
+
 PreflightBlocker = Literal[
     "source_card_missing",
     "source_card_unavailable",
@@ -44,6 +52,8 @@ PreflightBlocker = Literal[
     "target_identity_unverified",
     "strategy_mapping_unverified",
     "legacy_account_scope_unsupported",
+    "source_credential_collision",
+    "target_credential_collision",
 ]
 
 
@@ -77,6 +87,7 @@ class CockpitPreflightReport(BaseModel):
             "models_proxy_quota_unmapped",
             "policy_behavior_unverified",
             "native_subject_mapping_unimplemented",
+            "native_runtime_authorization_unverified",
             "runtime_activation_unverified",
         ],
         ...,
@@ -96,6 +107,8 @@ class _TargetAccount(BaseModel):
     id: str = Field(min_length=1)
     authId: str = ""
     authKind: str = ""
+    accessTokenOnly: bool = False
+    upstreamApiKey: str = Field(default="", repr=False)
 
 
 class _Manifest(BaseModel):
@@ -112,6 +125,11 @@ def _available(record: EnvironmentRecord) -> bool:
     )
 
 
+def _auth_aliases(auth_id: str) -> frozenset[str]:
+    value: Final = auth_id.strip().lower()
+    return frozenset((value, PurePosixPath(value).name)) if value else frozenset()
+
+
 def _account_report(
     account_id: UUID,
     source: EnvironmentRecord | None,
@@ -119,6 +137,7 @@ def _account_report(
     authorized: tuple[UUID, ...],
     targets: tuple[_TargetAccount, ...],
     files: tuple[AuthFileMetadata, ...],
+    records: tuple[EnvironmentRecord, ...],
 ) -> CockpitAccountPreflight:
     scope_errors: Final[tuple[PreflightBlocker, ...]] = (
         () if account_id in authorized else ("outside_authorized_scope",)
@@ -130,7 +149,7 @@ def _account_report(
             source_version=None,
             blockers=(*scope_errors, "source_account_missing"),
         )
-    matches: Final = tuple(target for target in targets if target.id == str(account_id))
+    matches: Final = tuple(target for target in targets if target.id.strip() == str(account_id))
     checks: Final[tuple[tuple[bool, PreflightBlocker], ...]] = (
         (
             origin is not None and (source.channel != origin.channel or source.supplier != origin.supplier),
@@ -142,10 +161,26 @@ def _account_report(
             "supplier_mapping_unsupported",
         ),
         (not source.auth_file_name, "source_credential_missing"),
+        (
+            any(record.id != source.id and set(record.credential_fingerprints).intersection(source.credential_fingerprints)
+                for record in records),
+            "source_credential_collision",
+        ),
         (not matches, "target_account_missing"),
         (len(matches) > 1, "target_account_collision"),
         (len(matches) == 1 and not any(file.id == matches[0].authId for file in files), "target_credential_missing"),
-        (len(matches) == 1 and matches[0].authKind == "api_key", "target_auth_kind_unsupported"),
+        (
+            len(matches) == 1 and (matches[0].authKind not in ("", "oauth")
+                                  or matches[0].accessTokenOnly or bool(matches[0].upstreamApiKey.strip())),
+            "target_auth_kind_unsupported",
+        ),
+        (
+            len(matches) == 1 and (
+                sum(bool(_auth_aliases(target.authId) & _auth_aliases(matches[0].authId)) for target in targets) > 1
+                or sum(bool(_auth_aliases(file.id) & _auth_aliases(matches[0].authId)) for file in files) > 1
+            ),
+            "target_credential_collision",
+        ),
         (bool(matches), "target_identity_unverified"),
     )
     return CockpitAccountPreflight(
@@ -160,9 +195,11 @@ async def cockpit_preflight(
     request: CockpitPreflightRequest,
     environments: EnvironmentRepository,
     policies: PolicyRepository,
-    keys: CardKeyService,
+    keys: CardKeyService | None,
     client: CockpitAdminClient,
     settings: AccountPoolSettingsRepository | None = None,
+    *,
+    native_card_id: UUID | None = None,
 ) -> CockpitPreflightReport | CockpitFailure:
     records: Final = await environments.list()
     origin: Final = next((record for record in records if record.id == request.card_id), None)
@@ -173,14 +210,14 @@ async def cockpit_preflight(
         settings_for_card(global_settings.values, request.card_id) if global_settings is not None else None,
         inherit=stored.version == 0,
     )
-    binding: Final = await keys.status(request.card_id)
-    # 原生 Key 的授权在 LiteLLM 数据库，不能用卡片绑定状态或浏览器声明替代其主体校验。
+    binding: Final = await keys.status(request.card_id) if keys is not None and request.subject_kind == "legacy_card_key" else None
+    # native_card_id 仅由内部管理接口接收 LiteLLM 服务端证明，公开请求不能提供。
     verified_subject: Final = (
         request.subject_kind == "legacy_card_key"
         and binding is not None
         and binding.revoked_at is None
         and request.expected_key_id == binding.key_id
-    )
+    ) or (request.subject_kind == "litellm_key" and native_card_id == request.card_id)
     authorized: Final = tuple(
         record.id
         for record in records
@@ -189,7 +226,7 @@ async def cockpit_preflight(
         and verified_subject
         and record.channel == origin.channel
         and record.supplier == origin.supplier
-        and (record.id == origin.id or policy.routing.fallback_enabled)
+        and (record.id == origin.id or (request.subject_kind == "legacy_card_key" and policy.routing.fallback_enabled))
     )
     candidates: Final = authorized if request.candidate_ids is None else request.candidate_ids
     snapshot: Final = await client.read_manifest()
@@ -210,6 +247,7 @@ async def cockpit_preflight(
             authorized,
             manifest.accounts or (),
             files,
+            tuple(records),
         )
         for account_id in candidates
     )
@@ -235,4 +273,11 @@ async def cockpit_preflight(
         persisted_manifest_revision=snapshot.revision,
         accounts=accounts,
         blockers=tuple(code for failed, code in checks if failed),
+        pending_checks=(
+            "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
+            "policy_behavior_unverified",
+            "native_runtime_authorization_unverified" if native_card_id is not None and verified_subject
+            else "native_subject_mapping_unimplemented",
+            "runtime_activation_unverified",
+        ),
     )

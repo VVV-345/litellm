@@ -1,0 +1,69 @@
+{
+  "events": [
+    {
+      "label": "SCOPE_ROLLBACK_COMMAND",
+      "command": [
+        "C:/Program Files/Git/bin/bash.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback.tar.gz",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-baseline.tar.gz"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "SCOPE_BASELINE",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-baseline"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"credential_blockers\": [\"target_identity_unverified\"], \"invalid\": {\"detail\": \"Not Found\"}, \"invalid_status\": 404, \"manager_calls\": [], \"native\": {\"detail\": \"Not Found\"}, \"native_status\": 404, \"secret_exposed\": false}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    },
+    {
+      "label": "SCOPE_MODIFIED",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-modified"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"credential_blockers\": [\"source_credential_collision\", \"target_auth_kind_unsupported\", \"target_credential_collision\", \"target_identity_unverified\"], \"invalid\": {\"detail\": \"Invalid Cockpit preflight request\"}, \"invalid_status\": 422, \"manager_calls\": [{\"body\": {\"candidate_ids\": null, \"card_id\": \"00000000-0000-0000-0000-000000000001\"}, \"path\": \"/api/cockpit/native-preflight\"}], \"native\": {\"mapping\": {\"accounts\": [], \"authorized_account_ids\": [\"00000000-0000-0000-0000-000000000001\"], \"blockers\": [], \"card_id\": \"00000000-0000-0000-0000-000000000001\", \"pending_checks\": [\"native_runtime_authorization_unverified\"], \"persisted_manifest_revision\": \"\\\"sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\\"\", \"policy_version\": 0, \"ready_to_migrate\": false, \"scope_valid\": true, \"settings_version\": null, \"source_strategy\": \"auto\", \"subject_kind\": \"litellm_key\"}, \"ready_to_migrate\": false, \"subject\": {\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-23T00:00:00Z\", \"status\": \"verified\"}}, \"native_status\": 200, \"secret_exposed\": false}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    },
+    {
+      "label": "SCOPE_ROLLBACK",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\scope-code-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\source-rollback"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"credential_blockers\": [\"target_identity_unverified\"], \"invalid\": {\"detail\": \"Not Found\"}, \"invalid_status\": 404, \"manager_calls\": [], \"native\": {\"detail\": \"Not Found\"}, \"native_status\": 404, \"secret_exposed\": false}\n",
+      "stderr": "D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\fastapi\\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n  from starlette.testclient import TestClient as TestClient  # noqa\n",
+      "exit_status": 0
+    }
+  ],
+  "hashes": {
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-baseline.tar.gz": "30e0999d04f67b2411ba693c745076b149c69c7878e0466f37ed53e943a16b49",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-modified.tar.gz": "eae9fa22ed0fba92839d71684e05b303edb02d8ced831a8e506c4692572c2060",
+    "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\scope-mapping-20261023-225839\\scope-rollback.tar.gz": "30e0999d04f67b2411ba693c745076b149c69c7878e0466f37ed53e943a16b49"
+  },
+  "files": {
+    "account-pool/account_pool/cockpit_preflight.py": "5913ccec8b8891fa3e480a55baa1143f87f89e4bd344194a3667b66027a50b4e",
+    "account-pool/account_pool/api.py": "4b9b5d9aa217b24b1f47b743f33766edbc2b80460fee9f149e8060b17aac71a4",
+    "litellm/proxy/management_endpoints/account_pool_management_models.py": "7cc97921a9234e36b6ca4f56c84cc3119bae944c41d07864c91dbb79e5dfb7a8",
+    "litellm/proxy/management_endpoints/account_pool_endpoints.py": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871",
+    "account-pool/tests/account_pool/test_cockpit_preflight.py": "bd0aea2b9d177cd6ef5434cf18d5cf408c281d3fd43662e9e613df051e26c1bc",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py": "15240ac6e45e9fccc6dc41ae13b89a1c8ace3f00e4eef934bc99df521e69af0b",
+    "ui/litellm-dashboard/src/lib/http/schema.d.ts": "2f9134fb0c9c83b6fa7db0b95d88927aa0fb5bdca1ccc34f239ad4ddc48b945e",
+    "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py": "166e790d3fe120982323e0eb0ca929387581be81a3ac3eecb661856d845c1537",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py": "7426b858120a5c04a31445d8fb75fb892789fc72f2285f03aabb97cbac2efcc0"
+  }
+}

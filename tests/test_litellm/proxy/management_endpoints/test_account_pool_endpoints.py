@@ -1376,6 +1376,72 @@ def test_cockpit_preflight_proxy_enforces_admin_contract_and_redacts() -> None:
     assert calls == ["/api/cockpit/preflight"]
 
 
+def test_cockpit_native_preflight_admin_gate_precedes_subject_lookup() -> None:
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), _manager_factory)) as client:
+        assert client.post("/account_pool/cockpit/native-preflight", json={"key_hash": "a" * 64}).status_code == 403
+
+
+@pytest.mark.parametrize("extra", [{"card_id": str(_ENVIRONMENT_ID)}, {"authorized_account_ids": []},
+                                  {"metadata": {}}, {"key": "sk-PRIVATE"}])
+def test_cockpit_native_preflight_rejects_browser_authorization_claims(extra: dict) -> None:
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)) as client:
+        response: Final = client.post("/account_pool/cockpit/native-preflight", json={"key_hash": "a" * 64, **extra})
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("verified,drift", [(False, "none"), (True, "none"), (True, "card"), (True, "scope"),
+                                           (True, "kind"), (True, "malformed"), (True, "error")])
+def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(verified: bool, drift: str) -> None:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult
+
+    async def inspect(key_hash: str) -> NativeSubjectResult:
+        assert key_hash == "a" * 64
+        return NativeSubjectResult(status="verified" if verified else "revoked",
+                                   card_id=_ENVIRONMENT_ID if verified else None, checked_at=datetime.now(timezone.utc))
+
+    calls: Final[list[dict]] = []
+
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path == "/api/cockpit/native-preflight"
+            assert request.headers["Authorization"] == "Bearer " + _MANAGER_TOKEN
+            calls.append(json.loads(request.content))
+            if drift in ("malformed", "error"):
+                return httpx.Response(200 if drift == "malformed" else 503, json={"secret": "PRIVATE"})
+            return httpx.Response(200, json={
+                "card_id": str(uuid4() if drift == "card" else _ENVIRONMENT_ID),
+                "subject_kind": "legacy_card_key" if drift == "kind" else "litellm_key",
+                "authorized_account_ids": [str(uuid4() if drift == "scope" else _ENVIRONMENT_ID)],
+                "scope_valid": True, "source_strategy": "auto",
+                "policy_version": 1, "settings_version": None,
+                "persisted_manifest_revision": '\"sha256-' + 'a' * 64 + '\"',
+                "accounts": [], "blockers": [], "ready_to_migrate": False,
+                "pending_checks": ["native_runtime_authorization_unverified"], "secret": "PRIVATE"})
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+                                       client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+    app: Final = FastAPI()
+    app.include_router(create_account_pool_router(factory, native_subject_reader=inspect))
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/cockpit/native-preflight", json={"key_hash": "a" * 64})
+    if drift != "none":
+        assert response.status_code == (503 if drift == "error" else 502)
+        assert response.headers["cache-control"] == "no-store"
+        assert "PRIVATE" not in response.text
+        return
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["subject"]["status"] == ("verified" if verified else "revoked")
+    assert response.json()["ready_to_migrate"] is False
+    assert "key_hash" not in response.text and "PRIVATE" not in response.text
+    if verified:
+        assert calls == [{"card_id": str(_ENVIRONMENT_ID), "candidate_ids": None}]
+        assert response.json()["mapping"]["authorized_account_ids"] == [str(_ENVIRONMENT_ID)]
+    else:
+        assert calls == [] and response.json()["mapping"] is None
+
+
 @pytest.mark.parametrize("status,body", [(502, {"detail": "PRIVATE"}), (200, {"ready_to_migrate": True})])
 def test_cockpit_preflight_proxy_rejects_malformed_and_secret_errors(status: int, body: dict) -> None:
     def factory() -> AccountPoolManagerClient:
@@ -1486,4 +1552,14 @@ def test_cockpit_runtime_proxy_rejects_unknown_or_mismatched_apply_receipts(
         response: Final = client.post("/account_pool/cockpit/policy/apply", json={
             "revision": '"sha256-' + 'b' * 64 + '"'})
     assert response.status_code == expected and response.json() == {"detail": detail}
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("body", [{"key_hash": "sk-PRIVATE"}, {"key_hash": "a" * 64, "key": "sk-PRIVATE"},
+                                 {"key_hash": "a" * 64, "metadata": {"token": "PRIVATE"}}])
+def test_cockpit_native_preflight_validation_does_not_echo_secrets(body: dict) -> None:
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)) as client:
+        response: Final = client.post("/account_pool/cockpit/native-preflight", json=body)
+    assert response.status_code == 422
+    assert "PRIVATE" not in response.text and "input" not in response.text
     assert response.headers["cache-control"] == "no-store"
