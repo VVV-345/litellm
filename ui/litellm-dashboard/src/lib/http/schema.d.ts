@@ -45235,6 +45235,7 @@ export interface components {
              * Format: date-time
              */
             checked_at: string;
+            model_scope?: components["schemas"]["NativeModelScope"] | null;
             /**
              * Status
              * @enum {string}
@@ -45258,6 +45259,16 @@ export interface components {
             candidate_ids?: string[] | null;
             /** Key Hash */
             key_hash: string;
+        };
+        /** NativeModelScope */
+        NativeModelScope: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "unrestricted" | "restricted";
+            /** Models */
+            models: string[];
         };
     };
     responses: never;

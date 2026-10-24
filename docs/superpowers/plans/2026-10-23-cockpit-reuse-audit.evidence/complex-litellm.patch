@@ -1,0 +1,359 @@
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py b/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py
+index deda7b574a..79a598dd5d 100644
+--- a/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py
+@@ -18,0 +19 @@ from pydantic import (
++    StrictFloat,
+@@ -25,0 +27 @@ from pydantic import (
++from litellm.proxy._types import SpecialModelNames
+@@ -34,0 +37,19 @@ _JSON_OBJECT: Final = TypeAdapter(dict[str, JsonValue])
++_MODEL_NAME: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]*")
++_MODEL_SENTINELS: Final = frozenset(item.value for item in SpecialModelNames)
++
++
++def _literal_models(models: tuple[str, ...]) -> bool:
++    return all(_MODEL_NAME.fullmatch(model) is not None and model not in _MODEL_SENTINELS for model in models)
++
++
++class NativeModelScope(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    kind: Literal["unrestricted", "restricted"]
++    models: tuple[StrictStr, ...]
++
++    @model_validator(mode="after")
++    def explicit_scope(self) -> Self:
++        if (self.kind == "restricted") != bool(self.models) or not _literal_models(self.models):
++            raise ValueError("Model scope must be unrestricted or a nonempty literal allowlist")
++        return self
+@@ -41,0 +63 @@ class NativeSubjectResult(BaseModel):
++    model_scope: NativeModelScope | None = None
+@@ -47,0 +70,2 @@ class NativeSubjectResult(BaseModel):
++        if (self.status == "verified") != (self.model_scope is not None):
++            raise ValueError("Only verified subjects have an explicit model scope")
+@@ -73,0 +98,18 @@ class _LiveState(BaseModel):
++class _OwnerScope(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_id: StrictStr
++    models: tuple[StrictStr, ...]
++    blocked: StrictBool
++    permissions_unrestricted: StrictBool
++    team_id: StrictStr | None
++
++
++class _MembershipScope(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    user_id: StrictStr
++    team_id: StrictStr
++    budget_id: StrictStr | None
++
++
+@@ -97,2 +139,9 @@ class _PermissionScope(BaseModel):
+-
+-    def unrestricted(self) -> bool:
++    max_budget: StrictFloat | None
++    budget_duration: StrictStr | None
++    budget_reset_at: datetime | None
++    user_scope: Annotated[_OwnerScope | None, BeforeValidator(_decode_object)]
++    team_scope: Annotated[_OwnerScope | None, BeforeValidator(_decode_object)]
++    project_scope: Annotated[_OwnerScope | None, BeforeValidator(_decode_object)]
++    membership_scope: Annotated[_MembershipScope | None, BeforeValidator(_decode_object)]
++
++    def supported(self) -> bool:
+@@ -101 +150 @@ class _PermissionScope(BaseModel):
+-                self.models, self.aliases, self.config, self.permissions, self.router_settings,
++                self.aliases, self.config, self.permissions, self.router_settings,
+@@ -107,2 +156,2 @@ class _PermissionScope(BaseModel):
+-                self.user_id, self.team_id, self.project_id, self.organization_id,
+-                self.agent_id, self.object_permission_id, self.budget_id,
++                self.organization_id, self.agent_id, self.object_permission_id, self.budget_id,
++                self.max_budget, self.budget_duration, self.budget_reset_at,
+@@ -111,0 +161,78 @@ class _PermissionScope(BaseModel):
++    def model_scope(self) -> NativeModelScope | None:
++        owners: Final = ((self.user_id, self.user_scope), (self.team_id, self.team_scope),
++                         (self.project_id, self.project_scope))
++        for owner_id, owner in owners:
++            if owner_id is None:
++                if owner is not None:
++                    return None
++                continue
++            if not owner_id or owner is None or owner.subject_id != owner_id:
++                return None
++            if owner.blocked or not owner.permissions_unrestricted or not _literal_models(owner.models):
++                return None
++            if owner.team_id is not None and owner.team_id != self.team_id:
++                return None
++        if self.project_scope is not None and self.project_scope.team_id != self.team_id:
++            return None
++        if self.user_id is not None and self.team_id is not None:
++            if (self.membership_scope is None or self.membership_scope.user_id != self.user_id
++                    or self.membership_scope.team_id != self.team_id or self.membership_scope.budget_id is not None):
++                return None
++        elif self.membership_scope is not None:
++            return None
++        if not _literal_models(self.models):
++            return None
++        # 原生 common_checks 仅对个人 Key 应用用户 models；团队 Key 使用团队和成员限制。
++        applicable: Final = (self.models,) + tuple(
++            owner.models for owner in (
++                self.user_scope if self.team_id is None else None, self.team_scope, self.project_scope,
++            ) if owner is not None
++        )
++        restricted: Final = tuple(frozenset(models) for models in applicable if models)
++        if not restricted:
++            return NativeModelScope(kind="unrestricted", models=())
++        intersection: Final = restricted[0].intersection(*restricted[1:])
++        return NativeModelScope(kind="restricted", models=tuple(sorted(intersection))) if intersection else None
++
++
++_LIVE_QUERY: Final = """SELECT k.token, k.blocked, k.expires, k.metadata, k.models, k.aliases, k.config, k.permissions,
++    k.router_settings, k.access_group_ids, k.policies, k.allowed_routes, k.allowed_cache_controls,
++    k.key_type, k.model_max_budget, k.budget_fallbacks, k.budget_limits, k.user_id, k.team_id,
++    k.project_id, k.organization_id, k.agent_id, k.object_permission_id, k.budget_id,
++    k.max_budget, k.budget_duration, k.budget_reset_at,
++    CASE WHEN u.user_id IS NULL THEN NULL ELSE json_build_object(
++        'subject_id', u.user_id, 'models', u.models, 'blocked', false, 'team_id', u.team_id,
++        'permissions_unrestricted', u.organization_id IS NULL AND u.object_permission_id IS NULL
++            AND u.max_budget IS NULL AND u.budget_duration IS NULL AND u.budget_reset_at IS NULL
++            AND u.max_parallel_requests IS NULL AND u.tpm_limit IS NULL AND u.rpm_limit IS NULL
++            AND u.metadata = '{}'::jsonb AND u.model_max_budget = '{}'::jsonb
++            AND cardinality(u.policies) = 0 AND cardinality(u.allowed_cache_controls) = 0
++    ) END AS user_scope,
++    CASE WHEN t.team_id IS NULL THEN NULL ELSE json_build_object(
++        'subject_id', t.team_id, 'models', t.models, 'blocked', t.blocked, 'team_id', NULL,
++        'permissions_unrestricted', t.organization_id IS NULL AND t.object_permission_id IS NULL
++            AND t.max_budget IS NULL AND t.soft_budget IS NULL
++            AND t.budget_duration IS NULL AND t.budget_reset_at IS NULL
++            AND t.max_parallel_requests IS NULL AND t.tpm_limit IS NULL AND t.rpm_limit IS NULL
++            AND t.metadata = '{}'::jsonb AND t.model_max_budget = '{}'::jsonb
++            AND (t.router_settings IS NULL OR t.router_settings = '{}'::jsonb)
++            AND t.budget_limits IS NULL AND t.model_id IS NULL AND NOT t.allow_team_guardrail_config
++            AND cardinality(t.policies) = 0 AND cardinality(t.access_group_ids) = 0
++            AND cardinality(t.team_member_permissions) = 0 AND cardinality(t.default_team_member_models) = 0
++    ) END AS team_scope,
++    CASE WHEN p.project_id IS NULL THEN NULL ELSE json_build_object(
++        'subject_id', p.project_id, 'models', p.models, 'blocked', p.blocked, 'team_id', p.team_id,
++        'permissions_unrestricted', p.budget_id IS NULL AND p.object_permission_id IS NULL
++            AND p.metadata = '{}'::jsonb AND p.model_rpm_limit = '{}'::jsonb AND p.model_tpm_limit = '{}'::jsonb
++    ) END AS project_scope,
++    CASE WHEN m.user_id IS NULL THEN NULL ELSE json_build_object(
++        'user_id', m.user_id, 'team_id', m.team_id, 'budget_id', m.budget_id
++    ) END AS membership_scope
++FROM "LiteLLM_VerificationToken" AS k
++LEFT JOIN "LiteLLM_UserTable" AS u ON u.user_id = k.user_id
++LEFT JOIN "LiteLLM_TeamTable" AS t ON t.team_id = k.team_id
++LEFT JOIN "LiteLLM_ProjectTable" AS p ON p.project_id = k.project_id
++LEFT JOIN "LiteLLM_TeamMembership" AS m ON m.user_id = k.user_id AND m.team_id = k.team_id
++WHERE k.token = $1
++AND NOT EXISTS (SELECT 1 FROM "LiteLLM_DeletedVerificationToken" WHERE token = $1) LIMIT 1"""
++
+@@ -130,4 +257 @@ class WriterNativeSubjectRepository:
+-        rows: Final = await self.database.query_raw(
+-            'SELECT * FROM "LiteLLM_VerificationToken" WHERE token = $1 '
+-            'AND NOT EXISTS (SELECT 1 FROM "LiteLLM_DeletedVerificationToken" WHERE token = $1) LIMIT 1', key_hash
+-        )
++        rows: Final = await self.database.query_raw(_LIVE_QUERY, key_hash)
+@@ -142,2 +266,4 @@ async def inspect_native_subject_with_repository(
+-    def result(status: NativeSubjectStatus, card_id: UUID | None = None) -> NativeSubjectResult:
+-        return NativeSubjectResult(status=status, card_id=card_id, checked_at=checked_at)
++    def result(
++        status: NativeSubjectStatus, card_id: UUID | None = None, model_scope: NativeModelScope | None = None,
++    ) -> NativeSubjectResult:
++        return NativeSubjectResult(status=status, card_id=card_id, model_scope=model_scope, checked_at=checked_at)
+@@ -179 +305 @@ async def inspect_native_subject_with_repository(
+-    if not permission.unrestricted() or any(
++    if not permission.supported() or any(
+@@ -183 +309,4 @@ async def inspect_native_subject_with_repository(
+-    return result("verified", scope.card_id)
++    model_scope: Final = permission.model_scope()
++    if model_scope is None:
++        return result("model_scope_unverified")
++    return result("verified", scope.card_id, model_scope)
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py
+index d7af17ca94..71838913e9 100644
+--- a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py
+@@ -33,0 +34,2 @@ def record(**changes: object) -> Mapping[str, object]:
++        "max_budget": None, "budget_duration": None, "budget_reset_at": None,
++        "user_scope": None, "team_scope": None, "project_scope": None, "membership_scope": None,
+@@ -72 +74,2 @@ async def test_only_active_unrestricted_native_single_card_is_verified() -> None
+-    assert set(result.model_dump()) == {"status", "card_id", "checked_at"}
++    assert set(result.model_dump()) == {"status", "card_id", "checked_at", "model_scope"}
++    assert result.model_dump(mode="json")["model_scope"] == {"kind": "unrestricted", "models": []}
+@@ -114 +117 @@ async def test_fail_closed_status_never_exposes_card_scope(repository: Repositor
+-        ("models", ["restricted-model"]), ("models", ["all-proxy-models"]),
++        ("models", ["all-proxy-models"]),
+@@ -121,0 +125 @@ async def test_fail_closed_status_never_exposes_card_scope(repository: Repositor
++        ("max_budget", 0), ("budget_duration", "1d"), ("budget_reset_at", NOW),
+@@ -222,0 +227,139 @@ async def test_runtime_without_database_fails_closed(monkeypatch: pytest.MonkeyP
++
++
++def owner_scope(owner_id: str, **changes: object) -> Mapping[str, object]:
++    return {
++        "subject_id": owner_id, "models": [], "blocked": False,
++        "permissions_unrestricted": True, "team_id": None, **changes,
++    }
++
++
++def membership_scope(**changes: object) -> Mapping[str, object]:
++    return {"user_id": "user-1", "team_id": "team-1", "budget_id": None, **changes}
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "changes,models",
++    (
++        ({"models": ["model-b", "model-a", "model-a"]}, ["model-a", "model-b"]),
++        ({"user_id": "user-1", "user_scope": owner_scope("user-1", models=["model-a"]),
++          "models": ["model-a", "model-b"]}, ["model-a"]),
++        ({"team_id": "team-1", "team_scope": owner_scope("team-1", models=["model-a"]),
++          "models": ["model-a", "model-b"]}, ["model-a"]),
++        ({"project_id": "project-1", "project_scope": owner_scope("project-1", models=["model-a"]),
++          "models": ["model-a", "model-b"]}, ["model-a"]),
++        ({"user_id": "user-1", "user_scope": owner_scope("user-1", models=["personal-only"]),
++          "team_id": "team-1", "team_scope": owner_scope("team-1", models=["model-a", "model-b"]),
++          "project_id": "project-1", "project_scope": owner_scope("project-1", team_id="team-1", models=["model-b"]),
++          "membership_scope": membership_scope(), "models": ["model-a", "model-b"]}, ["model-b"]),
++    ),
++)
++async def test_explicit_native_model_scopes_remain_visible(changes: dict[str, object], models: list[str]) -> None:
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)
++    assert result.status == "verified"
++    assert result.card_id == CARD
++    assert result.model_dump(mode="json")["model_scope"] == {"kind": "restricted", "models": models}
++    assert "subject_id" not in result.model_dump_json()
++    assert "user-1" not in result.model_dump_json()
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("kind", ("user", "team", "project"))
++async def test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted(kind: str) -> None:
++    changes: Final = {f"{kind}_id": "owner-1", f"{kind}_scope": owner_scope("owner-1")}
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)
++    assert result.status == "verified"
++    assert result.model_dump(mode="json")["model_scope"] == {"kind": "unrestricted", "models": []}
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("kind", ("user", "team", "project"))
++@pytest.mark.parametrize("owner", (
++    None, {}, owner_scope("wrong-owner"), owner_scope("owner-1", blocked=True),
++    owner_scope("owner-1", blocked="false"), owner_scope("owner-1", permissions_unrestricted=False),
++    owner_scope("owner-1", permissions_unrestricted=None), owner_scope("owner-1", models=None),
++    owner_scope("owner-1", models=[7]), owner_scope("owner-1", team_id="different-team"),
++))
++async def test_owner_state_cannot_be_missing_malformed_blocked_or_inconsistent(kind: str, owner: object) -> None:
++    changes: Final = {f"{kind}_id": "owner-1", f"{kind}_scope": owner}
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)
++    assert result.status == "model_scope_unverified"
++    assert result.card_id is None
++    assert result.model_dump(mode="json").get("model_scope") is None
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("membership", (
++    None, {}, membership_scope(user_id="other"), membership_scope(team_id="other"),
++    membership_scope(budget_id="budget-1"), membership_scope(budget_id=""),
++))
++async def test_team_member_policy_is_not_silently_discarded(membership: object) -> None:
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(
++        user_id="user-1", user_scope=owner_scope("user-1"),
++        team_id="team-1", team_scope=owner_scope("team-1"), membership_scope=membership,
++    )), now=NOW)
++    assert result.status == "model_scope_unverified"
++    assert result.card_id is None
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("field", ("models", "user_scope", "team_scope", "project_scope"))
++@pytest.mark.parametrize("models", (
++    ["all-team-models"], ["all-proxy-models"], ["no-default-models"],
++    ["model-a", "all-team-models"], ["all-proxy-models", "model-a"],
++    ["*"], ["model-*"], ["model-?"], ["[model]"], [""], [" model-a"], ["model-a\n"],
++))
++async def test_dynamic_model_resolution_never_becomes_unrestricted(field: str, models: list[str]) -> None:
++    changes: Final = {"models": models} if field == "models" else {
++        field: owner_scope("owner-1", models=models), field.replace("_scope", "_id"): "owner-1",
++    }
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)
++    assert result.status == "model_scope_unverified"
++    assert result.card_id is None
++    assert result.model_dump(mode="json").get("model_scope") is None
++
++
++@pytest.mark.asyncio
++async def test_disjoint_models_cannot_be_encoded_as_unrestricted() -> None:
++    result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(
++        models=["model-a"], team_id="team-1", team_scope=owner_scope("team-1", models=["model-b"]),
++    )), now=NOW)
++    assert result.status == "model_scope_unverified"
++    assert result.card_id is None
++
++
++@pytest.mark.asyncio
++async def test_joined_writer_checks_current_references_without_owner_secrets() -> None:
++    @dataclass(frozen=True)
++    class JoinedDatabase:
++        async def query_raw(self, query: str, *args: object) -> Sequence[Mapping[str, object]]:
++            assert args == (KEY,)
++            if query.startswith("SELECT token "):
++                return ()
++            assert "SELECT *" not in query and "to_jsonb(" not in query
++            for table in ("LiteLLM_UserTable", "LiteLLM_TeamTable", "LiteLLM_ProjectTable", "LiteLLM_TeamMembership"):
++                assert f'LEFT JOIN "{table}"' in query
++            assert "password" not in query and "user_email" not in query and "secret" not in query
++            assert "budget_id" in query and "policies" in query and "model_id" in query
++            assert 'NOT EXISTS (SELECT 1 FROM "LiteLLM_DeletedVerificationToken" WHERE token = $1)' in query
++            return (record(team_id="team-1", team_scope=owner_scope("team-1", models=["model-a"])),)
++
++    result: Final = await inspect_native_subject_with_repository(
++        KEY, WriterNativeSubjectRepository(JoinedDatabase()), now=NOW,
++    )
++    assert result.status == "verified"
++    assert result.model_dump(mode="json")["model_scope"] == {"kind": "restricted", "models": ["model-a"]}
++
++
++def test_verified_subject_requires_explicit_model_scope() -> None:
++    with pytest.raises(ValidationError):
++        NativeSubjectResult(status="verified", card_id=CARD, checked_at=NOW)
++
++
++@pytest.mark.parametrize("scope", (
++    {"kind": "restricted", "models": []}, {"kind": "unrestricted", "models": ["model-a"]},
++    {"kind": "restricted", "models": ["*"]},
++))
++def test_result_rejects_ambiguous_model_scope(scope: dict[str, object]) -> None:
++    with pytest.raises(ValidationError):
++        NativeSubjectResult.model_validate({"status": "verified", "card_id": CARD, "checked_at": NOW, "model_scope": scope})
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+index 809f68ede9..2b80395158 100644
+--- a/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py
+@@ -1395 +1395 @@ def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(ve
+-    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult
++    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeModelScope, NativeSubjectResult
+@@ -1400 +1400,2 @@ def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(ve
+-                                   card_id=_ENVIRONMENT_ID if verified else None, checked_at=datetime.now(timezone.utc))
++                                   card_id=_ENVIRONMENT_ID if verified else None, checked_at=datetime.now(timezone.utc),
++                                   model_scope=NativeModelScope(kind="restricted", models=("model-a",)) if verified else None)
+@@ -1440,0 +1442 @@ def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(ve
++        assert response.json()["subject"]["model_scope"] == {"kind": "restricted", "models": ["model-a"]}
+diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+index 792e43c659..0ea2e8cbc6 100644
+--- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
++++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+@@ -45237,0 +45238 @@ export interface components {
++            model_scope?: components["schemas"]["NativeModelScope"] | null;
+@@ -45261,0 +45263,10 @@ export interface components {
++        /** NativeModelScope */
++        NativeModelScope: {
++            /**
++             * Kind
++             * @enum {string}
++             */
++            kind: "unrestricted" | "restricted";
++            /** Models */
++            models: string[];
++        };

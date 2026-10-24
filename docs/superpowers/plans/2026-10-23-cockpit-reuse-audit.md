@@ -159,7 +159,7 @@
 3. 数据面接线：按已验证主体 scope 发布 Cockpit deployment，保留 LiteLLM 标准统计；对 Cockpit 路由取消外层重复 resolve/acquire、重试/换卡/续聊 owner，旧路径仅作为另一条显式回滚配置；不能只替换 upstream URL
 4. 将旧行为矩阵变为 Cockpit 契约，覆盖额度换卡、续聊、stream/tool/image 重放边界和用量归属；验证各供应商加载路径。当前 manifest Codex token 注册要求 provider=codex，不能将九类供应商凭据一律按 Codex 导入
 
-恢复执行先读取此 D2 状态与已完成提交，不重新实施 D1、D2.1、全局策略保存/应用或下述单卡原生 Key 预检。下一可执行操作：继续 D2.2 的复杂主体权限映射，先为带用户/团队/项目和模型限制的原生 Key 建立离线失败用例，再复用现有授权规则解析可证明的范围；不能删掉保守阻断来扩大支持。可信凭据迁移回执、按 scope 发布和 D2.3 唯一请求 owner 接线仍待实现；真实凭据迁移和实际切流继续禁止
+恢复执行先读取此 D2 状态与已完成提交，不重新实施 D1、D2.1、全局策略保存/应用或下述单卡原生 Key 预检。下一可执行操作：继续 D2.2 的可信凭据对应关系与迁移回执离线契约，仅针对已验证的单卡和显式模型范围设计按 scope 发布；未知动态权限仍须阻断，不能直接删除保守检查。用户/团队/项目及有限模型名的首期静态预检已在第四段完成，不重复实施。真实凭据迁移、按 scope 实际发布和 D2.3 唯一请求 owner 接线仍未完成，实际切流继续禁止
 
 ### D2.1 本地代码结果（2026-10-23）
 
@@ -230,6 +230,22 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保�
 本轮最终定向回归 366 项通过，原 failover/quota/gateway/conversation/native-routing/accounting 六文件 431 项通过，均为离线或模拟集成测试；分别有 93 和 9 条既有依赖警告。新 reader 源码及测试、Manager preflight 严格类型检查通过，改动 Python 文件定向 Ruff 与生成声明 tsc 通过。未运行全仓检查、前端生产构建、浏览器目视、真实数据库或供应商验收；上段 Go race 缺 gcc 和全量前端既有类型问题仍未解决
 
 独立审阅的两项 P2 已修复并定向复审关闭：非法请求回显秘密、空 authKind 隐含非 OAuth 认证。三态源码副本验证：BASELINE 原生接口 404、冲突夹具仅报告身份未验证；MODIFIED 接口 200、单卡上界且仍不可迁移，非法输入 422 脱敏并报告三类凭据阻断；ROLLBACK 恢复 404 和原阻断行为，三个进程退出均为 0，回滚源码包 hash 等于基线。现有四角色继续保留，完整原始输出、失败尝试及补丁见 scope 附件
+
+### D2.2 第四段本地代码结果：关联主体与显式模型范围（2026-10-24）
+
+本段基于 `d06bd940ec`，沿用现有整合工作区，没有新建分支或 worktree；原 `CLIProxyAPI分支` 不改、不合并。只实现只读静态预检，没有推送、镜像构建、部署、真实数据库/供应商访问或凭据迁移。前文“所有关联主体一律未验证”是第三段的历史结果，当前支持范围以本节为准
+
+`WriterNativeSubjectRepository.find_live` 在同一条参数化主库查询中取得 Key 与用户、团队、项目、团队成员的必要事实，并保留同快照的撤销 tombstone 排除。关联只投影 ID、模型列表、停用状态及保守权限标记，不读取用户密码、邮箱或返回主体原始配置。缺失、格式非法、归属矛盾或停用的关联不返回卡片范围；用户和团队同时关联时，要求匹配且没有预算关联的当前成员记录
+
+`_PermissionScope.model_scope` 按现有 `common_checks` 的模型规则处理：个人 Key 受用户 models 限制，团队 Key 不继承用户个人模型列表；Key、团队和项目的非空精确模型列表取交集。空列表仅在所有适用层均无模型限制时表示 unrestricted，空交集仍返回 `model_scope_unverified`，绝不转换成无限制
+
+`NativeSubjectResult` 新增显式 `model_scope`：verified 必须携带 `{kind: restricted, models: [...]}` 或 `{kind: unrestricted, models: []}`，未验证结果不得携带模型范围或卡片。这里只证明精确模型名称限制，不证明供应商模型 ID、全局 alias 或 access-group 的实际解析。现有 native-preflight 公共响应保留完整 subject，Manager 仍只检查单卡候选关系；`ready_to_migrate=false` 和 `native_runtime_authorization_unverified` 不变，结果不能用作运行时许可或扩大旧卡 fallback 权限
+
+首期仍阻断 sentinel、通配符、别名、access groups、自定义策略、组织/对象权限、预算关联和未验证的限额配置等动态情况。支持有界关联不等于全部实际 Key 可迁移；这些不支持的权限必须继续保守拒绝。没有修改原网关选卡、额度换卡、重试、续聊、计费或 Cockpit 服务端
+
+本轮新运行：检查点基线 366 passed；修改后同范围回归 466 passed，原换卡/续聊/计费六文件 431 passed，分别有 93/9 条既有警告。定向 TDD 为 14 failed（预期 RED）后 177 passed（与完整回归重叠，不累加）；新 reader 源码及测试严格类型、改动 Python Ruff、生成声明 tsc 均通过。独立审阅未发现 P1/P2，离线 SQL/schema 引用检查通过，但未实际执行 PostgreSQL。源码同输入 BASELINE/ROLLBACK 均为 model_scope_unverified 且无卡片，MODIFIED 为 verified 且仅 scope-model；恢复源码包哈希一致，补丁重建逐字节一致
+
+生成声明通过实际 FastAPI OpenAPI 与固定 `openapi-typescript 7.13.0` 生成，再按 TypeScript AST 合并，只新增 NativeModelScope 及 NativeSubjectResult 的字段；不是手写声明。回归、同输入三态、补丁重建和审阅结果见原四角色及 `complex-*` 补充证据，均不代表真实 PostgreSQL、完整 UI/生产构建或真实上游验收
 
 ### 替换阶段 E：行为兼容与差异验收
 

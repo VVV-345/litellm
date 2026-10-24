@@ -1392,12 +1392,13 @@ def test_cockpit_native_preflight_rejects_browser_authorization_claims(extra: di
 @pytest.mark.parametrize("verified,drift", [(False, "none"), (True, "none"), (True, "card"), (True, "scope"),
                                            (True, "kind"), (True, "malformed"), (True, "error")])
 def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(verified: bool, drift: str) -> None:
-    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult
+    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeModelScope, NativeSubjectResult
 
     async def inspect(key_hash: str) -> NativeSubjectResult:
         assert key_hash == "a" * 64
         return NativeSubjectResult(status="verified" if verified else "revoked",
-                                   card_id=_ENVIRONMENT_ID if verified else None, checked_at=datetime.now(timezone.utc))
+                                   card_id=_ENVIRONMENT_ID if verified else None, checked_at=datetime.now(timezone.utc),
+                                   model_scope=NativeModelScope(kind="restricted", models=("model-a",)) if verified else None)
 
     calls: Final[list[dict]] = []
 
@@ -1438,6 +1439,7 @@ def test_cockpit_native_preflight_uses_server_subject_without_forwarding_hash(ve
     if verified:
         assert calls == [{"card_id": str(_ENVIRONMENT_ID), "candidate_ids": None}]
         assert response.json()["mapping"]["authorized_account_ids"] == [str(_ENVIRONMENT_ID)]
+        assert response.json()["subject"]["model_scope"] == {"kind": "restricted", "models": ["model-a"]}
     else:
         assert calls == [] and response.json()["mapping"] is None
 

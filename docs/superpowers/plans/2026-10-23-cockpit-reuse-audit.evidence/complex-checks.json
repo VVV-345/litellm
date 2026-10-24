@@ -1,0 +1,451 @@
+{
+  "BASELINE-initial.json": {
+    "label": "BASELINE",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/native-scope-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/source-baseline/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "{\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 7.361578702926636
+  },
+  "baseline-regression.json": {
+    "bindings": {
+      "ACTIVE_OBJECT": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "LAST_CONFIRMED_RESULT": "d06bd940ecfe69f7779486001ad648162dfa139a bounded native single-card preflight committed; 366 feature/integration + 431 original data-plane tests passed; no cutover",
+      "NEXT_EXECUTABLE_ACTION": "Extend D2.2 complex native subject permission mapping with offline failing tests for user/team/project and model restrictions, then reuse existing authorization rules without traffic cutover",
+      "INPUT_PATHS": [
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"
+      ],
+      "ACCEPTANCE_EVENT": "new complex-scope contract tests and verified local commit"
+    },
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_admin.py",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "account-pool/tests/account_pool/test_cockpit_runtime.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\AppData\\Local\\Temp\\cockpit-complex-scope-fp3hx43w\\pytest"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "........................................................................ [ 19%]\n........................................................................ [ 39%]\n........................................................................ [ 59%]\n........................................................................ [ 78%]\n........................................................................ [ 98%]\n......                                                                   [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py: 76 warnings\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\pydantic\\_internal\\_generate_schema.py:1480: UserWarning: Items 'supports_prompt_cache_breakpoint', 'supports_legacy_thinking', 'thinking_always_on', 'reasoning_effort_levels', 'default_reasoning_effort', 'input_cost_per_token_ultrafast', 'cache_creation_input_token_cost_ultrafast', 'cache_read_input_token_cost_ultrafast', 'output_cost_per_token_ultrafast', 'regional_endpoint_uplift_multiplier', 'output_cost_per_second_480p', 'output_cost_per_second_4k', 'google_maps_grounding_cost_per_query' on TypedDict class 'ModelInfo' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.\n    warnings.warn(\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\n  C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\litellm_core_utils\\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_computed_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.\n    attribute: Final[_AttributeView] = {\"value\": getattr(source, name)}\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\n  C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\litellm_core_utils\\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.\n    attribute: Final[_AttributeView] = {\"value\": getattr(source, name)}\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n366 passed, 93 warnings in 252.20s (0:04:12)\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  "BASELINE-unlinked.json": {
+    "label": "BASELINE",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/native-scope-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/source-baseline/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "{\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 8.98237657546997
+  },
+  "BASELINE.json": {
+    "label": "BASELINE",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\native-scope-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\source-baseline\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"key_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}, \"linked_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}}\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  "code-rollback-command.json": {
+    "label": "code-rollback-command",
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/ROLLBACK.sh",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/rollback.tar.gz",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/baseline.tar.gz"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.3084416389465332
+  },
+  "data-plane-regression.json": {
+    "label": "data-plane-regression",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_failover.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_quota_failover.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_conversation.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_native_routing.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/tmp-data-plane"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "........................................................................ [ 16%]\n........................................................................ [ 33%]\n........................................................................ [ 50%]\n........................................................................ [ 66%]\n........................................................................ [ 83%]\n.......................................................................  [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_cached_input_is_not_charged_twice[True-10]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides1-None-100-0.228]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides2-None-100-0.048]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides3-None-100-0.2]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides4-None-100-0]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides5-priority-100-0.416]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides6-None-300000-600.832]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_accounting.py::test_model_table_native_spend_and_full_log_share_deployment_prices[overrides7-None-100-0.126]\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\pydantic\\_internal\\_generate_schema.py:1480: UserWarning: Items 'supports_prompt_cache_breakpoint', 'supports_legacy_thinking', 'thinking_always_on', 'reasoning_effort_levels', 'default_reasoning_effort', 'input_cost_per_token_ultrafast', 'cache_creation_input_token_cost_ultrafast', 'cache_read_input_token_cost_ultrafast', 'output_cost_per_token_ultrafast', 'regional_endpoint_uplift_multiplier', 'output_cost_per_second_480p', 'output_cost_per_second_4k', 'google_maps_grounding_cost_per_query' on TypedDict class 'ModelInfo' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.\n    warnings.warn(\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n431 passed, 9 warnings in 524.14s (0:08:44)\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 553.387526512146
+  },
+  "final-regression.json": {
+    "label": "final-regression",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "account-pool/tests/account_pool/test_cockpit_preflight.py",
+      "account-pool/tests/account_pool/test_cockpit_admin.py",
+      "account-pool/tests/account_pool/test_cockpit_policy.py",
+      "account-pool/tests/account_pool/test_cockpit_runtime.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/tmp-final-regression"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "........................................................................ [ 15%]\n........................................................................ [ 30%]\n........................................................................ [ 46%]\n........................................................................ [ 61%]\n........................................................................ [ 77%]\n........................................................................ [ 92%]\n..................................                                       [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py: 76 warnings\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\pydantic\\_internal\\_generate_schema.py:1480: UserWarning: Items 'supports_prompt_cache_breakpoint', 'supports_legacy_thinking', 'thinking_always_on', 'reasoning_effort_levels', 'default_reasoning_effort', 'input_cost_per_token_ultrafast', 'cache_creation_input_token_cost_ultrafast', 'cache_read_input_token_cost_ultrafast', 'output_cost_per_token_ultrafast', 'regional_endpoint_uplift_multiplier', 'output_cost_per_second_480p', 'output_cost_per_second_4k', 'google_maps_grounding_cost_per_query' on TypedDict class 'ModelInfo' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.\n    warnings.warn(\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\n  C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\litellm_core_utils\\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_computed_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.\n    attribute: Final[_AttributeView] = {\"value\": getattr(source, name)}\n\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\ntests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]\n  C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\litellm_core_utils\\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.\n    attribute: Final[_AttributeView] = {\"value\": getattr(source, name)}\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n466 passed, 93 warnings in 423.96s (0:07:03)\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 458.320609331131
+  },
+  "implementer-green-1.json": {
+    "label": "implementer-green-1",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-k",
+      "native or subject or scope",
+      "-q",
+      "--disable-warnings"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "........................................................................ [ 40%]\n........................................................................ [ 81%]\n.................F.............F.                                        [100%]\n================================== FAILURES ===================================\n_________ test_runtime_entry_reads_writer_not_replica[False-verified] _________\n\nmonkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000001525A708380>\nrevoked = False, expected = 'verified'\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\"revoked,expected\", ((False, \"verified\"), (True, \"revoked\")))\n    async def test_runtime_entry_reads_writer_not_replica(\n        monkeypatch: pytest.MonkeyPatch, revoked: bool, expected: str\n    ) -> None:\n        from litellm.proxy import proxy_server\n    \n        monkeypatch.setattr(proxy_server, \"prisma_client\", PrismaClientFixture(WriterDatabase(revoked)))\n        result: Final = await inspect_native_subject(KEY)\n>       assert result.status == expected\nE       AssertionError: assert 'unavailable' == 'verified'\nE         \nE         - verified\nE         + unavailable\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:214: AssertionError\n___ test_writer_repository_uses_bounded_parameterized_reads[False-verified] ___\n\nrevoked = False, expected = 'verified'\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\"revoked,expected\", ((False, \"verified\"), (True, \"revoked\")))\n    async def test_writer_repository_uses_bounded_parameterized_reads(revoked: bool, expected: str) -> None:\n        repository: Final = WriterNativeSubjectRepository(WriterDatabase(revoked=revoked))\n        result: Final = await inspect_native_subject_with_repository(KEY, repository, now=NOW)\n>       assert result.status == expected\nE       AssertionError: assert 'unavailable' == 'verified'\nE         \nE         - verified\nE         + unavailable\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:181: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_runtime_entry_reads_writer_not_replica[False-verified]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_writer_repository_uses_bounded_parameterized_reads[False-verified]\n2 failed, 175 passed, 71 deselected, 1 warning in 27.05s\n",
+    "stderr": "Exception ignored in atexit callback: <function cleanup_numbered_dir at 0x0000015220FFCCC0>\nTraceback (most recent call last):\n  File \"D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\_pytest\\pathlib.py\", line 374, in cleanup_numbered_dir\n    cleanup_dead_symlinks(root)\n  File \"D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\_pytest\\pathlib.py\", line 359, in cleanup_dead_symlinks\n    if not left_dir.resolve().exists():\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\42117\\MiniConda3\\Lib\\pathlib.py\", line 860, in exists\n    self.stat(follow_symlinks=follow_symlinks)\n  File \"C:\\Users\\42117\\MiniConda3\\Lib\\pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nPermissionError: [WinError 5] 拒绝访问。: 'C:\\\\Users\\\\42117\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-42117\\\\pytest-current'\n",
+    "exit_status": 1,
+    "elapsed_seconds": 58.248154640197754
+  },
+  "implementer-green-2.json": {
+    "label": "implementer-green-2",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py",
+      "-k",
+      "native or subject or scope",
+      "-q",
+      "--disable-warnings",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/complex-scope-20261024/pytest-implementer-green-2"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "........................................................................ [ 40%]\n........................................................................ [ 81%]\n.................................                                        [100%]\n177 passed, 71 deselected, 1 warning in 26.46s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 59.42142415046692
+  },
+  "implementer-lint-1.json": {
+    "label": "implementer-lint-1",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.6790080070495605
+  },
+  "implementer-lint-final.json": {
+    "label": "implementer-lint-final",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.2534196376800537
+  },
+  "implementer-red.json": {
+    "label": "implementer-red",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py",
+      "-q",
+      "--disable-warnings"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "....F...F..F............................................................ [ 45%]\n...FFFFF.........................F.F.................................... [ 91%]\n.FFF......F...                                                           [100%]\n================================== FAILURES ===================================\n_ test_complex_or_incomplete_permissions_never_expand_scope[budget_duration-1d] _\n\nfield = 'budget_duration', value = '1d'\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"field,value\",\n        (\n            (\"models\", [\"all-proxy-models\"]),\n            (\"models\", None), (\"models\", [7]),\n            (\"aliases\", {\"alias\": \"restricted-model\"}), (\"config\", {\"model_list\": []}),\n            (\"permissions\", {\"allowed\": False}), (\"router_settings\", {\"fallbacks\": []}),\n            (\"access_group_ids\", [\"group\"]), (\"allowed_routes\", [\"/chat/completions\"]),\n            (\"policies\", [\"policy\"]), (\"model_max_budget\", {\"restricted-model\": 1}),\n            (\"budget_fallbacks\", {\"restricted-model\": [\"fallback\"]}),\n            (\"budget_limits\", [{\"budget_amount\": 1}]), (\"key_type\", \"management\"),\n            (\"max_budget\", 0), (\"budget_duration\", \"1d\"), (\"budget_reset_at\", NOW),\n            (\"user_id\", \"owner\"), (\"team_id\", \"owner\"), (\"project_id\", \"owner\"),\n            (\"organization_id\", \"owner\"), (\"agent_id\", \"owner\"),\n            (\"object_permission_id\", \"owner\"), (\"budget_id\", \"owner\"),\n            (\"user_id\", \"\"),\n            (\"metadata\", {\"account_pool_card_id\": str(CARD), \"allowed_passthrough_routes\": [\"/private\"]}),\n        ),\n    )\n    async def test_complex_or_incomplete_permissions_never_expand_scope(field: str, value: object) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**{field: value})), now=NOW)\n>       assert result.status == \"model_scope_unverified\"\nE       AssertionError: assert 'verified' == 'model_scope_unverified'\nE         \nE         - model_scope_unverified\nE         + verified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:135: AssertionError\n_ test_complex_or_incomplete_permissions_never_expand_scope[budget_reset_at-value16] _\n\nfield = 'budget_reset_at'\nvalue = datetime.datetime(2026, 10, 23, 0, 0, tzinfo=datetime.timezone.utc)\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"field,value\",\n        (\n            (\"models\", [\"all-proxy-models\"]),\n            (\"models\", None), (\"models\", [7]),\n            (\"aliases\", {\"alias\": \"restricted-model\"}), (\"config\", {\"model_list\": []}),\n            (\"permissions\", {\"allowed\": False}), (\"router_settings\", {\"fallbacks\": []}),\n            (\"access_group_ids\", [\"group\"]), (\"allowed_routes\", [\"/chat/completions\"]),\n            (\"policies\", [\"policy\"]), (\"model_max_budget\", {\"restricted-model\": 1}),\n            (\"budget_fallbacks\", {\"restricted-model\": [\"fallback\"]}),\n            (\"budget_limits\", [{\"budget_amount\": 1}]), (\"key_type\", \"management\"),\n            (\"max_budget\", 0), (\"budget_duration\", \"1d\"), (\"budget_reset_at\", NOW),\n            (\"user_id\", \"owner\"), (\"team_id\", \"owner\"), (\"project_id\", \"owner\"),\n            (\"organization_id\", \"owner\"), (\"agent_id\", \"owner\"),\n            (\"object_permission_id\", \"owner\"), (\"budget_id\", \"owner\"),\n            (\"user_id\", \"\"),\n            (\"metadata\", {\"account_pool_card_id\": str(CARD), \"allowed_passthrough_routes\": [\"/private\"]}),\n        ),\n    )\n    async def test_complex_or_incomplete_permissions_never_expand_scope(field: str, value: object) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**{field: value})), now=NOW)\n>       assert result.status == \"model_scope_unverified\"\nE       AssertionError: assert 'verified' == 'model_scope_unverified'\nE         \nE         - model_scope_unverified\nE         + verified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:135: AssertionError\n___ test_complex_or_incomplete_permissions_never_expand_scope[max_budget-0] ___\n\nfield = 'max_budget', value = 0\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"field,value\",\n        (\n            (\"models\", [\"all-proxy-models\"]),\n            (\"models\", None), (\"models\", [7]),\n            (\"aliases\", {\"alias\": \"restricted-model\"}), (\"config\", {\"model_list\": []}),\n            (\"permissions\", {\"allowed\": False}), (\"router_settings\", {\"fallbacks\": []}),\n            (\"access_group_ids\", [\"group\"]), (\"allowed_routes\", [\"/chat/completions\"]),\n            (\"policies\", [\"policy\"]), (\"model_max_budget\", {\"restricted-model\": 1}),\n            (\"budget_fallbacks\", {\"restricted-model\": [\"fallback\"]}),\n            (\"budget_limits\", [{\"budget_amount\": 1}]), (\"key_type\", \"management\"),\n            (\"max_budget\", 0), (\"budget_duration\", \"1d\"), (\"budget_reset_at\", NOW),\n            (\"user_id\", \"owner\"), (\"team_id\", \"owner\"), (\"project_id\", \"owner\"),\n            (\"organization_id\", \"owner\"), (\"agent_id\", \"owner\"),\n            (\"object_permission_id\", \"owner\"), (\"budget_id\", \"owner\"),\n            (\"user_id\", \"\"),\n            (\"metadata\", {\"account_pool_card_id\": str(CARD), \"allowed_passthrough_routes\": [\"/private\"]}),\n        ),\n    )\n    async def test_complex_or_incomplete_permissions_never_expand_scope(field: str, value: object) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**{field: value})), now=NOW)\n>       assert result.status == \"model_scope_unverified\"\nE       AssertionError: assert 'verified' == 'model_scope_unverified'\nE         \nE         - model_scope_unverified\nE         + verified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:135: AssertionError\n_____ test_explicit_native_model_scopes_remain_visible[changes0-models0] ______\n\nchanges = {'models': ['model-b', 'model-a', 'model-a']}\nmodels = ['model-a', 'model-b']\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"changes,models\",\n        (\n            ({\"models\": [\"model-b\", \"model-a\", \"model-a\"]}, [\"model-a\", \"model-b\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"personal-only\"]),\n              \"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\", \"model-b\"]),\n              \"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", team_id=\"team-1\", models=[\"model-b\"]),\n              \"membership_scope\": membership_scope(), \"models\": [\"model-a\", \"model-b\"]}, [\"model-b\"]),\n        ),\n    )\n    async def test_explicit_native_model_scopes_remain_visible(changes: dict[str, object], models: list[str]) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:259: AssertionError\n_____ test_explicit_native_model_scopes_remain_visible[changes1-models1] ______\n\nchanges = {'models': ['model-a', 'model-b'], 'user_id': 'user-1', 'user_scope': {'blocked': False, 'models': ['model-a'], 'permissions_unrestricted': True, 'subject_id': 'user-1', ...}}\nmodels = ['model-a']\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"changes,models\",\n        (\n            ({\"models\": [\"model-b\", \"model-a\", \"model-a\"]}, [\"model-a\", \"model-b\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"personal-only\"]),\n              \"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\", \"model-b\"]),\n              \"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", team_id=\"team-1\", models=[\"model-b\"]),\n              \"membership_scope\": membership_scope(), \"models\": [\"model-a\", \"model-b\"]}, [\"model-b\"]),\n        ),\n    )\n    async def test_explicit_native_model_scopes_remain_visible(changes: dict[str, object], models: list[str]) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:259: AssertionError\n_____ test_explicit_native_model_scopes_remain_visible[changes2-models2] ______\n\nchanges = {'models': ['model-a', 'model-b'], 'team_id': 'team-1', 'team_scope': {'blocked': False, 'models': ['model-a'], 'permissions_unrestricted': True, 'subject_id': 'team-1', ...}}\nmodels = ['model-a']\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"changes,models\",\n        (\n            ({\"models\": [\"model-b\", \"model-a\", \"model-a\"]}, [\"model-a\", \"model-b\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"personal-only\"]),\n              \"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\", \"model-b\"]),\n              \"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", team_id=\"team-1\", models=[\"model-b\"]),\n              \"membership_scope\": membership_scope(), \"models\": [\"model-a\", \"model-b\"]}, [\"model-b\"]),\n        ),\n    )\n    async def test_explicit_native_model_scopes_remain_visible(changes: dict[str, object], models: list[str]) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:259: AssertionError\n_____ test_explicit_native_model_scopes_remain_visible[changes3-models3] ______\n\nchanges = {'models': ['model-a', 'model-b'], 'project_id': 'project-1', 'project_scope': {'blocked': False, 'models': ['model-a'], 'permissions_unrestricted': True, 'subject_id': 'project-1', ...}}\nmodels = ['model-a']\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"changes,models\",\n        (\n            ({\"models\": [\"model-b\", \"model-a\", \"model-a\"]}, [\"model-a\", \"model-b\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"personal-only\"]),\n              \"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\", \"model-b\"]),\n              \"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", team_id=\"team-1\", models=[\"model-b\"]),\n              \"membership_scope\": membership_scope(), \"models\": [\"model-a\", \"model-b\"]}, [\"model-b\"]),\n        ),\n    )\n    async def test_explicit_native_model_scopes_remain_visible(changes: dict[str, object], models: list[str]) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:259: AssertionError\n_____ test_explicit_native_model_scopes_remain_visible[changes4-models4] ______\n\nchanges = {'membership_scope': {'budget_id': None, 'team_id': 'team-1', 'user_id': 'user-1'}, 'models': ['model-a', 'model-b'], ...ope': {'blocked': False, 'models': ['model-b'], 'permissions_unrestricted': True, 'subject_id': 'project-1', ...}, ...}\nmodels = ['model-b']\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\n        \"changes,models\",\n        (\n            ({\"models\": [\"model-b\", \"model-a\", \"model-a\"]}, [\"model-a\", \"model-b\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", models=[\"model-a\"]),\n              \"models\": [\"model-a\", \"model-b\"]}, [\"model-a\"]),\n            ({\"user_id\": \"user-1\", \"user_scope\": owner_scope(\"user-1\", models=[\"personal-only\"]),\n              \"team_id\": \"team-1\", \"team_scope\": owner_scope(\"team-1\", models=[\"model-a\", \"model-b\"]),\n              \"project_id\": \"project-1\", \"project_scope\": owner_scope(\"project-1\", team_id=\"team-1\", models=[\"model-b\"]),\n              \"membership_scope\": membership_scope(), \"models\": [\"model-a\", \"model-b\"]}, [\"model-b\"]),\n        ),\n    )\n    async def test_explicit_native_model_scopes_remain_visible(changes: dict[str, object], models: list[str]) -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:259: AssertionError\n_____ test_joined_writer_checks_current_references_without_owner_secrets ______\n\n    @pytest.mark.asyncio\n    async def test_joined_writer_checks_current_references_without_owner_secrets() -> None:\n        @dataclass(frozen=True)\n        class JoinedDatabase:\n            async def query_raw(self, query: str, *args: object) -> Sequence[Mapping[str, object]]:\n                assert args == (KEY,)\n                if query.startswith(\"SELECT token \"):\n                    return ()\n                assert \"SELECT *\" not in query and \"to_jsonb(\" not in query\n                for table in (\"LiteLLM_UserTable\", \"LiteLLM_TeamTable\", \"LiteLLM_ProjectTable\", \"LiteLLM_TeamMembership\"):\n                    assert f'LEFT JOIN \"{table}\"' in query\n                assert \"password\" not in query and \"user_email\" not in query and \"secret\" not in query\n                assert \"budget_id\" in query and \"policies\" in query and \"model_id\" in query\n                assert 'NOT EXISTS (SELECT 1 FROM \"LiteLLM_DeletedVerificationToken\" WHERE token = $1)' in query\n                return (record(team_id=\"team-1\", team_scope=owner_scope(\"team-1\", models=[\"model-a\"])),)\n    \n        result: Final = await inspect_native_subject_with_repository(\n            KEY, WriterNativeSubjectRepository(JoinedDatabase()), now=NOW,\n        )\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'unavailable' == 'verified'\nE         \nE         - verified\nE         + unavailable\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:350: AssertionError\n________ test_only_active_unrestricted_native_single_card_is_verified _________\n\n    @pytest.mark.asyncio\n    async def test_only_active_unrestricted_native_single_card_is_verified() -> None:\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record()), now=NOW)\n        assert result.status == \"verified\"\n        assert result.card_id == CARD\n        assert result.checked_at == NOW\n>       assert set(result.model_dump()) == {\"status\", \"card_id\", \"checked_at\", \"model_scope\"}\nE       AssertionError: assert {'card_id', '...at', 'status'} == {'card_id', '...pe', 'status'}\nE         \nE         Extra items in the right set:\nE         'model_scope'\nE         Use -v to get more diff\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:74: AssertionError\n_ test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted[project] _\n\nkind = 'project'\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\"kind\", (\"user\", \"team\", \"project\"))\n    async def test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted(kind: str) -> None:\n        changes: Final = {f\"{kind}_id\": \"owner-1\", f\"{kind}_scope\": owner_scope(\"owner-1\")}\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:271: AssertionError\n_ test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted[team] _\n\nkind = 'team'\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\"kind\", (\"user\", \"team\", \"project\"))\n    async def test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted(kind: str) -> None:\n        changes: Final = {f\"{kind}_id\": \"owner-1\", f\"{kind}_scope\": owner_scope(\"owner-1\")}\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:271: AssertionError\n_ test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted[user] _\n\nkind = 'user'\n\n    @pytest.mark.asyncio\n    @pytest.mark.parametrize(\"kind\", (\"user\", \"team\", \"project\"))\n    async def test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted(kind: str) -> None:\n        changes: Final = {f\"{kind}_id\": \"owner-1\", f\"{kind}_scope\": owner_scope(\"owner-1\")}\n        result: Final = await inspect_native_subject_with_repository(KEY, Repository(record(**changes)), now=NOW)\n>       assert result.status == \"verified\"\nE       AssertionError: assert 'model_scope_unverified' == 'verified'\nE         \nE         - verified\nE         + model_scope_unverified\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:271: AssertionError\n_____________ test_verified_subject_requires_explicit_model_scope _____________\n\n    def test_verified_subject_requires_explicit_model_scope() -> None:\n>       with pytest.raises(ValidationError):\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       Failed: DID NOT RAISE <class 'pydantic_core._pydantic_core.ValidationError'>\n\ntests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_subject.py:355: Failed\n=========================== short test summary info ===========================\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_complex_or_incomplete_permissions_never_expand_scope[budget_duration-1d]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_complex_or_incomplete_permissions_never_expand_scope[budget_reset_at-value16]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_complex_or_incomplete_permissions_never_expand_scope[max_budget-0]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_explicit_native_model_scopes_remain_visible[changes0-models0]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_explicit_native_model_scopes_remain_visible[changes1-models1]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_explicit_native_model_scopes_remain_visible[changes2-models2]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_explicit_native_model_scopes_remain_visible[changes3-models3]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_explicit_native_model_scopes_remain_visible[changes4-models4]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_joined_writer_checks_current_references_without_owner_secrets\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_only_active_unrestricted_native_single_card_is_verified\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted[project]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted[team]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_supported_linked_owner_without_model_limit_is_explicitly_unrestricted[user]\nFAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py::test_verified_subject_requires_explicit_model_scope\n14 failed, 144 passed, 1 warning in 13.24s\n",
+    "stderr": "Exception ignored in atexit callback: <function cleanup_numbered_dir at 0x0000028627C11080>\nTraceback (most recent call last):\n  File \"D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\_pytest\\pathlib.py\", line 374, in cleanup_numbered_dir\n    cleanup_dead_symlinks(root)\n  File \"D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\_pytest\\pathlib.py\", line 359, in cleanup_dead_symlinks\n    if not left_dir.resolve().exists():\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\42117\\MiniConda3\\Lib\\pathlib.py\", line 860, in exists\n    self.stat(follow_symlinks=follow_symlinks)\n  File \"C:\\Users\\42117\\MiniConda3\\Lib\\pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nPermissionError: [WinError 5] �ܾ����ʡ�: 'C:\\\\Users\\\\42117\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-42117\\\\pytest-current'\n",
+    "exit_status": 1,
+    "elapsed_seconds": 40.969391107559204
+  },
+  "implementer-types-1.json": {
+    "label": "implementer-types-1",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/basedpyright.exe",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py:194:9 - error: Type of \"intersection\" is partially unknown\n    Type of \"intersection\" is \"frozenset[Unknown]\" (reportUnknownVariableType)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py:194:31 - error: Type of \"intersection\" is partially unknown\n    Type of \"intersection\" is \"(self: frozenset[Unknown], *s: Iterable[object]) -> frozenset[Unknown]\" (reportUnknownMemberType)\n  c:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py:195:72 - error: Argument type is partially unknown\n    Argument corresponds to parameter \"iterable\" in function \"sorted\"\n    Argument type is \"frozenset[Unknown]\" (reportUnknownArgumentType)\n3 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 7.276303768157959
+  },
+  "implementer-types-final.json": {
+    "label": "implementer-types-final",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/basedpyright.exe",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 3.2213730812072754
+  },
+  "MODIFIED-initial.json": {
+    "label": "MODIFIED-initial",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/native-scope-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm/litellm/proxy/management_endpoints/account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "{\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-24T00:00:00Z\", \"model_scope\": {\"kind\": \"restricted\", \"models\": [\"scope-model\"]}, \"status\": \"verified\"}\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 9.400947093963623
+  },
+  "MODIFIED.json": {
+    "label": "MODIFIED",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\native-scope-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\source-modified\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"key_models\": {\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-24T00:00:00Z\", \"model_scope\": {\"kind\": \"restricted\", \"models\": [\"scope-model\"]}, \"status\": \"verified\"}, \"linked_models\": {\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-24T00:00:00Z\", \"model_scope\": {\"kind\": \"restricted\", \"models\": [\"scope-model\"]}, \"status\": \"verified\"}}\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  "query-schema.json": {
+    "label": "query-schema",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/verify-query-schema.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": null,
+      "PYTHONDONTWRITEBYTECODE": null,
+      "LITELLM_LOCAL_MODEL_COST_MAP": null
+    },
+    "stdout": "Schema reference check: PASS; 76 distinct qualified columns, 6 array predicates, 8 JSON predicates\nAll joined keys unique under schema.prisma; PostgreSQL execution/Prisma decoding NOT tested\nSubject SHA256: 4a1361786e12569483b4bfcc888c90adf26ffc161a0d55114df15e1ec28ac6be\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.2630269527435303
+  },
+  "ROLLBACK.json": {
+    "label": "ROLLBACK",
+    "command": [
+      "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\native-scope-smoke.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\source-rollback\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"key_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}, \"linked_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}}\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  "schema-generate.json": {
+    "label": "schema-generate",
+    "command": [
+      "C:/Program Files/nodejs/node.exe",
+      "ui/litellm-dashboard/node_modules/openapi-typescript/bin/cli.js",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/scope-openapi.json",
+      "-o",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/scope-generated.d.ts"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "✨ openapi-typescript 7.13.0\n🚀 C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/scope-openapi.json → C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/scope-generated.d.ts [42.9ms]\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 7.78704571723938
+  },
+  "schema-merge.json": {
+    "label": "schema-merge",
+    "command": [
+      "C:/Program Files/nodejs/node.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/merge-schema.cjs"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "{\"paths\":[\"/account_pool/cockpit/native-preflight\"],\"operations\":[\"check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post\"],\"schemas\":[\"CockpitAccountPreflight\",\"CockpitPreflightReport\",\"CockpitNativePreflightRequest\",\"CockpitNativePreflightReport\",\"NativeSubjectResult\",\"NativeModelScope\"],\"edits\":8}\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.4496889114379883
+  },
+  "schema-openapi.json": {
+    "label": "schema-openapi",
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024/generate-schema.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "Generated paths: ['/account_pool/cockpit/preflight', '/account_pool/cockpit/native-preflight']\nSchemas: ['CockpitAccountPreflight', 'CockpitNativePreflightReport', 'CockpitNativePreflightRequest', 'CockpitPreflightReport', 'CockpitPreflightRequest', 'HTTPValidationError', 'NativeModelScope', 'NativeSubjectResult', 'ValidationError']\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 12.1380033493042
+  },
+  "schema-types.json": {
+    "label": "schema-types",
+    "command": [
+      "C:/Program Files/nodejs/node.exe",
+      "ui/litellm-dashboard/node_modules/typescript/bin/tsc",
+      "--noEmit",
+      "--strict",
+      "--target",
+      "ES2020",
+      "--skipLibCheck",
+      "false",
+      "ui/litellm-dashboard/src/lib/http/schema.d.ts"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "environment": {
+      "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool",
+      "PYTHONDONTWRITEBYTECODE": "1",
+      "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+    },
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.5361237525939941
+  },
+  "notes": {
+    "scope": "Offline static native user/team/project and literal model scopes only. No real DB/provider, credential writes, traffic cutover, image/build/deployment or push. Original checkout unchanged.",
+    "errors": "Initial RED child exit1 was saved before wrapper GBK UnicodeEncodeError; corrected wrapper environment to UTF-8. GREEN1 had two SELECT whitespace assertion failures and shared pytest-current WinError5 cleanup stderr; private basetemp and SELECT-space correction fixed GREEN2. Initial strict type check failed three unknown intersection generic types; typed first-set method fixed without suppression. Earlier historical counts are not fresh results.",
+    "limits": "Full repository/full UI/production build/browser/race checks not run; prior full UI type diagnostics and missing gcc race prerequisite remain unresolved. SQL schema inspection is not PostgreSQL execution. API report is not runtime authorization.",
+    "source_base_commit": "d06bd940ecfe69f7779486001ad648162dfa139a",
+    "source_hashes": {
+      "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py": "4a1361786e12569483b4bfcc888c90adf26ffc161a0d55114df15e1ec28ac6be",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py": "80b4c3200f6900b68c59942f147e2529f12acbb80f1cbdd53f428e677f1de037",
+      "litellm/proxy/management_endpoints/account_pool_endpoints.py": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py": "790cdf3bf7b8eb2ffa1f2599cf880b1db336d41c4e7557a7a20f277ac391f107",
+      "ui/litellm-dashboard/src/lib/http/schema.d.ts": "d2edba550e1b0b1d0a8c8b60cfed9d7b2c18d7bdcd376bcdd885c547354236c2"
+    }
+  }
+}

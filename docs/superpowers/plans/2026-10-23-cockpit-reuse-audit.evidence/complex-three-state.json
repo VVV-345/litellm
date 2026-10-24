@@ -1,0 +1,53 @@
+{
+  "events": [
+    {
+      "label": "BASELINE",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\native-scope-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\source-baseline\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"key_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}, \"linked_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}}\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "MODIFIED",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\native-scope-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\source-modified\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"key_models\": {\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-24T00:00:00Z\", \"model_scope\": {\"kind\": \"restricted\", \"models\": [\"scope-model\"]}, \"status\": \"verified\"}, \"linked_models\": {\"card_id\": \"00000000-0000-0000-0000-000000000001\", \"checked_at\": \"2026-10-24T00:00:00Z\", \"model_scope\": {\"kind\": \"restricted\", \"models\": [\"scope-model\"]}, \"status\": \"verified\"}}\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    {
+      "label": "ROLLBACK",
+      "command": [
+        "D:\\Work2api\\litellm\\.venv\\Scripts\\python.exe",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\native-scope-smoke.py",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\complex-scope-20261024\\source-rollback\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_subject.py"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "stdout": "{\"key_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}, \"linked_models\": {\"card_id\": null, \"checked_at\": \"2026-10-24T00:00:00Z\", \"status\": \"model_scope_unverified\"}}\n",
+      "stderr": "",
+      "exit_status": 0
+    }
+  ],
+  "restored_archive_matches": true,
+  "source_hashes": {
+    "litellm/proxy/management_endpoints/account_pool_cockpit_subject.py": "4a1361786e12569483b4bfcc888c90adf26ffc161a0d55114df15e1ec28ac6be",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py": "80b4c3200f6900b68c59942f147e2529f12acbb80f1cbdd53f428e677f1de037",
+    "litellm/proxy/management_endpoints/account_pool_endpoints.py": "3a51100f93dc7b36f428e93d88e5ca12dbc60c4fd13f964b54c960755e5a7871",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py": "790cdf3bf7b8eb2ffa1f2599cf880b1db336d41c4e7557a7a20f277ac391f107",
+    "ui/litellm-dashboard/src/lib/http/schema.d.ts": "d2edba550e1b0b1d0a8c8b60cfed9d7b2c18d7bdcd376bcdd885c547354236c2"
+  },
+  "archive_hashes": {
+    "baseline.tar.gz": "72f378704a56af37ebe3afe529d0fa4e4e7ddc01cc399a9ebe1ee6c31bf7eab0",
+    "modified.tar.gz": "573468620fc8ca7eaa28b15a149ac4b0e3f0ef90e9cbecaa46f353ebb00ca11d",
+    "rollback.tar.gz": "72f378704a56af37ebe3afe529d0fa4e4e7ddc01cc399a9ebe1ee6c31bf7eab0"
+  }
+}
