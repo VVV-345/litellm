@@ -148,7 +148,7 @@
 
 - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
 - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
-- [ ] D2.3 请求接管：按 scope 发布 Cockpit 路由，验证外层 retry/fallback 不会再次发请求，验证原有 LiteLLM 标准 token/spend 统计继续归属原用户/Key；客户端协议不新增内部管理 Token
+- [ ] D2.3 请求接管：按 scope 发布 Cockpit 路由，验证外层 retry/fallback 不会再次发请求，验证原有 LiteLLM 标准 token/spend 统计继续归属原用户/Key；客户端协议不新增内部管理 Token（本地代码与离线契约已完成，激活和运行验证未完成，见 D2.3 第一段结果）
 - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
 - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
 
@@ -266,6 +266,20 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保�
 回执签发与重验只通过 Manager `/api/cockpit/credential-receipts` 和 `/revalidate` 显式执行；LiteLLM 代理入口先校验 proxy admin，再转发至 Manager。两侧响应均禁缓存，输入和服务失败使用固定错误，不回显 receipt/凭据正文。普通状态、预检和用户模型请求不触发凭据读取；只读回执仍不证明上游身份、令牌有效或 Cockpit 已加载目标账号
 
 本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
+
+### D2.3 第一段本地代码结果：授权范围发布与唯一请求 owner 接线（2026-10-25）
+
+本段基于 `1a6902d443`，沿用现有 `codex/cockpit-reuse-plan` 工作区；Cockpit 保持 `ec9989c0` 和既有未提交 workflow 不动。只写代码、离线测试和本地提交，没有推送、镜像构建、部署、真实数据库/供应商访问、真实凭据迁移或切流。按用户确认的四项执行：A+B 两段都做；发布记录 `enabled=false` 且预生成派生通行证；只接原生虚拟 Key 的 Responses 请求；数据面地址由 Manager 内部路由状态下发
+
+Manager 新增 `account-pool/account_pool/cockpit_scope.py`，并通过 `create_router` 暴露管理路由。发布输入只有 subject hash、D2.2 第五段的签名回执和期望 manifest revision；账号、模型和回执状态只能来自服务端当前读取。发布前重新校验回执，要求目标 account 为 Codex OAuth/default、authId 与回执一致，回执中的每个模型都能在 manifest modelIds 和排除规则下映射；任一不满足整体拒绝，不静默裁剪。投影写入保留 apiKey 条目，id 为 `litellm-subject-<subject hash>`，`accountIds` 只含回执绑定的单卡，`allowedModels` 只含受限模型，`enabled=false`，key 使用新 `SecretPurpose.COCKPIT_SUBJECT_ROUTING` 派生，不在响应或日志出现
+
+写入沿用单次 manifest CAS，保留未知字段；revision 冲突、同名但不同结构、通行证冲突和写入结果不明分别返回固定 409/409/503，不自动重试。撤销同样走 CAS 删除，幂等。新增 `GET/POST/DELETE /api/cockpit/scope` 与内部 `GET /internal/cockpit/route/{subject_hash}`；LiteLLM 增加仅 proxy admin 的 `/account_pool/cockpit/scope` 代理。所有响应禁缓存。视图返回 `state=staged`、account_ids、models、manifest revision、`runtime_activation=restart_required_or_unverified` 和 `ready_to_migrate=false`，不把发布当运行授权
+
+LiteLLM 新增 `account_pool_cockpit_route.py`，按 subject hash 读取 Manager 内部路由状态。开关 `ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED` 默认关闭；关闭时不查询、不改变现有链路。开启后 absent/staged 继续走原链路；active 时校验模型、协议和可重放边界，在 `_route_request_single_attempt` 绕过 Router 与 Manager resolve/acquire，单次直接调用 `litellm.aresponses`，设置 `num_retries=0`、`max_retries=0`、清空 fallbacks、禁用缓存，并保留原请求的 `litellm_metadata` 归属字段，只追加 `account_pool_route_owner=cockpit`。blocked、路由读取失败、模型越界、非 Responses 或带 `previous_response_id`/签名历史的请求明确失败，不回退旧链路
+
+首期只在测试中注入 active 路由；没有实现把发布记录改为 `enabled=true`、重启 Cockpit、确认运行 revision 或切流。生产上发布记录保持 disabled，Router 和 Manager 仍是实际请求 owner；因此“代码具备单 owner 路径”不等于“运行中已接管”。30 秒路由缓存和未实现激活意味着发布/撤销传播存在窗口，切换顺序仍属后续门槛
+
+本轮新增测试：Manager 范围发布与路由状态 16 项、LiteLLM 发布代理 4 项、LiteLLM 唯一 owner 13 项，共 33 项，均为离线或 MockTransport 测试。更广的 Manager/LiteLLM 定向回归、严格类型、Ruff 和新增行诊断见 `d23-20261025/` 证据。新增源文件严格类型 0 errors；改动文件仅保留既有诊断，新增行严格 Ruff/基于 pyright 诊断均为 0。`npm run gen:api` 尝试重新生成时产生既有路由顺序导致的大范围重排，未提交该噪声；本轮没有 UI 使用新类型。`ready_to_migrate` 保持 false，真实统计持久化、运行中 Cockpit、凭据和供应商身份仍未验证
 
 ### 替换阶段 E：行为兼容与差异验收
 

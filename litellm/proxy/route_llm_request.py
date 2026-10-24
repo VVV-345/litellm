@@ -486,12 +486,28 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
         data["fallbacks"] = []
         data["context_window_fallbacks"] = []
         data["content_policy_fallbacks"] = []
-
     await add_shared_session_to_data(data)
 
     raise_if_mock_testing_params_disallowed(data, allowed=mock_testing_params_allowed())
 
     if pool_caller is not None and pool_caller.card_id is not None:
+        from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
+            cockpit_route_for_request,
+            dispatch_cockpit_route,
+        )
+
+        cockpit_route: Final = await cockpit_route_for_request(
+            pool_caller,
+            getattr(user_api_key_dict, "token", None),
+            data,  # pyright: ignore[reportUnknownArgumentType]  # validated inside the cockpit route module
+            route_type,
+        )
+        if cockpit_route is not None:
+            return await dispatch_cockpit_route(
+                cockpit_route,
+                data,  # pyright: ignore[reportUnknownArgumentType]  # validated inside the cockpit route module
+                route_type,
+            )
         if llm_router is None:
             raise HTTPException(503, "Card keys require the configured LiteLLM router")
         return getattr(llm_router, route_type)(**data)
