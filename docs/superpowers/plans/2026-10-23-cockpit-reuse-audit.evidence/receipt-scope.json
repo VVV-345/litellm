@@ -1,0 +1,34 @@
+{
+  "source_base_commit": "61c3cb40ca6f37f7730c9ee27bc9981777d9f2c8",
+  "changed_symbols": [
+    "CockpitCredentialReceiptService.issue",
+    "CockpitCredentialReceiptService.revalidate",
+    "_canonical_target_fields",
+    "SecretPurpose.COCKPIT_CREDENTIAL_RECEIPT"
+  ],
+  "scope": "Internal dependency-injected receipt service only; no production subject adapter, HTTP/UI registration or default invocation",
+  "unchanged": "target_identity_unverified and ready_to_migrate=false; original data-plane and main checkout untouched",
+  "error_provenance": "Initial module-absent RED, boundary RED, strict-type correction and case-alias RED outputs retained in receipt-checks.json. Review P2 and UTF-8 correction retained in original and re-review reports. Pre-fix 294 is not a post-fix full run",
+  "unverified": [
+    "live PostgreSQL/Prisma",
+    "production trusted subject adapter and protected management workflow",
+    "provider identity/token usability",
+    "atomic cross-service authorization or one-time migration lock",
+    "real credential migration and scope publication",
+    "sole-owner data-plane cutover",
+    "full repository/UI/build/browser checks; prior gcc race prerequisite"
+  ],
+  "restrictions": [
+    "no real credentials/DB/provider access",
+    "no merge/push",
+    "no image/build/deployment",
+    "no traffic cutover"
+  ],
+  "source_hashes": {
+    "account-pool/account_pool/cockpit_admin.py": "ba332878cdbb742fa85a0c8dbf295591b35263a2b0473cbe7e4443f020bbc0f8",
+    "account-pool/account_pool/cockpit_preflight.py": "7b994944dee6dabdcf85bb139eab1ddb99cfe6ec864d66458497555dcfe8d5ae",
+    "account-pool/account_pool/shared/secrets.py": "dee70227a3c227b928ff1d0e34eba2073dbb562c35a7780a899ea774d9f6501a",
+    "account-pool/account_pool/cockpit_credential_receipts.py": "c1a16239efedb93c41e95daa37315c2bee495c020031c7a3aafa19c418da665f",
+    "account-pool/tests/account_pool/test_cockpit_credential_receipts.py": "e8e5ba385ce1bc9a3e89d545d9de07bfcea99ec0764f31be6e1d17e79b2d62a5"
+  }
+}

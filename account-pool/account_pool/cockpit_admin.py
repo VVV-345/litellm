@@ -34,6 +34,9 @@ def _valid_auth_name(name: str) -> bool:
     )
 
 
+valid_cockpit_auth_name: Final = _valid_auth_name
+
+
 class CockpitAdminConfig(BaseModel):
     model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
 

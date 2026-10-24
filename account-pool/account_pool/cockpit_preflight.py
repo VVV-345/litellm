@@ -130,6 +130,11 @@ def _auth_aliases(auth_id: str) -> frozenset[str]:
     return frozenset((value, PurePosixPath(value).name)) if value else frozenset()
 
 
+CockpitPreflightManifest = _Manifest
+source_available_for_cockpit_preflight: Final = _available
+cockpit_auth_aliases: Final = _auth_aliases
+
+
 def _account_report(
     account_id: UUID,
     source: EnvironmentRecord | None,
