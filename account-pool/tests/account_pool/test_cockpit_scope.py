@@ -18,6 +18,7 @@ from account_pool.cockpit_credential_receipts import (
     CredentialReceipt,
     CredentialReceiptPayload,
     CredentialReceiptRejection,
+    ReceiptRejectionCode,
     TrustedCredentialScope,
 )
 from account_pool.cockpit_scope import (
@@ -30,7 +31,7 @@ from account_pool.cockpit_scope import (
     subject_routing_token,
 )
 from account_pool.shared.secrets import EnvironmentSecretDeriver
-from pydantic import SecretStr
+from pydantic import SecretStr, TypeAdapter
 
 CARD: Final = UUID("00000000-0000-0000-0000-000000000001")
 SUBJECT: Final = "a" * 64
@@ -105,7 +106,9 @@ class Receipts:
         model_scope: str = "restricted",
         manifest_revision: str = R1,
     ) -> None:
-        self.rejection = rejection
+        self.rejection: Final = (
+            None if rejection is None else TypeAdapter(ReceiptRejectionCode).validate_python(rejection)
+        )
         self.models = models
         self.model_scope = model_scope
         self.manifest_revision = manifest_revision
@@ -113,7 +116,7 @@ class Receipts:
     async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection:
         assert subject_hash == SUBJECT and encoded
         if self.rejection is not None:
-            return CredentialReceiptRejection(self.rejection)  # type: ignore[arg-type]
+            return CredentialReceiptRejection(self.rejection)
         return receipt(models=self.models, model_scope=self.model_scope, manifest_revision=self.manifest_revision)
 
 

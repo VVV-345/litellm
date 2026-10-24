@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 from typing import Final
 from uuid import UUID, uuid4
 
@@ -14,6 +13,7 @@ from fastapi import HTTPException
 from pydantic import SecretStr
 
 import litellm
+from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
     CockpitRoute,
     CockpitRouteResolver,
@@ -55,8 +55,8 @@ def _identity() -> PoolIdentity:
     return PoolIdentity(key_hash=SUBJECT, card_id=CARD, request_id=uuid4())
 
 
-def _user() -> SimpleNamespace:
-    return SimpleNamespace(token=SUBJECT)
+def _user() -> UserAPIKeyAuth:
+    return UserAPIKeyAuth(token=SUBJECT)
 
 
 def _use_lookup(decision: RouteDecision | Exception) -> None:
@@ -380,7 +380,7 @@ def test_active_route_failure_never_falls_back_to_the_router(monkeypatch: pytest
                     RejectingRouter(),
                     None,
                     "aresponses",
-                    _user(),  # type: ignore[arg-type]
+                    _user(),
                 )
             )
     finally:
