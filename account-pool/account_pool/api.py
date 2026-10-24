@@ -36,6 +36,15 @@ from account_pool.cockpit_preflight import (
     CockpitPreflightRequest,
     cockpit_preflight,
 )
+from account_pool.cockpit_scope import (
+    CockpitScopePublishRequest,
+    CockpitScopeRevokeRequest,
+    CockpitScopeService,
+    CockpitSubjectRouteState,
+    CockpitSubjectScopeView,
+    ScopeFailure,
+    valid_subject_hash,
+)
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.domain import (
     AuthorizationFlow,
@@ -436,6 +445,7 @@ def create_router(
     feedback: FeedbackService | None = None,
     cockpit_admin: CockpitAdminClient | None = None,
     credential_receipts: CredentialReceiptOperations | None = None,
+    cockpit_scope: CockpitScopeService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -464,6 +474,55 @@ def create_router(
                 503 if result.category == "transport" or result.status_code == 503 else 502,
                 "Cockpit preflight unavailable", headers={"Cache-Control": "no-store"},
             )
+        return result
+
+    def scope_result(result: CockpitSubjectScopeView | ScopeFailure) -> CockpitSubjectScopeView:
+        if isinstance(result, ScopeFailure):
+            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
+        return result
+
+    def scope_service() -> CockpitScopeService:
+        if cockpit_scope is None:
+            raise HTTPException(503, "Cockpit scope unavailable", headers={"Cache-Control": "no-store"})
+        return cockpit_scope
+
+    @router.get("/api/cockpit/scope/{subject_hash}", dependencies=[Depends(require_manager)])
+    async def get_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        subject_hash: str, response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        if not valid_subject_hash(subject_hash):
+            raise HTTPException(422, "invalid_receipt", headers={"Cache-Control": "no-store"})
+        return scope_result(await scope_service().read(subject_hash))
+
+    @router.post("/api/cockpit/scope", dependencies=[Depends(require_manager)])
+    async def publish_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CockpitScopePublishRequest, response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        return scope_result(await scope_service().publish(request))
+
+    @router.delete("/api/cockpit/scope", dependencies=[Depends(require_manager)])
+    async def revoke_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CockpitScopeRevokeRequest, response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        return scope_result(await scope_service().revoke(request))
+
+    @router.get(
+        "/internal/cockpit/route/{subject_hash}",
+        dependencies=[Depends(require_manager)],
+        include_in_schema=False,
+    )
+    async def get_cockpit_route(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        subject_hash: str, response: Response,
+    ) -> CockpitSubjectRouteState:
+        response.headers["Cache-Control"] = "no-store"
+        if not valid_subject_hash(subject_hash):
+            raise HTTPException(422, "invalid_receipt", headers={"Cache-Control": "no-store"})
+        result: Final = await scope_service().route_state(subject_hash)
+        if isinstance(result, ScopeFailure):
+            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
         return result
 
     @router.post("/api/cockpit/native-preflight", dependencies=[Depends(require_manager)])

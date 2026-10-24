@@ -70,6 +70,34 @@ class CockpitPolicyView(BaseModel):
     )
 
 
+class CockpitScopePublishRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    receipt: str = Field(min_length=1, max_length=16384)
+    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+
+
+class CockpitScopeRevokeRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+
+
+class CockpitSubjectScopeView(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    subject_hash: str
+    state: Literal["absent", "staged", "active", "blocked"]
+    account_ids: tuple[str, ...]
+    model_scope: Literal["none", "restricted"]
+    models: tuple[str, ...]
+    persisted_manifest_revision: str | None = None
+    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
+    ready_to_migrate: Literal[False] = False
+
+
 class CockpitStatus(BaseModel):
     model_config = ConfigDict(frozen=True, strict=True)
 

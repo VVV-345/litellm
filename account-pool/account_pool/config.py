@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     cockpit_admin_url: str | None = Field(default=None, repr=False)
     cockpit_admin_token: SecretStr | None = Field(default=None, min_length=32)
     cockpit_subject_url: str | None = Field(default=None, repr=False)
+    cockpit_data_url: str | None = Field(default=None, repr=False)
     secret_seed: str = Field(min_length=32)
     manager_container: str = Field(default="litellm-account-pool", pattern=r"^[a-zA-Z0-9_.-]+$")
     gateway_container: str = Field(default="litellm", pattern=r"^[a-zA-Z0-9_.-]+$")
@@ -103,9 +104,11 @@ class Settings(BaseSettings):
     def validate_cockpit_subject(self) -> "Settings":
         if self.cockpit_subject_url is not None and self.cockpit_admin_config() is None:
             raise ValueError("Cockpit subject URL requires Cockpit admin configuration")
+        if self.cockpit_data_url is not None and self.cockpit_admin_config() is None:
+            raise ValueError("Cockpit data URL requires Cockpit admin configuration")
         return self
 
-    @field_validator("cockpit_subject_url")
+    @field_validator("cockpit_subject_url", "cockpit_data_url")
     @classmethod
     def validate_cockpit_subject_url(cls, value: str | None) -> str | None:
         return None if value is None else validate_http_origin(value)

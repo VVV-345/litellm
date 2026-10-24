@@ -19,6 +19,7 @@ class SecretPurpose(StrEnum):
     AUTHORIZATION_STATE = "authorization-state"
     CREDENTIAL_IDENTITY = "credential-identity"
     COCKPIT_CREDENTIAL_RECEIPT = "cockpit-credential-receipt"
+    COCKPIT_SUBJECT_ROUTING = "cockpit-subject-routing"
 
 
 class EnvironmentSecretDeriver:

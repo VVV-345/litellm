@@ -31,6 +31,7 @@ from account_pool.cockpit_credential_receipts import (
     CredentialSourceReader,
 )
 from account_pool.cockpit_receipt_adapter import CockpitSubjectClient, CockpitSubjectConfig
+from account_pool.cockpit_scope import CockpitScopeService
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
@@ -222,6 +223,11 @@ def create_app(
         ownership,
         secrets,
     )
+    cockpit_scope: Final = (
+        CockpitScopeService(credential_receipts, cockpit_admin, secrets, resolved.cockpit_data_url)
+        if cockpit_admin is not None
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
@@ -360,6 +366,7 @@ def create_app(
             feedback=feedback,
             cockpit_admin=cockpit_admin,
             credential_receipts=credential_receipts,
+            cockpit_scope=cockpit_scope,
         )
     )
     return app
