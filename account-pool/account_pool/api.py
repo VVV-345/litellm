@@ -6,9 +6,9 @@ import asyncio
 import hmac
 import html
 import json
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Coroutine, Mapping
 from datetime import date, datetime
-from typing import Annotated, Final, Literal, TypeVar
+from typing import Annotated, Final, Literal, Protocol, Self, TypeVar
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
@@ -17,7 +17,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg import Error as DatabaseError
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from starlette.background import BackgroundTask
 
 from account_pool.batch_models import BatchJob, BatchRequest
@@ -25,6 +25,11 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, CockpitStatus, cockpit_status
+from account_pool.cockpit_credential_receipts import (
+    CredentialReceipt,
+    CredentialReceiptRejection,
+    ReceiptRejectionCode,
+)
 from account_pool.cockpit_preflight import (
     CockpitNativeMappingRequest,
     CockpitPreflightReport,
@@ -96,6 +101,128 @@ class ISPCatalogRoute(APIRoute):
                 raise HTTPException(503, "ISP catalog storage unavailable; retry") from None
 
         return validated
+
+
+class _CredentialReceiptRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def guarded(request: Request) -> Response:
+            try:
+                response: Final = await handler(request)
+            except RequestValidationError:
+                return JSONResponse(
+                    {"detail": "Invalid credential receipt request"}, status_code=422,
+                    headers={"Cache-Control": "no-store"},
+                )
+            except HTTPException as error:
+                status_code: Final = error.status_code if error.status_code in (401, 403, 503) else 503
+                return JSONResponse(
+                    {"detail": "Credential receipt unavailable"}, status_code=status_code,
+                    headers={"Cache-Control": "no-store"},
+                )
+            except Exception:  # noqa: BLE001  # sanitize unexpected receipt failures before returning them
+                return JSONResponse(
+                    {"detail": "Credential receipt unavailable"}, status_code=503,
+                    headers={"Cache-Control": "no-store"},
+                )
+            else:
+                response.headers["Cache-Control"] = "no-store"
+                return response
+
+        return guarded
+
+
+class CredentialReceiptRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    key_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
+
+
+class CredentialReceiptRevalidateRequest(CredentialReceiptRequest):
+    receipt: str = Field(min_length=1, max_length=65536, repr=False)
+
+
+class CredentialReceiptResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    key_hash: str = Field(pattern=r"^[0-9a-f]{64}$", repr=False)
+    status: Literal["owned_artifact_correspondence", "rejected"]
+    ready_to_migrate: Literal[False] = False
+    receipt: str | None = Field(default=None, max_length=65536, repr=False)
+    code: ReceiptRejectionCode | None = None
+
+    @model_validator(mode="after")
+    def result_shape(self) -> Self:
+        if (self.status == "owned_artifact_correspondence") != (self.receipt is not None):
+            raise ValueError("Invalid receipt result")
+        if (self.status == "rejected") != (self.code is not None):
+            raise ValueError("Invalid receipt result")
+        return self
+
+
+class CredentialReceiptOperations(Protocol):
+    async def issue(self, subject_hash: str) -> CredentialReceipt | CredentialReceiptRejection: ...
+
+    async def revalidate(
+        self, subject_hash: str, encoded: str,
+    ) -> CredentialReceipt | CredentialReceiptRejection: ...
+
+
+def _manager_guard(manager_token: str) -> Callable[[HTTPAuthorizationCredentials | None], None]:
+    def require_manager(
+        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
+    ) -> None:
+        supplied: Final = "" if credentials is None else credentials.credentials
+        if not hmac.compare_digest(supplied, manager_token):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
+
+    return require_manager
+
+
+def _create_credential_receipt_router(
+    credential_receipts: CredentialReceiptOperations | None,
+    require_manager: Callable[[HTTPAuthorizationCredentials | None], None],
+) -> APIRouter:
+    router: Final = APIRouter(route_class=_CredentialReceiptRoute)
+
+    @router.post(
+        "/api/cockpit/credential-receipts",
+        response_model=CredentialReceiptResponse,
+        dependencies=[Depends(require_manager)],
+    )
+    async def issue_credential_receipt(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CredentialReceiptRequest, response: Response,
+    ) -> CredentialReceiptResponse:
+        response.headers["Cache-Control"] = "no-store"
+        if credential_receipts is None:
+            raise HTTPException(503, "Credential receipt unavailable", headers={"Cache-Control": "no-store"})
+        result: Final = await credential_receipts.issue(request.key_hash)
+        if isinstance(result, CredentialReceipt):
+            return CredentialReceiptResponse(
+                key_hash=request.key_hash, status=result.status, receipt=result.model_dump_json(),
+            )
+        return CredentialReceiptResponse(key_hash=request.key_hash, status="rejected", code=result.code)
+
+    @router.post(
+        "/api/cockpit/credential-receipts/revalidate",
+        response_model=CredentialReceiptResponse,
+        dependencies=[Depends(require_manager)],
+    )
+    async def revalidate_credential_receipt(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CredentialReceiptRevalidateRequest, response: Response,
+    ) -> CredentialReceiptResponse:
+        response.headers["Cache-Control"] = "no-store"
+        if credential_receipts is None:
+            raise HTTPException(503, "Credential receipt unavailable", headers={"Cache-Control": "no-store"})
+        result: Final = await credential_receipts.revalidate(request.key_hash, request.receipt)
+        if isinstance(result, CredentialReceipt):
+            return CredentialReceiptResponse(
+                key_hash=request.key_hash, status=result.status, receipt=result.model_dump_json(),
+            )
+        return CredentialReceiptResponse(key_hash=request.key_hash, status="rejected", code=result.code)
+
+    return router
 
 
 class GatewaySwitchRequest(BaseModel):
@@ -308,15 +435,12 @@ def create_router(
     browser_runtime: OAuthBrowserRuntime | None = None,
     feedback: FeedbackService | None = None,
     cockpit_admin: CockpitAdminClient | None = None,
+    credential_receipts: CredentialReceiptOperations | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
-    def require_manager(
-        credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
-    ) -> None:
-        supplied: Final = "" if credentials is None else credentials.credentials
-        if not hmac.compare_digest(supplied, manager_token):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
+    require_manager: Final = _manager_guard(manager_token)
+    router.include_router(_create_credential_receipt_router(credential_receipts, require_manager))
 
     @router.get("/api/cockpit/status", dependencies=[Depends(require_manager)])
     async def get_cockpit_status(response: Response) -> CockpitStatus:

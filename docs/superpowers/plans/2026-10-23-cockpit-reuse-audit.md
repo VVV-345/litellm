@@ -159,7 +159,7 @@
 3. 数据面接线：按已验证主体 scope 发布 Cockpit deployment，保留 LiteLLM 标准统计；对 Cockpit 路由取消外层重复 resolve/acquire、重试/换卡/续聊 owner，旧路径仅作为另一条显式回滚配置；不能只替换 upstream URL
 4. 将旧行为矩阵变为 Cockpit 契约，覆盖额度换卡、续聊、stream/tool/image 重放边界和用量归属；验证各供应商加载路径。当前 manifest Codex token 注册要求 provider=codex，不能将九类供应商凭据一律按 Codex 导入
 
-恢复执行先读取此 D2 状态与已完成提交，不重新实施 D1、D2.1、全局策略保存/应用或下述单卡原生 Key 预检。下一可执行操作：为第五段内部回执服务连接可信原生主体读取适配器与显式、受保护的只读管理流程，先验证鉴权、入参、主体撤销/范围变化及错误脱敏；不能用调用方 DTO 替代当前服务端证明，也不能让普通状态/预检调用自动读取凭据。单卡模型预检和内部签名回执契约已完成，不重复实施。生产适配器、真实凭据迁移、按 scope 实际发布和 D2.3 唯一请求 owner 接线仍未完成，实际切流继续禁止
+续作先读取此 D2 状态与已完成提交，不重新实施 D1、D2.1、全局策略保存/应用或前述单卡原生 Key 预检。本次已完成第五段回执服务的可信主体读取适配与显式、受保护的只读管理流程，离线验证覆盖鉴权、入参、主体撤销/范围变化及错误脱敏；不能用调用方 DTO 替代服务端证明，也不能让普通状态/预检调用自动读取凭据。下一阶段仍需单独规划 D2.3 的 scope 发布与唯一请求 owner 接线；真实数据库/凭据、provider 身份、生产部署和流量切换均未验证或授权，不可开始实际切流
 
 ### D2.1 本地代码结果（2026-10-23）
 
@@ -249,7 +249,7 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保�
 
 ### D2.2 第五段本地代码结果：内部凭据字节对应回执（2026-10-24）
 
-本段基于 `61c3cb40ca`，新增内部 `CockpitCredentialReceiptService.issue/revalidate` 与独立回执密钥派生用途 `SecretPurpose.COCKPIT_CREDENTIAL_RECEIPT`。当前没有生产 TrustedSubjectReader 适配器、HTTP/UI 注册或默认调用；测试只注入内存数据、虚构凭据与 HTTP MockTransport，未访问真实数据库、凭据或供应商。原预检的 `target_identity_unverified` 与 `ready_to_migrate=false` 不变，不能把本段当成凭据已迁移、模型权限已发布或后台已接管
+本段基于 `61c3cb40ca`，新增内部 `CockpitCredentialReceiptService.issue/revalidate` 与独立回执密钥派生用途 `SecretPurpose.COCKPIT_CREDENTIAL_RECEIPT`。本轮在 `955541c801` 上完成受信主体读取适配和显式只读回执 API；只注入内存数据、虚构凭据与 HTTP MockTransport，未访问真实数据库、真实凭据或供应商。没有 UI 注册、凭据迁移、模型权限发布或后台接管；原预检的 `target_identity_unverified` 与 `ready_to_migrate=false` 不变
 
 签发只接收原生主体 hash，重验另外接收已有签名回执；均不接受调用方提供的凭据正文、来源摘要或 proof=true。注入的可信主体读取器必须每次验证当前单卡及明确模型范围，构造 `TrustedCredentialScope` DTO 本身不是证明。服务通过既有源读取/下载、CredentialOwnership、CockpitAdminClient 端口读数据，下载前后均核对独占归属，并使用既有 credential_identity 重算完整指纹集合，拒绝与卡片记录不一致的来源
 
@@ -260,6 +260,12 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保�
 独立审阅发现并修复一项 P2：Go encoding/json 对结构字段大小写不敏感，Python 投影会忽略非规范大小写。回执边界现在拒绝 accounts 及 id/authId/authKind/accessTokenOnly/upstreamApiKey 的大小写影子或别名字段，避免对错误目标文件/认证模式签名；无关字段及嵌套元数据仍可保留。修复只在回执入口，不修改既有预检响应行为，复审已关闭该问题
 
 验证分阶段记录于原四角色与 receipt-* 补充证据：本段起点基线回归 466 passed；大小写修复前管理/API 回归 294 passed；修复后回执定向 100 passed，Manager 六文件回归 225 passed（包含该 100 项）；本轮原数据面六文件回归 431 passed。上述执行退出码均为 0，范围有重叠，不相加或混称一次执行。最终回执源码/测试严格类型检查 0 errors，定向 Ruff 通过；已有依赖 warnings 保留，不代表完整仓库、真实服务或生产构建验收。源码同输入 BASELINE/ROLLBACK 为服务不存在，MODIFIED 能签发并重验只读对应回执，篡改/陈旧/大小写歧义均拒绝，迁移标记始终 false。恢复源码包哈希及补丁重建逐字节核对，不触碰原主分支
+
+经用户确认，Manager 通过固定 HTTP(S) 内部地址和现有 Manager bearer secret 请求 LiteLLM 的 `/account_pool/internal/cockpit/native-subject`；LiteLLM 使用已有主库主体解析读取当前单卡和静态模型范围，不复制权限 SQL，也不接受浏览器提供的权限结果。`ACCOUNT_POOL_COCKPIT_SUBJECT_URL` 未配置时回执服务关闭，配置还要求已有 Cockpit 管理设置。subject HTTP client 禁止重定向、使用固定路径和有限超时，并在 Manager lifespan 退出或 startup 失败时关闭
+
+回执签发与重验只通过 Manager `/api/cockpit/credential-receipts` 和 `/revalidate` 显式执行；LiteLLM 代理入口先校验 proxy admin，再转发至 Manager。两侧响应均禁缓存，输入和服务失败使用固定错误，不回显 receipt/凭据正文。普通状态、预检和用户模型请求不触发凭据读取；只读回执仍不证明上游身份、令牌有效或 Cockpit 已加载目标账号
+
+本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
 
 ### 替换阶段 E：行为兼容与差异验收
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 from dataclasses import dataclass, field
 from typing import Annotated, Final, Literal, Self
@@ -22,6 +23,48 @@ from pydantic import (
 
 _ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
+
+
+_HOST: Final = re.compile(
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$"
+)
+
+
+def validate_http_origin(value: str) -> str:
+    try:
+        parsed: Final = urlsplit(value)
+        port: Final = parsed.port
+    except ValueError:
+        raise ValueError("URL must be a fixed HTTP(S) origin") from None
+    host: Final = parsed.hostname
+    valid_host: Final = host is not None and (
+        (":" in host and _valid_ip(host)) or (":" not in host and _HOST.fullmatch(host) is not None)
+    )
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not valid_host
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or "?" in value
+        or "#" in value
+        or "\\" in value
+        or parsed.netloc.endswith(":")
+        or (port is not None and not 1 <= port <= 65535)
+        or any(ord(char) <= 32 or ord(char) >= 127 for char in value)
+    ):
+        raise ValueError("URL must be a fixed HTTP(S) origin")
+    return value.rstrip("/")
+
+
+def _valid_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _valid_auth_name(name: str) -> bool:
@@ -46,27 +89,7 @@ class CockpitAdminConfig(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_origin(cls, value: str) -> str:
-        try:
-            parsed: Final = urlsplit(value)
-            port: Final = parsed.port
-        except ValueError:
-            raise ValueError("Cockpit URL must be a valid HTTP(S) origin") from None
-        if (
-            parsed.scheme not in {"http", "https"}
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.path not in {"", "/"}
-            or parsed.query
-            or parsed.fragment
-            or "?" in value
-            or "#" in value
-            or "\\" in value
-            or any(ord(char) <= 32 for char in value)
-            or (port is not None and not 1 <= port <= 65535)
-        ):
-            raise ValueError("Cockpit URL must be a credential-free HTTP(S) origin")
-        return value.rstrip("/")
+        return validate_http_origin(value)
 
     @field_validator("token")
     @classmethod

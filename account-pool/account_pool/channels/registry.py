@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Final
+from typing import Final, Literal, overload
 
 from account_pool.channels.base import ChannelDefinition, UnsupportedChannelError
 from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
@@ -47,7 +47,7 @@ class ChannelRegistry:
                 cliproxyapi.kind: cliproxyapi,
             }
         )
-        implementations: Final = (
+        implementations: Final[Mapping[ChannelKind, CLIProxyAPIChannel | OpenAICompatibleChannel]] = (
             MappingProxyType(
                 {
                     ChannelKind.OPENAI_COMPATIBLE: OpenAICompatibleChannel(secrets, ownership=ownership),
@@ -69,6 +69,12 @@ class ChannelRegistry:
             return self.definitions[kind]
         except KeyError as error:
             raise UnsupportedChannelError(f"unknown channel: {kind.value}") from error
+
+    @overload
+    def channel(self, kind: Literal[ChannelKind.CLIPROXYAPI]) -> CLIProxyAPIChannel: ...
+
+    @overload
+    def channel(self, kind: Literal[ChannelKind.OPENAI_COMPATIBLE]) -> OpenAICompatibleChannel: ...
 
     def channel(self, kind: ChannelKind) -> CLIProxyAPIChannel | OpenAICompatibleChannel:
         definition: Final = self.get(kind)

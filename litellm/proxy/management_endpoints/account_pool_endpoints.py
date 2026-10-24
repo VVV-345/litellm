@@ -8,6 +8,7 @@ import os
 from collections.abc import Awaitable, Callable, Coroutine, Iterable, Mapping
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timezone
+from functools import partial
 from typing import Annotated, Final, Literal, Protocol, TypeVar
 from urllib.parse import quote
 from uuid import UUID
@@ -16,7 +17,14 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    TypeAdapter,
+    ValidationError,
+)
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -25,6 +33,10 @@ from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
+from litellm.proxy.management_endpoints.account_pool_cockpit_receipts import (
+    create_cockpit_credential_receipt_router,
+    create_internal_native_subject_router,
+)
 from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeSubjectResult, inspect_native_subject
 from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
@@ -629,6 +641,12 @@ async def _manager_request(
         await client.close()
 
 
+async def _cockpit_manager_post(
+    client_factory: ManagerClientFactory, path: str, body: bytes,
+) -> httpx.Response:
+    return await _manager_request(client_factory, "POST", path, body)
+
+
 async def _manager_request_multipart(
     client_factory: ManagerClientFactory,
     path: str,
@@ -745,7 +763,13 @@ def create_account_pool_router(
             raise HTTPException(502, "Invalid Cockpit preflight", headers={"Cache-Control": "no-store"})
         return CockpitNativePreflightReport(subject=subject, mapping=mapping)
 
+    router.include_router(
+        create_cockpit_credential_receipt_router(
+            partial(_cockpit_manager_post, client_factory), _require_proxy_admin,
+        )
+    )
     router.include_router(native_router)
+    router.include_router(create_internal_native_subject_router(native_subject_reader))
 
     async def management_request(method: _Method, path: str, body: bytes | None) -> httpx.Response:
         return await _manager_request(client_factory, method, path, body)

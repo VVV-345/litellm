@@ -3303,3 +3303,61 @@ SHA256 ff87e2c56f489f05c4154d8a31fc49826f150d056107ce3b9ba008695466a586 C:\Users
 SHA256 2cfb9a6291a46771b5d98fb796a867b562a034a389c6e521a33b4a488015566a C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\DIFF_FILE.patch
 SHA256 183794dab12c9de5fe1d6ab82d8a3714dbd4bee454173685e512c55cf81d960a C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\ROLLBACK.sh
 SHA256 7a8890241ec3486df90416af555b3cfb986e70005f41d44953a1e930e29ef1e7 C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\receipt-baseline.tar.gz
+
+SUPPLEMENTAL RECEIPT ADAPTER VERIFICATION (2026-10-24)
+TARGET: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+Bound commit before final local commit: 955541c8015f8c900f8ecf212b86c1781f47d209
+Changed symbols/fields: ChannelRegistry implementation typing; Manager trusted subject HTTP adapter; ACCOUNT_POOL_COCKPIT_SUBJECT_URL; protected credential receipt issue/revalidate routes; Manager/Cockpit client lifespan cleanup
+
+Four role paths reopened:
+MODIFIED_FILE: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.md
+DIFF_FILE: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\DIFF_FILE.patch
+VERIFICATION.txt: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\VERIFICATION.txt
+ROLLBACK.sh: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\ROLLBACK.sh
+
+ROLE CHECK COMMAND:
+D:\Work2api\litellm\.venv\Scripts\python.exe C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\task-1-plan_contract.py INPUT_PATH
+BASELINE stdout: missing=7 forbidden=2
+BASELINE exit status: 1
+MODIFIED stdout: missing=0 forbidden=0
+MODIFIED exit status: 0
+ROLLBACK.sh stdout: empty
+ROLLBACK.sh exit status: 0
+ROLLBACK stdout: missing=7 forbidden=2
+ROLLBACK exit status: 1
+PATCH reconstruction exit status: 0
+BASELINE SHA-256: 45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b
+MODIFIED SHA-256: 2f7e4b9b4a5b4501b43e80752a5f377c59ff2695440bdd3ec69799c2b0f595d3
+ROLLBACK copy SHA-256: 45ebbbadfbe42a1a0feba734975ef3fadcbc7f070e0093fe07bb81a40ad8c52b
+RECONSTRUCTED SHA-256: 2f7e4b9b4a5b4501b43e80752a5f377c59ff2695440bdd3ec69799c2b0f595d3
+ROLLBACK matches BASELINE: True
+PATCH reconstruction matches MODIFIED: True
+
+OBSERVED TESTS:
+Command: .venv\Scripts\python.exe -m pytest account-pool/tests/account_pool/test_cockpit_receipt_adapter.py account-pool/tests/account_pool/test_cockpit_receipt_api.py account-pool/tests/account_pool/test_app.py tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_receipts.py -q
+stdout: 16 passed, 1 warning in 18.29s
+stderr: StarletteDeprecationWarning about httpx with starlette.testclient; no credential or response-body output
+exit status: 0
+Command: .venv\Scripts\python.exe -m pytest account-pool/tests/account_pool/test_cockpit_credential_receipts.py account-pool/tests/account_pool/test_cockpit_receipt_api.py account-pool/tests/account_pool/test_cockpit_receipt_adapter.py account-pool/tests/account_pool/test_cockpit_preflight.py account-pool/tests/account_pool/test_cockpit_admin.py account-pool/tests/account_pool/test_cockpit_runtime.py account-pool/tests/account_pool/test_settings.py account-pool/tests/account_pool/test_app.py -q
+stdout: 233 passed, 1 warning in 14.28s
+stderr: StarletteDeprecationWarning about httpx with starlette.testclient; no credential or response-body output
+exit status: 0
+Command: .venv\Scripts\python.exe -m pytest tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_receipts.py tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py -q
+stdout: 250 passed, 1 warning in 134.32s
+stderr: StarletteDeprecationWarning about httpx with starlette.testclient; no credential or response-body output
+exit status: 0
+Command: .venv\Scripts\basedpyright.exe --outputjson account-pool/account_pool/channels/registry.py account-pool/account_pool/cockpit_receipt_adapter.py account-pool/tests/account_pool/test_app.py account-pool/tests/account_pool/test_cockpit_receipt_adapter.py account-pool/tests/account_pool/test_cockpit_receipt_api.py
+stdout: SUMMARY {"filesAnalyzed":5,"errorCount":0,"warningCount":0,"informationCount":0}
+stderr: empty
+exit status: 0
+Command: .venv\Scripts\ruff.exe check --config ruff-strict.toml changed and affected files
+stdout: existing DTZ011/BLE001/C901/PLR1714 diagnostics remain in Manager and account-pool router files; no new receipt adapter diagnostic
+stderr: empty
+exit status: 1
+
+BASELINE behavior: plan contract reports missing=7 forbidden=2; no receipt adapter or protected workflow is represented
+MODIFIED behavior: plan contract passes; offline tests issue/revalidate only an owned-artifact correspondence receipt, use trusted subject scope, keep ready_to_migrate=false, reject stale/tampered/ambiguous input, and close clients on startup failure
+ROLLBACK behavior: ROLLBACK.sh restores pristine bytes and the same baseline contract output; no candidate code or plan source is changed
+Unverified: real PostgreSQL/provider/credential calls, provider identity and token usability, UI registration, scope publication, sole-owner routing, production build/deployment, and traffic cutover
+Additional type check: LiteLLM subject/receipt routes and tests, 4 files, basedpyright 0 errors, exit status 0
+Additional strict Ruff: 3 existing diagnostics in unmodified account_pool_cockpit_subject.py (TID251 x1, BLE001 x2), exit status 1; no new receipt route diagnostic
