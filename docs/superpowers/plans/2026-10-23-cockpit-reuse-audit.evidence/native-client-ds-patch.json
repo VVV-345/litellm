@@ -1,0 +1,19 @@
+{
+  "source": "account-pool/account_pool/cockpit_admin.py",
+  "target": "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py",
+  "replacements": [
+    {
+      "old": "\"\"\"封装 Cockpit 服务间管理契约，不负责选卡、重试或自动激活配置。\"\"\"",
+      "new": "\"\"\"位于 LiteLLM 内的 Cockpit 管理客户端过渡副本；不依赖旧 Manager，不负责选卡、重试或自动激活配置。\"\"\""
+    },
+    {
+      "old": "from typing import Annotated, Final, Literal, Self",
+      "new": "from typing import Annotated, Final, Literal\nfrom typing_extensions import Self"
+    },
+    {
+      "old": "from account_pool.cockpit_manifest import CockpitCountManifest",
+      "new": "class CockpitKeyCount(BaseModel):\n    model_config = ConfigDict(strict=True)\n\n    enabled: bool = False\n\n\nclass CockpitCountManifest(BaseModel):\n    accounts: tuple[dict[str, JsonValue], ...] | None = None\n    apiKeys: tuple[CockpitKeyCount, ...] | None = None"
+    }
+  ],
+  "review_notes": "本次仅新增目标副本，旧文件保持一字节不动。文件头已声明客户端位于 LiteLLM 内且不依赖旧 Manager。按给定原文内联 CockpitKeyCount 与 CockpitCountManifest，保留 strict 配置、accounts/apiKeys 字段及可选元组类型；Self 改由 typing_extensions 提供以兼容 Python>=3.10。CockpitAdminClient 仍由调用方注入 httpx.AsyncClient，HTTP timeout 所有权不变；ETag 校验、If-Match/If-None-Match 条件写入、202 回执校验、错误分类、请求路径及所有现有公开类型、函数、validator 均未改。未加入配置、环境变量、路由、SQL、singleton、重试、选卡或自动激活逻辑，也不反向导入旧模块。阶段限制：旧独立 Manager 镜像不安装 LiteLLM，故本副本只供主代理以原模块同一套契约做过渡验证。"
+}

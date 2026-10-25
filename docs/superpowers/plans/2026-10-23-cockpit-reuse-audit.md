@@ -23,6 +23,21 @@
 
 **范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
 
+
+### 首个 DS 代码单元：LiteLLM 独立 Cockpit 管理客户端
+
+实现起点 `949804a9d499e5aa359fe358cfd3feddba788a62`。本轮通过 DSH 的 `opencode-go/deepseek-v4.1-flash`、`reasoningEffort=max` 先生成测试，再在红灯确认后生成实现补丁；两次调用均 completed/exit 0。主代理审查、应用补丁并独立复跑测试，未让 DS 直接操作生产或提交
+
+新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py`。该模块可在禁止导入 `account_pool` 的独立进程中构造客户端，内联两种计数视图，保留 manifest/凭据条件写、ETag、脱敏错误及显式激活契约。旧 Manager 客户端和其他原文件字节不变，独立 Manager 镜像不需要反向安装 LiteLLM。这是有契约对照的过渡副本，尚未接入管理 API 或替换 `_default_lookup`；不能混用新旧 Python 结果类型实例
+
+主代理补充了成功请求次数、客户端关闭和 8 种 422 错误码输入；把严格检查不接受的连续比较改为穷尽 match，未放宽错误类型或重试行为。先有新模块缺失的红灯 1 failed，再有初轮 14 passed，最终新增用例、原客户端同输入镜像契约及相邻策略/回执/scope/路由合计 320 passed/1 warning。普通 Ruff、strict Ruff、格式与新源码 basedpyright 通过，类型结果 0 errors/0 warnings。数字有包含关系，不相加
+
+BASELINE、MODIFIED、ROLLBACK 的同输入客户端 smoke 均显示账号数 1、有效 Key 数 1、未知字段保留、条件写成功，302/412/503 各只请求 1 次且不重定向或重试；三次 stdout 相同、stderr 空、exit 0，回滚副本 hash 等于旧客户端。四角色及补充证据保存在原证据目录，服务器/数据库回滚不在此次验证范围
+
+Cockpit 真实 checkout 为 `C:/Users/42117/.codex/worktrees/cockpit-backend-replacement`，HEAD `ec9989c009042a3f8770781926f6087000825ee9`，既有 `.github/workflows/cockpit-backend-container.yml` 未提交修改保留未动。仅完成 10 个关键文件静态依赖盘点，不宣称全项目依赖都已清除
+
+限制：wheel 实际尝试未成功。首次 `python -m build` 没有可执行 build.__main__，改用 uv 后，当前环境缺 maturin；隔离离线构建进一步确认缓存中没有声明的 `maturin==1.9.4`，exit 2。未安装/下载新构建依赖，未构建镜像、未连接真实 Cockpit/供应商/数据库、未部署、未推送。下一单元是统一迁移必要的上层策略/runtime 服务及其类型引用，再决定新管理路由的显式接线；完整 wheel/Linux ARM64 验证仍为部署前门槛
+
 ## 迁移约束
 
 - 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改

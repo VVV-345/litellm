@@ -287,3 +287,262 @@ STDOUT:
 
 STDERR:
 
+
+
+=== Native Cockpit client, DS implementation and primary verification ===
+BASE COMMIT: 949804a9d499e5aa359fe358cfd3feddba788a62
+Changed component: new account_pool_cockpit_admin.CockpitAdminClient; primary adjusted _policy_runtime HTTP422 code branch to exhaustive match
+No Manager runtime cutover yet; legacy client bytes unchanged: fa2aea841a46d37b37e833855c2c2b1b0b7cc1c79c11cd1473045a2295b3145a
+DS test/implementation calls both requested opencode-go/deepseek-v4.1-flash max and exited0; primary corrected and reviewed results
+RED expected1 missing module; initial green14; final scoped regression320 passed1warning
+BASELINE/MODIFIED/ROLLBACK client stdout identical; stderr empty; all exit0; original/restored hash equality in native-client-verification.json
+DOCUMENT BASELINE/MODIFIED/ROLLBACK stdout missing=0 forbidden=0; stderr empty; all exit0; restored hash 33701ce88fefdb617c4b58330f97315a88e19ee578ce6de459dfde85a9eaa5d2
+Cumulative patch reconstructs 26 exact blobs; reverse check passed
+Wheel gate NOT PASSED: isolated offline uv build requires pinned maturin==1.9.4 absent from cache (exit2); no packages downloaded, no image/server/DB rollback verified
+CHECK: client-baseline
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "account-pool/tests/account_pool/test_cockpit_admin.py", "account-pool/tests/account_pool/test_cockpit_policy.py", "account-pool/tests/account_pool/test_cockpit_runtime.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\client-baseline-tmp"]
+EXIT: 0
+STDOUT:
+........................................................................ [ 88%]
+.........                                                                [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+81 passed, 1 warning in 10.15s
+
+STDERR:
+
+CHECK: native-red
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\tests\\test_litellm\\proxy\\management_endpoints\\test_account_pool_cockpit_admin.py::test_new_module_can_be_resolved", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-red-tmp"]
+EXIT: 1
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+_______________________ test_new_module_can_be_resolved _______________________
+
+    def test_new_module_can_be_resolved() -> None:
+>       assert importlib.util.find_spec(_MODULE) is not None
+E       AssertionError: assert None is not None
+E        +  where None = <function find_spec at 0x0000018BA8A18C20>('litellm.proxy.management_endpoints.account_pool_cockpit_admin')
+E        +    where <function find_spec at 0x0000018BA8A18C20> = <module 'importlib.util' (frozen)>.find_spec
+E        +      where <module 'importlib.util' (frozen)> = importlib.util
+
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_admin.py:31: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[conftest] Module setup complete (worker: master)
+-------------------------- Captured stdout teardown ---------------------------
+[conftest] Module teardown complete (worker: master)
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py::test_new_module_can_be_resolved
+1 failed, 1 warning in 15.66s
+
+STDERR:
+
+CHECK: native-green
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-green-tmp"]
+EXIT: 0
+STDOUT:
+..............                                                           [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+14 passed, 1 warning in 17.24s
+
+STDERR:
+
+CHECK: native-regression
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\test_native_legacy_contract.py", "account-pool/tests/account_pool/test_cockpit_admin.py", "account-pool/tests/account_pool/test_cockpit_policy.py", "account-pool/tests/account_pool/test_cockpit_runtime.py", "account-pool/tests/account_pool/test_cockpit_preflight.py", "account-pool/tests/account_pool/test_cockpit_credential_receipts.py", "account-pool/tests/account_pool/test_cockpit_scope.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-regression-tmp"]
+EXIT: 0
+STDOUT:
+........................................................................ [ 22%]
+........................................................................ [ 45%]
+........................................................................ [ 67%]
+........................................................................ [ 90%]
+................................                                         [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+320 passed, 1 warning in 59.77s
+
+STDERR:
+
+CHECK: native-strict
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "--config", "ruff-strict.toml", "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py"]
+EXIT: 1
+STDOUT:
+PLR1714 Consider merging multiple comparisons.
+   --> litellm\proxy\management_endpoints\account_pool_cockpit_admin.py:229:47
+    |
+227 |                 error: Final = _JSON.validate_json(result.content).get("error")
+228 |                 code: Final = error.get("code") if isinstance(error, dict) else None
+229 |                 if isinstance(code, str) and (code == "non_policy_change" or code == "unsupported_policy"):
+    |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+230 |                     return CockpitFailure("http", 422, code)
+231 |                 return CockpitFailure("invalid_response", 422)
+    |
+help: Merge multiple comparisons
+
+Found 1 error.
+No fixes available (1 hidden fix can be enabled with the `--unsafe-fixes` option).
+
+STDERR:
+
+CHECK: native-strict-fixed
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "--config", "ruff-strict.toml", "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py"]
+EXIT: 0
+STDOUT:
+All checks passed!
+
+STDERR:
+
+CHECK: native-types-fixed
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "basedpyright", "--pythonpath", "D:/Work2api/litellm/.venv/Scripts/python.exe", "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py"]
+EXIT: 0
+STDOUT:
+0 errors, 0 warnings, 0 notes
+
+STDERR:
+
+CHECK: native-wheel-isolated
+COMMAND: ["D:/Hermes/bin/uv.exe", "build", "--wheel", "--offline", "--python", "D:/Work2api/litellm/.venv/Scripts/python.exe", "--out-dir", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\wheel-output"]
+EXIT: 2
+STDOUT:
+
+STDERR:
+Building wheel...
+error: Failed to build `C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm`
+  cause: Failed to resolve requirements from `build-system.requires`
+  cause: No solution found when resolving: `maturin==1.9.4`
+  cause: Because maturin was not found in the cache and you require maturin==1.9.4, we can conclude that your requirements are unsatisfiable.
+
+hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.
+
+LABEL: BASELINE
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\client-contract-smoke.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-client-baseline.py"]
+EXIT: 0
+STDOUT:
+{"account_count": 1, "enabled_key_count": 1, "failures": [{"calls": 1, "category": "http", "status": 302}, {"calls": 1, "category": "precondition", "status": 412}, {"calls": 1, "category": "http", "status": 503}], "requests": ["GET /admin/v1/manifest", "PUT /admin/v1/manifest"], "revision_matched": true, "unknown_fields_preserved": true, "write_status": "persisted"}
+
+STDERR:
+
+LABEL: MODIFIED
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\client-contract-smoke.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_admin.py"]
+EXIT: 0
+STDOUT:
+{"account_count": 1, "enabled_key_count": 1, "failures": [{"calls": 1, "category": "http", "status": 302}, {"calls": 1, "category": "precondition", "status": 412}, {"calls": 1, "category": "http", "status": 503}], "requests": ["GET /admin/v1/manifest", "PUT /admin/v1/manifest"], "revision_matched": true, "unknown_fields_preserved": true, "write_status": "persisted"}
+
+STDERR:
+
+LABEL: ROLLBACK_EXECUTE
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "--restore-file", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-client-rollback.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-client-baseline.py"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: ROLLBACK
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\client-contract-smoke.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-client-rollback.py"]
+EXIT: 0
+STDOUT:
+{"account_count": 1, "enabled_key_count": 1, "failures": [{"calls": 1, "category": "http", "status": 302}, {"calls": 1, "category": "precondition", "status": 412}, {"calls": 1, "category": "http", "status": 503}], "requests": ["GET /admin/v1/manifest", "PUT /admin/v1/manifest"], "revision_matched": true, "unknown_fields_preserved": true, "write_status": "persisted"}
+
+STDERR:
+
+LABEL: DOCUMENT_BASELINE
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\native-client-plan-baseline.md"]
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+LABEL: DOCUMENT_MODIFIED
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+LABEL: DOCUMENT_ROLLBACK_EXECUTE
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "--restore-file", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-plan-restored.md", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\native-client-plan-baseline.md"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: DOCUMENT_ROLLBACK
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\native-plan-restored.md"]
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+LABEL: FINAL_LINT
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py"]
+EXIT: 0
+STDOUT:
+All checks passed!
+
+STDERR:
+
+LABEL: FINAL_STRICT
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "--config", "ruff-strict.toml", "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py"]
+EXIT: 0
+STDOUT:
+All checks passed!
+
+STDERR:
+
+LABEL: FINAL_FORMAT
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "format", "--check", "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py"]
+EXIT: 0
+STDOUT:
+2 files already formatted
+
+STDERR:
+
+LABEL: SOURCE_DIFF_CHECK
+COMMAND: ["git", "diff", "--check", "--", ".", ":(exclude)docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: REVERSE_PATCH_CHECK
+COMMAND: ["git", "apply", "--check", "-R", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: BASE_INDEX
+COMMAND: ["git", "read-tree", "1a6902d443ae8209a80a5be8eb3c26ede0f06e16"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: PATCH_RECONSTRUCT
+COMMAND: ["git", "apply", "--cached", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+

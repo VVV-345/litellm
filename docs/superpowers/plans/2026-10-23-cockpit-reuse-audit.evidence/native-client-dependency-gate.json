@@ -1,0 +1,41 @@
+{
+  "verification": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\phase0\\verify_dependencies.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\phase0\\dependency-inventory.json"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"event\": \"dependency_verification_completed\", \"head\": \"949804a9d499e5aa359fe358cfd3feddba788a62\", \"parsed_files\": 10, \"report\": \"C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\.superpowers\\\\sdd\\\\2026-10-23-cockpit-reuse-audit\\\\managerless-20261025\\\\phase0\\\\dependency-inventory.json\"}\n",
+    "stderr": "",
+    "exit_status": 0
+  },
+  "cockpit": {
+    "head": {
+      "stdout": "ec9989c009042a3f8770781926f6087000825ee9\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    "branch": {
+      "stdout": "codex/cockpit-backend-replacement\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    "status": {
+      "stdout": " M .github/workflows/cockpit-backend-container.yml\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    "root": {
+      "stdout": "C:/Users/42117/.codex/worktrees/cockpit-backend-replacement\n",
+      "stderr": "",
+      "exit_status": 0
+    },
+    "license_header": "not found"
+  },
+  "manager_packaging": "account-pool Dockerfile/pyproject.toml build a standalone Manager without LiteLLM; reverse imports into LiteLLM would break it",
+  "native_source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_admin.py",
+  "remaining": "Scope/receipt/policy/runtime owners, auth/reconciler dependencies and full runtime independence remain unfinished",
+  "license": "Cockpit README.md:474 declares CC BY-NC-SA 4.0; vendored CLIProxyAPI LICENSE is MIT; commercial/distribution applicability remains a release gate"
+}

@@ -1994,7 +1994,7 @@ index 05d062609a63e0cdc948b74d182e2536c39e89c1..a36f9a01d5ebd6f9352c9928efd334bd
              "updated_at": now.isoformat().replace("+00:00", "Z"),
          },
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281f5e62f937743465b5d3f58d646eff5..7508b95fbe208a50769859783ff61d7dbb1a3e3d 100644
+index 58d8051281f5e62f937743465b5d3f58d646eff5..a6f175f4457b116a9e45016a895e571ff2a1267b 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 @@ -1,5 +1,16 @@
@@ -2014,7 +2014,29 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..7508b95fbe208a50769859783ff61d7d
  > 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
  
  **目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
-@@ -148,7 +159,7 @@
+@@ -12,6 +23,21 @@
+ 
+ **范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
+ 
++
++### 首个 DS 代码单元：LiteLLM 独立 Cockpit 管理客户端
++
++实现起点 `949804a9d499e5aa359fe358cfd3feddba788a62`。本轮通过 DSH 的 `opencode-go/deepseek-v4.1-flash`、`reasoningEffort=max` 先生成测试，再在红灯确认后生成实现补丁；两次调用均 completed/exit 0。主代理审查、应用补丁并独立复跑测试，未让 DS 直接操作生产或提交
++
++新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py`。该模块可在禁止导入 `account_pool` 的独立进程中构造客户端，内联两种计数视图，保留 manifest/凭据条件写、ETag、脱敏错误及显式激活契约。旧 Manager 客户端和其他原文件字节不变，独立 Manager 镜像不需要反向安装 LiteLLM。这是有契约对照的过渡副本，尚未接入管理 API 或替换 `_default_lookup`；不能混用新旧 Python 结果类型实例
++
++主代理补充了成功请求次数、客户端关闭和 8 种 422 错误码输入；把严格检查不接受的连续比较改为穷尽 match，未放宽错误类型或重试行为。先有新模块缺失的红灯 1 failed，再有初轮 14 passed，最终新增用例、原客户端同输入镜像契约及相邻策略/回执/scope/路由合计 320 passed/1 warning。普通 Ruff、strict Ruff、格式与新源码 basedpyright 通过，类型结果 0 errors/0 warnings。数字有包含关系，不相加
++
++BASELINE、MODIFIED、ROLLBACK 的同输入客户端 smoke 均显示账号数 1、有效 Key 数 1、未知字段保留、条件写成功，302/412/503 各只请求 1 次且不重定向或重试；三次 stdout 相同、stderr 空、exit 0，回滚副本 hash 等于旧客户端。四角色及补充证据保存在原证据目录，服务器/数据库回滚不在此次验证范围
++
++Cockpit 真实 checkout 为 `C:/Users/42117/.codex/worktrees/cockpit-backend-replacement`，HEAD `ec9989c009042a3f8770781926f6087000825ee9`，既有 `.github/workflows/cockpit-backend-container.yml` 未提交修改保留未动。仅完成 10 个关键文件静态依赖盘点，不宣称全项目依赖都已清除
++
++限制：wheel 实际尝试未成功。首次 `python -m build` 没有可执行 build.__main__，改用 uv 后，当前环境缺 maturin；隔离离线构建进一步确认缓存中没有声明的 `maturin==1.9.4`，exit 2。未安装/下载新构建依赖，未构建镜像、未连接真实 Cockpit/供应商/数据库、未部署、未推送。下一单元是统一迁移必要的上层策略/runtime 服务及其类型引用，再决定新管理路由的显式接线；完整 wheel/Linux ARM64 验证仍为部署前门槛
++
+ ## 迁移约束
+ 
+ - 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改
+@@ -148,7 +174,7 @@
  
  - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
  - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
@@ -2023,7 +2045,7 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..7508b95fbe208a50769859783ff61d7d
  - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
  - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
  
-@@ -267,6 +278,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
+@@ -267,6 +293,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
  
  本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
  
@@ -2133,10 +2155,10 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..7508b95fbe208a50769859783ff61d7d
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..4369f1ca3a9177a0e32749c8a22571d539aae2ca
+index 0000000000000000000000000000000000000000..19fd060b40ac50688cd181fa80f1e24a2fc4739a
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,184 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
 +
 +> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -2312,6 +2334,376 @@ index 0000000000000000000000000000000000000000..4369f1ca3a9177a0e32749c8a22571d5
 +## 下一次主代理给 DS 的派工单
 +
 +先完成阶段 0 的真实 Cockpit 定位与依赖矩阵，然后派阶段 1 最小可提取单元。派工中列完整文件路径、固定 HEAD、待保留签名、失败输入与期望状态；第一次只交补丁和测试，不允许改变业务默认值。DS 交回后主代理复核，再进入下一项，不把本次工具连通性测试等同于去 Manager 改造已开始或完成
++
++
++## 已执行检查点：首个客户端单元
++
++业务代码起点 `949804a9d4`，新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py` 及对应测试。DS 生成红灯测试和实现替换清单，主代理复查并修正请求次数、client 关闭、strict/type 兼容分支，最终 320 项定向回归通过。原 Manager 文件保持不变，未接线新路由，阶段 1 整体尚未完成
++
++经核查旧 Manager 独立包不安装 LiteLLM，本单元采用受同输入契约约束的客户端过渡副本，而非让旧模块反向依赖 LiteLLM；禁止将新客户端的结果对象直接混入仍使用旧 Python 类型的服务。下一步连同调用方与类型引用迁移上层服务，禁止只换一个 import 就视为边界迁移完成
++
++Cockpit 目录 `C:/Users/42117/.codex/worktrees/cockpit-backend-replacement` 和 commit `ec9989c009042a3f8770781926f6087000825ee9` 已复核；保留该仓库已有 workflow 修改。wheel 构建未验证，隔离离线构建因缓存缺 `maturin==1.9.4` 退出 2。详细原始命令、DS 调用记录、代码回滚验证见 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-client-verification.json`
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py b/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..2022450b2f203a93cecb5fb6edc008b3eb4b13b1
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py
+@@ -0,0 +1,355 @@
++"""位于 LiteLLM 内的 Cockpit 管理客户端过渡副本；不依赖旧 Manager，不负责选卡、重试或自动激活配置。"""
++
++from __future__ import annotations
++
++import ipaddress
++import re
++from dataclasses import dataclass, field
++from typing import Annotated, Final, Literal
++from urllib.parse import quote, urlsplit
++
++import httpx
++from pydantic import (
++    BaseModel,
++    ConfigDict,
++    Field,
++    JsonValue,
++    SecretStr,
++    TypeAdapter,
++    ValidationError,
++    field_validator,
++    model_validator,
++)
++from typing_extensions import Self
++
++
++class CockpitKeyCount(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    enabled: bool = False
++
++
++class CockpitCountManifest(BaseModel):
++    accounts: tuple[dict[str, JsonValue], ...] | None = None
++    apiKeys: tuple[CockpitKeyCount, ...] | None = None
++
++
++_ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
++_JSON: Final = TypeAdapter(dict[str, JsonValue])
++
++
++_HOST: Final = re.compile(
++    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$"
++)
++
++
++def validate_http_origin(value: str) -> str:
++    try:
++        parsed: Final = urlsplit(value)
++        port: Final = parsed.port
++    except ValueError:
++        raise ValueError("URL must be a fixed HTTP(S) origin") from None
++    host: Final = parsed.hostname
++    valid_host: Final = host is not None and (
++        (":" in host and _valid_ip(host)) or (":" not in host and _HOST.fullmatch(host) is not None)
++    )
++    if (
++        parsed.scheme not in {"http", "https"}
++        or not valid_host
++        or parsed.username is not None
++        or parsed.password is not None
++        or parsed.path not in {"", "/"}
++        or parsed.query
++        or parsed.fragment
++        or "?" in value
++        or "#" in value
++        or "\\" in value
++        or parsed.netloc.endswith(":")
++        or (port is not None and not 1 <= port <= 65535)
++        or any(ord(char) <= 32 or ord(char) >= 127 for char in value)
++    ):
++        raise ValueError("URL must be a fixed HTTP(S) origin")
++    return value.rstrip("/")
++
++
++def _valid_ip(value: str) -> bool:
++    try:
++        ipaddress.ip_address(value)
++    except ValueError:
++        return False
++    return True
++
++
++def _valid_auth_name(name: str) -> bool:
++    return (
++        bool(name)
++        and name == name.strip()
++        and not name.startswith(".")
++        and name.lower().endswith(".json")
++        and not any(char in '/\\:*?"<>|' or ord(char) < 32 for char in name)
++    )
++
++
++valid_cockpit_auth_name: Final = _valid_auth_name
++
++
++class CockpitAdminConfig(BaseModel):
++    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
++
++    url: str = Field(repr=False)
++    token: SecretStr = Field(min_length=32)
++
++    @field_validator("url")
++    @classmethod
++    def validate_origin(cls, value: str) -> str:
++        return validate_http_origin(value)
++
++    @field_validator("token")
++    @classmethod
++    def validate_token(cls, value: SecretStr) -> SecretStr:
++        if any(ord(char) <= 32 or ord(char) >= 127 for char in value.get_secret_value()):
++            raise ValueError("Cockpit token must contain only printable non-space ASCII")
++        return value
++
++
++@dataclass(frozen=True, slots=True)
++class CockpitFailure:
++    category: Literal["transport", "http", "precondition", "invalid_input", "invalid_response"]
++    status_code: int | None = None
++    code: Literal["non_policy_change", "unsupported_policy"] | None = None
++
++
++class RuntimeSnapshot(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    persisted_revision: str = Field(alias="persistedRevision", pattern=_ETAG)
++    active_revision: Annotated[str, Field(pattern=_ETAG)] | None = Field(alias="activeRevision")
++    apply_supported: bool = Field(alias="applySupported")
++    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None = Field(
++        alias="blockedReason"
++    )
++
++    @model_validator(mode="after")
++    def consistent_activation(self) -> Self:
++        if self.apply_supported != (self.blocked_reason is None):
++            raise ValueError("Inconsistent runtime capability")
++        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
++            raise ValueError("Unknown runtime must remain unavailable")
++        return self
++
++
++@dataclass(frozen=True, slots=True)
++class ManifestSnapshot:
++    data: dict[str, JsonValue] = field(repr=False)
++    revision: str
++    account_count: int
++    enabled_key_count: int
++
++
++@dataclass(frozen=True, slots=True)
++class AdminReceipt:
++    status: Literal["persisted", "deleted", "restart_scheduled"]
++    revision: str | None = None
++
++
++class AuthFileMetadata(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    id: str = Field(repr=False)
++    etag: str = Field(pattern=_ETAG)
++    size: int = Field(ge=0)
++
++    @field_validator("id")
++    @classmethod
++    def validate_id(cls, value: str) -> str:
++        if not _valid_auth_name(value):
++            raise ValueError("Invalid Cockpit credential name")
++        return value
++
++
++class _AuthFiles(BaseModel):
++    files: tuple[AuthFileMetadata, ...]
++
++
++class CockpitAdminClient:
++    def __init__(self, config: CockpitAdminConfig, client: httpx.AsyncClient) -> None:
++        self._config = config
++        self._client = client
++
++    async def _request(
++        self,
++        method: str,
++        path: str,
++        expected: int | tuple[int, ...],
++        *,
++        content: bytes | None = None,
++        condition: tuple[str, str] | None = None,
++    ) -> httpx.Response | CockpitFailure:
++        try:
++            response: Final = await self._client.request(
++                method,
++                self._config.url + "/admin/v1/" + path,
++                headers={
++                    "Authorization": "Bearer " + self._config.token.get_secret_value(),
++                    "Content-Type": "application/json",
++                    **(dict((condition,)) if condition else {}),
++                },
++                content=content,
++                follow_redirects=False,
++            )
++        except httpx.HTTPError:
++            return CockpitFailure("transport")
++        if response.status_code not in ((expected,) if isinstance(expected, int) else expected):
++            return CockpitFailure(
++                "precondition" if response.status_code in {412, 428} else "http", response.status_code
++            )
++        return response
++
++    async def read_policy_runtime(self) -> RuntimeSnapshot | CockpitFailure:
++        return await self._policy_runtime()
++
++    async def apply_policy(self, revision: str) -> RuntimeSnapshot | CockpitFailure:
++        if not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_input")
++        return await self._policy_runtime(revision)
++
++    async def _policy_runtime(self, revision: str | None = None) -> RuntimeSnapshot | CockpitFailure:
++        result: Final = await self._request(
++            "GET" if revision is None else "POST",
++            "policy-runtime" if revision is None else "policy-apply",
++            (200, 422),
++            condition=("If-Match", revision) if revision is not None else None,
++        )
++        if isinstance(result, CockpitFailure):
++            return result
++        try:
++            if result.status_code == 422:
++                error: Final = _JSON.validate_json(result.content).get("error")
++                code: Final = error.get("code") if isinstance(error, dict) else None
++                match code:
++                    case "non_policy_change" | "unsupported_policy":
++                        return CockpitFailure("http", 422, code)
++                    case _:
++                        return CockpitFailure("invalid_response", 422)
++            snapshot: Final = RuntimeSnapshot.model_validate_json(result.content)
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++        if revision is not None and (
++            snapshot.persisted_revision != revision
++            or snapshot.active_revision != revision
++            or not snapshot.apply_supported
++        ):
++            return CockpitFailure("invalid_response", result.status_code)
++        return snapshot
++
++    async def read_manifest(self) -> ManifestSnapshot | CockpitFailure:
++        result: Final = await self._request("GET", "manifest", 200)
++        if isinstance(result, CockpitFailure):
++            return result
++        revision: Final = next((value for key, value in result.headers.items() if key.lower() == "etag"), "")
++        if not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_response", result.status_code)
++        try:
++            data: Final = _JSON.validate_json(result.content)
++            counts: Final = CockpitCountManifest.model_validate(data)
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++        return ManifestSnapshot(
++            data, revision, len(counts.accounts or ()), sum(k.enabled for k in counts.apiKeys or ())
++        )
++
++    async def write_manifest(self, data: dict[str, JsonValue], revision: str) -> AdminReceipt | CockpitFailure:
++        if not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_input")
++        return await self._mutation(
++            "PUT", "manifest", "persisted", content=_JSON.dump_json(data), condition=("If-Match", revision)
++        )
++
++    async def list_auth_files(self) -> tuple[AuthFileMetadata, ...] | CockpitFailure:
++        result: Final = await self._request("GET", "auth-files", 200)
++        if isinstance(result, CockpitFailure):
++            return result
++        try:
++            return _AuthFiles.model_validate_json(result.content).files
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++
++    async def put_auth_file(
++        self,
++        name: str,
++        content: bytes,
++        revision: str | None = None,
++    ) -> AdminReceipt | CockpitFailure:
++        if not _valid_auth_name(name) or (revision is not None and not re.fullmatch(_ETAG, revision)):
++            return CockpitFailure("invalid_input")
++        return await self._mutation(
++            "PUT",
++            "auth-files/" + quote(name, safe=""),
++            "persisted",
++            content=content,
++            condition=("If-Match", revision) if revision is not None else ("If-None-Match", "*"),
++        )
++
++    async def delete_auth_file(self, name: str, revision: str) -> AdminReceipt | CockpitFailure:
++        if not _valid_auth_name(name) or not re.fullmatch(_ETAG, revision):
++            return CockpitFailure("invalid_input")
++        return await self._mutation(
++            "DELETE", "auth-files/" + quote(name, safe=""), "deleted", condition=("If-Match", revision)
++        )
++
++    async def restart(self) -> AdminReceipt | CockpitFailure:
++        return await self._mutation("POST", "restart", "restart_scheduled")
++
++    async def _mutation(
++        self,
++        method: str,
++        path: str,
++        status: Literal["persisted", "deleted", "restart_scheduled"],
++        *,
++        content: bytes | None = None,
++        condition: tuple[str, str] | None = None,
++    ) -> AdminReceipt | CockpitFailure:
++        result: Final = await self._request(method, path, 202, content=content, condition=condition)
++        if isinstance(result, CockpitFailure):
++            return result
++        try:
++            body: Final = _JSON.validate_json(result.content)
++        except ValidationError:
++            return CockpitFailure("invalid_response", result.status_code)
++        revision: Final = result.headers["ETag"] if status == "persisted" and "ETag" in result.headers else None
++        if (
++            body.get("status") != status
++            or (status != "restart_scheduled" and body.get("restartRequired") is not True)
++            or (status == "persisted" and (revision is None or not re.fullmatch(_ETAG, revision)))
++        ):
++            return CockpitFailure("invalid_response", result.status_code)
++        return AdminReceipt(status, revision)
++
++
++class CockpitStatus(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    configured: bool
++    account_count: int = Field(default=0, ge=0)
++    enabled_key_count: int = Field(default=0, ge=0)
++    credential_count: int = Field(default=0, ge=0)
++    persisted_manifest_revision: Annotated[str, Field(pattern=_ETAG)] | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++
++
++async def cockpit_status(client: CockpitAdminClient | None) -> CockpitStatus | CockpitFailure:
++    if client is None:
++        return CockpitStatus(configured=False)
++    manifest: Final = await client.read_manifest()
++    if isinstance(manifest, CockpitFailure):
++        return manifest
++    files: Final = await client.list_auth_files()
++    if isinstance(files, CockpitFailure):
++        return files
++    return CockpitStatus(
++        configured=True,
++        account_count=manifest.account_count,
++        enabled_key_count=manifest.enabled_key_count,
++        credential_count=len(files),
++        persisted_manifest_revision=manifest.revision,
++    )
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_route.py b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..af1cdb49dae87aa7035d586f04bcf8b1556fe27c
@@ -3063,6 +3455,217 @@ index 68d72d0311d89566f1150270e5b8f495984ee3a8..69b75122617d9324ecd56b8e7d6af9c2
          if llm_router is None:
              raise HTTPException(503, "Card keys require the configured LiteLLM router")
          return getattr(llm_router, route_type)(**data)
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..a49d4258516501e9c9481f0c00084f4f848f391f
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py
+@@ -0,0 +1,205 @@
++"""验证 LiteLLM 内独立 Cockpit 管理客户端，不连接真实服务。"""
++
++from __future__ import annotations
++
++import importlib.util
++import json
++import subprocess
++import sys
++from pathlib import Path
++from types import ModuleType
++from typing import Final
++
++import httpx
++import pytest
++from pydantic import SecretStr
++
++_ETAG: Final = '"sha256-' + "a" * 64 + '"'
++_NEXT: Final = '"sha256-' + "b" * 64 + '"'
++_URL: Final = "http://cockpit.test:8317"
++_TOKEN: Final = SecretStr("s" * 32)
++_MODULE: Final = "litellm.proxy.management_endpoints.account_pool_cockpit_admin"
++_MANIFEST: Final = {"accounts": [{"id": "a"}], "apiKeys": [{"enabled": True}], "future": {"nested": [1]}}
++
++
++@pytest.fixture
++def admin() -> ModuleType:
++    return importlib.import_module(_MODULE)
++
++
++def test_new_module_can_be_resolved() -> None:
++    assert importlib.util.find_spec(_MODULE) is not None
++
++
++@pytest.mark.asyncio
++async def test_manifest_roundtrip_preserves_unknown_fields_and_sends_if_match(admin: ModuleType) -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        assert request.headers["authorization"] == "Bearer " + "s" * 32
++        if request.method == "GET":
++            return httpx.Response(200, json=_MANIFEST, headers={"ETag": _ETAG})
++        assert request.headers["if-match"] == _ETAG
++        assert json.loads(request.content) == _MANIFEST
++        return httpx.Response(202, json={"status": "persisted", "restartRequired": True}, headers={"ETag": _NEXT})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client = admin.CockpitAdminClient(admin.CockpitAdminConfig(url=_URL, token=_TOKEN), http)
++        snapshot = await client.read_manifest()
++        assert isinstance(snapshot, admin.ManifestSnapshot)
++        assert snapshot.account_count == 1 and snapshot.enabled_key_count == 1
++        result = await client.write_manifest(snapshot.data, snapshot.revision)
++        assert not isinstance(result, admin.CockpitFailure)
++        assert result.revision == _NEXT
++    assert [(request.method, request.url.path) for request in requests] == [
++        ("GET", "/admin/v1/manifest"),
++        ("PUT", "/admin/v1/manifest"),
++    ]
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("status,category", [(302, "http"), (412, "precondition"), (503, "http"), (None, "transport")])
++async def test_http_and_transport_errors_are_not_retried_or_redirected(
++    admin: ModuleType, status: int | None, category: str
++) -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        if status is None:
++            raise httpx.ConnectError("PRIVATE http://private.test", request=request)
++        return httpx.Response(status, text="PRIVATE-TOKEN", headers={"Location": "http://private.test/token"})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle), follow_redirects=True) as http:
++        client = admin.CockpitAdminClient(admin.CockpitAdminConfig(url=_URL, token=_TOKEN), http)
++        result = await client.read_manifest()
++
++    assert isinstance(result, admin.CockpitFailure)
++    assert (result.category, result.status_code) == (category, status)
++    assert len(requests) == 1
++    assert "PRIVATE" not in repr(result) and "private.test" not in repr(result)
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    ("content", "etag"), [(b"not json", _ETAG), (b"[]", _ETAG), (b"{}", ""), (b"{}", "W/" + _ETAG)]
++)
++async def test_invalid_manifest_response_is_rejected(admin: ModuleType, content: bytes, etag: str) -> None:
++    response = httpx.Response(200, content=content, headers={"ETag": etag})
++    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: response)) as http:
++        client = admin.CockpitAdminClient(admin.CockpitAdminConfig(url=_URL, token=_TOKEN), http)
++        result = await client.read_manifest()
++    assert isinstance(result, admin.CockpitFailure) and result.category == "invalid_response"
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize("field", ["persistedRevision", "activeRevision"])
++async def test_runtime_apply_rejects_revision_mismatch(admin: ModuleType, field: str) -> None:
++    def handle(request: httpx.Request) -> httpx.Response:
++        assert request.method == "POST" and request.url.path == "/admin/v1/policy-apply"
++        assert request.headers["if-match"] == _ETAG
++        body: Final = {
++            "persistedRevision": _ETAG,
++            "activeRevision": _ETAG,
++            "applySupported": True,
++            "blockedReason": None,
++        }
++        body[field] = _NEXT
++        return httpx.Response(200, json=body)
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client = admin.CockpitAdminClient(admin.CockpitAdminConfig(url=_URL, token=_TOKEN), http)
++        result = await client.apply_policy(_ETAG)
++    assert isinstance(result, admin.CockpitFailure) and result.category == "invalid_response"
++
++
++@pytest.mark.asyncio
++async def test_credential_writes_are_conditional_and_restart_is_explicit(admin: ModuleType) -> None:
++    requests: Final[list[httpx.Request]] = []
++
++    def handle(request: httpx.Request) -> httpx.Response:
++        requests.append(request)
++        if request.method == "POST":
++            assert request.url.path == "/admin/v1/restart"
++            return httpx.Response(202, json={"status": "restart_scheduled"})
++        if request.method == "DELETE":
++            assert request.headers["if-match"] == _NEXT
++            return httpx.Response(202, json={"status": "deleted", "restartRequired": True})
++        assert request.content == b'{"type":"codex"}'
++        if "if-none-match" in request.headers:
++            assert request.headers["if-none-match"] == "*" and "if-match" not in request.headers
++        else:
++            assert request.headers["if-match"] == _ETAG
++        return httpx.Response(202, json={"status": "persisted", "restartRequired": True}, headers={"ETag": _NEXT})
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        client = admin.CockpitAdminClient(admin.CockpitAdminConfig(url=_URL, token=_TOKEN), http)
++        created = await client.put_auth_file("credential.json", b'{"type":"codex"}')
++        updated = await client.put_auth_file("credential.json", b'{"type":"codex"}', _ETAG)
++        deleted = await client.delete_auth_file("credential.json", _NEXT)
++        assert all(not isinstance(receipt, admin.CockpitFailure) for receipt in (created, updated, deleted))
++        assert all(request.url.path != "/admin/v1/restart" for request in requests)
++        restarted = await client.restart()
++        assert not isinstance(restarted, admin.CockpitFailure)
++    assert [(request.method, request.url.path) for request in requests] == [
++        ("PUT", "/admin/v1/auth-files/credential.json"),
++        ("PUT", "/admin/v1/auth-files/credential.json"),
++        ("DELETE", "/admin/v1/auth-files/credential.json"),
++        ("POST", "/admin/v1/restart"),
++    ]
++
++
++@pytest.mark.asyncio
++@pytest.mark.parametrize(
++    "code,expected",
++    [
++        ("non_policy_change", "non_policy_change"),
++        ("unsupported_policy", "unsupported_policy"),
++        ("PRIVATE", None),
++        (None, None),
++        (False, None),
++        (1, None),
++        ([], None),
++        ({}, None),
++    ],
++)
++async def test_runtime_error_codes_preserve_contract(admin: ModuleType, code: object, expected: str | None) -> None:
++    async with httpx.AsyncClient(
++        transport=httpx.MockTransport(lambda _: httpx.Response(422, json={"error": {"code": code}}))
++    ) as http:
++        client = admin.CockpitAdminClient(admin.CockpitAdminConfig(url=_URL, token=_TOKEN), http)
++        result = await client.apply_policy(_ETAG)
++    assert isinstance(result, admin.CockpitFailure)
++    assert result.category == ("http" if expected else "invalid_response")
++    assert result.status_code == 422 and result.code == expected
++    assert "PRIVATE" not in repr(result)
++
++
++_ISOLATED_SCRIPT: Final = r"""
++import asyncio, importlib.abc, sys
++sys.path.insert(0, sys.argv[1])
++class RejectAccountPool(importlib.abc.MetaPathFinder):
++    def find_spec(self, fullname, path=None, target=None):
++        if fullname.split(".")[0] == "account_pool":
++            raise ModuleNotFoundError("account_pool is isolated")
++sys.meta_path.insert(0, RejectAccountPool())
++import httpx
++from pydantic import SecretStr
++from litellm.proxy.management_endpoints import account_pool_cockpit_admin as module
++config = module.CockpitAdminConfig(url="http://cockpit.test:8317", token=SecretStr("s" * 32))
++async def verify_client():
++    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(204))) as http:
++        module.CockpitAdminClient(config, http)
++asyncio.run(verify_client())
++print("ACCOUNT_POOL_ISOLATED_IMPORT_OK")
++"""
++
++
++def test_imports_without_legacy_account_pool() -> None:
++    root = Path(__file__).resolve().parents[4]
++    completed = subprocess.run(
++        [sys.executable, "-I", "-c", _ISOLATED_SCRIPT, str(root)], capture_output=True, text=True, timeout=60
++    )
++    assert completed.returncode == 0, completed.stderr
++    assert completed.stdout.strip() == "ACCOUNT_POOL_ISOLATED_IMPORT_OK"
 diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py
 new file mode 100644
 index 0000000000000000000000000000000000000000..7304baa58c22ead21d40d64835887c7cb2b6499f

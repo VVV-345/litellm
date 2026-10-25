@@ -173,3 +173,12 @@ git diff --check
 ## 下一次主代理给 DS 的派工单
 
 先完成阶段 0 的真实 Cockpit 定位与依赖矩阵，然后派阶段 1 最小可提取单元。派工中列完整文件路径、固定 HEAD、待保留签名、失败输入与期望状态；第一次只交补丁和测试，不允许改变业务默认值。DS 交回后主代理复核，再进入下一项，不把本次工具连通性测试等同于去 Manager 改造已开始或完成
+
+
+## 已执行检查点：首个客户端单元
+
+业务代码起点 `949804a9d4`，新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py` 及对应测试。DS 生成红灯测试和实现替换清单，主代理复查并修正请求次数、client 关闭、strict/type 兼容分支，最终 320 项定向回归通过。原 Manager 文件保持不变，未接线新路由，阶段 1 整体尚未完成
+
+经核查旧 Manager 独立包不安装 LiteLLM，本单元采用受同输入契约约束的客户端过渡副本，而非让旧模块反向依赖 LiteLLM；禁止将新客户端的结果对象直接混入仍使用旧 Python 类型的服务。下一步连同调用方与类型引用迁移上层服务，禁止只换一个 import 就视为边界迁移完成
+
+Cockpit 目录 `C:/Users/42117/.codex/worktrees/cockpit-backend-replacement` 和 commit `ec9989c009042a3f8770781926f6087000825ee9` 已复核；保留该仓库已有 workflow 修改。wheel 构建未验证，隔离离线构建因缓存缺 `maturin==1.9.4` 退出 2。详细原始命令、DS 调用记录、代码回滚验证见 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-client-verification.json`
