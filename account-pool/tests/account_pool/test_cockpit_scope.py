@@ -120,12 +120,41 @@ class Receipts:
         return receipt(models=self.models, model_scope=self.model_scope, manifest_revision=self.manifest_revision)
 
 
+class Subjects:
+    def __init__(self, scope: TrustedCredentialScope | None = None, *, fail: bool = False) -> None:
+        self.scope = scope
+        self.fail = fail
+        self.calls: list[str] = []
+
+    async def read(self, subject_hash: str) -> TrustedCredentialScope | None:
+        self.calls.append(subject_hash)
+        if self.fail:
+            raise RuntimeError("PRIVATE")
+        return self.scope
+
+
+def current_scope(**updates: object) -> TrustedCredentialScope:
+    return TrustedCredentialScope.model_validate(
+        {
+            "subject_hash": SUBJECT,
+            "card_id": CARD,
+            "model_scope": "restricted",
+            "models": ("fixture-model",),
+            **updates,
+        }
+    )
+
+
 def service_for(
-    fixture: ScopeFixture, receipts: Receipts, *, origin: str | None = "http://cockpit-data.test:8080"
+    fixture: ScopeFixture,
+    receipts: Receipts,
+    *,
+    origin: str | None = "http://cockpit-data.test:8080",
+    subjects: Subjects | None = None,
 ) -> tuple[CockpitScopeService, httpx.AsyncClient]:
     http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
     admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
-    return CockpitScopeService(receipts, admin, SECRETS, origin), http
+    return CockpitScopeService(receipts, admin, SECRETS, origin, subjects=subjects), http
 
 
 def publish(fixture: ScopeFixture, receipts: Receipts, *, revision: str | None = None) -> object:
@@ -273,7 +302,8 @@ def test_write_conflict_or_lost_receipt_never_retries(mode: str, status: int, de
 
 def test_route_state_is_staged_until_enabled_and_hides_token_from_repr() -> None:
     fixture: Final = ScopeFixture()
-    service, http = service_for(fixture, Receipts())
+    subjects: Final = Subjects(current_scope())
+    service, http = service_for(fixture, Receipts(), subjects=subjects)
     try:
         assert isinstance(
             asyncio.run(
@@ -289,12 +319,14 @@ def test_route_state_is_staged_until_enabled_and_hides_token_from_repr() -> None
             CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
             SECRETS,
             None,
+            subjects=subjects,
         )
         blocked: Final = asyncio.run(blocked_service.route_state(SUBJECT))
     finally:
         asyncio.run(http.aclose())
     assert isinstance(staged, CockpitSubjectRouteState) and staged.state == "staged"
     assert staged.origin is None and staged.api_key is None
+    assert subjects.calls == [SUBJECT]
     assert isinstance(active, CockpitSubjectRouteState) and active.state == "active"
     assert active.origin == "http://cockpit-data.test:8080"
     assert active.api_key == subject_routing_token(SECRETS, SUBJECT)
@@ -411,3 +443,35 @@ def test_scope_routes_require_manager_and_expose_only_staged_state() -> None:
     assert invalid.status_code == 422 and invalid.json()["detail"] == "invalid_receipt"
     assert revoked.status_code == 200 and revoked.json()["state"] == "absent"
     assert revoked.headers["cache-control"] == "no-store"
+
+
+def test_route_state_revalidates_current_subject_and_fails_closed() -> None:
+    fixture: Final = ScopeFixture()
+    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
+    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
+
+    def make(subjects: Subjects | None) -> CockpitScopeService:
+        return CockpitScopeService(Receipts(), admin, SECRETS, "http://cockpit-data.test:8080", subjects=subjects)
+
+    try:
+        assert isinstance(
+            asyncio.run(
+                make(Subjects(current_scope())).publish(
+                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
+                )
+            ),
+            CockpitSubjectScopeView,
+        )
+        entries = fixture.data["apiKeys"]
+        assert isinstance(entries, list) and isinstance(entries[-1], dict)
+        entries[-1]["enabled"] = True
+        matching: Final = asyncio.run(make(Subjects(current_scope())).route_state(SUBJECT))
+        drifted: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).route_state(SUBJECT))
+        no_reader: Final = asyncio.run(make(None).route_state(SUBJECT))
+        failing: Final = asyncio.run(make(Subjects(fail=True)).route_state(SUBJECT))
+    finally:
+        asyncio.run(http.aclose())
+    assert isinstance(matching, CockpitSubjectRouteState) and matching.state == "active"
+    assert isinstance(drifted, CockpitSubjectRouteState) and drifted.state == "blocked"
+    assert isinstance(no_reader, CockpitSubjectRouteState) and no_reader.state == "blocked"
+    assert isinstance(failing, CockpitSubjectRouteState) and failing.state == "blocked"

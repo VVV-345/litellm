@@ -12,7 +12,12 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, ManifestSnapshot
-from account_pool.cockpit_credential_receipts import CredentialBindings, CredentialReceipt, CredentialReceiptRejection
+from account_pool.cockpit_credential_receipts import (
+    CredentialBindings,
+    CredentialReceipt,
+    CredentialReceiptRejection,
+    TrustedCredentialScope,
+)
 from account_pool.cockpit_failure import precondition, unavailable, write_outcome_unknown
 from account_pool.cockpit_manifest import CockpitScopeManifest, wildcard_match
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
@@ -130,6 +135,10 @@ class ReceiptRevalidator(Protocol):
     async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection: ...
 
 
+class SubjectReader(Protocol):
+    async def read(self, subject_hash: str) -> TrustedCredentialScope | None: ...
+
+
 def _failure(code: ScopeFailureCode) -> ScopeFailure:
     return ScopeFailure(_STATUS[code], code)
 
@@ -161,7 +170,9 @@ class _ReservedKey(BaseModel):
     allowedModels: list[str] | None = None
 
 
-def _find_reserved(manifest: CockpitScopeManifest, subject_hash: str) -> tuple[dict[str, JsonValue], _ReservedKey] | None:
+def _find_reserved(
+    manifest: CockpitScopeManifest, subject_hash: str
+) -> tuple[dict[str, JsonValue], _ReservedKey] | None:
     expected: Final = _reserved_id(subject_hash)
     for raw in manifest.apiKeys or ():
         if raw.get("id") != expected:
@@ -287,11 +298,13 @@ class CockpitScopeService:
         target: CockpitAdminClient,
         secrets: EnvironmentSecretDeriver,
         origin: str | None = None,
+        subjects: SubjectReader | None = None,
     ) -> None:
         self._receipts: Final = receipts
         self._target: Final = target
         self._secrets: Final = secrets
         self._origin: Final = origin
+        self._subjects: Final = subjects
 
     async def read(self, subject_hash: str) -> CockpitSubjectScopeView | ScopeFailure:
         snapshot: Final = await self._target.read_manifest()
@@ -427,7 +440,21 @@ class CockpitScopeService:
                 models=models,
                 persisted_manifest_revision=snapshot.revision,
             )
-        if self._origin is None:
+        if self._origin is None or self._subjects is None:
+            return CockpitSubjectRouteState(
+                subject_hash=subject_hash,
+                state="blocked",
+                account_ids=account_ids,
+                model_scope="restricted",
+                models=models,
+                persisted_manifest_revision=snapshot.revision,
+            )
+        current: TrustedCredentialScope | None
+        try:
+            current = await self._subjects.read(subject_hash)
+        except Exception:  # noqa: BLE001  # a failed subject read must fail closed
+            current = None
+        if not _subject_matches(current, subject_hash, account_ids, models):
             return CockpitSubjectRouteState(
                 subject_hash=subject_hash,
                 state="blocked",
@@ -490,6 +517,22 @@ class CockpitScopeService:
             models=models,
             persisted_manifest_revision=snapshot.revision,
         )
+
+
+def _subject_matches(
+    subject: TrustedCredentialScope | None,
+    subject_hash: str,
+    account_ids: tuple[str, ...],
+    models: tuple[str, ...],
+) -> bool:
+    return (
+        subject is not None
+        and subject.subject_hash == subject_hash
+        and subject.model_scope == "restricted"
+        and len(subject.models) == len(models)
+        and frozenset(subject.models) == frozenset(models)
+        and account_ids == (str(subject.card_id),)
+    )
 
 
 def _read_failure(failure: CockpitFailure) -> ScopeFailure:

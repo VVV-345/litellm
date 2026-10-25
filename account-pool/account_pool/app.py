@@ -87,21 +87,29 @@ def _create_cockpit_resources(
     CockpitAdminClient | None,
     httpx.AsyncClient | None,
     CockpitCredentialReceiptService | None,
+    CockpitSubjectClient | None,
 ]:
     if cockpit_config is None:
-        return None, None, None, None
+        return None, None, None, None, None
     cockpit_http: Final = client_factory()
     cockpit_admin: Final = CockpitAdminClient(cockpit_config, cockpit_http)
     if subject_url is None:
-        return cockpit_http, cockpit_admin, None, None
+        return cockpit_http, cockpit_admin, None, None, None
     subject_http: Final = client_factory()
     subject_reader: Final = CockpitSubjectClient(
-        CockpitSubjectConfig(url=subject_url, token=SecretStr(manager_token)), subject_http,
+        CockpitSubjectConfig(url=subject_url, token=SecretStr(manager_token)),
+        subject_http,
     )
     receipts: Final = CockpitCredentialReceiptService(
-        subject_reader, sources, downloader, ownership, cockpit_admin, secrets, lambda: int(time.time()),
+        subject_reader,
+        sources,
+        downloader,
+        ownership,
+        cockpit_admin,
+        secrets,
+        lambda: int(time.time()),
     )
-    return cockpit_http, cockpit_admin, subject_http, receipts
+    return cockpit_http, cockpit_admin, subject_http, receipts, subject_reader
 
 
 @asynccontextmanager
@@ -147,9 +155,7 @@ def create_app(
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
-    proxy_catalog_repository: Final = PostgresProxyCatalogRepository(
-        resolved.database_url, ProxyCatalogCipher(secrets)
-    )
+    proxy_catalog_repository: Final = PostgresProxyCatalogRepository(resolved.database_url, ProxyCatalogCipher(secrets))
     cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
@@ -196,7 +202,9 @@ def create_app(
         settings_repository,
         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
     )
-    quota_trigger: Final = QuotaRefreshTrigger(service.refresh_quota_after_failure, resolved.quota_refresh_max_concurrency)
+    quota_trigger: Final = QuotaRefreshTrigger(
+        service.refresh_quota_after_failure, resolved.quota_refresh_max_concurrency
+    )
     auth_refresh_scheduler: Final = RefreshScheduler(
         settings_repository,
         service.refresh_auth_files,
@@ -213,7 +221,7 @@ def create_app(
             _notify_refresh_schedulers_after_settings_sync(quota_scheduler, auth_refresh_scheduler)
         return failed
 
-    cockpit_http, cockpit_admin, subject_http, credential_receipts = _create_cockpit_resources(
+    cockpit_http, cockpit_admin, subject_http, credential_receipts, subject_reader = _create_cockpit_resources(
         resolved.cockpit_subject_url,
         resolved.manager_token,
         cockpit_config,
@@ -224,7 +232,13 @@ def create_app(
         secrets,
     )
     cockpit_scope: Final = (
-        CockpitScopeService(credential_receipts, cockpit_admin, secrets, resolved.cockpit_data_url)
+        CockpitScopeService(
+            credential_receipts,
+            cockpit_admin,
+            secrets,
+            resolved.cockpit_data_url,
+            subjects=subject_reader,
+        )
         if cockpit_admin is not None
         else None
     )
