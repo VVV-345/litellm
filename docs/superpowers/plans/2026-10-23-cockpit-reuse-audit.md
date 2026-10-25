@@ -289,7 +289,7 @@ LiteLLM 新增 `account_pool_cockpit_route.py`，按 subject hash 读取 Manager
 
 验证：Manager 与 LiteLLM 号池 cockpit 相关测试 256 项通过，管理路由测试 34 项通过；全部为未加载兼容 shim 的正常收集。新增行严格 Ruff 和 basedpyright 诊断均为 0；新模块严格类型 0 errors。重构过程中曾因一次临时文件截断导致 `test_account_pool` 导入失败，恢复源文件后确认不是仓库既有问题，也没有提交任何 shim。
 
-未做：第三批的请求时主体重校验、缓存失效和激活。真实服务、数据库、凭据和供应商仍未验证。
+未做：激活本身。请求时主体重校验和路由缓存参数已在第三批补上，见下节；真实服务、数据库、凭据和供应商仍未验证。
 
 ### D2.3 解耦整理第二批：显式路由解析器（2026-10-25）
 
@@ -300,6 +300,16 @@ LiteLLM 新增 `account_pool_cockpit_route.py`，按 subject hash 读取 Manager
 未拆 `account_pool_cockpit_route.py`：当前约 287 行，路由状态读取、缓存、owner 决策和单次转发仍在同一职责边界内；强行拆分会增加导入和测试迁移，没有实际收益。
 
 验证：合并文件集一次运行 269 项通过，其中 route owner 13 项、请求路由 72 项；Manager/LiteLLM cockpit 其余文件 256 项通过；管理路由 34 项通过。新增行严格 Ruff 和 basedpyright 诊断均为 0。未启动真实服务，路由仍关闭，`ready_to_migrate` 仍为 false。
+
+### D2.3 解耦整理第三批：请求时主体重校验与路由缓存（2026-10-25）
+
+提交 `499a72e19b` 和 `dedc0576e7`。本批改变失败语义，但仍不激活：总开关保持关闭，`ready_to_migrate` 保持 false。
+
+Manager 的 `route_state` 在返回 active 前，必须通过注入的 `SubjectReader` 重新读取当前原生主体：主体 hash、单卡和受限模型列表必须与 manifest 投影完全一致。主体读取失败、读取器未配置、卡片或模型范围漂移时返回 `blocked`，不返回 token。staged 状态不读取凭据或主体。`create_app` 复用现有 `CockpitSubjectClient`，没有新增凭据读取路径；未配置 `ACCOUNT_POOL_COCKPIT_SUBJECT_URL` 时 active 一律阻断。
+
+LiteLLM 路由缓存 TTL 改为 `ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS`，范围 1 到 300 秒，默认 30 秒；`CockpitRouteResolver` 增加显式 `invalidate` 和 `clear` 操作。缓存仍按进程独立，没有跨 worker 推送失效；激活时必须使用短 TTL 或重启 worker，这一限制保留到激活方案里。
+
+验证：最终定向合并运行 152 项通过（scope、policy、preflight、runtime、admin、app、route owner），单个 route/app/scope 子集 32 项通过；新增行严格 Ruff 和 basedpyright 诊断均为 0，`cockpit_scope.py` 严格类型 0 errors。未连接真实 Cockpit、数据库、凭据或供应商，未启用 `enabled=true`，未重启或切流。
 
 ### 替换阶段 E：行为兼容与差异验收
 
