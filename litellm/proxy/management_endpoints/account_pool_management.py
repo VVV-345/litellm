@@ -30,6 +30,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     CockpitPolicyRuntime,
     CockpitPolicyUpdate,
     CockpitPolicyView,
+    CockpitScopeActivationRequest,
     CockpitScopePublishRequest,
     CockpitScopeRevokeRequest,
     CockpitSubjectScopeView,
@@ -82,8 +83,11 @@ def create_management_router(
         try:
             upstream: Final = await request_manager(method, "/api/cockpit/policy", body)
         except HTTPException:
-            raise HTTPException(503, "write_outcome_unknown" if method == "PUT" else "unavailable",
-                                headers={"Cache-Control": "no-store"}) from None
+            raise HTTPException(
+                503,
+                "write_outcome_unknown" if method == "PUT" else "unavailable",
+                headers={"Cache-Control": "no-store"},
+            ) from None
         if upstream.status_code != 200:
             safe_codes: Final = {
                 409: frozenset({"revision_conflict"}),
@@ -93,20 +97,26 @@ def create_management_router(
             try:
                 error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
             except ValidationError:
-                raise HTTPException(503 if method == "PUT" else 502,
-                                    "write_outcome_unknown" if method == "PUT" else "unavailable",
-                                    headers={"Cache-Control": "no-store"}) from None
+                raise HTTPException(
+                    503 if method == "PUT" else 502,
+                    "write_outcome_unknown" if method == "PUT" else "unavailable",
+                    headers={"Cache-Control": "no-store"},
+                ) from None
             detail: Final = error.get("detail", "")
             accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
-            raise HTTPException(upstream.status_code if accepted else 503 if method == "PUT" else 502,
-                                detail if accepted else "write_outcome_unknown" if method == "PUT" else "unavailable",
-                                headers={"Cache-Control": "no-store"})
+            raise HTTPException(
+                upstream.status_code if accepted else 503 if method == "PUT" else 502,
+                detail if accepted else "write_outcome_unknown" if method == "PUT" else "unavailable",
+                headers={"Cache-Control": "no-store"},
+            )
         try:
             return CockpitPolicyView.model_validate_json(upstream.content)
         except ValidationError:
-            raise HTTPException(503 if method == "PUT" else 502,
-                                "write_outcome_unknown" if method == "PUT" else "invalid_response",
-                                headers={"Cache-Control": "no-store"}) from None
+            raise HTTPException(
+                503 if method == "PUT" else 502,
+                "write_outcome_unknown" if method == "PUT" else "invalid_response",
+                headers={"Cache-Control": "no-store"},
+            ) from None
 
     @router.get("/cockpit/policy")
     async def get_cockpit_policy(response: Response) -> CockpitPolicyView:
@@ -142,8 +152,9 @@ def create_management_router(
                 raise HTTPException(status, failure, headers=headers) from None
             detail: Final = error.get("detail", "")
             accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
-            raise HTTPException(upstream.status_code if accepted else status,
-                                detail if accepted else failure, headers=headers)
+            raise HTTPException(
+                upstream.status_code if accepted else status, detail if accepted else failure, headers=headers
+            )
         try:
             result: Final = CockpitPolicyRuntime.model_validate_json(upstream.content)
         except ValidationError:
@@ -167,7 +178,9 @@ def create_management_router(
         return await cockpit_runtime_call(request)
 
     async def cockpit_scope_call(
-        method: Literal["GET", "POST", "DELETE"], path: str, body: bytes | None = None,
+        method: Literal["GET", "POST", "DELETE"],
+        path: str,
+        body: bytes | None = None,
     ) -> CockpitSubjectScopeView:
         headers: Final = {"Cache-Control": "no-store"}
         try:
@@ -180,14 +193,27 @@ def create_management_router(
             ) from None
         if upstream.status_code != 200:
             safe_codes: Final = {
-                409: frozenset({
-                    "manifest_changed", "publication_conflict", "receipt_stale", "revision_conflict",
-                    "subject_unverified",
-                }),
-                422: frozenset({
-                    "account_missing", "invalid_manifest", "invalid_receipt", "model_scope_unsupported",
-                    "model_unmapped", "scope_unverified",
-                }),
+                409: frozenset(
+                    {
+                        "activation_blocked",
+                        "manifest_changed",
+                        "not_published",
+                        "publication_conflict",
+                        "receipt_stale",
+                        "revision_conflict",
+                        "subject_unverified",
+                    }
+                ),
+                422: frozenset(
+                    {
+                        "account_missing",
+                        "invalid_manifest",
+                        "invalid_receipt",
+                        "model_scope_unsupported",
+                        "model_unmapped",
+                        "scope_unverified",
+                    }
+                ),
                 503: frozenset({"unavailable", "write_outcome_unknown"}),
             }
             try:
@@ -212,7 +238,8 @@ def create_management_router(
 
     @router.get("/cockpit/scope/{subject_hash}")
     async def get_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
-        subject_hash: str, response: Response,
+        subject_hash: str,
+        response: Response,
     ) -> CockpitSubjectScopeView:
         response.headers["Cache-Control"] = "no-store"
         view: Final = await cockpit_scope_call("GET", f"/api/cockpit/scope/{subject_hash}")
@@ -221,7 +248,8 @@ def create_management_router(
 
     @router.post("/cockpit/scope")
     async def publish_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
-        request: CockpitScopePublishRequest, response: Response,
+        request: CockpitScopePublishRequest,
+        response: Response,
     ) -> CockpitSubjectScopeView:
         response.headers["Cache-Control"] = "no-store"
         view: Final = await cockpit_scope_call("POST", "/api/cockpit/scope", request.model_dump_json().encode())
@@ -230,10 +258,35 @@ def create_management_router(
 
     @router.delete("/cockpit/scope")
     async def revoke_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
-        request: CockpitScopeRevokeRequest, response: Response,
+        request: CockpitScopeRevokeRequest,
+        response: Response,
     ) -> CockpitSubjectScopeView:
         response.headers["Cache-Control"] = "no-store"
         view: Final = await cockpit_scope_call("DELETE", "/api/cockpit/scope", request.model_dump_json().encode())
+        scope_mismatch(request.subject_hash, view)
+        return view
+
+    @router.post("/cockpit/scope/activate")
+    async def activate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CockpitScopeActivationRequest,
+        response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        view: Final = await cockpit_scope_call(
+            "POST", "/api/cockpit/scope/activate", request.model_dump_json().encode()
+        )
+        scope_mismatch(request.subject_hash, view)
+        return view
+
+    @router.post("/cockpit/scope/deactivate")
+    async def deactivate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CockpitScopeActivationRequest,
+        response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        view: Final = await cockpit_scope_call(
+            "POST", "/api/cockpit/scope/deactivate", request.model_dump_json().encode()
+        )
         scope_mismatch(request.subject_hash, view)
         return view
 

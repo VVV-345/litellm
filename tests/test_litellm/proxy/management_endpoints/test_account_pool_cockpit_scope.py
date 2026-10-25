@@ -68,7 +68,14 @@ def test_scope_routes_require_proxy_admin_before_manager() -> None:
         revoke: Final = client.request(
             "DELETE", "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "revision": R1}
         )
+        activate: Final = client.post(
+            "/account_pool/cockpit/scope/activate", json={"subject_hash": SUBJECT, "revision": R1}
+        )
+        deactivate: Final = client.post(
+            "/account_pool/cockpit/scope/deactivate", json={"subject_hash": SUBJECT, "revision": R1}
+        )
     assert read.status_code == publish.status_code == revoke.status_code == 403
+    assert activate.status_code == deactivate.status_code == 403
     assert calls == []
 
 
@@ -87,16 +94,27 @@ def test_scope_proxy_forwards_exact_requests_and_never_returns_a_key() -> None:
         revoke: Final = client.request(
             "DELETE", "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "revision": R1}
         )
+        activate: Final = client.post(
+            "/account_pool/cockpit/scope/activate", json={"subject_hash": SUBJECT, "revision": R1}
+        )
+        deactivate: Final = client.post(
+            "/account_pool/cockpit/scope/deactivate", json={"subject_hash": SUBJECT, "revision": R1}
+        )
     assert (read.status_code, publish.status_code, revoke.status_code) == (200, 200, 200)
+    assert (activate.status_code, deactivate.status_code) == (200, 200)
     assert all(response.headers["cache-control"] == "no-store" for response in (read, publish, revoke))
     assert "key" not in read.json() and "api_key" not in read.json()
     assert [(request.method, request.url.path) for request in calls] == [
         ("GET", "/api/cockpit/scope/" + SUBJECT),
         ("POST", "/api/cockpit/scope"),
         ("DELETE", "/api/cockpit/scope"),
+        ("POST", "/api/cockpit/scope/activate"),
+        ("POST", "/api/cockpit/scope/deactivate"),
     ]
     assert json.loads(calls[1].content) == {"subject_hash": SUBJECT, "receipt": "encoded", "revision": R1}
     assert json.loads(calls[2].content) == {"subject_hash": SUBJECT, "revision": R1}
+    assert json.loads(calls[3].content) == {"subject_hash": SUBJECT, "revision": R1}
+    assert json.loads(calls[4].content) == {"subject_hash": SUBJECT, "revision": R1}
 
 
 def test_scope_proxy_preserves_safe_conflict_and_rejects_unknown_details() -> None:

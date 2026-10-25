@@ -20,12 +20,24 @@ from pydantic import (
 )
 
 CockpitStrategy = Literal[
-    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
-    "expiry_soon_first", "custom",
+    "auto",
+    "random",
+    "quota_high_first",
+    "quota_low_first",
+    "plan_high_first",
+    "plan_low_first",
+    "expiry_soon_first",
+    "custom",
 ]
 _COCKPIT_STRATEGIES: Final[tuple[CockpitStrategy, ...]] = (
-    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
-    "expiry_soon_first", "custom",
+    "auto",
+    "random",
+    "quota_high_first",
+    "quota_low_first",
+    "plan_high_first",
+    "plan_low_first",
+    "expiry_soon_first",
+    "custom",
 )
 
 
@@ -66,7 +78,12 @@ class CockpitPolicyView(BaseModel):
     runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
     supported_strategies: tuple[CockpitStrategy, ...] = _COCKPIT_STRATEGIES
     unsupported_fields: tuple[str, ...] = (
-        "account_enabled", "candidate_scope", "fallback_enabled", "max_attempts", "cooldown", "session_affinity",
+        "account_enabled",
+        "candidate_scope",
+        "fallback_enabled",
+        "max_attempts",
+        "cooldown",
+        "session_affinity",
     )
 
 
@@ -75,6 +92,13 @@ class CockpitScopePublishRequest(BaseModel):
 
     subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     receipt: str = Field(min_length=1, max_length=16384)
+    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
+
+
+class CockpitScopeActivationRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
 
 
@@ -119,13 +143,26 @@ class CockpitPreflightRequest(BaseModel):
 
 
 PreflightBlocker = Literal[
-    "source_card_missing", "source_card_unavailable", "subject_binding_unverified", "empty_candidates",
-    "duplicate_candidates", "outside_authorized_scope", "source_account_missing", "supplier_mismatch",
-    "account_unavailable", "source_credential_missing", "supplier_mapping_unsupported",
-    "target_account_missing", "target_account_collision", "target_credential_missing",
-    "target_auth_kind_unsupported", "target_identity_unverified", "strategy_mapping_unverified",
+    "source_card_missing",
+    "source_card_unavailable",
+    "subject_binding_unverified",
+    "empty_candidates",
+    "duplicate_candidates",
+    "outside_authorized_scope",
+    "source_account_missing",
+    "supplier_mismatch",
+    "account_unavailable",
+    "source_credential_missing",
+    "supplier_mapping_unsupported",
+    "target_account_missing",
+    "target_account_collision",
+    "target_credential_missing",
+    "target_auth_kind_unsupported",
+    "target_identity_unverified",
+    "strategy_mapping_unverified",
     "legacy_account_scope_unsupported",
-    "source_credential_collision", "target_credential_collision",
+    "source_credential_collision",
+    "target_credential_collision",
 ]
 
 
@@ -152,13 +189,24 @@ class CockpitPreflightReport(BaseModel):
     accounts: tuple[CockpitAccountPreflight, ...]
     blockers: tuple[PreflightBlocker, ...]
     ready_to_migrate: Literal[False] = False
-    pending_checks: tuple[Literal[
-        "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
-        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "native_runtime_authorization_unverified",
+    pending_checks: tuple[
+        Literal[
+            "runtime_eligibility_unverified",
+            "credentials_and_ownership_unverified",
+            "models_proxy_quota_unmapped",
+            "policy_behavior_unverified",
+            "native_subject_mapping_unimplemented",
+            "native_runtime_authorization_unverified",
+            "runtime_activation_unverified",
+        ],
+        ...,
+    ] = (
+        "runtime_eligibility_unverified",
+        "credentials_and_ownership_unverified",
+        "models_proxy_quota_unmapped",
+        "policy_behavior_unverified",
+        "native_subject_mapping_unimplemented",
         "runtime_activation_unverified",
-    ], ...] = (
-        "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
-        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",
     )
 
 
@@ -670,7 +718,9 @@ class AccountPoolSettings(BaseModel):
     default_route: Literal["auto", "priority", "random", "quota"] = "auto"
     default_concurrency_limit: int = Field(default=1, ge=0, le=1000)
     default_model_discovery: bool = True
-    model_test_greetings: tuple[Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)], ...] = Field(default=(), max_length=50)
+    model_test_greetings: tuple[Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)], ...] = Field(
+        default=(), max_length=50
+    )
     auth_file_template: AuthFileTemplate | None = None
     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
     max_attempts: int = Field(default=3, ge=1, le=5)

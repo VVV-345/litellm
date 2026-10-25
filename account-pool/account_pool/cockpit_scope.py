@@ -48,6 +48,8 @@ ScopeFailureCode = Literal[
     "unavailable",
     "write_rejected",
     "write_outcome_unknown",
+    "not_published",
+    "activation_blocked",
 ]
 
 _STATUS: Final[Mapping[ScopeFailureCode, int]] = MappingProxyType(
@@ -67,6 +69,8 @@ _STATUS: Final[Mapping[ScopeFailureCode, int]] = MappingProxyType(
         "unavailable": 503,
         "write_rejected": 502,
         "write_outcome_unknown": 503,
+        "not_published": 409,
+        "activation_blocked": 409,
     }
 )
 _RECEIPT_REJECTIONS: Final[Mapping[str, ScopeFailureCode]] = MappingProxyType(
@@ -92,6 +96,13 @@ class CockpitScopePublishRequest(BaseModel):
 
 
 class CockpitScopeRevokeRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    subject_hash: SubjectHash
+    revision: Revision
+
+
+class CockpitScopeActivationRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subject_hash: SubjectHash
@@ -410,6 +421,73 @@ class CockpitScopeService:
             model_scope="none",
             models=(),
             persisted_manifest_revision=receipt.revision,
+        )
+
+    async def activate(self, request: CockpitScopeActivationRequest) -> CockpitSubjectScopeView | ScopeFailure:
+        return await self._set_enabled(request.subject_hash, request.revision, True)
+
+    async def deactivate(self, request: CockpitScopeActivationRequest) -> CockpitSubjectScopeView | ScopeFailure:
+        return await self._set_enabled(request.subject_hash, request.revision, False)
+
+    async def _set_enabled(
+        self,
+        subject_hash: str,
+        revision: str,
+        enabled: bool,
+    ) -> CockpitSubjectScopeView | ScopeFailure:
+        snapshot: Final = await self._target.read_manifest()
+        if isinstance(snapshot, CockpitFailure):
+            return _read_failure(snapshot)
+        if revision != snapshot.revision:
+            return _failure("revision_conflict")
+        manifest: Final = _manifest(snapshot)
+        if isinstance(manifest, ScopeFailure):
+            return _failure("invalid_manifest")
+        found: Final = _find_reserved(manifest, subject_hash)
+        if found is None:
+            return _failure("not_published")
+        raw, entry = found
+        token: Final = subject_routing_token(self._secrets, subject_hash)
+        account_ids: Final = tuple(entry.accountIds or ())
+        models: Final = tuple(entry.allowedModels or ())
+        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
+            return _failure("activation_blocked")
+        if enabled:
+            if self._origin is None or not await self._authorized(subject_hash, account_ids, models):
+                return _failure("activation_blocked")
+            if entry.enabled:
+                return self._activation_view(subject_hash, account_ids, models, snapshot.revision, True)
+        elif not entry.enabled:
+            return self._activation_view(subject_hash, account_ids, models, snapshot.revision, False)
+        updated: Final = {**raw, "enabled": enabled}
+        keys: Final = [updated if item.get("id") == raw.get("id") else item for item in manifest.apiKeys or ()]
+        candidate: Final = manifest.model_copy(update={"apiKeys": keys})
+        if _manifest_problem(candidate):
+            return _failure("invalid_manifest")
+        keys_json: Final[list[JsonValue]] = [dict(item) for item in keys]
+        data: Final[dict[str, JsonValue]] = {**snapshot.data, "apiKeys": keys_json}
+        receipt: Final = await self._target.write_manifest(data, snapshot.revision)
+        if isinstance(receipt, CockpitFailure):
+            return _write_failure(receipt)
+        if receipt.revision is None:
+            return _failure("write_outcome_unknown")
+        return self._activation_view(subject_hash, account_ids, models, receipt.revision, enabled)
+
+    def _activation_view(
+        self,
+        subject_hash: str,
+        account_ids: tuple[str, ...],
+        models: tuple[str, ...],
+        revision: str,
+        enabled: bool,
+    ) -> CockpitSubjectScopeView:
+        return CockpitSubjectScopeView(
+            subject_hash=subject_hash,
+            state="active" if enabled else "staged",
+            account_ids=account_ids,
+            model_scope="restricted",
+            models=models,
+            persisted_manifest_revision=revision,
         )
 
     async def route_state(self, subject_hash: str) -> CockpitSubjectRouteState | ScopeFailure:

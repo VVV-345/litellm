@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.security import HTTPAuthorizationCredentials
 
 from account_pool.cockpit_scope import (
+    CockpitScopeActivationRequest,
     CockpitScopePublishRequest,
     CockpitScopeRevokeRequest,
     CockpitScopeService,
@@ -60,6 +61,22 @@ def create_cockpit_scope_router(
     ) -> CockpitSubjectScopeView:
         response.headers["Cache-Control"] = "no-store"
         return scope_result(await scope_service().revoke(request))
+
+    @router.post("/api/cockpit/scope/activate", dependencies=[Depends(require_manager)])
+    async def activate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CockpitScopeActivationRequest,
+        response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        return scope_result(await scope_service().activate(request))
+
+    @router.post("/api/cockpit/scope/deactivate", dependencies=[Depends(require_manager)])
+    async def deactivate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
+        request: CockpitScopeActivationRequest,
+        response: Response,
+    ) -> CockpitSubjectScopeView:
+        response.headers["Cache-Control"] = "no-store"
+        return scope_result(await scope_service().deactivate(request))
 
     @router.get(
         "/internal/cockpit/route/{subject_hash}",
