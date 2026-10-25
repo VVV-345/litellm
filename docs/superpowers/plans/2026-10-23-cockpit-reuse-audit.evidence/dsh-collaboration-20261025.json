@@ -1,0 +1,94 @@
+{
+  "execution": {
+    "command": [
+      "C:\\Users\\42117\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+      "--profile",
+      "headless",
+      "--patch",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan\\plan-only.patch.yml",
+      "--json",
+      "-"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan",
+    "exit_status": 0,
+    "elapsed_seconds": 66.49,
+    "requested_provider": "opencode-go",
+    "requested_model": "deepseek-v4.1-flash",
+    "requested_reasoning_effort": "max",
+    "tool_plugins_disabled": true
+  },
+  "session": {
+    "type": "session",
+    "sessionId": "session-9aefd4e2-eaa8-4d59-839e-82c562a09cc1",
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan"
+  },
+  "requested_selection": {
+    "provider": "opencode-go",
+    "model": "deepseek-v4.1-flash",
+    "reasoningEffort": "max"
+  },
+  "final_text": "**1. 确认**\n可以：后续我会按主代理派工，在现有隔离开发分支写实现与测试并本地提交，不部署、不执行 push、不改动旧生产；本轮只输出方案。\n\n**2. 首个失败测试草案（伪代码）**\n先建立最小可测的注入接缝：环境模式、Manager lookup、旧链路拦截器均从外部注入。下述 `environment_mode`、`legacy_lookup`、`RouteUnavailable` 是**拟新增契约**，不是现有 API；测试只使用测试内本地替身，不依赖不存在的 fixture。\n\n```python\nimport pytest\n\n@pytest.mark.parametrize(\"state\", [\"absent\", \"staged\"])\ndef test_managerless_manager_unreachable_never_falls_back(state):\n    manager_calls, legacy_calls = [], []\n\n    class UnreachableManager:          # 外部 Manager 的替身\n        def read(self, subject_hash):\n            manager_calls.append(subject_hash)\n            raise ManagerUnreachable(\"connection refused\")\n\n    def legacy_tripwire(*args, **kwargs):  # 旧 Manager/旧存储入口拦截器\n        legacy_calls.append((args, kwargs))\n        pytest.fail(\"managerless 模式不得回退旧链路\")\n\n    resolver = CockpitRouteResolver(    # 构造签名待主代理确认\n        default_lookup=UnreachableManager(),\n        legacy_lookup=legacy_tripwire,\n        environment_mode=\"managerless\",\n    )\n\n    with pytest.raises(RouteUnavailable):\n        resolver.resolve(\n            subject_hash=\"subject-hash\",\n            route_state=state,\n            requested_model=\"allowlisted-model\",\n        )\n\n    assert manager_calls == [\"subject-hash\"]  # 确已模拟 Manager 失败\n    assert legacy_calls == []                 # 核心不变式：零回退\n```\n\n该测试落地后应先失败：旧实现若调用旧链路，或把异常吞掉后返回路由，都会失败。修复后应显式失败，且旧链路调用次数为零。另补旧环境同场景回归，按现有兼容契约执行，防止“一刀切”破坏旧生产。\n\n**3. 派真实任务前需固定**\n1. **环境模式来源**：由显式配置或构造器注入，枚举值、默认值、优先级和启动时校验；禁止用 Manager 环境变量有无来推断新旧环境。\n2. **旧链路边界与“不可达”定义**：明确旧 Manager、scope/manifest、旧 DB、Docker、静态映射中哪些算旧链路；区分连接失败、超时、5xx、鉴权失败与 404/空结果。新环境只允许显式失败，旧环境保留原行为。\n3. **对外结果契约**：`cockpit_route_for_request` 返回还是抛错、异常类型/HTTP 状态码、absent/staged 的允许结果、是否重试及日志字段；同时确认现有 Responses-only、模型白名单和 active 后禁重试/fallback 不变。\n\n**4. 本轮状态**\n本轮未执行项目测试、未更改任何项目文件、未部署、未执行 push，仅作文本回复；不声明实际模型参数或真实运行档位。",
+  "literal_stderr": "",
+  "attempts": [
+    {
+      "command": [
+        "C:\\Users\\42117\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+        "--profile",
+        "headless",
+        "--patch",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan\\plan-only.patch.yml",
+        "--json",
+        "-"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan",
+      "exit_status": 1,
+      "elapsed_seconds": 2.05,
+      "requested_provider": "opencode-go",
+      "requested_model": "deepseek-v4.1-flash",
+      "requested_reasoning_effort": "max",
+      "tool_plugins_disabled": true,
+      "literal_stderr": "dsh: NO_ADAPTER: no adapter registered for provider \"opencode-go\"\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\42117\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+        "--profile",
+        "headless",
+        "--patch",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan\\plan-only.patch.yml",
+        "--json",
+        "-"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan",
+      "exit_status": 1,
+      "elapsed_seconds": 1.78,
+      "requested_provider": "opencode-go",
+      "requested_model": "deepseek-v4.1-flash",
+      "requested_reasoning_effort": "max",
+      "tool_plugins_disabled": true,
+      "literal_stderr": "dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"opencode-go\"; its profile resolves OPENCODE_GO_API_KEY, which is not set — store OPENCODE_GO_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery\n"
+    },
+    {
+      "command": [
+        "C:\\Users\\42117\\AppData\\Local\\Programs\\DeepSeek Harness\\resources\\runtime\\cli\\bin\\dsh.cmd",
+        "--profile",
+        "headless",
+        "--patch",
+        "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan\\plan-only.patch.yml",
+        "--json",
+        "-"
+      ],
+      "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\dsh-plan",
+      "exit_status": 1,
+      "elapsed_seconds": 1.81,
+      "requested_provider": "opencode-go",
+      "requested_model": "deepseek-v4.1-flash",
+      "requested_reasoning_effort": "max",
+      "tool_plugins_disabled": true,
+      "literal_stderr": "dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route \"opencode-go\"; its profile resolves OPENCODE_GO_API_KEY, which is not set — store OPENCODE_GO_API_KEY through the credentials service (the web Models page writes it) or export it, and remove apiKeyEnv only if this provider should authenticate from pi-ai's own environment discovery\n"
+    }
+  ],
+  "review": "Rejected draft allowance of one Manager call. New runtime requires zero Manager calls. DS made no project code changes in this probe.",
+  "credential_handling": "Existing named credential passed only via child-process environment; no values retained.",
+  "limitations": "Connectivity/text verified, not project implementation or opaque provider-side inference internals."
+}

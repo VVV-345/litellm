@@ -200,3 +200,90 @@ STDERR:
 
 BASELINE/MODIFIED/ROLLBACK document contract: each stdout missing=0 forbidden=0; stderr empty; exit 0. Baseline and restored hash 0b7a72a73dd87d397ace0b3b2b641542dce50f145d9a3a84b7b1e3204e1ba3a5. Modified hash 77f26dc5425d84091312e383b6d02e5685aab17b120dfbea1f5f97556104bc02. These document checks do not validate production behavior.
 Patch reconstructs 23 changed file blobs from base 1a6902d443, each matching the candidate; reverse-apply check exit 0. Server rollback remains unverified. Historical D2.4 evidence remains above; latest supplemental evidence takes precedence for frontend/build outcomes.
+
+
+=== 2026-10-25 Managerless plan and direct DSH collaboration ===
+BASE HEAD: 16655b9fe438d19c1fec2edcea06b6145f4bea59
+CHANGED SECTION: ## 2026-10-25 最新决策与续作入口
+GOAL: no Manager runtime in new deployment; primary plans/reviews, DS implements bounded tasks
+DSH completed exit0, requested opencode-go/deepseek-v4.1-flash reasoningEffort=max; text probe only
+Prior NO_ADAPTER and two MISSING_CREDENTIAL errors retained in dsh-collaboration-20261025.json
+No secret values copied; desktop default unchanged; DS did not implement project code
+DOCUMENT STATE: {"BASELINE": 0, "MODIFIED": 1, "ROLLBACK": 0}
+BASELINE HASH: 77f26dc5425d84091312e383b6d02e5685aab17b120dfbea1f5f97556104bc02
+MODIFIED HASH: 33701ce88fefdb617c4b58330f97315a88e19ee578ce6de459dfde85a9eaa5d2
+ROLLBACK HASH: 77f26dc5425d84091312e383b6d02e5685aab17b120dfbea1f5f97556104bc02
+RESTORED HASH MATCH: true
+PATCH reconstructed 24 exact blobs from 1a6902d443; reverse check exit0
+HANDOFF: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-25-managerless-cockpit-handoff.md SHA256 a27af03d60cde93f81dacb2e1518b592e2ba1d2959e77dcfe8ddc433f9c7dd18
+Unscoped diff check exit2 flags embedded patch context whitespace; source-scope diff check and actual patch apply/reverse verification pass; patch context was not corrupted to silence checker
+LABEL: BASELINE
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\MANAGERLESS_BASELINE.md"]
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+LABEL: MODIFIED
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+LABEL: ROLLBACK_EXECUTE
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "--restore-file", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\rollback-plan-copy.md", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\MANAGERLESS_BASELINE.md"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: ROLLBACK
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\rollback-plan-copy.md"]
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+LABEL: DIFF_CHECK_GENERATED_PATCH_CONTEXT_WHITESPACE
+COMMAND: ["git", "diff", "--check"]
+EXIT: 2
+STDOUT:
+docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/DIFF_FILE.patch:2002: trailing whitespace.
++ 
+docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/DIFF_FILE.patch:2015: trailing whitespace.
++ 
+
+STDERR:
+
+LABEL: DIFF_CHECK_SOURCE_SCOPE
+COMMAND: ["git", "diff", "--check", "--", ".", ":(exclude)docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: REVERSE_PATCH_CHECK
+COMMAND: ["git", "apply", "--check", "-R", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: BASE_INDEX
+COMMAND: ["git", "read-tree", "1a6902d443ae8209a80a5be8eb3c26ede0f06e16"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+LABEL: PATCH_RECONSTRUCT
+COMMAND: ["git", "apply", "--cached", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"]
+EXIT: 0
+STDOUT:
+
+STDERR:
+

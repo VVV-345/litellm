@@ -1,0 +1,22 @@
+{
+  "command": [
+    "D:/Work2api/litellm/.venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "account-pool/tests/account_pool/test_cockpit_receipt_adapter.py",
+    "account-pool/tests/account_pool/test_cockpit_receipt_api.py",
+    "account-pool/tests/account_pool/test_app.py",
+    "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_receipts.py",
+    "-q",
+    "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\baseline-tmp-232911"
+  ],
+  "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+  "environment": {
+    "PYTHONPATH": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool;C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\tests",
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "LITELLM_LOCAL_MODEL_COST_MAP": "True"
+  },
+  "stdout": "................                                                         [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n16 passed, 1 warning in 18.71s\n",
+  "stderr": "",
+  "exit_status": 0
+}

@@ -1,5 +1,16 @@
 # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
 
+## 2026-10-25 最新决策与续作入口
+
+本节优先于下文历史记录。用户最新目标为客户端 -> LiteLLM -> Cockpit -> 供应商，新环境不运行 Manager、不调用 Manager API、不依赖 Manager 数据库；旧生产保持不动，只用于现有业务和批准后的回退。下文允许 Manager 管理桥的内容属于三组件过渡历史，不能作为新部署目标
+
+用户最新协作安排为主代理负责规划、派工和独立验收，通过 DSH 的 OpenCode Go / deepseek-v4.1-flash（max）直接调用 DS 辅助写代码，不再要求用户手动转交。DSH 本轮一次真实试调用成功，未修改业务代码、未部署、未 push
+
+执行入口：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md`。按阶段 0 固定 Cockpit 实际版本和依赖矩阵，再向 DS 派最小代码任务；不继续扩展依赖 Manager 的旧 UI 工作流。必须保留原生鉴权、单一重试 owner 和原生计费；未确认的 Cockpit 接口、协议兼容、许可、Linux ARM64 镜像、真实服务和服务器回滚仍是门槛
+
+当前业务代码基线为 `16655b9fe438d19c1fec2edcea06b6145f4bea59`。本轮回执离线基线 16 passed/1 warning，exit 0；这些仍是过渡实现测试，不能证明无 Manager 可用。本次仅更新计划及调用证据，原有实现和历史结果保留
+
+
 > 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
 
 **目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
