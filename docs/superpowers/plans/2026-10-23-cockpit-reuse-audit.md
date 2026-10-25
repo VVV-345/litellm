@@ -1,5 +1,19 @@
 # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
 
+## 2026-10-26 最新检查点：原生 policy/runtime 服务单元
+
+本节优先于下文历史进度。起点 `ab11859de4b5bbb4bc1b7a4f8eb3c726659076e7`，本轮仍在用户批准的 `codex/cockpit-reuse-plan` worktree 执行，本地提交，不推送、不部署
+
+DS 通过已接通的 DSH / OpenCode Go / deepseek-v4.1-flash（请求 max）生成两份测试和三文件精确替换清单。主代理补强凭据与未知字段保留、真实策略变更、persisted/active 版本不符及未知 422 的用例，然后验证原函数和类 AST 不变、8 个 schema 一致、7 个基线文件原始 hash 不变。新增 LiteLLM 内 `account_pool_cockpit_policy.py`、`account_pool_cockpit_runtime.py`、`account_pool_cockpit_failure.py`，共用已有原生 admin 类型，没有导入旧 `account_pool` 包
+
+本轮旧服务与客户端基线 63 passed/1 warning，新模块缺失红灯 2 failed/1 warning，新服务 16 passed/1 warning，最终相关回归 336 passed/1 warning，后者包含前述新用例，数量不相加。普通 Ruff、strict Ruff、格式检查通过，新源码 basedpyright 为 0 errors/0 warnings。隔离子进程拒绝 `account_pool` 导入后仍能调用新 policy/runtime。所有接口测试都是离线 MockTransport，不代表真实 Cockpit 或服务器验收
+
+BASELINE、MODIFIED、ROLLBACK 同输入均为 exit 0、stderr 空且 stdout 一致：`read_cockpit_policy` 读到 auto，`save_cockpit_policy` 用 GET+PUT/If-Match 保存 custom 并保留未知字段和凭据；保存不激活，只有显式 `apply_cockpit_policy` 才 POST，412 映射 409/revision_conflict，503 映射 503/apply_outcome_unknown，每次只请求一次。单独副本经既有 ROLLBACK.sh 恢复后 hash 等于旧原件，新源码保留。文档三态检查均 missing=0 forbidden=0，这只是本地文档检查，不是产品测试
+
+本单元未注册 HTTP 路由，未修改 `_default_lookup`、默认值、镜像或旧 Manager。阶段 1 整体尚未完成。下一步先拆清 trusted subject / receipt / scope 的值契约和进程内原生权限读取边界，再让 DS 写对应失败测试与最小实现；不要把旧 preflight 的 Manager repository/domain 依赖照搬为新运行态依赖。之后仍须接线、证明 Manager 零调用、验证真实计费/换卡/续聊与 UI，并通过 Linux ARM64 镜像和服务器隔离测试。历史离线 wheel 缺 maturin 的失败仍保留，本轮未重复构建或声称打包通过
+
+完整命令、stdout/stderr、退出码、hash 与审查记录：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-services-verification.json`
+
 ## 2026-10-25 最新决策与续作入口
 
 本节优先于下文历史记录。用户最新目标为客户端 -> LiteLLM -> Cockpit -> 供应商，新环境不运行 Manager、不调用 Manager API、不依赖 Manager 数据库；旧生产保持不动，只用于现有业务和批准后的回退。下文允许 Manager 管理桥的内容属于三组件过渡历史，不能作为新部署目标

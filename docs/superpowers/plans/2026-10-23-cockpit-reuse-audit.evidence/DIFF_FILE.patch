@@ -1,5 +1,5 @@
 diff --git a/account-pool/account_pool/api.py b/account-pool/account_pool/api.py
-index e51bbcd02fcb1eecd0adee740c22ee31a7b13d1e..97398cfae4a8c5d7c7d9c6a01342fcac990d7439 100644
+index e51bbcd02f..97398cfae4 100644
 --- a/account-pool/account_pool/api.py
 +++ b/account-pool/account_pool/api.py
 @@ -36,6 +36,8 @@ from account_pool.cockpit_preflight import (
@@ -26,7 +26,7 @@ index e51bbcd02fcb1eecd0adee740c22ee31a7b13d1e..97398cfae4a8c5d7c7d9c6a01342fcac
      @router.get("/api/cockpit/status", dependencies=[Depends(require_manager)])
      async def get_cockpit_status(response: Response) -> CockpitStatus:
 diff --git a/account-pool/account_pool/app.py b/account-pool/account_pool/app.py
-index 9ca458f0e8400faebbd1269c5ebf03268efbae96..b1a2f4f697fd10c8c7142849ff520a24ff492911 100644
+index 9ca458f0e8..b1a2f4f697 100644
 --- a/account-pool/account_pool/app.py
 +++ b/account-pool/account_pool/app.py
 @@ -31,6 +31,7 @@ from account_pool.cockpit_credential_receipts import (
@@ -144,7 +144,7 @@ index 9ca458f0e8400faebbd1269c5ebf03268efbae96..b1a2f4f697fd10c8c7142849ff520a24
 +        )
 \ No newline at end of file
 diff --git a/account-pool/account_pool/cockpit_admin.py b/account-pool/account_pool/cockpit_admin.py
-index be53a9af6730ea69a68561a5cac00d3f204ae387..c2c9b75002d41578e80a888f8f4a278d81442f3c 100644
+index be53a9af67..c2c9b75002 100644
 --- a/account-pool/account_pool/cockpit_admin.py
 +++ b/account-pool/account_pool/cockpit_admin.py
 @@ -21,6 +21,8 @@ from pydantic import (
@@ -191,7 +191,7 @@ index be53a9af6730ea69a68561a5cac00d3f204ae387..c2c9b75002d41578e80a888f8f4a278d
 \ No newline at end of file
 diff --git a/account-pool/account_pool/cockpit_failure.py b/account-pool/account_pool/cockpit_failure.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..fab254b34651ea7e7333c5f0112fe38093830d2a
+index 0000000000..fab254b346
 --- /dev/null
 +++ b/account-pool/account_pool/cockpit_failure.py
 @@ -0,0 +1,31 @@
@@ -228,7 +228,7 @@ index 0000000000000000000000000000000000000000..fab254b34651ea7e7333c5f0112fe380
 +UNAVAILABLE_STATUS: Final = 503
 diff --git a/account-pool/account_pool/cockpit_manifest.py b/account-pool/account_pool/cockpit_manifest.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..dfd77ae8a5d00c7ba61db8343514b9d8c90f0162
+index 0000000000..dfd77ae8a5
 --- /dev/null
 +++ b/account-pool/account_pool/cockpit_manifest.py
 @@ -0,0 +1,102 @@
@@ -335,7 +335,7 @@ index 0000000000000000000000000000000000000000..dfd77ae8a5d00c7ba61db8343514b9d8
 +        remaining = remaining[found + len(part) :]
 +    return not anchored_end or bool(parts) and value.endswith(parts[-1])
 diff --git a/account-pool/account_pool/cockpit_policy.py b/account-pool/account_pool/cockpit_policy.py
-index 2b74ac525bb2a573475a5e13569995d8ae71c81d..3a1c38b63fd0661663e44d6a1641d42565cb68aa 100644
+index 2b74ac525b..3a1c38b63f 100644
 --- a/account-pool/account_pool/cockpit_policy.py
 +++ b/account-pool/account_pool/cockpit_policy.py
 @@ -8,6 +8,8 @@ from typing import Final, Literal, Self
@@ -415,7 +415,7 @@ index 2b74ac525bb2a573475a5e13569995d8ae71c81d..3a1c38b63fd0661663e44d6a1641d425
 +    )
 \ No newline at end of file
 diff --git a/account-pool/account_pool/cockpit_preflight.py b/account-pool/account_pool/cockpit_preflight.py
-index 8f17d3fdd79cc6117eb02542ed6ec90d25e87ced..ffd304292fc618aa6fdbf511e0af346b2d2b7917 100644
+index 8f17d3fdd7..ffd304292f 100644
 --- a/account-pool/account_pool/cockpit_preflight.py
 +++ b/account-pool/account_pool/cockpit_preflight.py
 @@ -2,7 +2,6 @@
@@ -509,7 +509,7 @@ index 8f17d3fdd79cc6117eb02542ed6ec90d25e87ced..ffd304292fc618aa6fdbf511e0af346b
 +    )
 \ No newline at end of file
 diff --git a/account-pool/account_pool/cockpit_receipt_adapter.py b/account-pool/account_pool/cockpit_receipt_adapter.py
-index 91c1012a8f12778bf65b65feb33825655baf5854..653200866c2992ecbc27fee9ff4e7c8826352da1 100644
+index 91c1012a8f..653200866c 100644
 --- a/account-pool/account_pool/cockpit_receipt_adapter.py
 +++ b/account-pool/account_pool/cockpit_receipt_adapter.py
 @@ -51,9 +51,18 @@ class _Response(BaseModel):
@@ -542,7 +542,7 @@ index 91c1012a8f12778bf65b65feb33825655baf5854..653200866c2992ecbc27fee9ff4e7c88
              if response.status_code != 200:
                  return None
 diff --git a/account-pool/account_pool/cockpit_runtime.py b/account-pool/account_pool/cockpit_runtime.py
-index 5a4a722696bcfc6486ed14b7526f90771d689f34..6f77ddedecbd569d9141eb072f548c0b38e353bf 100644
+index 5a4a722696..6f77ddedec 100644
 --- a/account-pool/account_pool/cockpit_runtime.py
 +++ b/account-pool/account_pool/cockpit_runtime.py
 @@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
@@ -578,7 +578,7 @@ index 5a4a722696bcfc6486ed14b7526f90771d689f34..6f77ddedecbd569d9141eb072f548c0b
 \ No newline at end of file
 diff --git a/account-pool/account_pool/cockpit_scope.py b/account-pool/account_pool/cockpit_scope.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..cad545e6e8046b2f77f61a9586be2c59ba01cbb2
+index 0000000000..cad545e6e8
 --- /dev/null
 +++ b/account-pool/account_pool/cockpit_scope.py
 @@ -0,0 +1,653 @@
@@ -1237,7 +1237,7 @@ index 0000000000000000000000000000000000000000..cad545e6e8046b2f77f61a9586be2c59
 +    return re.fullmatch(_HASH, value) is not None
 diff --git a/account-pool/account_pool/cockpit_scope_api.py b/account-pool/account_pool/cockpit_scope_api.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..753a1a76bdd7820f9b167e7588d39698c660927e
+index 0000000000..753a1a76bd
 --- /dev/null
 +++ b/account-pool/account_pool/cockpit_scope_api.py
 @@ -0,0 +1,98 @@
@@ -1340,7 +1340,7 @@ index 0000000000000000000000000000000000000000..753a1a76bdd7820f9b167e7588d39698
 +
 +    return router
 diff --git a/account-pool/account_pool/config.py b/account-pool/account_pool/config.py
-index cf605f9eab153850888e0e9b23235ad1dd3ed066..0289429f1a70f83782b0729738e202a8ef740e6c 100644
+index cf605f9eab..0289429f1a 100644
 --- a/account-pool/account_pool/config.py
 +++ b/account-pool/account_pool/config.py
 @@ -38,6 +38,7 @@ class Settings(BaseSettings):
@@ -1365,7 +1365,7 @@ index cf605f9eab153850888e0e9b23235ad1dd3ed066..0289429f1a70f83782b0729738e202a8
      def validate_cockpit_subject_url(cls, value: str | None) -> str | None:
          return None if value is None else validate_http_origin(value)
 diff --git a/account-pool/account_pool/shared/secrets.py b/account-pool/account_pool/shared/secrets.py
-index e28601652b2df766510c4a5ef8c667620267b708..6b59fd0efd4d6403bc334942d5eadd6425313a1e 100644
+index e28601652b..6b59fd0efd 100644
 --- a/account-pool/account_pool/shared/secrets.py
 +++ b/account-pool/account_pool/shared/secrets.py
 @@ -19,6 +19,7 @@ class SecretPurpose(StrEnum):
@@ -1378,7 +1378,7 @@ index e28601652b2df766510c4a5ef8c667620267b708..6b59fd0efd4d6403bc334942d5eadd64
  class EnvironmentSecretDeriver:
 diff --git a/account-pool/tests/account_pool/test_cockpit_scope.py b/account-pool/tests/account_pool/test_cockpit_scope.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..5e2be77749ad398b2f718996a2d6cab5328adc0d
+index 0000000000..5e2be77749
 --- /dev/null
 +++ b/account-pool/tests/account_pool/test_cockpit_scope.py
 @@ -0,0 +1,599 @@
@@ -1982,7 +1982,7 @@ index 0000000000000000000000000000000000000000..5e2be77749ad398b2f718996a2d6cab5
 +    assert isinstance(route, CockpitSubjectRouteState) and route.state == "blocked"
 +    assert isinstance(view, CockpitSubjectScopeView) and view.state == "blocked"
 diff --git a/account-pool/tests/account_pool/test_contracts.py b/account-pool/tests/account_pool/test_contracts.py
-index 05d062609a63e0cdc948b74d182e2536c39e89c1..a36f9a01d5ebd6f9352c9928efd334bd6c695cae 100644
+index 05d062609a..a36f9a01d5 100644
 --- a/account-pool/tests/account_pool/test_contracts.py
 +++ b/account-pool/tests/account_pool/test_contracts.py
 @@ -203,6 +203,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
@@ -1994,12 +1994,26 @@ index 05d062609a63e0cdc948b74d182e2536c39e89c1..a36f9a01d5ebd6f9352c9928efd334bd
              "updated_at": now.isoformat().replace("+00:00", "Z"),
          },
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281f5e62f937743465b5d3f58d646eff5..a6f175f4457b116a9e45016a895e571ff2a1267b 100644
+index 58d8051281..67444d39d5 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-@@ -1,5 +1,16 @@
+@@ -1,5 +1,30 @@
  # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
  
++## 2026-10-26 最新检查点：原生 policy/runtime 服务单元
++
++本节优先于下文历史进度。起点 `ab11859de4b5bbb4bc1b7a4f8eb3c726659076e7`，本轮仍在用户批准的 `codex/cockpit-reuse-plan` worktree 执行，本地提交，不推送、不部署
++
++DS 通过已接通的 DSH / OpenCode Go / deepseek-v4.1-flash（请求 max）生成两份测试和三文件精确替换清单。主代理补强凭据与未知字段保留、真实策略变更、persisted/active 版本不符及未知 422 的用例，然后验证原函数和类 AST 不变、8 个 schema 一致、7 个基线文件原始 hash 不变。新增 LiteLLM 内 `account_pool_cockpit_policy.py`、`account_pool_cockpit_runtime.py`、`account_pool_cockpit_failure.py`，共用已有原生 admin 类型，没有导入旧 `account_pool` 包
++
++本轮旧服务与客户端基线 63 passed/1 warning，新模块缺失红灯 2 failed/1 warning，新服务 16 passed/1 warning，最终相关回归 336 passed/1 warning，后者包含前述新用例，数量不相加。普通 Ruff、strict Ruff、格式检查通过，新源码 basedpyright 为 0 errors/0 warnings。隔离子进程拒绝 `account_pool` 导入后仍能调用新 policy/runtime。所有接口测试都是离线 MockTransport，不代表真实 Cockpit 或服务器验收
++
++BASELINE、MODIFIED、ROLLBACK 同输入均为 exit 0、stderr 空且 stdout 一致：`read_cockpit_policy` 读到 auto，`save_cockpit_policy` 用 GET+PUT/If-Match 保存 custom 并保留未知字段和凭据；保存不激活，只有显式 `apply_cockpit_policy` 才 POST，412 映射 409/revision_conflict，503 映射 503/apply_outcome_unknown，每次只请求一次。单独副本经既有 ROLLBACK.sh 恢复后 hash 等于旧原件，新源码保留。文档三态检查均 missing=0 forbidden=0，这只是本地文档检查，不是产品测试
++
++本单元未注册 HTTP 路由，未修改 `_default_lookup`、默认值、镜像或旧 Manager。阶段 1 整体尚未完成。下一步先拆清 trusted subject / receipt / scope 的值契约和进程内原生权限读取边界，再让 DS 写对应失败测试与最小实现；不要把旧 preflight 的 Manager repository/domain 依赖照搬为新运行态依赖。之后仍须接线、证明 Manager 零调用、验证真实计费/换卡/续聊与 UI，并通过 Linux ARM64 镜像和服务器隔离测试。历史离线 wheel 缺 maturin 的失败仍保留，本轮未重复构建或声称打包通过
++
++完整命令、stdout/stderr、退出码、hash 与审查记录：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-services-verification.json`
++
 +## 2026-10-25 最新决策与续作入口
 +
 +本节优先于下文历史记录。用户最新目标为客户端 -> LiteLLM -> Cockpit -> 供应商，新环境不运行 Manager、不调用 Manager API、不依赖 Manager 数据库；旧生产保持不动，只用于现有业务和批准后的回退。下文允许 Manager 管理桥的内容属于三组件过渡历史，不能作为新部署目标
@@ -2014,7 +2028,7 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..a6f175f4457b116a9e45016a895e571f
  > 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
  
  **目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
-@@ -12,6 +23,21 @@
+@@ -12,6 +37,21 @@
  
  **范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
  
@@ -2036,7 +2050,7 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..a6f175f4457b116a9e45016a895e571f
  ## 迁移约束
  
  - 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改
-@@ -148,7 +174,7 @@
+@@ -148,7 +188,7 @@
  
  - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
  - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
@@ -2045,7 +2059,7 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..a6f175f4457b116a9e45016a895e571f
  - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
  - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
  
-@@ -267,6 +293,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
+@@ -267,6 +307,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
  
  本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
  
@@ -2155,10 +2169,10 @@ index 58d8051281f5e62f937743465b5d3f58d646eff5..a6f175f4457b116a9e45016a895e571f
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000000000000000000000000000000000..19fd060b40ac50688cd181fa80f1e24a2fc4739a
+index 0000000000..bf06638242
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,199 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
 +
 +> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
@@ -2343,9 +2357,24 @@ index 0000000000000000000000000000000000000000..19fd060b40ac50688cd181fa80f1e24a
 +经核查旧 Manager 独立包不安装 LiteLLM，本单元采用受同输入契约约束的客户端过渡副本，而非让旧模块反向依赖 LiteLLM；禁止将新客户端的结果对象直接混入仍使用旧 Python 类型的服务。下一步连同调用方与类型引用迁移上层服务，禁止只换一个 import 就视为边界迁移完成
 +
 +Cockpit 目录 `C:/Users/42117/.codex/worktrees/cockpit-backend-replacement` 和 commit `ec9989c009042a3f8770781926f6087000825ee9` 已复核；保留该仓库已有 workflow 修改。wheel 构建未验证，隔离离线构建因缓存缺 `maturin==1.9.4` 退出 2。详细原始命令、DS 调用记录、代码回滚验证见 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-client-verification.json`
++
++
++## 2026-10-26 最新检查点：原生 policy/runtime 服务单元
++
++本节优先于下文历史进度。起点 `ab11859de4b5bbb4bc1b7a4f8eb3c726659076e7`，本轮仍在用户批准的 `codex/cockpit-reuse-plan` worktree 执行，本地提交，不推送、不部署
++
++DS 通过已接通的 DSH / OpenCode Go / deepseek-v4.1-flash（请求 max）生成两份测试和三文件精确替换清单。主代理补强凭据与未知字段保留、真实策略变更、persisted/active 版本不符及未知 422 的用例，然后验证原函数和类 AST 不变、8 个 schema 一致、7 个基线文件原始 hash 不变。新增 LiteLLM 内 `account_pool_cockpit_policy.py`、`account_pool_cockpit_runtime.py`、`account_pool_cockpit_failure.py`，共用已有原生 admin 类型，没有导入旧 `account_pool` 包
++
++本轮旧服务与客户端基线 63 passed/1 warning，新模块缺失红灯 2 failed/1 warning，新服务 16 passed/1 warning，最终相关回归 336 passed/1 warning，后者包含前述新用例，数量不相加。普通 Ruff、strict Ruff、格式检查通过，新源码 basedpyright 为 0 errors/0 warnings。隔离子进程拒绝 `account_pool` 导入后仍能调用新 policy/runtime。所有接口测试都是离线 MockTransport，不代表真实 Cockpit 或服务器验收
++
++BASELINE、MODIFIED、ROLLBACK 同输入均为 exit 0、stderr 空且 stdout 一致：`read_cockpit_policy` 读到 auto，`save_cockpit_policy` 用 GET+PUT/If-Match 保存 custom 并保留未知字段和凭据；保存不激活，只有显式 `apply_cockpit_policy` 才 POST，412 映射 409/revision_conflict，503 映射 503/apply_outcome_unknown，每次只请求一次。单独副本经既有 ROLLBACK.sh 恢复后 hash 等于旧原件，新源码保留。文档三态检查均 missing=0 forbidden=0，这只是本地文档检查，不是产品测试
++
++本单元未注册 HTTP 路由，未修改 `_default_lookup`、默认值、镜像或旧 Manager。阶段 1 整体尚未完成。下一步先拆清 trusted subject / receipt / scope 的值契约和进程内原生权限读取边界，再让 DS 写对应失败测试与最小实现；不要把旧 preflight 的 Manager repository/domain 依赖照搬为新运行态依赖。之后仍须接线、证明 Manager 零调用、验证真实计费/换卡/续聊与 UI，并通过 Linux ARM64 镜像和服务器隔离测试。历史离线 wheel 缺 maturin 的失败仍保留，本轮未重复构建或声称打包通过
++
++完整命令、stdout/stderr、退出码、hash 与审查记录：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-services-verification.json`
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py b/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..2022450b2f203a93cecb5fb6edc008b3eb4b13b1
+index 0000000000..2022450b2f
 --- /dev/null
 +++ b/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py
 @@ -0,0 +1,355 @@
@@ -2704,9 +2733,290 @@ index 0000000000000000000000000000000000000000..2022450b2f203a93cecb5fb6edc008b3
 +        credential_count=len(files),
 +        persisted_manifest_revision=manifest.revision,
 +    )
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_failure.py b/litellm/proxy/management_endpoints/account_pool_cockpit_failure.py
+new file mode 100644
+index 0000000000..95c4a23371
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_failure.py
+@@ -0,0 +1,31 @@
++"""分类 Cockpit 管理失败；各功能仍保留自己的公开错误码和状态映射。"""
++
++from __future__ import annotations
++
++from typing import Final
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import CockpitFailure
++
++
++def unavailable(failure: CockpitFailure) -> bool:
++    return failure.category == "transport" or failure.status_code == 503
++
++
++def precondition(failure: CockpitFailure) -> bool:
++    return failure.category == "precondition"
++
++
++def invalid_payload(failure: CockpitFailure) -> bool:
++    return failure.category == "invalid_response"
++
++
++def server_error(failure: CockpitFailure) -> bool:
++    return (failure.status_code or 0) >= 500
++
++
++def write_outcome_unknown(failure: CockpitFailure) -> bool:
++    return failure.category in {"transport", "invalid_response"} or server_error(failure)
++
++
++READ_FAILURE_STATUS: Final = 502
++UNAVAILABLE_STATUS: Final = 503
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_policy.py b/litellm/proxy/management_endpoints/account_pool_cockpit_policy.py
+new file mode 100644
+index 0000000000..33fb0512ea
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_policy.py
+@@ -0,0 +1,238 @@
++"""条件写入 Cockpit 原生 Codex 池策略；不迁移授权、凭据或自动重启。"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Final, Literal
++
++from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
++from typing_extensions import Self
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitFailure,
++    ManifestSnapshot,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_failure import (
++    precondition,
++    unavailable,
++    write_outcome_unknown,
++)
++
++
++class CockpitAccount(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    id: str
++    authId: str = ""
++    authKind: str = ""
++    accessTokenOnly: bool = False
++    upstreamApiKey: str = Field(default="", repr=False)
++
++
++class CockpitPolicyAccount(CockpitAccount):
++    model_config = ConfigDict(strict=True)
++
++    id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
++
++
++class CockpitPolicyManifest(BaseModel):
++    routingStrategy: str = "auto"
++    accounts: tuple[CockpitPolicyAccount, ...] | None = None
++    customRoutingRules: tuple[dict[str, JsonValue], ...] | None = None
++
++
++CockpitStrategy = Literal[
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
++]
++STRATEGIES: Final[tuple[CockpitStrategy, ...]] = (
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
++)
++
++
++class CockpitRoutingRule(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    account_id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
++    priority: int = Field(default=0, ge=-10000, le=10000, strict=True)
++    weight: int = Field(default=1, ge=1, le=10000, strict=True)
++    is_backup: bool = Field(default=False, strict=True)
++    is_preferred: bool = Field(default=False, strict=True)
++
++    @model_validator(mode="after")
++    def check_role(self) -> Self:
++        if self.is_backup and self.is_preferred:
++            raise ValueError("An account cannot be both backup and preferred")
++        return self
++
++
++class CockpitPolicyUpdate(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    routing_strategy: CockpitStrategy
++    custom_rules: tuple[CockpitRoutingRule, ...] = Field(max_length=256)
++
++
++class CockpitPolicyView(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    routing_strategy: str
++    custom_rules: tuple[CockpitRoutingRule, ...]
++    account_ids: tuple[str, ...]
++    editable: bool
++    blocked_reason: Literal["unsupported_account_or_rule", "unsupported_strategy"] | None
++    scope: Literal["codex_pool_global"] = "codex_pool_global"
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++    supported_strategies: tuple[CockpitStrategy, ...] = STRATEGIES
++    unsupported_fields: tuple[str, ...] = (
++        "account_enabled",
++        "candidate_scope",
++        "fallback_enabled",
++        "max_attempts",
++        "cooldown",
++        "session_affinity",
++    )
++
++
++@dataclass(frozen=True, slots=True)
++class PolicyFailure:
++    status: int
++    code: Literal[
++        "unavailable",
++        "invalid_response",
++        "unsupported_account_or_rule",
++        "unsupported_strategy",
++        "revision_conflict",
++        "invalid_rule_accounts",
++        "write_outcome_unknown",
++        "write_rejected",
++    ]
++
++
++def _rule(raw: dict[str, JsonValue]) -> CockpitRoutingRule:
++    return CockpitRoutingRule.model_validate(
++        {
++            "account_id": raw.get("accountId"),
++            "priority": raw.get("priority", 0),
++            "weight": raw.get("weight", 1),
++            "is_backup": raw.get("isBackup", False),
++            "is_preferred": raw.get("isPreferred", False),
++        }
++    )
++
++
++def _view(snapshot: ManifestSnapshot) -> CockpitPolicyView | PolicyFailure:
++    try:
++        manifest: Final = CockpitPolicyManifest.model_validate(snapshot.data)
++        rules: Final = tuple(_rule(raw) for raw in manifest.customRoutingRules or ())
++    except ValidationError:
++        return PolicyFailure(502, "invalid_response")
++    ids: Final = tuple(account.id for account in manifest.accounts or ())
++    rule_ids: Final = tuple(rule.account_id for rule in rules)
++    # 全局排序只作用于 Codex 池；不声称 providerGateway 或其他凭据路径具备同等语义。
++    account_blocked: Final = (
++        not ids
++        or len(ids) > 256
++        or len(set(ids)) != len(ids)
++        or len(set(rule_ids)) != len(rule_ids)
++        or any(rule_id not in ids for rule_id in rule_ids)
++        or any(account.authKind not in {"", "oauth"} for account in manifest.accounts or ())
++    )
++    reason: Final = (
++        "unsupported_account_or_rule"
++        if account_blocked
++        else "unsupported_strategy"
++        if manifest.routingStrategy not in STRATEGIES
++        else None
++    )
++    return CockpitPolicyView(
++        revision=snapshot.revision,
++        routing_strategy=manifest.routingStrategy,
++        custom_rules=rules,
++        account_ids=ids,
++        editable=reason is None,
++        blocked_reason=reason,
++    )
++
++
++async def read_cockpit_policy(client: CockpitAdminClient | None) -> CockpitPolicyView | PolicyFailure:
++    if client is None:
++        return PolicyFailure(503, "unavailable")
++    snapshot: Final = await client.read_manifest()
++    if isinstance(snapshot, CockpitFailure):
++        return PolicyFailure(503 if unavailable(snapshot) else 502, "unavailable")
++    return _view(snapshot)
++
++
++async def save_cockpit_policy(
++    client: CockpitAdminClient | None,
++    request: CockpitPolicyUpdate,
++) -> CockpitPolicyView | PolicyFailure:
++    if client is None:
++        return PolicyFailure(503, "unavailable")
++    snapshot: Final = await client.read_manifest()
++    if isinstance(snapshot, CockpitFailure):
++        return PolicyFailure(503, "unavailable")
++    if snapshot.revision != request.revision:
++        return PolicyFailure(409, "revision_conflict")
++    view: Final = _view(snapshot)
++    if isinstance(view, PolicyFailure):
++        return view
++    if view.blocked_reason is not None:
++        return PolicyFailure(422, view.blocked_reason)
++    ids: Final = tuple(rule.account_id for rule in request.custom_rules)
++    if len(ids) != len(set(ids)) or any(account_id not in view.account_ids for account_id in ids):
++        return PolicyFailure(422, "invalid_rule_accounts")
++    manifest: Final = CockpitPolicyManifest.model_validate(snapshot.data)
++    old_rules: Final = {
++        raw.get("accountId"): raw for raw in manifest.customRoutingRules or () if isinstance(raw.get("accountId"), str)
++    }
++    data: Final[dict[str, JsonValue]] = {
++        **snapshot.data,
++        "routingStrategy": request.routing_strategy,
++        "customRoutingRules": [
++            {
++                **old_rules.get(rule.account_id, {}),
++                "accountId": rule.account_id,
++                "priority": rule.priority,
++                "weight": rule.weight,
++                "isBackup": rule.is_backup,
++                "isPreferred": rule.is_preferred,
++            }
++            for rule in request.custom_rules
++        ],
++    }
++    # 单次 CAS 更新，不写第二份策略或凭据。响应丢失时不能盲目补偿覆盖并发管理员。
++    receipt: Final = await client.write_manifest(data, request.revision)
++    if isinstance(receipt, CockpitFailure):
++        if precondition(receipt):
++            return PolicyFailure(409, "revision_conflict")
++        if write_outcome_unknown(receipt):
++            return PolicyFailure(503, "write_outcome_unknown")
++        return PolicyFailure(502, "write_rejected")
++    if receipt.revision is None:
++        return PolicyFailure(503, "write_outcome_unknown")
++    return CockpitPolicyView(
++        revision=receipt.revision,
++        routing_strategy=request.routing_strategy,
++        custom_rules=request.custom_rules,
++        account_ids=view.account_ids,
++        editable=True,
++        blocked_reason=None,
++    )
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_route.py b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..af1cdb49dae87aa7035d586f04bcf8b1556fe27c
+index 0000000000..af1cdb49da
 --- /dev/null
 +++ b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
 @@ -0,0 +1,337 @@
@@ -3047,8 +3357,105 @@ index 0000000000000000000000000000000000000000..af1cdb49dae87aa7035d586f04bcf8b1
 +        route.manifest_revision,
 +    )
 +    return await litellm.aresponses(**outbound)  # pyright: ignore[reportArgumentType, reportUnknownMemberType, reportAny]  # request kwargs are validated JSON; a typed Responses model would duplicate the proxy schema
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_runtime.py b/litellm/proxy/management_endpoints/account_pool_cockpit_runtime.py
+new file mode 100644
+index 0000000000..4dd5551b64
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_runtime.py
+@@ -0,0 +1,91 @@
++"""读取 Cockpit 实际策略版本并显式应用，不保存策略、重启服务或切换流量。"""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Annotated, Literal
++
++from pydantic import BaseModel, ConfigDict, Field, model_validator
++from typing_extensions import Self
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitFailure,
++    RuntimeSnapshot,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_failure import (
++    invalid_payload,
++    precondition,
++)
++
++
++class CockpitPolicyApply(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++class CockpitPolicyRuntime(BaseModel):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    persisted_revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++    active_revision: Annotated[str, Field(pattern=r'^"sha256-[0-9a-f]{64}"$')] | None
++    apply_supported: bool
++    blocked_reason: Literal["non_policy_change", "unsupported_policy", "runtime_unavailable"] | None
++
++    @model_validator(mode="after")
++    def consistent_activation(self) -> Self:
++        if self.apply_supported != (self.blocked_reason is None):
++            raise ValueError("Inconsistent runtime capability")
++        if (self.active_revision is None) != (self.blocked_reason == "runtime_unavailable"):
++            raise ValueError("Unknown runtime must remain unavailable")
++        return self
++
++
++@dataclass(frozen=True, slots=True)
++class RuntimeFailure:
++    status: int
++    code: Literal[
++        "unavailable",
++        "invalid_response",
++        "revision_conflict",
++        "non_policy_change",
++        "unsupported_policy",
++        "apply_outcome_unknown",
++    ]
++
++
++def _runtime_result(
++    result: RuntimeSnapshot | CockpitFailure, *, applying: bool
++) -> CockpitPolicyRuntime | RuntimeFailure:
++    if isinstance(result, CockpitFailure):
++        if precondition(result):
++            return RuntimeFailure(409, "revision_conflict")
++        if result.code is not None:
++            return RuntimeFailure(422, result.code)
++        if applying:
++            return RuntimeFailure(503, "apply_outcome_unknown")
++        if invalid_payload(result):
++            return RuntimeFailure(502, "invalid_response")
++        return RuntimeFailure(503, "unavailable")
++    return CockpitPolicyRuntime(
++        persisted_revision=result.persisted_revision,
++        active_revision=result.active_revision,
++        apply_supported=result.apply_supported,
++        blocked_reason=result.blocked_reason,
++    )
++
++
++async def read_cockpit_runtime(client: CockpitAdminClient | None) -> CockpitPolicyRuntime | RuntimeFailure:
++    if client is None:
++        return RuntimeFailure(503, "unavailable")
++    return _runtime_result(await client.read_policy_runtime(), applying=False)
++
++
++async def apply_cockpit_policy(
++    client: CockpitAdminClient | None,
++    request: CockpitPolicyApply,
++) -> CockpitPolicyRuntime | RuntimeFailure:
++    if client is None:
++        return RuntimeFailure(503, "unavailable")
++    return _runtime_result(await client.apply_policy(request.revision), applying=True)
 diff --git a/litellm/proxy/management_endpoints/account_pool_management.py b/litellm/proxy/management_endpoints/account_pool_management.py
-index 3732404dc45ff41d316b758b3a487f7855b89318..48b8c98f62e1eec824a2a312a6cf9ba819706c9d 100644
+index 3732404dc4..48b8c98f62 100644
 --- a/litellm/proxy/management_endpoints/account_pool_management.py
 +++ b/litellm/proxy/management_endpoints/account_pool_management.py
 @@ -30,6 +30,10 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
@@ -3245,7 +3652,7 @@ index 3732404dc45ff41d316b758b3a487f7855b89318..48b8c98f62e1eec824a2a312a6cf9ba8
      @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])
      async def credentials() -> tuple[AccountPoolCredential, ...]:
 diff --git a/litellm/proxy/management_endpoints/account_pool_management_models.py b/litellm/proxy/management_endpoints/account_pool_management_models.py
-index cc74e7b1088ba5085b3a78db23477fc662ff0f01..3463ec3989dd512078d5500af10b04b4f15e4264 100644
+index cc74e7b108..3463ec3989 100644
 --- a/litellm/proxy/management_endpoints/account_pool_management_models.py
 +++ b/litellm/proxy/management_endpoints/account_pool_management_models.py
 @@ -20,12 +20,24 @@ from pydantic import (
@@ -3405,7 +3812,7 @@ index cc74e7b1088ba5085b3a78db23477fc662ff0f01..3463ec3989dd512078d5500af10b04b4
      default_proxy_profile_id: str | None = Field(default=None, max_length=120)
      max_attempts: int = Field(default=3, ge=1, le=5)
 diff --git a/litellm/proxy/route_llm_request.py b/litellm/proxy/route_llm_request.py
-index 68d72d0311d89566f1150270e5b8f495984ee3a8..69b75122617d9324ecd56b8e7d6af9c2c1b79954 100644
+index 68d72d0311..69b7512261 100644
 --- a/litellm/proxy/route_llm_request.py
 +++ b/litellm/proxy/route_llm_request.py
 @@ -28,6 +28,7 @@ GATED_MOCK_PARAM_NAMES: Final[tuple[str, ...]] = (
@@ -3457,7 +3864,7 @@ index 68d72d0311d89566f1150270e5b8f495984ee3a8..69b75122617d9324ecd56b8e7d6af9c2
          return getattr(llm_router, route_type)(**data)
 diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..a49d4258516501e9c9481f0c00084f4f848f391f
+index 0000000000..a49d425851
 --- /dev/null
 +++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py
 @@ -0,0 +1,205 @@
@@ -3666,9 +4073,259 @@ index 0000000000000000000000000000000000000000..a49d4258516501e9c9481f0c00084f4f
 +    )
 +    assert completed.returncode == 0, completed.stderr
 +    assert completed.stdout.strip() == "ACCOUNT_POOL_ISOLATED_IMPORT_OK"
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py
+new file mode 100644
+index 0000000000..920441b733
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py
+@@ -0,0 +1,244 @@
++"""Verify native Cockpit policy services without a live Manager."""
++
++from __future__ import annotations
++
++import importlib.util
++import json
++
++import httpx
++import pytest
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitAdminConfig,
++)
++
++REVISION = '"sha256-' + "a" * 64 + '"'
++NEW_REVISION = '"sha256-' + "b" * 64 + '"'
++MANIFEST = {
++    "routingStrategy": "auto",
++    "accounts": [{"id": "acct-a", "authKind": "oauth"}],
++    "customRoutingRules": [{"accountId": "acct-a"}],
++}
++
++
++def _client(handler):
++    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
++
++
++def _admin(http):
++    return CockpitAdminClient(CockpitAdminConfig(url="http://127.0.0.1:8787", token="x" * 32), http)
++
++
++def _rule(service, account_id="acct-a", **values):
++    return service.CockpitRoutingRule(account_id=account_id, **values)
++
++
++def _update(service, rules=(), strategy="auto"):
++    return service.CockpitPolicyUpdate(revision=REVISION, routing_strategy=strategy, custom_rules=rules)
++
++
++@pytest.fixture()
++def service():
++    import litellm.proxy.management_endpoints.account_pool_cockpit_policy as module
++
++    return module
++
++
++def test_policy_module_exists():
++    assert importlib.util.find_spec("litellm.proxy.management_endpoints.account_pool_cockpit_policy") is not None
++
++
++@pytest.mark.asyncio
++async def test_read_is_safe_and_missing_client_is_503(service):
++    seen = []
++    payload = {
++        **MANIFEST,
++        "accounts": [
++            {
++                "id": "acct-a",
++                "authKind": "oauth",
++                "authId": "auth-secret",
++                "upstreamApiKey": "sk-upstream-secret",
++                "privateAccount": "account-secret",
++            }
++        ],
++        "apiKeys": [{"enabled": True, "key": "sk-root-secret"}],
++        "privateRoot": "root-secret",
++    }
++
++    def handler(request):
++        seen.append(request)
++        return httpx.Response(200, headers={"ETag": REVISION}, json=payload)
++
++    async with _client(handler) as http:
++        view = await service.read_cockpit_policy(_admin(http))
++    assert type(view) is service.CockpitPolicyView
++    assert (view.revision, view.account_ids) == (REVISION, ("acct-a",))
++    assert view.editable is True
++    assert view.runtime_activation == "restart_required_or_unverified"
++    dumped = view.model_dump_json()
++    assert "apiKeys" not in dumped
++    for secret in (
++        "sk-upstream-secret",
++        "auth-secret",
++        "account-secret",
++        "sk-root-secret",
++        "root-secret",
++    ):
++        assert secret not in dumped
++    assert [request.method for request in seen] == ["GET"]
++    read_missing = await service.read_cockpit_policy(None)
++    save_missing = await service.save_cockpit_policy(None, _update(service))
++    for failure in (read_missing, save_missing):
++        assert (failure.status, failure.code) == (503, "unavailable")
++        assert type(failure) is service.PolicyFailure
++        assert type(failure).__module__ == service.__name__
++
++
++@pytest.mark.asyncio
++async def test_save_is_single_cas_and_preserves_unknown_fields(service):
++    seen, bodies = [], []
++    manifest = {
++        **MANIFEST,
++        "customRoutingRules": [
++            {
++                "accountId": "acct-a",
++                "priority": 4,
++                "weight": 2,
++                "isBackup": False,
++                "isPreferred": False,
++                "futureRule": {"keep": ["rule"]},
++            }
++        ],
++        "futureRoot": {"keep": ["root"]},
++        "apiKeys": [{"key": "FIXTURE-KEY", "enabled": True}],
++        "accounts": [{"id": "acct-a", "authKind": "oauth", "authId": "FIXTURE-AUTH"}],
++    }
++
++    def handler(request):
++        seen.append(request)
++        if request.method == "GET":
++            return httpx.Response(200, headers={"ETag": REVISION}, json=manifest)
++        bodies.append(json.loads(request.content))
++        return httpx.Response(
++            202,
++            headers={"ETag": NEW_REVISION},
++            json={"status": "persisted", "restartRequired": True},
++        )
++
++    update = _update(service, (_rule(service, priority=9, weight=3, is_preferred=True),), strategy="custom")
++    async with _client(handler) as http:
++        result = await service.save_cockpit_policy(_admin(http), update)
++    assert [(request.method, request.url.path) for request in seen] == [
++        ("GET", "/admin/v1/manifest"),
++        ("PUT", "/admin/v1/manifest"),
++    ]
++    assert seen[1].headers["If-Match"] == REVISION
++    body = bodies[0]
++    assert body["futureRoot"] == {"keep": ["root"]}
++    assert body["routingStrategy"] == "custom"
++    assert body["apiKeys"] == manifest["apiKeys"]
++    assert body["accounts"] == manifest["accounts"]
++    assert manifest["routingStrategy"] == "auto"
++    assert body["customRoutingRules"][0]["futureRule"] == {"keep": ["rule"]}
++    assert body["customRoutingRules"][0]["priority"] == 9
++    assert result.revision == NEW_REVISION
++    assert result.runtime_activation == "restart_required_or_unverified"
++    assert result.editable is True and result.blocked_reason is None
++
++
++@pytest.mark.asyncio
++async def test_stale_revision_conflicts_without_write(service):
++    seen = []
++
++    def handler(request):
++        seen.append(request)
++        return httpx.Response(200, headers={"ETag": NEW_REVISION}, json=MANIFEST)
++
++    async with _client(handler) as http:
++        result = await service.save_cockpit_policy(_admin(http), _update(service))
++    assert (result.status, result.code) == (409, "revision_conflict")
++    assert type(result) is service.PolicyFailure
++    assert [(request.method, request.url.path) for request in seen] == [("GET", "/admin/v1/manifest")]
++
++
++@pytest.mark.asyncio
++async def test_invalid_policy_is_rejected_without_write(service):
++    cases = (
++        ("unknown", "auto", "oauth", (_rule(service, "acct-x"),), "invalid_rule_accounts"),
++        ("duplicate", "auto", "oauth", (_rule(service), _rule(service)), "invalid_rule_accounts"),
++        ("credentials", "auto", "api_key", (_rule(service),), "unsupported_account_or_rule"),
++        ("strategy", "legacy", "oauth", (_rule(service),), "unsupported_strategy"),
++    )
++    for label, strategy, auth_kind, rules, code in cases:
++        writes = []
++
++        def handler(request, strategy=strategy, auth_kind=auth_kind):
++            if request.method == "PUT":
++                writes.append(request)
++            return httpx.Response(
++                200,
++                headers={"ETag": REVISION},
++                json={
++                    **MANIFEST,
++                    "routingStrategy": strategy,
++                    "accounts": [{"id": "acct-a", "authKind": auth_kind}],
++                },
++            )
++
++        update = service.CockpitPolicyUpdate(revision=REVISION, routing_strategy="auto", custom_rules=rules)
++        async with _client(handler) as http:
++            result = await service.save_cockpit_policy(_admin(http), update)
++        assert (result.status, result.code) == (422, code), label
++        assert writes == [], label
++
++
++@pytest.mark.asyncio
++async def test_native_failures_map_to_policy_failure(service):
++    cases = (
++        ("get_timeout", (503, "unavailable"), True),
++        ("get_503", (503, "unavailable"), True),
++        ("get_bad", (502, "unavailable"), True),
++        ("put_timeout", (503, "write_outcome_unknown"), False),
++        ("put_412", (409, "revision_conflict"), False),
++        ("put_503", (503, "write_outcome_unknown"), False),
++        ("put_bad", (503, "write_outcome_unknown"), False),
++        ("put_200", (502, "write_rejected"), False),
++    )
++    for mode, expected, is_read in cases:
++        seen = []
++
++        def handler(request, mode=mode):
++            seen.append((request.method, request.url.path))
++            if mode == "get_timeout" and request.method == "GET":
++                raise httpx.ReadTimeout("timeout", request=request)
++            if mode == "put_timeout" and request.method == "PUT":
++                raise httpx.ReadTimeout("timeout", request=request)
++            if request.method == "GET":
++                if mode == "get_503":
++                    return httpx.Response(503)
++                if mode == "get_bad":
++                    return httpx.Response(200, headers={"ETag": REVISION}, content=b"{")
++                return httpx.Response(200, headers={"ETag": REVISION}, json=MANIFEST)
++            if mode == "put_412":
++                return httpx.Response(412)
++            if mode == "put_503":
++                return httpx.Response(503)
++            if mode == "put_bad":
++                return httpx.Response(202, content=b"{")
++            if mode == "put_200":
++                return httpx.Response(200)
++            raise AssertionError(mode)
++
++        async with _client(handler) as http:
++            client = _admin(http)
++            if is_read:
++                result = await service.read_cockpit_policy(client)
++            else:
++                result = await service.save_cockpit_policy(client, _update(service))
++        assert type(result) is service.PolicyFailure, mode
++        assert (result.status, result.code) == expected, mode
++        assert type(result).__module__ == service.__name__, mode
++        methods = ["GET"] if is_read else ["GET", "PUT"]
++        assert [method for method, _ in seen] == methods, mode
 diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..7304baa58c22ead21d40d64835887c7cb2b6499f
+index 0000000000..7304baa58c
 --- /dev/null
 +++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py
 @@ -0,0 +1,523 @@
@@ -4195,9 +4852,265 @@ index 0000000000000000000000000000000000000000..7304baa58c22ead21d40d64835887c7c
 +
 +    asyncio.run(consume())
 +    assert len(calls) == 1
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py
+new file mode 100644
+index 0000000000..fe1c8f0438
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py
+@@ -0,0 +1,250 @@
++"""Verify native runtime activation contracts and isolated imports."""
++
++from __future__ import annotations
++
++import importlib.util
++import os
++import subprocess
++import sys
++from pathlib import Path
++
++import httpx
++import pytest
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitAdminConfig,
++)
++
++REVISION = '"sha256-' + "a" * 64 + '"'
++OTHER = '"sha256-' + "b" * 64 + '"'
++
++
++def _client(handler):
++    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
++
++
++def _admin(http):
++    return CockpitAdminClient(CockpitAdminConfig(url="http://127.0.0.1:8787", token="x" * 32), http)
++
++
++def _state(persisted=REVISION, active=REVISION):
++    return {
++        "persistedRevision": persisted,
++        "activeRevision": active,
++        "applySupported": True,
++        "blockedReason": None,
++    }
++
++
++@pytest.fixture()
++def service():
++    import litellm.proxy.management_endpoints.account_pool_cockpit_runtime as module
++
++    return module
++
++
++def test_runtime_module_exists():
++    assert importlib.util.find_spec("litellm.proxy.management_endpoints.account_pool_cockpit_runtime") is not None
++
++
++@pytest.mark.asyncio
++async def test_none_client_is_unavailable(service):
++    request = service.CockpitPolicyApply(revision=REVISION)
++    read = await service.read_cockpit_runtime(None)
++    applied = await service.apply_cockpit_policy(None, request)
++    for result in (read, applied):
++        assert (result.status, result.code) == (503, "unavailable")
++        assert type(result) is service.RuntimeFailure
++        assert type(result).__module__ == service.__name__
++
++
++@pytest.mark.asyncio
++async def test_read_reports_distinct_versions_without_apply(service):
++    seen = []
++
++    def handler(request):
++        seen.append((request.method, request.url.path))
++        return httpx.Response(200, json=_state(REVISION, OTHER))
++
++    async with _client(handler) as http:
++        result = await service.read_cockpit_runtime(_admin(http))
++    assert (result.persisted_revision, result.active_revision) == (REVISION, OTHER)
++    assert result.apply_supported is True and result.blocked_reason is None
++    assert seen == [("GET", "/admin/v1/policy-runtime")]
++
++
++@pytest.mark.asyncio
++async def test_apply_is_explicit_and_checks_if_match(service):
++    seen = []
++
++    def handler(request):
++        seen.append((request.method, request.url.path))
++        assert request.headers["If-Match"] == REVISION
++        return httpx.Response(200, json=_state(REVISION, REVISION))
++
++    async with _client(handler) as http:
++        result = await service.apply_cockpit_policy(_admin(http), service.CockpitPolicyApply(revision=REVISION))
++    assert (result.persisted_revision, result.active_revision) == (REVISION, REVISION)
++    assert seen == [("POST", "/admin/v1/policy-apply")]
++
++
++@pytest.mark.parametrize(
++    ("status_code", "native_code", "expected"),
++    (
++        (412, None, (409, "revision_conflict")),
++        (422, "non_policy_change", (422, "non_policy_change")),
++        (422, "unsupported_policy", (422, "unsupported_policy")),
++    ),
++)
++@pytest.mark.asyncio
++async def test_apply_http_failures(service, status_code, native_code, expected):
++    seen = []
++
++    def handler(request):
++        seen.append((request.method, request.url.path))
++        body = {} if native_code is None else {"error": {"code": native_code}}
++        return httpx.Response(status_code, json=body)
++
++    async with _client(handler) as http:
++        result = await service.apply_cockpit_policy(_admin(http), service.CockpitPolicyApply(revision=REVISION))
++    assert (result.status, result.code) == expected
++    assert type(result) is service.RuntimeFailure
++    assert seen == [("POST", "/admin/v1/policy-apply")]
++
++
++@pytest.mark.asyncio
++async def test_apply_unknown_outcomes_never_retry_or_restart(service):
++    for mode in ("timeout", "503", "bad_body", "version_mismatch", "persisted_mismatch", "unknown_422"):
++        seen = []
++
++        def handler(request, mode=mode):
++            seen.append((request.method, request.url.path))
++            if mode == "timeout":
++                raise httpx.ReadTimeout("timeout", request=request)
++            if mode == "503":
++                return httpx.Response(503)
++            if mode == "persisted_mismatch":
++                return httpx.Response(200, json=_state(OTHER, REVISION))
++            if mode == "unknown_422":
++                return httpx.Response(422, json={"error": {"code": "PRIVATE-UNKNOWN"}})
++            if mode == "bad_body":
++                return httpx.Response(200, content=b"{")
++            return httpx.Response(200, json=_state(REVISION, OTHER))
++
++        async with _client(handler) as http:
++            result = await service.apply_cockpit_policy(_admin(http), service.CockpitPolicyApply(revision=REVISION))
++        assert (result.status, result.code) == (503, "apply_outcome_unknown"), mode
++        assert type(result) is service.RuntimeFailure
++        assert seen == [("POST", "/admin/v1/policy-apply")], mode
++
++
++@pytest.mark.asyncio
++async def test_read_malformed_is_invalid_response(service):
++    seen = []
++
++    def handler(request):
++        seen.append((request.method, request.url.path))
++        return httpx.Response(200, content=b"{")
++
++    async with _client(handler) as http:
++        result = await service.read_cockpit_runtime(_admin(http))
++    assert (result.status, result.code) == (502, "invalid_response")
++    assert type(result) is service.RuntimeFailure
++    assert seen == [("GET", "/admin/v1/policy-runtime")]
++
++
++_ISOLATED_SCRIPT = r"""
++import asyncio
++import importlib.abc
++import sys
++
++sys.path.insert(0, __ROOT__)
++
++
++class RejectAccountPool(importlib.abc.MetaPathFinder):
++    def find_spec(self, fullname, path=None, target=None):
++        if fullname == 'account_pool' or fullname.startswith('account_pool.'):
++            raise ImportError('account_pool must be isolated')
++        return None
++
++
++sys.meta_path.insert(0, RejectAccountPool())
++
++import httpx
++from litellm.proxy.management_endpoints import account_pool_cockpit_admin as admin
++from litellm.proxy.management_endpoints import account_pool_cockpit_failure as failure
++from litellm.proxy.management_endpoints import account_pool_cockpit_policy as policy
++from litellm.proxy.management_endpoints import account_pool_cockpit_runtime as runtime
++
++REV = '"sha256-' + 'a' * 64 + '"'
++seen = []
++
++
++def handler(request):
++    seen.append((request.method, request.url.path))
++    if request.url.path == '/admin/v1/manifest':
++        return httpx.Response(200, headers={'ETag': REV}, json={
++            'routingStrategy': 'auto',
++            'accounts': [{'id': 'acct-a', 'authKind': 'oauth'}],
++            'customRoutingRules': [],
++        })
++    if request.url.path == '/admin/v1/policy-runtime':
++        return httpx.Response(200, json={
++            'persistedRevision': REV,
++            'activeRevision': REV,
++            'applySupported': True,
++            'blockedReason': None,
++        })
++    raise AssertionError(request.url.path)
++
++
++async def main():
++    missing_policy = await policy.read_cockpit_policy(None)
++    missing_runtime = await runtime.read_cockpit_runtime(None)
++    assert (missing_policy.status, missing_policy.code) == (503, 'unavailable')
++    assert (missing_runtime.status, missing_runtime.code) == (503, 'unavailable')
++    http = httpx.AsyncClient(transport=httpx.MockTransport(handler))
++    try:
++        client = admin.CockpitAdminClient(
++            admin.CockpitAdminConfig(url='http://127.0.0.1:8787', token='x' * 32),
++            http,
++        )
++        view = await policy.read_cockpit_policy(client)
++        state = await runtime.read_cockpit_runtime(client)
++        assert view.account_ids == ('acct-a',)
++        assert state.persisted_revision == REV
++        assert seen == [
++            ('GET', '/admin/v1/manifest'),
++            ('GET', '/admin/v1/policy-runtime'),
++        ]
++    finally:
++        await http.aclose()
++
++
++asyncio.run(main())
++assert 'account_pool' not in sys.modules
++assert failure.CockpitFailure is admin.CockpitFailure
++assert policy.CockpitFailure is admin.CockpitFailure
++assert runtime.CockpitFailure is admin.CockpitFailure
++assert failure.precondition(admin.CockpitFailure('precondition', 412))
++assert admin.CockpitFailure.__module__ == admin.__name__
++print('ISOLATED-OK')
++"""
++
++
++def test_isolated_process_imports_native_services_only():
++    root = Path(__file__).resolve().parents[4]
++    script = _ISOLATED_SCRIPT.replace("__ROOT__", repr(str(root)))
++    env = dict(os.environ)
++    env["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
++    result = subprocess.run(
++        [sys.executable, "-I", "-c", script],
++        cwd=root,
++        env=env,
++        capture_output=True,
++        text=True,
++        timeout=180,
++    )
++    assert result.returncode == 0, result.stderr
++    assert result.stdout.strip() == "ISOLATED-OK"
 diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py
 new file mode 100644
-index 0000000000000000000000000000000000000000..7e76182e3cba9e4df605115610b19b4000adc2e4
+index 0000000000..7e76182e3c
 --- /dev/null
 +++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py
 @@ -0,0 +1,152 @@
@@ -4354,7 +5267,7 @@ index 0000000000000000000000000000000000000000..7e76182e3cba9e4df605115610b19b40
 +        )
 +    assert broken.status_code == 502 and broken.json()["detail"] == "invalid_response"
 diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
-index 0ea2e8cbc63dd0dc310b0273db47ab19aa1ab7e9..0c9357564759e2e154bb0fd7005e3d13f40e71b0 100644
+index 0ea2e8cbc6..0c93575647 100644
 --- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
 +++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
 @@ -4,41 +4,6 @@
