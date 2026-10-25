@@ -313,7 +313,12 @@ class CockpitScopeService:
         manifest: Final = _manifest(snapshot)
         if isinstance(manifest, ScopeFailure):
             return manifest
-        return self._view(subject_hash, snapshot, manifest)
+        view: Final = self._view(subject_hash, snapshot, manifest)
+        if isinstance(view, ScopeFailure) or view.state != "active":
+            return view
+        if await self._authorized(subject_hash, view.account_ids, view.models):
+            return view
+        return view.model_copy(update={"state": "blocked"})
 
     async def publish(self, request: CockpitScopePublishRequest) -> CockpitSubjectScopeView | ScopeFailure:
         if self._receipts is None:
@@ -440,21 +445,7 @@ class CockpitScopeService:
                 models=models,
                 persisted_manifest_revision=snapshot.revision,
             )
-        if self._origin is None or self._subjects is None:
-            return CockpitSubjectRouteState(
-                subject_hash=subject_hash,
-                state="blocked",
-                account_ids=account_ids,
-                model_scope="restricted",
-                models=models,
-                persisted_manifest_revision=snapshot.revision,
-            )
-        current: TrustedCredentialScope | None
-        try:
-            current = await self._subjects.read(subject_hash)
-        except Exception:  # noqa: BLE001  # a failed subject read must fail closed
-            current = None
-        if not _subject_matches(current, subject_hash, account_ids, models):
+        if self._origin is None or not await self._authorized(subject_hash, account_ids, models):
             return CockpitSubjectRouteState(
                 subject_hash=subject_hash,
                 state="blocked",
@@ -473,6 +464,21 @@ class CockpitScopeService:
             api_key=token,
             persisted_manifest_revision=snapshot.revision,
         )
+
+    async def _authorized(
+        self,
+        subject_hash: str,
+        account_ids: tuple[str, ...],
+        models: tuple[str, ...],
+    ) -> bool:
+        if self._subjects is None:
+            return False
+        current: TrustedCredentialScope | None
+        try:
+            current = await self._subjects.read(subject_hash)
+        except Exception:  # noqa: BLE001  # a failed subject read must fail closed
+            current = None
+        return _subject_matches(current, subject_hash, account_ids, models)
 
     def _view(
         self,

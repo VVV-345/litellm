@@ -7,7 +7,7 @@ import copy
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Final, Literal, TypedDict
 from uuid import UUID
 
 import httpx
@@ -41,12 +41,19 @@ R3: Final = '"sha256-' + "d" * 64 + '"'
 SECRETS: Final = EnvironmentSecretDeriver("FAKE-SEED-ONLY-32-CHARACTERS")
 
 
+class _FixtureData(TypedDict):
+    accounts: list[dict[str, object]]
+    apiKeys: list[dict[str, object]]
+    modelIds: list[str]
+    futureRoot: dict[str, str]
+
+
 @dataclass
 class ScopeFixture:
     mode: str = "ok"
     revision: str = R1
     calls: list[tuple[str, str | None]] = field(default_factory=list)
-    data: dict[str, object] = field(
+    data: _FixtureData = field(
         default_factory=lambda: {
             "accounts": [{"id": str(CARD), "authId": "target.json", "authKind": "oauth"}],
             "apiKeys": [{"id": "private", "enabled": True, "key": "PRIVATE", "accountIds": [str(CARD)]}],
@@ -76,7 +83,7 @@ class ScopeFixture:
 def receipt(
     *,
     models: tuple[str, ...] = ("fixture-model",),
-    model_scope: str = "restricted",
+    model_scope: Literal["restricted", "unrestricted"] = "restricted",
     manifest_revision: str = R1,
 ) -> CredentialReceipt:
     scope: Final = TrustedCredentialScope(subject_hash=SUBJECT, card_id=CARD, model_scope=model_scope, models=models)
@@ -103,14 +110,14 @@ class Receipts:
         *,
         rejection: str | None = None,
         models: tuple[str, ...] = ("fixture-model",),
-        model_scope: str = "restricted",
+        model_scope: Literal["restricted", "unrestricted"] = "restricted",
         manifest_revision: str = R1,
     ) -> None:
-        self.rejection: Final = (
+        self.rejection: Final[ReceiptRejectionCode | None] = (
             None if rejection is None else TypeAdapter(ReceiptRejectionCode).validate_python(rejection)
         )
         self.models = models
-        self.model_scope = model_scope
+        self.model_scope: Final[Literal["restricted", "unrestricted"]] = model_scope
         self.manifest_revision = manifest_revision
 
     async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection:
@@ -200,7 +207,7 @@ def test_publish_writes_only_a_disabled_staged_projection_and_preserves_unknown_
     ],
 )
 def test_publish_rejects_unrestricted_or_unmapped_models(
-    models: tuple[str, ...], model_scope: str, detail: str
+    models: tuple[str, ...], model_scope: Literal["restricted", "unrestricted"], detail: str
 ) -> None:
     fixture: Final = ScopeFixture()
     result: Final = publish(fixture, Receipts(models=models, model_scope=model_scope))
@@ -469,9 +476,15 @@ def test_route_state_revalidates_current_subject_and_fails_closed() -> None:
         drifted: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).route_state(SUBJECT))
         no_reader: Final = asyncio.run(make(None).route_state(SUBJECT))
         failing: Final = asyncio.run(make(Subjects(fail=True)).route_state(SUBJECT))
+        matching_view: Final = asyncio.run(make(Subjects(current_scope())).read(SUBJECT))
+        drifted_view: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).read(SUBJECT))
+        no_reader_view: Final = asyncio.run(make(None).read(SUBJECT))
     finally:
         asyncio.run(http.aclose())
     assert isinstance(matching, CockpitSubjectRouteState) and matching.state == "active"
     assert isinstance(drifted, CockpitSubjectRouteState) and drifted.state == "blocked"
     assert isinstance(no_reader, CockpitSubjectRouteState) and no_reader.state == "blocked"
     assert isinstance(failing, CockpitSubjectRouteState) and failing.state == "blocked"
+    assert isinstance(matching_view, CockpitSubjectScopeView) and matching_view.state == "active"
+    assert isinstance(drifted_view, CockpitSubjectScopeView) and drifted_view.state == "blocked"
+    assert isinstance(no_reader_view, CockpitSubjectScopeView) and no_reader_view.state == "blocked"
