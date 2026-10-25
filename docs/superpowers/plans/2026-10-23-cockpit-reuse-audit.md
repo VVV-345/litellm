@@ -1,5 +1,21 @@
 # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
 
+## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
+
+用户最新要求改为主代理直接写代码，不再调用 DS。下文历史阶段中写给 DS 的实现任务均由主代理直接承担，保留测试先行、审查、本地验证和提交要求，不再等待外部派工。本轮两次 DS 调用均已结束，未更改其桌面配置
+
+起点 `444c4f8ecc5aba74143974e28a1beb21d4ccaf3a`。本轮新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py` 和对应测试，包含原生 `TrustedCredentialScope` 及 `NativeTrustedSubjectReader.read`。它默认直接复用已有 `inspect_native_subject` 和主库权限逻辑，每次重新读取；非法 hash 不访问读取器，非 verified、撤销、异常、重复模型均不授予范围，取消信号继续传播。没有新 SQL、HTTP 客户端、缓存、环境变量或 Manager import
+
+DS 在用户改为直接实现前留下的候选取错嵌套字段：两项有效主体用例失败，basedpyright 报 4 个错误。主代理自行修正为 `result.model_scope.kind` 与 `result.model_scope.models`，恢复原 DTO 描述，并把宽泛异常处理收窄到注入的读取调用，DTO 转换仅捕获 ValidationError。原 `TrustedCredentialScope` 的 AST/schema 和哨兵值一致，7 个基线文件 hash 不变
+
+本轮原回归基线 336 passed、主体/回执基线 168 passed，新模块缺失红灯 1 failed，新适配器 39 passed，最终相关回归 543 passed，均伴随同一条 Starlette/httpx 依赖弃用警告；最终计数包含这些新增用例，不相加。普通/strict Ruff、格式和新源码 basedpyright 通过。独立子进程阻止旧 account_pool 导入后可调用新适配器；真实权限检查函数的内存仓库测试验证模型交集与后续撤销，不代表真实数据库已验收
+
+离线 ASGI 对照中，BASELINE/MODIFIED/ROLLBACK 同输入权限结果相同，各执行 5 次新鲜主体检查；旧 HTTP 链调用数依次为 5/0/5，三次 exit 0、stderr 空。回滚副本 hash 等于旧适配器，新文件保持修正后的实现。原文档三态检查均 missing=0 forbidden=0，本地回滚不证明服务器或数据库回滚
+
+这只完成原生主体读取的前置单元，尚未接入运行中的回执/scope/默认路由，不能宣布整体去 Manager 完成。scope HTTP 入口实际在 account_pool_management.py 与 account_pool_management_models.py，旧 checkpoint 提到的原生 account_pool_cockpit_scope.py 尚未创建。下一步由主代理直接迁移 scope 所需的回执值契约和 scope 编排，复用本单元读取器与原生 admin，避免把旧 preflight/环境库/凭据 ownership 库变成新运行态依赖。回执签发、凭据迁移与主体绑定、路由接线、UI、真实计费/换卡/续聊、Linux ARM64 镜像和服务器隔离测试仍未完成；未 push、未部署、旧生产未动
+
+原始命令、输出、失败修正与 hash：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-subject-reader-verification.json`
+
 ## 2026-10-26 最新检查点：原生 policy/runtime 服务单元
 
 本节优先于下文历史进度。起点 `ab11859de4b5bbb4bc1b7a4f8eb3c726659076e7`，本轮仍在用户批准的 `codex/cockpit-reuse-plan` worktree 执行，本地提交，不推送、不部署

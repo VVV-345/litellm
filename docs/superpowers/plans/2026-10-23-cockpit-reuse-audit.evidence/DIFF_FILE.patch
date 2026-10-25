@@ -1994,12 +1994,28 @@ index 05d062609a..a36f9a01d5 100644
              "updated_at": now.isoformat().replace("+00:00", "Z"),
          },
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281..67444d39d5 100644
+index 58d8051281..0c281c593e 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-@@ -1,5 +1,30 @@
+@@ -1,5 +1,46 @@
  # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
  
++## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
++
++用户最新要求改为主代理直接写代码，不再调用 DS。下文历史阶段中写给 DS 的实现任务均由主代理直接承担，保留测试先行、审查、本地验证和提交要求，不再等待外部派工。本轮两次 DS 调用均已结束，未更改其桌面配置
++
++起点 `444c4f8ecc5aba74143974e28a1beb21d4ccaf3a`。本轮新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py` 和对应测试，包含原生 `TrustedCredentialScope` 及 `NativeTrustedSubjectReader.read`。它默认直接复用已有 `inspect_native_subject` 和主库权限逻辑，每次重新读取；非法 hash 不访问读取器，非 verified、撤销、异常、重复模型均不授予范围，取消信号继续传播。没有新 SQL、HTTP 客户端、缓存、环境变量或 Manager import
++
++DS 在用户改为直接实现前留下的候选取错嵌套字段：两项有效主体用例失败，basedpyright 报 4 个错误。主代理自行修正为 `result.model_scope.kind` 与 `result.model_scope.models`，恢复原 DTO 描述，并把宽泛异常处理收窄到注入的读取调用，DTO 转换仅捕获 ValidationError。原 `TrustedCredentialScope` 的 AST/schema 和哨兵值一致，7 个基线文件 hash 不变
++
++本轮原回归基线 336 passed、主体/回执基线 168 passed，新模块缺失红灯 1 failed，新适配器 39 passed，最终相关回归 543 passed，均伴随同一条 Starlette/httpx 依赖弃用警告；最终计数包含这些新增用例，不相加。普通/strict Ruff、格式和新源码 basedpyright 通过。独立子进程阻止旧 account_pool 导入后可调用新适配器；真实权限检查函数的内存仓库测试验证模型交集与后续撤销，不代表真实数据库已验收
++
++离线 ASGI 对照中，BASELINE/MODIFIED/ROLLBACK 同输入权限结果相同，各执行 5 次新鲜主体检查；旧 HTTP 链调用数依次为 5/0/5，三次 exit 0、stderr 空。回滚副本 hash 等于旧适配器，新文件保持修正后的实现。原文档三态检查均 missing=0 forbidden=0，本地回滚不证明服务器或数据库回滚
++
++这只完成原生主体读取的前置单元，尚未接入运行中的回执/scope/默认路由，不能宣布整体去 Manager 完成。scope HTTP 入口实际在 account_pool_management.py 与 account_pool_management_models.py，旧 checkpoint 提到的原生 account_pool_cockpit_scope.py 尚未创建。下一步由主代理直接迁移 scope 所需的回执值契约和 scope 编排，复用本单元读取器与原生 admin，避免把旧 preflight/环境库/凭据 ownership 库变成新运行态依赖。回执签发、凭据迁移与主体绑定、路由接线、UI、真实计费/换卡/续聊、Linux ARM64 镜像和服务器隔离测试仍未完成；未 push、未部署、旧生产未动
++
++原始命令、输出、失败修正与 hash：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-subject-reader-verification.json`
++
 +## 2026-10-26 最新检查点：原生 policy/runtime 服务单元
 +
 +本节优先于下文历史进度。起点 `ab11859de4b5bbb4bc1b7a4f8eb3c726659076e7`，本轮仍在用户批准的 `codex/cockpit-reuse-plan` worktree 执行，本地提交，不推送、不部署
@@ -2028,7 +2044,7 @@ index 58d8051281..67444d39d5 100644
  > 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
  
  **目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
-@@ -12,6 +37,21 @@
+@@ -12,6 +53,21 @@
  
  **范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
  
@@ -2050,7 +2066,7 @@ index 58d8051281..67444d39d5 100644
  ## 迁移约束
  
  - 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改
-@@ -148,7 +188,7 @@
+@@ -148,7 +204,7 @@
  
  - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
  - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
@@ -2059,7 +2075,7 @@ index 58d8051281..67444d39d5 100644
  - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
  - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
  
-@@ -267,6 +307,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
+@@ -267,6 +323,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
  
  本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
  
@@ -2169,11 +2185,27 @@ index 58d8051281..67444d39d5 100644
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000..bf06638242
+index 0000000000..9aeec375d7
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,215 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
++
++## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
++
++用户最新要求改为主代理直接写代码，不再调用 DS。下文历史阶段中写给 DS 的实现任务均由主代理直接承担，保留测试先行、审查、本地验证和提交要求，不再等待外部派工。本轮两次 DS 调用均已结束，未更改其桌面配置
++
++起点 `444c4f8ecc5aba74143974e28a1beb21d4ccaf3a`。本轮新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py` 和对应测试，包含原生 `TrustedCredentialScope` 及 `NativeTrustedSubjectReader.read`。它默认直接复用已有 `inspect_native_subject` 和主库权限逻辑，每次重新读取；非法 hash 不访问读取器，非 verified、撤销、异常、重复模型均不授予范围，取消信号继续传播。没有新 SQL、HTTP 客户端、缓存、环境变量或 Manager import
++
++DS 在用户改为直接实现前留下的候选取错嵌套字段：两项有效主体用例失败，basedpyright 报 4 个错误。主代理自行修正为 `result.model_scope.kind` 与 `result.model_scope.models`，恢复原 DTO 描述，并把宽泛异常处理收窄到注入的读取调用，DTO 转换仅捕获 ValidationError。原 `TrustedCredentialScope` 的 AST/schema 和哨兵值一致，7 个基线文件 hash 不变
++
++本轮原回归基线 336 passed、主体/回执基线 168 passed，新模块缺失红灯 1 failed，新适配器 39 passed，最终相关回归 543 passed，均伴随同一条 Starlette/httpx 依赖弃用警告；最终计数包含这些新增用例，不相加。普通/strict Ruff、格式和新源码 basedpyright 通过。独立子进程阻止旧 account_pool 导入后可调用新适配器；真实权限检查函数的内存仓库测试验证模型交集与后续撤销，不代表真实数据库已验收
++
++离线 ASGI 对照中，BASELINE/MODIFIED/ROLLBACK 同输入权限结果相同，各执行 5 次新鲜主体检查；旧 HTTP 链调用数依次为 5/0/5，三次 exit 0、stderr 空。回滚副本 hash 等于旧适配器，新文件保持修正后的实现。原文档三态检查均 missing=0 forbidden=0，本地回滚不证明服务器或数据库回滚
++
++这只完成原生主体读取的前置单元，尚未接入运行中的回执/scope/默认路由，不能宣布整体去 Manager 完成。scope HTTP 入口实际在 account_pool_management.py 与 account_pool_management_models.py，旧 checkpoint 提到的原生 account_pool_cockpit_scope.py 尚未创建。下一步由主代理直接迁移 scope 所需的回执值契约和 scope 编排，复用本单元读取器与原生 admin，避免把旧 preflight/环境库/凭据 ownership 库变成新运行态依赖。回执签发、凭据迁移与主体绑定、路由接线、UI、真实计费/换卡/续聊、Linux ARM64 镜像和服务器隔离测试仍未完成；未 push、未部署、旧生产未动
++
++原始命令、输出、失败修正与 hash：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-subject-reader-verification.json`
 +
 +> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 +
@@ -2199,13 +2231,13 @@ index 0000000000..bf06638242
 +
 +## 协作方式与当前状态
 +
-+用户最新安排是主代理负责规划、派工和检查，DS 负责代码实现；无需用户手动中转。前一条“只给其他 AI 计划”已被这一协作安排更新
++最新安排见文首：主代理直接实现和验证，不再调用 DS。以下 DSH 调用记录只作历史证据
 +
 +已通过 DSH headless 实际调用 `opencode-go / deepseek-v4.1-flash`，请求 `reasoningEffort=max`，返回 completed、进程退出 0。一次性 overlay 不改变桌面默认配置。此次关闭了工具，仅让 DS 生成测试草案，没有业务代码改动。CLI 首次缺 adapter，随后凭据解析失败；修正为显式 provider 配置和只传入子进程的已有凭据后成功。凭据不写入计划、日志或仓库
 +
 +DS 初稿把“Manager 失败后不回退”当成验收，并允许一次 Manager 调用，主代理已拒绝这一条件。正确条件是新环境 Manager 调用次数始终为 0，包括启动、健康检查、管理请求、模型请求与后台任务
 +
-+后续每次派工包含：固定 HEAD、只允许修改的文件、输入/输出契约、失败测试、禁止事项、交付路径。先让 DS 在可丢弃候选副本写补丁与测试，由主代理检查后应用现有 worktree。不得让两方同时编辑同一文件；不得让 DS 自行推送、部署或无限扩大范围。DS 的解释不能替代主代理亲自观察的命令输出
++此前每次派工包含：固定 HEAD、只允许修改的文件、输入/输出契约、失败测试、禁止事项、交付路径。先让 DS 在可丢弃候选副本写补丁与测试，由主代理检查后应用现有 worktree。不得让两方同时编辑同一文件；不得让 DS 自行推送、部署或无限扩大范围。DS 的解释不能替代主代理亲自观察的命令输出
 +
 +本计划和下面的路径清单已提交即可独立交接，不依赖 Git 忽略的 checkpoint。换机器时先核对分支和 commit，再整体映射 C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm 路径，不能将旧测试数量当作新机器结果
 +
@@ -2345,7 +2377,7 @@ index 0000000000..bf06638242
 +
 +`make check` 在具备 GNU Make 的受控环境运行，遵守仓库队列锁，不调整槽位来绕开检查。记录实际命令与 commit，不将历史通过数相加。代码阶段修复完成后，由主代理提交已核验的精确文件列表
 +
-+## 下一次主代理给 DS 的派工单
++## 下一次主代理直接执行
 +
 +先完成阶段 0 的真实 Cockpit 定位与依赖矩阵，然后派阶段 1 最小可提取单元。派工中列完整文件路径、固定 HEAD、待保留签名、失败输入与期望状态；第一次只交补丁和测试，不允许改变业务默认值。DS 交回后主代理复核，再进入下一项，不把本次工具连通性测试等同于去 Manager 改造已开始或完成
 +
@@ -3454,6 +3486,83 @@ index 0000000000..4dd5551b64
 +    if client is None:
 +        return RuntimeFailure(503, "unavailable")
 +    return _runtime_result(await client.apply_policy(request.revision), applying=True)
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py b/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py
+new file mode 100644
+index 0000000000..5ba8818f5d
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py
+@@ -0,0 +1,71 @@
++from __future__ import annotations
++
++import re
++from collections.abc import Awaitable, Callable
++from typing import Annotated, Final, Literal
++from uuid import UUID
++
++from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
++from typing_extensions import Self
++
++from litellm.proxy._types import SpecialModelNames
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject import (
++    NativeSubjectResult,
++    inspect_native_subject,
++)
++
++Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
++_HASH: Final = re.compile(r"^[0-9a-f]{64}$")
++_NATIVE_MODEL_SENTINELS: Final = frozenset(item.value for item in SpecialModelNames)
++
++
++class TrustedCredentialScope(BaseModel):
++    """仅由注入的可信读取器返回；构造 DTO 本身不是主体或模型权限证明。"""
++
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    subject_hash: Digest
++    card_id: UUID
++    model_scope: Literal["restricted", "unrestricted"]
++    models: tuple[str, ...]
++
++    @model_validator(mode="after")
++    def explicit_scope(self) -> Self:
++        if (
++            (self.model_scope == "restricted") != bool(self.models)
++            or len(set(self.models)) != len(self.models)
++            or bool(_NATIVE_MODEL_SENTINELS.intersection(self.models))
++            or any(re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]*", model) is None for model in self.models)
++        ):
++            raise ValueError("Scope must contain an explicit model allowlist or be unrestricted")
++        return self
++
++
++class NativeTrustedSubjectReader:
++    _inspect_subject: Final[Callable[[str], Awaitable[NativeSubjectResult]]]
++
++    def __init__(
++        self,
++        inspect_subject: Callable[[str], Awaitable[NativeSubjectResult]] = inspect_native_subject,
++    ) -> None:
++        self._inspect_subject = inspect_subject
++
++    async def read(self, subject_hash: str) -> TrustedCredentialScope | None:
++        if _HASH.fullmatch(subject_hash) is None:
++            return None
++
++        try:
++            result: Final[NativeSubjectResult] = await self._inspect_subject(subject_hash)
++        except Exception:  # noqa: BLE001  # Injected database readers may fail; never return a verified scope on failure.
++            return None
++        if result.status != "verified" or result.card_id is None or result.model_scope is None:
++            return None
++        try:
++            return TrustedCredentialScope(
++                subject_hash=subject_hash,
++                card_id=result.card_id,
++                model_scope=result.model_scope.kind,
++                models=result.model_scope.models,
++            )
++        except ValidationError:
++            return None
 diff --git a/litellm/proxy/management_endpoints/account_pool_management.py b/litellm/proxy/management_endpoints/account_pool_management.py
 index 3732404dc4..48b8c98f62 100644
 --- a/litellm/proxy/management_endpoints/account_pool_management.py
@@ -5266,6 +5375,415 @@ index 0000000000..7e76182e3c
 +            "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "receipt": "r", "revision": R1}
 +        )
 +    assert broken.status_code == 502 and broken.json()["detail"] == "invalid_response"
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py
+new file mode 100644
+index 0000000000..e284eab7ea
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py
+@@ -0,0 +1,403 @@
++from __future__ import annotations
++
++import asyncio
++import importlib
++import importlib.util
++import logging
++import os
++import subprocess
++import sys
++from collections.abc import Awaitable, Callable, Mapping
++from dataclasses import dataclass
++from datetime import datetime, timezone
++from pathlib import Path
++from types import ModuleType
++from typing import Final, Literal, Protocol, cast
++from uuid import UUID
++
++import pytest
++from pydantic import ValidationError
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject import (
++    NativeModelScope,
++    NativeSubjectResult,
++    NativeSubjectStatus,
++    inspect_native_subject_with_repository,
++)
++
++TARGET_MODULE: Final = "litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader"
++KEY: Final = "a" * 64
++CARD: Final = UUID("e515c2db-08dc-443c-b85a-7936d2d42f2f")
++NOW: Final = datetime(2026, 10, 23, tzinfo=timezone.utc)
++TEAM: Final = "team-primary"
++SECRET: Final = "private-native-error-token"
++REPO_ROOT: Final = Path(__file__).parents[4]
++NON_VERIFIED: Final[tuple[NativeSubjectStatus, ...]] = (
++    "missing",
++    "revoked",
++    "blocked",
++    "expired",
++    "legacy_subject",
++    "card_scope_unverified",
++    "model_scope_unverified",
++    "invalid_record",
++    "unavailable",
++)
++INVALID_HASHES: Final[tuple[str, ...]] = (
++    "",
++    "a" * 63,
++    "a" * 65,
++    "A" * 64,
++    "g" * 64,
++    KEY + "\n",
++    "sk-fixture-plaintext",
++)
++
++
++class _ScopeDTO(Protocol):
++    subject_hash: str
++    card_id: UUID
++    model_scope: Literal["restricted", "unrestricted"]
++    models: tuple[str, ...]
++
++
++class _Reader(Protocol):
++    async def read(self, subject_hash: str) -> _ScopeDTO | None: ...
++
++
++def _reader(module: ModuleType, inspect_subject: Callable[[str], Awaitable[NativeSubjectResult]]) -> _Reader:
++    return cast(_Reader, getattr(module, "NativeTrustedSubjectReader")(inspect_subject))
++
++
++def _scope_type(module: ModuleType) -> Callable[..., _ScopeDTO]:
++    return cast(Callable[..., _ScopeDTO], getattr(module, "TrustedCredentialScope"))
++
++
++def _verified(models: tuple[str, ...]) -> NativeSubjectResult:
++    kind: Final[Literal["restricted", "unrestricted"]] = "restricted" if models else "unrestricted"
++    return NativeSubjectResult(
++        status="verified",
++        card_id=CARD,
++        model_scope=NativeModelScope(kind=kind, models=models),
++        checked_at=NOW,
++    )
++
++
++def _status(status: NativeSubjectStatus) -> NativeSubjectResult:
++    return NativeSubjectResult(status=status, checked_at=NOW)
++
++
++def test_reader_module_exists() -> None:
++    assert importlib.util.find_spec(TARGET_MODULE) is not None
++
++
++@pytest.fixture(scope="module")
++def reader_module() -> ModuleType:
++    return importlib.import_module(TARGET_MODULE)
++
++
++@pytest.mark.parametrize(
++    ("native_models", "scope", "models"),
++    [
++        (("model-alpha", "model-beta"), "restricted", ("model-alpha", "model-beta")),
++        ((), "unrestricted", ()),
++    ],
++)
++@pytest.mark.asyncio
++async def test_verified_scope_maps_exactly(
++    reader_module: ModuleType,
++    native_models: tuple[str, ...],
++    scope: Literal["restricted", "unrestricted"],
++    models: tuple[str, ...],
++) -> None:
++    calls: Final[list[str]] = []
++
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        calls.append(subject_hash)
++        return _verified(native_models)
++
++    actual = await _reader(reader_module, inspect_subject).read(KEY)
++    assert actual is not None
++    assert type(actual) is reader_module.TrustedCredentialScope
++    assert (actual.subject_hash, actual.card_id, actual.model_scope, actual.models) == (KEY, CARD, scope, models)
++    assert calls == [KEY]
++
++
++@pytest.mark.parametrize("status", NON_VERIFIED)
++@pytest.mark.asyncio
++async def test_nonverified_statuses_are_rejected(reader_module: ModuleType, status: NativeSubjectStatus) -> None:
++    calls: Final[list[str]] = []
++
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        calls.append(subject_hash)
++        return _status(status)
++
++    assert await _reader(reader_module, inspect_subject).read(KEY) is None
++    assert calls == [KEY]
++
++
++@pytest.mark.parametrize("subject_hash", INVALID_HASHES)
++@pytest.mark.asyncio
++async def test_invalid_hash_is_rejected_before_inspection(reader_module: ModuleType, subject_hash: str) -> None:
++    calls: Final[list[str]] = []
++
++    async def inspect_subject(candidate: str) -> NativeSubjectResult:
++        calls.append(candidate)
++        return _verified(("model-alpha",))
++
++    assert await _reader(reader_module, inspect_subject).read(subject_hash) is None
++    assert calls == []
++
++
++@pytest.mark.asyncio
++async def test_each_read_is_fresh_and_revocation_wins(reader_module: ModuleType) -> None:
++    calls: Final[list[str]] = []
++    replies: Final[list[NativeSubjectResult]] = [_verified(("model-alpha",)), _status("revoked")]
++
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        calls.append(subject_hash)
++        return replies.pop(0)
++
++    reader = _reader(reader_module, inspect_subject)
++    actual = await reader.read(KEY)
++    assert actual is not None
++    assert (actual.subject_hash, actual.card_id, actual.model_scope, actual.models) == (
++        KEY,
++        CARD,
++        "restricted",
++        ("model-alpha",),
++    )
++    assert await reader.read(KEY) is None
++    assert calls == [KEY, KEY]
++
++
++@pytest.mark.asyncio
++async def test_inspector_exception_is_closed_without_secret_leak(
++    reader_module: ModuleType, caplog: pytest.LogCaptureFixture
++) -> None:
++    calls: Final[list[str]] = []
++
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        calls.append(subject_hash)
++        raise RuntimeError(SECRET)
++
++    with caplog.at_level(logging.DEBUG):
++        assert await _reader(reader_module, inspect_subject).read(KEY) is None
++    assert calls == [KEY]
++    assert SECRET not in caplog.text
++
++
++@pytest.mark.asyncio
++async def test_verified_duplicate_models_fails_closed(reader_module: ModuleType) -> None:
++    native = _verified(("model-alpha", "model-alpha"))
++    assert native.model_scope is not None
++
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        assert subject_hash == KEY
++        return native
++
++    assert await _reader(reader_module, inspect_subject).read(KEY) is None
++
++
++@pytest.mark.parametrize(
++    "overrides",
++    [
++        {"subject_hash": "A" * 64},
++        {"subject_hash": "a" * 63},
++        {"subject_hash": "a" * 65},
++        {"subject_hash": "g" * 64},
++        {"card_id": "not-a-uuid"},
++        {"model_scope": "restricted", "models": ()},
++        {"model_scope": "unrestricted", "models": ("model-alpha",)},
++        {"models": ("model-alpha", "model-alpha")},
++        {"models": ("all-team-models",)},
++        {"models": ("all-proxy-models",)},
++        {"models": ("no-default-models",)},
++        {"models": ("*",)},
++        {"unexpected": "value"},
++    ],
++)
++def test_trusted_scope_rejects_invalid_legacy_cases(reader_module: ModuleType, overrides: dict[str, object]) -> None:
++    values: Final[dict[str, object]] = {
++        "subject_hash": KEY,
++        "card_id": CARD,
++        "model_scope": "restricted",
++        "models": ("model-alpha",),
++    }
++    values.update(overrides)
++    with pytest.raises(ValidationError):
++        _scope_type(reader_module)(**values)
++
++
++def test_trusted_scope_is_frozen(reader_module: ModuleType) -> None:
++    scope = _scope_type(reader_module)(
++        subject_hash=KEY, card_id=CARD, model_scope="restricted", models=("model-alpha",)
++    )
++    with pytest.raises(ValidationError):
++        setattr(scope, "models", ())
++
++
++def _record(**changes: object) -> Mapping[str, object]:
++    values: Final[dict[str, object]] = {
++        "token": KEY,
++        "blocked": None,
++        "expires": None,
++        "metadata": {"account_pool_card_id": str(CARD)},
++        "models": [],
++        "aliases": {},
++        "config": {},
++        "permissions": {},
++        "router_settings": None,
++        "access_group_ids": [],
++        "policies": [],
++        "allowed_routes": [],
++        "allowed_cache_controls": [],
++        "key_type": None,
++        "model_max_budget": {},
++        "budget_fallbacks": {},
++        "budget_limits": None,
++        "user_id": None,
++        "team_id": None,
++        "project_id": None,
++        "organization_id": None,
++        "agent_id": None,
++        "object_permission_id": None,
++        "budget_id": None,
++        "max_budget": None,
++        "budget_duration": None,
++        "budget_reset_at": None,
++        "user_scope": None,
++        "team_scope": None,
++        "project_scope": None,
++        "membership_scope": None,
++    }
++    values.update(changes)
++    return values
++
++
++@dataclass
++class _FakeRepository:
++    live: object | None
++    deleted: object | None = None
++
++    async def find_deleted(self, key_hash: str) -> object | None:
++        assert key_hash == KEY
++        return self.deleted
++
++    async def find_live(self, key_hash: str) -> object | None:
++        assert key_hash == KEY
++        assert self.deleted is None
++        return self.live
++
++
++@pytest.mark.asyncio
++async def test_real_inspector_narrows_then_revokes(reader_module: ModuleType) -> None:
++    team_scope: Final[Mapping[str, object]] = {
++        "subject_id": TEAM,
++        "models": ["model-alpha", "model-delta"],
++        "blocked": False,
++        "permissions_unrestricted": True,
++        "team_id": None,
++    }
++    repository: Final[_FakeRepository] = _FakeRepository(
++        live=_record(
++            team_id=TEAM,
++            models=["model-alpha", "model-beta", "model-gamma"],
++            team_scope=team_scope,
++        )
++    )
++
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        return await inspect_native_subject_with_repository(subject_hash, repository, now=NOW)
++
++    reader = _reader(reader_module, inspect_subject)
++    actual = await reader.read(KEY)
++    assert actual is not None
++    assert (actual.subject_hash, actual.card_id, actual.model_scope, actual.models) == (
++        KEY,
++        CARD,
++        "restricted",
++        ("model-alpha",),
++    )
++    repository.deleted = KEY
++    assert await reader.read(KEY) is None
++
++
++_SUBPROCESS_SCRIPT: Final = r"""
++import asyncio
++import importlib.abc
++import sys
++from datetime import datetime, timezone
++from uuid import UUID
++
++sys.path.insert(0, sys.argv[1])
++BLOCKED = ('account_pool',)
++ATTEMPTED = []
++
++class BlockAccountPoolManager(importlib.abc.MetaPathFinder):
++    def find_spec(self, fullname, path, target=None):
++        if any(fullname == name or fullname.startswith(name + '.') for name in BLOCKED):
++            ATTEMPTED.append(fullname)
++            raise ImportError(fullname)
++        return None
++
++sys.meta_path.insert(0, BlockAccountPoolManager())
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject import (
++    NativeModelScope,
++    NativeSubjectResult,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader import (
++    NativeTrustedSubjectReader,
++)
++
++SUBJECT = 'a' * 64
++CARD = UUID('e515c2db-08dc-443c-b85a-7936d2d42f2f')
++NATIVE = NativeSubjectResult(
++    status='verified',
++    card_id=CARD,
++    model_scope=NativeModelScope(kind='restricted', models=('model-alpha',)),
++    checked_at=datetime(2026, 10, 23, tzinfo=timezone.utc),
++)
++
++async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++    assert subject_hash == SUBJECT
++    return NATIVE
++
++async def main() -> None:
++    scope = await NativeTrustedSubjectReader(inspect_subject).read(SUBJECT)
++    assert scope is not None
++    assert scope.subject_hash == SUBJECT
++    assert scope.card_id == CARD
++    assert scope.model_scope == 'restricted'
++    assert scope.models == ('model-alpha',)
++    print('NATIVE-SUBJECT-OK')
++
++asyncio.run(main())
++assert not ATTEMPTED
++assert 'account_pool' not in sys.modules
++"""
++
++
++def test_isolated_subprocess_has_no_manager_dependency() -> None:
++    completed = subprocess.run(
++        [sys.executable, "-I", "-c", _SUBPROCESS_SCRIPT, str(REPO_ROOT)],
++        cwd=REPO_ROOT,
++        env={**os.environ, "LITELLM_LOCAL_MODEL_COST_MAP": "True"},
++        capture_output=True,
++        text=True,
++        check=False,
++        timeout=120,
++    )
++    assert completed.returncode == 0, completed.stderr
++    assert completed.stdout.strip() == "NATIVE-SUBJECT-OK"
++
++
++@pytest.mark.asyncio
++async def test_cancellation_is_not_swallowed(reader_module: ModuleType) -> None:
++    async def inspect_subject(subject_hash: str) -> NativeSubjectResult:
++        assert subject_hash == KEY
++        raise asyncio.CancelledError
++
++    with pytest.raises(asyncio.CancelledError):
++        await _reader(reader_module, inspect_subject).read(KEY)
 diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
 index 0ea2e8cbc6..0c93575647 100644
 --- a/ui/litellm-dashboard/src/lib/http/schema.d.ts

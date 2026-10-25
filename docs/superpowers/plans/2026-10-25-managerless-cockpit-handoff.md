@@ -1,5 +1,21 @@
 # LiteLLM + Cockpit 去 Manager 分阶段实施计划
 
+## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
+
+用户最新要求改为主代理直接写代码，不再调用 DS。下文历史阶段中写给 DS 的实现任务均由主代理直接承担，保留测试先行、审查、本地验证和提交要求，不再等待外部派工。本轮两次 DS 调用均已结束，未更改其桌面配置
+
+起点 `444c4f8ecc5aba74143974e28a1beb21d4ccaf3a`。本轮新增 `C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py` 和对应测试，包含原生 `TrustedCredentialScope` 及 `NativeTrustedSubjectReader.read`。它默认直接复用已有 `inspect_native_subject` 和主库权限逻辑，每次重新读取；非法 hash 不访问读取器，非 verified、撤销、异常、重复模型均不授予范围，取消信号继续传播。没有新 SQL、HTTP 客户端、缓存、环境变量或 Manager import
+
+DS 在用户改为直接实现前留下的候选取错嵌套字段：两项有效主体用例失败，basedpyright 报 4 个错误。主代理自行修正为 `result.model_scope.kind` 与 `result.model_scope.models`，恢复原 DTO 描述，并把宽泛异常处理收窄到注入的读取调用，DTO 转换仅捕获 ValidationError。原 `TrustedCredentialScope` 的 AST/schema 和哨兵值一致，7 个基线文件 hash 不变
+
+本轮原回归基线 336 passed、主体/回执基线 168 passed，新模块缺失红灯 1 failed，新适配器 39 passed，最终相关回归 543 passed，均伴随同一条 Starlette/httpx 依赖弃用警告；最终计数包含这些新增用例，不相加。普通/strict Ruff、格式和新源码 basedpyright 通过。独立子进程阻止旧 account_pool 导入后可调用新适配器；真实权限检查函数的内存仓库测试验证模型交集与后续撤销，不代表真实数据库已验收
+
+离线 ASGI 对照中，BASELINE/MODIFIED/ROLLBACK 同输入权限结果相同，各执行 5 次新鲜主体检查；旧 HTTP 链调用数依次为 5/0/5，三次 exit 0、stderr 空。回滚副本 hash 等于旧适配器，新文件保持修正后的实现。原文档三态检查均 missing=0 forbidden=0，本地回滚不证明服务器或数据库回滚
+
+这只完成原生主体读取的前置单元，尚未接入运行中的回执/scope/默认路由，不能宣布整体去 Manager 完成。scope HTTP 入口实际在 account_pool_management.py 与 account_pool_management_models.py，旧 checkpoint 提到的原生 account_pool_cockpit_scope.py 尚未创建。下一步由主代理直接迁移 scope 所需的回执值契约和 scope 编排，复用本单元读取器与原生 admin，避免把旧 preflight/环境库/凭据 ownership 库变成新运行态依赖。回执签发、凭据迁移与主体绑定、路由接线、UI、真实计费/换卡/续聊、Linux ARM64 镜像和服务器隔离测试仍未完成；未 push、未部署、旧生产未动
+
+原始命令、输出、失败修正与 hash：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-subject-reader-verification.json`
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 新环境使用客户端 -> LiteLLM -> Cockpit -> 供应商，管理与模型请求均不再依赖 Manager
@@ -24,13 +40,13 @@
 
 ## 协作方式与当前状态
 
-用户最新安排是主代理负责规划、派工和检查，DS 负责代码实现；无需用户手动中转。前一条“只给其他 AI 计划”已被这一协作安排更新
+最新安排见文首：主代理直接实现和验证，不再调用 DS。以下 DSH 调用记录只作历史证据
 
 已通过 DSH headless 实际调用 `opencode-go / deepseek-v4.1-flash`，请求 `reasoningEffort=max`，返回 completed、进程退出 0。一次性 overlay 不改变桌面默认配置。此次关闭了工具，仅让 DS 生成测试草案，没有业务代码改动。CLI 首次缺 adapter，随后凭据解析失败；修正为显式 provider 配置和只传入子进程的已有凭据后成功。凭据不写入计划、日志或仓库
 
 DS 初稿把“Manager 失败后不回退”当成验收，并允许一次 Manager 调用，主代理已拒绝这一条件。正确条件是新环境 Manager 调用次数始终为 0，包括启动、健康检查、管理请求、模型请求与后台任务
 
-后续每次派工包含：固定 HEAD、只允许修改的文件、输入/输出契约、失败测试、禁止事项、交付路径。先让 DS 在可丢弃候选副本写补丁与测试，由主代理检查后应用现有 worktree。不得让两方同时编辑同一文件；不得让 DS 自行推送、部署或无限扩大范围。DS 的解释不能替代主代理亲自观察的命令输出
+此前每次派工包含：固定 HEAD、只允许修改的文件、输入/输出契约、失败测试、禁止事项、交付路径。先让 DS 在可丢弃候选副本写补丁与测试，由主代理检查后应用现有 worktree。不得让两方同时编辑同一文件；不得让 DS 自行推送、部署或无限扩大范围。DS 的解释不能替代主代理亲自观察的命令输出
 
 本计划和下面的路径清单已提交即可独立交接，不依赖 Git 忽略的 checkpoint。换机器时先核对分支和 commit，再整体映射 C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm 路径，不能将旧测试数量当作新机器结果
 
@@ -170,7 +186,7 @@ git diff --check
 
 `make check` 在具备 GNU Make 的受控环境运行，遵守仓库队列锁，不调整槽位来绕开检查。记录实际命令与 commit，不将历史通过数相加。代码阶段修复完成后，由主代理提交已核验的精确文件列表
 
-## 下一次主代理给 DS 的派工单
+## 下一次主代理直接执行
 
 先完成阶段 0 的真实 Cockpit 定位与依赖矩阵，然后派阶段 1 最小可提取单元。派工中列完整文件路径、固定 HEAD、待保留签名、失败输入与期望状态；第一次只交补丁和测试，不允许改变业务默认值。DS 交回后主代理复核，再进入下一项，不把本次工具连通性测试等同于去 Manager 改造已开始或完成
 
