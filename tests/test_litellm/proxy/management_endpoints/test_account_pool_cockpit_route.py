@@ -22,6 +22,7 @@ from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
     RouteDecision,
     cockpit_route_for_request,
     dispatch_cockpit_route,
+    route_ttl_seconds,
 )
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.route_llm_request import _route_request_single_attempt
@@ -323,6 +324,31 @@ def test_route_resolver_caches_successes_but_not_failures() -> None:
         with pytest.raises(CockpitRouteUnavailable):
             asyncio.run(failing_resolver.decision(SUBJECT))
     assert failures == [SUBJECT, SUBJECT]
+
+
+def test_route_ttl_is_configurable_and_invalidation_refreshes(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert route_ttl_seconds("bad") == 30.0
+    assert route_ttl_seconds("0") == 1.0
+    assert route_ttl_seconds("9999") == 300.0
+    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS", "2")
+    now: Final[list[float]] = [0.0]
+    calls: Final[list[str]] = []
+
+    async def lookup(_subject: str) -> RouteDecision:
+        calls.append(_subject)
+        return RouteDecision("staged")
+
+    local: Final = CockpitRouteResolver(clock=lambda: now[0], lookup=lookup)
+    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
+    now[0] = 1.9
+    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
+    assert calls == [SUBJECT]
+    now[0] = 2.1
+    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
+    assert calls == [SUBJECT, SUBJECT]
+    local.invalidate(SUBJECT)
+    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
+    assert calls == [SUBJECT, SUBJECT, SUBJECT]
 
 
 def test_dispatch_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:

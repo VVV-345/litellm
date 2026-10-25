@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import re
 import time
@@ -24,6 +25,9 @@ _HASH: Final = re.compile(r"^[0-9a-f]{64}$")
 _ETAG: Final = re.compile(r'^"sha256-[0-9a-f]{64}"$')
 _GATE: Final = "ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED"
 _TTL_SECONDS: Final = 30.0
+_TTL_ENV: Final = "ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS"
+_MIN_TTL_SECONDS: Final = 1.0
+_MAX_TTL_SECONDS: Final = 300.0
 _PATH: Final = "/internal/cockpit/route/"
 _MAX_RESPONSE: Final = 1 << 20
 _DATA: Final = TypeAdapter(dict[str, object])
@@ -67,6 +71,17 @@ RouteLookup = Callable[[str], Awaitable[RouteDecision]]
 
 def routing_enabled() -> bool:
     return os.getenv(_GATE, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def route_ttl_seconds(raw: str | None = None) -> float:
+    value: Final = os.getenv(_TTL_ENV, "") if raw is None else raw
+    try:
+        parsed: Final = float(value)
+    except ValueError:
+        return _TTL_SECONDS
+    if not math.isfinite(parsed):
+        return _TTL_SECONDS
+    return max(_MIN_TTL_SECONDS, min(parsed, _MAX_TTL_SECONDS))
 
 
 def _valid_origin(value: str) -> bool:
@@ -163,11 +178,19 @@ class CockpitRouteResolver:
         *,
         clock: Callable[[], float] = time.monotonic,
         lookup: RouteLookup | None = None,
+        ttl_seconds: float | None = None,
     ) -> None:
         self._clock: Final = clock
         self._lookup: RouteLookup | None = lookup
+        self._ttl: Final = route_ttl_seconds() if ttl_seconds is None else ttl_seconds
         self._entries: Mapping[str, _CacheEntry] = MappingProxyType({})
         self._lock = asyncio.Lock()
+
+    def invalidate(self, subject_hash: str) -> None:
+        self._entries = MappingProxyType({key: entry for key, entry in self._entries.items() if key != subject_hash})
+
+    def clear(self) -> None:
+        self._entries = MappingProxyType({})
 
     async def decision(self, subject_hash: str) -> RouteDecision:
         now = self._clock()
@@ -182,7 +205,7 @@ class CockpitRouteResolver:
             lookup: Final = self._lookup or self._default_lookup
             decision: Final = await lookup(subject_hash)
             kept: Final = {key: entry for key, entry in self._entries.items() if entry.expires > now}
-            kept[subject_hash] = _CacheEntry(now + _TTL_SECONDS, decision)
+            kept[subject_hash] = _CacheEntry(now + self._ttl, decision)
             self._entries = MappingProxyType(kept)
             return decision
 
