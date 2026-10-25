@@ -31,6 +31,9 @@ _MAX_TTL_SECONDS: Final = 300.0
 _PATH: Final = "/internal/cockpit/route/"
 _MAX_RESPONSE: Final = 1 << 20
 _DATA: Final = TypeAdapter(dict[str, object])
+_PROXY_ONLY: Final = frozenset(
+    ("router_settings_override", "enable_tag_filtering", "proxy_server_request", "user_config", "config", "client")
+)
 
 
 class CockpitRouteState(BaseModel):
@@ -182,14 +185,20 @@ class CockpitRouteResolver:
     ) -> None:
         self._clock: Final = clock
         self._lookup: RouteLookup | None = lookup
-        self._ttl: Final = route_ttl_seconds() if ttl_seconds is None else ttl_seconds
+        requested_ttl: Final = route_ttl_seconds() if ttl_seconds is None else ttl_seconds
+        if not math.isfinite(requested_ttl):
+            raise ValueError("route TTL must be finite")
+        self._ttl: Final = max(_MIN_TTL_SECONDS, min(requested_ttl, _MAX_TTL_SECONDS))
         self._entries: Mapping[str, _CacheEntry] = MappingProxyType({})
         self._lock = asyncio.Lock()
+        self._generation = 0
 
     def invalidate(self, subject_hash: str) -> None:
+        self._generation += 1
         self._entries = MappingProxyType({key: entry for key, entry in self._entries.items() if key != subject_hash})
 
     def clear(self) -> None:
+        self._generation += 1
         self._entries = MappingProxyType({})
 
     async def decision(self, subject_hash: str) -> RouteDecision:
@@ -202,8 +211,11 @@ class CockpitRouteResolver:
             cached = self._entries.get(subject_hash)
             if cached is not None and cached.expires > now:
                 return cached.decision
+            generation: Final = self._generation
             lookup: Final = self._lookup or self._default_lookup
             decision: Final = await lookup(subject_hash)
+            if generation != self._generation:
+                return decision
             kept: Final = {key: entry for key, entry in self._entries.items() if entry.expires > now}
             kept[subject_hash] = _CacheEntry(now + self._ttl, decision)
             self._entries = MappingProxyType(kept)
@@ -270,7 +282,7 @@ async def dispatch_cockpit_route(
         raise HTTPException(400, "Invalid account pool request body") from None
 
     outbound: Final[dict[str, object]] = {
-        **request,
+        **{key: value for key, value in request.items() if key not in _PROXY_ONLY},
         "api_base": route.origin + "/v1",
         "api_key": route.api_key.get_secret_value(),
         "custom_llm_provider": "openai",

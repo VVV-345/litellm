@@ -154,6 +154,9 @@ def test_dispatch_is_one_direct_call_without_router_retries(monkeypatch: pytest.
             {
                 "model": "fixture-model",
                 "input": "hi",
+                "router_settings_override": {"num_retries": 9},
+                "enable_tag_filtering": True,
+                "proxy_server_request": {"url": "http://proxy.test"},
                 "litellm_metadata": {
                     "user_api_key": "hashed",
                     "user_api_key_hash": SUBJECT,
@@ -172,6 +175,9 @@ def test_dispatch_is_one_direct_call_without_router_retries(monkeypatch: pytest.
     assert kwargs["num_retries"] == 0 and kwargs["max_retries"] == 0
     assert kwargs["fallbacks"] == [] and kwargs["context_window_fallbacks"] == []
     assert kwargs["caching"] is False and kwargs["cache"] == {"no-cache": True, "no-store": True}
+    assert "router_settings_override" not in kwargs
+    assert "enable_tag_filtering" not in kwargs
+    assert "proxy_server_request" not in kwargs
     metadata: Final = kwargs["litellm_metadata"]
     assert metadata["user_api_key"] == "hashed"
     assert metadata["user_api_key_hash"] == SUBJECT
