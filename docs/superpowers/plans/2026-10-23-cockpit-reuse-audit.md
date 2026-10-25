@@ -324,6 +324,19 @@ LiteLLM 路由缓存 TTL 改为 `ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS`，范�
 
 `make check` 没有执行：它会通过 bootstrap 重建 uv 环境并运行全仓门禁，当前工作区不是该工具链的干净基线。完整 Manager 和 LiteLLM 号池测试、定向 lint/type、生成类型检查已完成，剩余的全仓门禁留给合并前单独执行。
 
+### D2.3 激活接口（2026-10-25）
+
+提交 `a3958bff81` 和 `b877984e23`。新增显式激活与停用接口，仍然不自动切流：
+
+- Manager `POST /api/cockpit/scope/activate` 和 `/deactivate`，输入 subject hash 和 manifest revision；激活前重新读取当前主体，要求卡片和模型完全匹配、origin 已配置，否则 `activation_blocked` 或 `not_published`
+- 激活只把保留 apiKey 的 `enabled` 改为 true，仍使用 manifest CAS 和原 revision；停用对称切回 false，保留撤销和回滚能力
+- LiteLLM 管理代理增加对应 POST 路由，错误码加入 `not_published` 和 `activation_blocked`，响应禁缓存
+- 公开 schema 重新生成，包含激活请求和两个新路径
+
+验证：范围、策略、预检、运行时、管理、回执、请求路由和激活接口合并运行 166 项通过；新增行严格 Ruff 和 basedpyright 诊断均为 0；schema 再次生成无额外差异。
+
+真正的运行时激活没有执行：当前环境没有 Cockpit 服务，也没有配置管理地址、数据面地址、主体读取地址或 LiteLLM 路由开关。接下来需要在目标环境按顺序执行：发布范围 -> 调激活接口 -> 重启 Cockpit 并确认 revision -> 设置 LiteLLM 路由开关和短 TTL/重启 worker -> 小范围验证用量、错误和回滚。`ready_to_migrate` 仍为 false。
+
 ### 替换阶段 E：行为兼容与差异验收
 
 - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
