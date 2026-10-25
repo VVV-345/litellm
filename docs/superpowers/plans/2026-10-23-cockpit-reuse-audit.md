@@ -287,7 +287,7 @@ LiteLLM 新增 `account_pool_cockpit_route.py`，按 subject hash 读取 Manager
 
 新增 `account-pool/account_pool/cockpit_manifest.py`，集中定义账号、策略、计数和 scope 的只读 manifest 视图；`cockpit_admin`、`cockpit_policy`、`cockpit_preflight`、`cockpit_scope` 已迁移到共享视图。写入仍基于原始 `snapshot.data` 展开，未知字段不丢失。新增 `cockpit_failure.py`，只提供 transport、precondition、invalid response、5xx 的共享判定；各功能继续保留自己的 `PolicyFailure`、`RuntimeFailure`、`ScopeFailure` 和公开错误码。新增 `cockpit_scope_api.py`，把 scope 发布、读取、撤销和内部路由状态从 `api.py` 的 `create_router` 闭包移出，`api.py` 只负责 include。
 
-验证：Manager 与 LiteLLM 号池 cockpit 相关测试 256 项通过，管理路由测试 34 项通过；新增行严格 Ruff 和 basedpyright 诊断均为 0；新模块严格类型 0 errors。policy、preflight、runtime 三个测试文件仍依赖一个仅在测试进程注入的兼容 shim，因为 `account-pool/tests/test_account_pool.py` 还在导入已被移除的嵌套 `_credential_views`；该问题在本轮之前就存在，未修改，也没有提交 shim。
+验证：Manager 与 LiteLLM 号池 cockpit 相关测试 256 项通过，管理路由测试 34 项通过；全部为未加载兼容 shim 的正常收集。新增行严格 Ruff 和 basedpyright 诊断均为 0；新模块严格类型 0 errors。重构过程中曾因一次临时文件截断导致 `test_account_pool` 导入失败，恢复源文件后确认不是仓库既有问题，也没有提交任何 shim。
 
 未做：第二批的显式 resolver 注入和 route 模块拆分；第三批的请求时主体重校验、缓存失效和激活。真实服务、数据库、凭据和供应商仍未验证。
 
