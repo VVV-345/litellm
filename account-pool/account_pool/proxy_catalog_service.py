@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Final
 from uuid import UUID
 
@@ -34,10 +34,44 @@ class ProxyCatalogService:
 
     async def probe_isp(self, profile_id: UUID) -> ISPProbeResult:
         profile: Final = await self._repository.get_isp(profile_id)
-        if not isinstance(profile, ISPProxyProfile):
+        if profile is None:
             raise ValueError("ISP profile was not found")
-        result: Final = await self._probe.probe(profile)
+        probe_profile: Final = (
+            profile if isinstance(profile, ISPProxyProfile) else self._subscription_probe_profile(profile)
+        )
+        result: Final = (
+            await self._probe.probe(probe_profile) if probe_profile is not None else ISPProbeResult(
+                profile_id=profile.id, status="error", checked_at=datetime.now(timezone.utc),
+                error="subscription_requires_gateway",
+            )
+        )
         return await self._repository.save_isp_probe(result)
+
+    @staticmethod
+    def _subscription_probe_profile(profile: ISPSubscriptionNodeProfile) -> ISPProxyProfile | None:
+        config: Final = profile.config
+        allowed: Final = {"name", "type", "server", "port", "username", "password", "udp", "tls"}
+        if profile.proxy_type not in {"http", "socks5"} or set(config) - allowed:
+            return None
+        tls: Final = config.get("tls", False)
+        host: Final = config.get("server")
+        port: Final = config.get("port")
+        username: Final = config.get("username", "")
+        password: Final = config.get("password", "")
+        if (
+            type(tls) is not bool or (tls and profile.proxy_type != "http")
+            or not isinstance(host, str) or type(port) is not int
+            or not isinstance(username, str) or not isinstance(password, str)
+        ):
+            return None
+        try:
+            return ISPProxyProfile(
+                id=profile.id, name=profile.name,
+                protocol="https" if tls else "http" if profile.proxy_type == "http" else "socks5",
+                host=host, port=port, username=username, password=password, enabled=profile.enabled,
+            )
+        except ValueError:
+            return None
 
     async def list_isps(self) -> tuple[ISPProxyProfileView, ...]:
         profiles: Final = await self._repository.list_isps()
@@ -87,7 +121,7 @@ class ProxyCatalogService:
                     enabled=profile.enabled,
                     credentials_configured=False,
                     bound_ports=bound_ports,
-                    last_probe=None,
+                    last_probe=last_probe,
                 )
 
     async def import_isps(self, source: str) -> tuple[ISPProxyProfileView, ...]:
@@ -123,9 +157,9 @@ class ProxyCatalogService:
         profile_id: UUID,
         *,
         name: str,
-        protocol: str,
-        host: str,
-        port: int,
+        protocol: str | None,
+        host: str | None,
+        port: int | None,
         username: str | None,
         password: str | None,
         clear_credentials: bool = False,
@@ -133,8 +167,24 @@ class ProxyCatalogService:
         enabled: bool,
     ) -> ISPProxyProfileView:
         current: Final = await self._repository.get_isp(profile_id)
-        if not isinstance(current, ISPProxyProfile):
+        if current is None:
             raise ValueError("ISP profile was not found")
+        if isinstance(current, ISPSubscriptionNodeProfile):
+            if (
+                any(value is not None for value in (protocol, host, port, expires_on))
+                or username or password or clear_credentials
+            ):
+                raise ValueError("subscription connection fields are provider-managed")
+            updated_subscription: Final = ISPSubscriptionNodeProfile(
+                id=current.id, name=name, proxy_type=current.proxy_type, config=current.config, enabled=enabled,
+            )
+            if await self._repository.update_isp(updated_subscription) is None:
+                raise ValueError("ISP profile was not found")
+            if self._reconcile is not None:
+                await self._reconcile(date.today())
+            return next(profile for profile in await self.list_isps() if profile.id == profile_id)
+        if protocol is None or host is None or port is None:
+            raise ValueError("manual ISP connection fields are required")
         updated: Final = ISPProxyProfile(
             id=profile_id,
             name=name,

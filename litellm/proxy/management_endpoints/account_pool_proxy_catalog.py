@@ -84,9 +84,9 @@ class AccountPoolISPSubscriptionConfigure(BaseModel):
 class AccountPoolISPUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     name: str = Field(min_length=1, max_length=120)
-    protocol: Literal["http", "https", "socks5"]
-    host: str = Field(min_length=1, max_length=253)
-    port: int = Field(ge=1, le=65535)
+    protocol: Literal["http", "https", "socks5"] | None = None
+    host: str | None = Field(default=None, min_length=1, max_length=253)
+    port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=512, repr=False)
     password: str | None = Field(default=None, max_length=2048, repr=False)
     clear_credentials: bool = False

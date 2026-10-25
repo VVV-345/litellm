@@ -827,6 +827,10 @@ def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: L
         ("PUT", f"/proxy-isps/{identity}", {
             k: v for k, v in isp.items() if k not in {"id", "bound_ports", "credentials_configured", "last_probe"}
         }, isp),
+        ("PUT", f"/proxy-isps/{identity}", {"name": "renamed subscription", "enabled": False}, {
+            **isp, "source": "subscription", "protocol": None, "host": None, "port": None,
+            "proxy_type": "vless", "name": "renamed subscription", "enabled": False,
+        }),
         ("DELETE", f"/proxy-isps/{identity}", None, None),
         ("GET", "/proxy-gateways/configurations", None, [profile]),
         ("POST", "/proxy-gateways/configurations", {"name": "file", "content": "proxies: []"}, profile),

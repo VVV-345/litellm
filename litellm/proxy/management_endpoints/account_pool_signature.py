@@ -152,5 +152,7 @@ def signature_recovery_message(reason: str | None) -> str:
         "unsupported_history": "会话包含尚未支持的消息或工具格式",
         "retry_exhausted": "已在同一卡片清理旧思考状态并重试一次，上游仍拒绝",
         "output_started": "本次响应已开始输出，为避免重复执行已停止重试",
+        "preflight_limit": "响应预读达到安全上限后才收到思考状态错误，当前响应不能安全重新执行",
+        "no_removable_state": "请求中没有可安全清理的旧思考状态，无法通过清理历史自动重试",
     }.get(category, "原会话的思考状态无法由当前上游验证")
-    return f"跨上游思考状态不兼容：{explanation}。请新建会话，或回到原中转站继续原会话。恢复原因：{reason or 'no_removable_state'}"
+    return f"思考状态校验失败：{explanation}。请新建会话，或回到原中转站继续原会话。恢复原因：{reason or 'no_removable_state'}"

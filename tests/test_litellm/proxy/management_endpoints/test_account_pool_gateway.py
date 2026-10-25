@@ -2781,6 +2781,114 @@ def test_signature_recovery_is_once_on_same_card_before_output(stream: bool, rej
         assert response.status_code == (400 if reject_again else 200)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/v1/responses", "/v1/messages"])
+@pytest.mark.parametrize("accounting", [False, True])
+@pytest.mark.parametrize("case,stream", [
+    ("recovered", False), ("recovered", True),
+    ("retry_exhausted", False), ("retry_exhausted", True),
+    ("no_removable_state", False), ("no_removable_state", True),
+    ("output_started", True), ("preflight_limit", True),
+    ("retry_failed", False), ("retry_failed", True),
+])
+async def test_signature_diagnostics_match_observed_recovery(endpoint, accounting, case, stream) -> None:
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    captured = []
+    emitted = []
+    responses_api = endpoint == "/v1/responses"
+    visible = {"role": "user", "content": "synthetic visible history"}
+    history = [visible]
+    if case != "no_removable_state":
+        history.append(
+            {"type": "reasoning", "encrypted_content": "synthetic-secret"} if responses_api else
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "synthetic-secret", "signature": "synthetic-signature"},
+                {"type": "text", "text": "previous answer"},
+            ]}
+        )
+    payload = {"model": "model-a", "stream": stream, "input" if responses_api else "messages": history}
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        recovered = case == "recovered" and len(captured) == 2
+        other_failure = case == "retry_failed" and len(captured) == 2
+        code = "server_error" if other_failure else "thinking_signature_invalid"
+        if not stream:
+            return (
+                httpx.Response(200, json={"id": "synthetic-ok", "output": []}) if recovered else
+                httpx.Response(503 if other_failure else 400, json={"error": {"code": code}})
+            )
+        prefix = (
+            'data: {"type":"response.output_text.delta","delta":"visible"}\n\n' if responses_api else
+            'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"visible"}}\n\n'
+        ) if case == "output_started" else ""
+        if case == "preflight_limit":
+            prefix = ": " + "x" * 65536 + "\n\n"
+        event = (
+            {"type": "response.completed" if responses_api else "message_stop"} if recovered else
+            {"type": "error", "error": {"code": code}}
+        )
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"},
+            content=prefix + "data: " + json.dumps(event) + "\n\n",
+        )
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    async def send(message):
+        emitted.append(message)
+
+    _, control = setup_gateway(upstream, max_attempts=3)
+    request = Request({
+        "type": "http", "path": endpoint, "method": "POST", "headers": [],
+        "query_string": b"", "asgi": {"spec_version": "2.4"},
+    }, receive)
+    request.state.account_pool_standard_accounting = accounting
+    selected = routes(control.resolution, "model-a", endpoint, Headers())
+    assert not isinstance(selected, Rejected)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        await forward(request, payload, _KEY, None, control.resolution, selected, control, client, send)
+
+    retried = case in ("recovered", "retry_exhausted", "retry_failed")
+    assert len(captured) == (2 if retried else 1)
+    assert len(control.acquisitions) == len(control.finished) == 1
+    field = "input" if responses_api else "messages"
+    assert all(body[field][0] == visible for body in captured)
+    if retried:
+        assert "synthetic-secret" not in json.dumps(captured[-1])
+        if not responses_api:
+            assert captured[-1][field][1]["content"] == [{"type": "text", "text": "previous answer"}]
+    body = b"".join(message.get("body", b"") for message in emitted).decode()
+    if case not in ("recovered", "retry_failed"):
+        errors = (
+            [json.loads(body)["error"]] if body.startswith("{") else
+            [json.loads(line[6:])["error"] for line in body.splitlines() if line.startswith("data: ")
+             and "error" in json.loads(line[6:])]
+        )
+        assert case in errors[-1]["message"]
+        assert "思考状态校验失败" in errors[-1]["message"]
+        assert "跨上游" not in errors[-1]["message"]
+        if case != "no_removable_state":
+            assert "no_removable_state" not in errors[-1]["message"]
+    detail = control.finished[0].detail
+    assert f"signature_recovery: {case};" in detail
+    assert f"signature_retry_count={int(retried)};" in detail
+    assert "same_card=true" in detail
+    if case != "recovered":
+        assert f"output_started={str(case == 'output_started').lower()}" in detail
+    assert "synthetic-secret" not in detail and "synthetic-signature" not in detail
+    if case == "preflight_limit":
+        assert "visible" not in body
+    assert control.finished[0].http_status == (
+        200 if case == "recovered" else 502 if case == "retry_failed" and stream else
+        503 if case == "retry_failed" else 400
+    )
+
+
 def test_native_messages_tool_stream_is_unchanged_and_never_replayed() -> None:
     captured = []
     frames = ('event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call-1","name":"run","input":{}}}\n\n'
@@ -2800,12 +2908,15 @@ def test_native_messages_tool_stream_is_unchanged_and_never_replayed() -> None:
     assert control.finished[0].http_status == 200
 
 
-@pytest.mark.parametrize("extra", [
-    {"tools": [{"type": "function"}]}, {"previous_response_id": "resp_old"},
-    {"messages": [{"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]}]},
-    {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call", "content": "done"}]}]},
+@pytest.mark.parametrize("extra,reason", [
+    ({"tools": [{"type": "function"}]}, "server_or_unknown_tools"),
+    ({"previous_response_id": "resp_old"}, "server_state_required"),
+    ({"messages": [{"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]}]},
+     "incomplete_history"),
+    ({"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call", "content": "done"}]}]},
+     "unpaired_tool_history"),
 ])
-def test_signature_error_does_not_replay_tool_or_partial_history(extra) -> None:
+def test_signature_error_does_not_replay_tool_or_partial_history(extra, reason) -> None:
     captured = []
     def upstream(request):
         captured.append(request)
@@ -2817,6 +2928,11 @@ def test_signature_error_does_not_replay_tool_or_partial_history(extra) -> None:
                 {"role": "assistant", "content": [{"type": "thinking", "signature": "old"}, {"type": "text", "text": "hi"}]}], **extra})
     assert response.status_code == 400
     assert len(captured) == len(control.acquisitions) == 1
+    assert len(control.finished) == 1
+    assert f"signature_recovery: {reason};" in control.finished[0].detail
+    assert "signature_retry_count=0;" in control.finished[0].detail
+    assert "output_started=false" in control.finished[0].detail
+    assert "same_card=true" in control.finished[0].detail
 
 
 @pytest.mark.parametrize("payload", [
@@ -3306,6 +3422,9 @@ def test_cross_site_signature_failure_explains_unrecoverable_history_without_exp
     assert control.finished[0].http_status == 400
     assert reason in control.finished[0].detail
     assert "input[2]" in control.finished[0].detail
+    assert "signature_retry_count=0;" in control.finished[0].detail
+    assert "output_started=false" in control.finished[0].detail
+    assert "same_card=true" in control.finished[0].detail
     public = json.loads(response.text.removeprefix("data: ")) if stream else response.json()
     assert public["error"]["code"] == "thinking_signature_invalid"
     assert reason in public["error"]["message"]

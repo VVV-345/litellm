@@ -86,6 +86,79 @@ async def test_catalog_upgrade_preserves_old_data_and_persists_encrypted_profile
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure,expected_status,expected_detail", (
+    ("name_conflict", 409, "ISP subscription node name already exists"),
+    ("other_unique", 503, "ISP catalog storage unavailable; retry"),
+    ("database_error", 503, "ISP catalog storage unavailable; retry"),
+))
+@pytest.mark.skipif(not os.environ.get("PROXY_CATALOG_TEST_DATABASE_URL"), reason="isolated PostgreSQL URL required")
+async def test_subscription_update_conflict_is_distinct_from_storage_failure_and_rolls_back(
+    failure: str, expected_status: int, expected_detail: str,
+) -> None:
+    import httpx
+    from account_pool.api import create_router
+    from fastapi import FastAPI
+
+    base: Final = os.environ["PROXY_CATALOG_TEST_DATABASE_URL"]
+    schema: Final = "isp_subscription_conflict_" + uuid4().hex
+    async with await psycopg.AsyncConnection.connect(base, autocommit=True) as admin:
+        await admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            dsn: Final = make_conninfo(base, options=f"-c search_path={schema}")
+            async with database_connection(dsn) as connection:
+                await connection.execute("CREATE TABLE account_pool_proxy_gateways (port integer PRIMARY KEY)")
+                await connection.execute("INSERT INTO account_pool_proxy_gateways VALUES (7891)")
+            cipher: Final = ProxyCatalogCipher(EnvironmentSecretDeriver("test-seed-" * 4))
+            repository: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            await repository.initialize()
+            await repository.save_isp_subscription(
+                "https://isp.example/fixture.yaml?token=private-token", parse_isp_subscription(
+                    "proxies:\n  - name: first\n    type: socks5\n    server: first.example\n    port: 1080\n"
+                    "    username: private-user\n    password: private-secret\n"
+                    "  - name: second\n    type: http\n    server: second.example\n    port: 8080\n"
+                ),
+            )
+            first, second = await repository.list_isps()
+            await repository.bind_isp(7891, first.id)
+            async with database_connection(dsn) as connection:
+                if failure == "other_unique":
+                    await connection.execute(
+                        "UPDATE account_pool_isp_subscription_nodes SET enabled = false WHERE id = %s", (second.id,),
+                    )
+                    await connection.execute("ALTER TABLE account_pool_isp_subscription_nodes ADD UNIQUE (enabled)")
+                elif failure == "database_error":
+                    await connection.execute("ALTER TABLE account_pool_isp_subscription_nodes ADD CHECK (enabled)")
+                before_cursor: Final = await connection.execute(
+                    "SELECT * FROM account_pool_isp_subscription_nodes ORDER BY id"
+                )
+                before: Final = await before_cursor.fetchall()
+                subscription_cursor: Final = await connection.execute("SELECT * FROM account_pool_isp_subscription")
+                subscription_before: Final = await subscription_cursor.fetchall()
+            app: Final = FastAPI()
+            app.include_router(create_router(object(), "manager-test", proxy_catalog=ProxyCatalogService(repository)))
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response: Final = await client.put(
+                    f"/api/proxy-isps/{first.id}", headers={"Authorization": "Bearer manager-test"},
+                    json={"name": second.name if failure == "name_conflict" else "renamed", "enabled": False},
+                )
+            assert response.status_code == expected_status
+            assert response.json() == {"detail": expected_detail}
+            assert "private-" not in response.text and "ciphertext" not in response.text
+            reopened: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            assert await reopened.get_isp(first.id) == first
+            assert await reopened.list_isp_bindings() == ((7891, first.id),)
+            async with database_connection(dsn) as connection:
+                after_cursor: Final = await connection.execute(
+                    "SELECT * FROM account_pool_isp_subscription_nodes ORDER BY id"
+                )
+                assert await after_cursor.fetchall() == before
+                subscription_after: Final = await connection.execute("SELECT * FROM account_pool_isp_subscription")
+                assert await subscription_after.fetchall() == subscription_before
+        finally:
+            await admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("source", ("manual", "subscription", "inactive-subscription"))
 @pytest.mark.skipif(not os.environ.get("PROXY_CATALOG_TEST_DATABASE_URL"), reason="isolated PostgreSQL URL required")
 async def test_gateway_deletion_failure_restores_port_before_foreign_key_bindings(
@@ -312,5 +385,53 @@ async def test_isp_subscription_refresh_preserves_node_ids_bindings_and_encrypti
                 )
                 assert "subscription-secret" not in str((await url_cursor.fetchone())["url_ciphertext"])
                 assert "node-secret-restored" not in str((await node_cursor.fetchone())["config_ciphertext"])
+        finally:
+            await admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(not os.environ.get("PROXY_CATALOG_TEST_DATABASE_URL"), reason="isolated PostgreSQL URL required")
+async def test_subscription_edit_probe_persistence_and_guarded_delete() -> None:
+    from account_pool.proxy_catalog import ISPSubscriptionNodeProfile
+
+    base: Final = os.environ["PROXY_CATALOG_TEST_DATABASE_URL"]
+    schema: Final = "isp_subscription_actions_" + uuid4().hex
+    async with await psycopg.AsyncConnection.connect(base, autocommit=True) as admin:
+        await admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            dsn: Final = make_conninfo(base, options=f"-c search_path={schema}")
+            async with database_connection(dsn) as connection:
+                await connection.execute("CREATE TABLE account_pool_proxy_gateways (port integer PRIMARY KEY)")
+                await connection.execute("INSERT INTO account_pool_proxy_gateways VALUES (7891)")
+            cipher: Final = ProxyCatalogCipher(EnvironmentSecretDeriver("test-seed-" * 4))
+            repository: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            await repository.initialize()
+            await repository.initialize()
+            await repository.save_isp_subscription("https://isp.example/fixture.yaml", parse_isp_subscription(
+                "proxies:\n  - name: fixture\n    type: socks5\n    server: isp.example\n    port: 1080\n"
+                "    username: private-user\n    password: private-secret\n"
+            ))
+            profile: Final = (await repository.list_isps())[0]
+            assert isinstance(profile, ISPSubscriptionNodeProfile)
+            async with database_connection(dsn) as connection:
+                raw: Final = await connection.execute("SELECT config_ciphertext FROM account_pool_isp_subscription_nodes")
+                encrypted: Final = (await raw.fetchone())["config_ciphertext"]
+            updated: Final = await repository.update_isp(profile.model_copy(update={"name": "renamed", "enabled": False}))
+            assert updated is not None and updated.config == profile.config
+            probe: Final = ISPProbeResult(profile_id=profile.id, status="ok", checked_at=datetime.now(timezone.utc),
+                                          exit_ip="8.8.8.8", delay_ms=23)
+            assert await repository.save_isp_probe(probe) == probe
+            reopened: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            view: Final = (await ProxyCatalogService(reopened).list_isps())[0]
+            assert view.name == "renamed" and not view.enabled and view.last_probe == probe
+            assert "private-secret" not in view.model_dump_json()
+            async with database_connection(dsn) as connection:
+                raw_after: Final = await connection.execute("SELECT config_ciphertext FROM account_pool_isp_subscription_nodes")
+                assert (await raw_after.fetchone())["config_ciphertext"] == encrypted
+            await repository.bind_isp(7891, profile.id)
+            assert not await repository.delete_isp(profile.id)
+            await repository.unbind_isp(7891)
+            assert await repository.delete_isp(profile.id)
+            assert await reopened.list_isp_probes() == ()
         finally:
             await admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))

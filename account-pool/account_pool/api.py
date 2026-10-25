@@ -121,9 +121,9 @@ class ISPProfileUpdateRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
-    protocol: Literal["http", "https", "socks5"]
-    host: str = Field(min_length=1, max_length=253)
-    port: int = Field(ge=1, le=65535)
+    protocol: Literal["http", "https", "socks5"] | None = None
+    host: str | None = Field(default=None, min_length=1, max_length=253)
+    port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=512, repr=False)
     password: str | None = Field(default=None, max_length=2048, repr=False)
     clear_credentials: bool = False
@@ -976,6 +976,12 @@ def create_router(
                     enabled=request.enabled,
                 )
             except (ValueError, ClashError) as error:
+                if str(error) == "manual ISP connection fields are required":
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                        detail="manual ISP connection fields are required") from error
+                if str(error) == "ISP subscription node name already exists":
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                        detail="ISP subscription node name already exists") from None
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ISP update failed; refresh and retry") from error
 
         @isp_router.delete("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)], status_code=204)

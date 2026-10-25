@@ -226,6 +226,8 @@ class Attempt:
         self.account_id: Final = lease.account_id
         self.key_id: Final = lease.key_id
         self.attempt_number: Final = lease.attempt
+        self.signature_retry_count = 0
+        self.signature_failure_reason: str | None = None
 
     async def send(self, message: Message) -> None:
         try:
@@ -283,6 +285,24 @@ async def report(control: GatewayControl, result: FinishRequest) -> None:
 
 async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
     try:
+        state: Final = attempt.stream_state
+        signature_reason: Final = (
+            ("output_started" if state.meaningful else state.signature_recovery_reason or "no_removable_state")
+            if state.signature_rejected else attempt.signature_failure_reason
+        )
+        signature_result: Final = signature_reason or (
+            ("recovered" if attempt.result.http_status < 400 else "retry_failed")
+            if attempt.signature_retry_count else None
+        )
+        if signature_result is not None:
+            detail: Final = (
+                f"signature_recovery: {signature_result}; signature_retry_count={attempt.signature_retry_count}; "
+                f"output_started={str(state.meaningful).lower()}; same_card=true"
+            )
+            attempt.outcome(
+                attempt.result.http_status, attempt.result.message,
+                detail=(detail + (f"; {attempt.result.detail}" if attempt.result.detail else ""))[:2000],
+            )
         if attempt.log is not None:
             attempt.result = await attempt.log.finish(attempt.result)
     finally:
@@ -791,6 +811,8 @@ async def execute(
             )
             with attempt.timing.phase("upstream_headers"):
                 request.state.account_pool_upstream_attempted = True
+                if signature_recovered:
+                    attempt.signature_retry_count = 1
                 response: Final = await selected_client.send(upstream, stream=True)
             try:
                 cost_usd: Final = upstream_response_cost(response.headers)
@@ -804,11 +826,6 @@ async def execute(
                         and asyncio.get_running_loop().time() < deadline
                     ):
                         await response.aclose()
-                        attempt.outcome(
-                            400,
-                            "Retrying without incompatible thinking state",
-                            detail="signature_recovery: removed incompatible thinking state; retained complete conversation and paired client tools",
-                        )
                         return await execute(
                             request,
                             recovery_payload,
@@ -823,11 +840,7 @@ async def execute(
                             failover_ready=failover_ready,
                         )
                     if signature_error(error_payload):
-                        attempt.outcome(
-                            400,
-                            "Incompatible thinking history",
-                            detail=f"signature_recovery: {recovery_reason}; same_card=true",
-                        )
+                        attempt.signature_failure_reason = recovery_reason
                     if attempt.log is not None:
                         attempt.log.capture(json.dumps(error_payload).encode())
                         attempt.log.observe(error_payload)
@@ -918,8 +931,15 @@ async def execute(
                             responses_api=request.url.path == "/v1/responses",
                             anthropic_messages=request.url.path == "/v1/messages",
                         )
+                        bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
                         try:
                             await bootstrap.prepare()
+                            if (
+                                bootstrap.buffer.tell() >= 65536
+                                and not bootstrap.state.meaningful and not bootstrap.state.terminal
+                            ):
+                                attempt.stream_state.signature_recovery_reason = "preflight_limit"
+                                bootstrap.state.signature_recovery_reason = "preflight_limit"
                             if (
                                 bootstrap.state.failed and not bootstrap.state.meaningful
                                 and bootstrap.state.signature_rejected
@@ -934,11 +954,6 @@ async def execute(
                             ):
                                 await bootstrap.close()
                                 await response.aclose()
-                                attempt.outcome(
-                                    400,
-                                    "Retrying without incompatible thinking state",
-                                    detail="signature_recovery: removed incompatible thinking state before output; retained complete conversation and paired client tools",
-                                )
                                 return await execute(
                                     request,
                                     recovery_payload,
@@ -965,12 +980,6 @@ async def execute(
                                 alternate_id=alternate_id,
                                 failover_ready=failover_ready,
                             )
-                            if attempt.stream_state.signature_rejected:
-                                attempt.outcome(
-                                    attempt.result.http_status,
-                                    attempt.result.message,
-                                    detail="signature_recovery: output_started; same_card=true",
-                                )
                             return completed_with_history
                         finally:
                             await bootstrap.close()
@@ -988,13 +997,6 @@ async def execute(
                         alternate_id=alternate_id,
                         failover_ready=failover_ready,
                     )
-                    if attempt.stream_state.signature_rejected:
-                        stream_reason: Final = "output_started" if attempt.stream_state.meaningful else recovery_reason
-                        attempt.outcome(
-                            attempt.result.http_status,
-                            attempt.result.message,
-                            detail=f"signature_recovery: {stream_reason}; same_card=true",
-                        )
                     return completed
                 else:
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
@@ -1337,10 +1339,19 @@ async def guarded_stream_response(
         responses_api=request.url.path == "/v1/responses",
         anthropic_messages=request.url.path == "/v1/messages",
     )
+    bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
     try:
         if prepared is None:
             await bootstrap.prepare()
+            if (
+                bootstrap.buffer.tell() >= 65536
+                and not bootstrap.state.meaningful and not bootstrap.state.terminal
+            ):
+                attempt.stream_state.signature_recovery_reason = "preflight_limit"
+                bootstrap.state.signature_recovery_reason = "preflight_limit"
         if bootstrap.state.failed and not bootstrap.state.meaningful:
+            if bootstrap.state.signature_rejected:
+                attempt.signature_failure_reason = bootstrap.state.signature_recovery_reason
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             failure: Final = classify_failure(

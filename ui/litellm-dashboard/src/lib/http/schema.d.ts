@@ -25035,18 +25035,15 @@ export interface components {
             /** Expires On */
             expires_on?: string | null;
             /** Host */
-            host: string;
+            host?: string | null;
             /** Name */
             name: string;
             /** Password */
             password?: string | null;
             /** Port */
-            port: number;
-            /**
-             * Protocol
-             * @enum {string}
-             */
-            protocol: "http" | "https" | "socks5";
+            port?: number | null;
+            /** Protocol */
+            protocol?: ("http" | "https" | "socks5") | null;
             /** Username */
             username?: string | null;
         };
