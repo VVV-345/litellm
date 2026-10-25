@@ -942,6 +942,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/cockpit/scope/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Activate Cockpit Scope */
+        post: operations["activate_cockpit_scope_account_pool_cockpit_scope_activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/scope/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Deactivate Cockpit Scope */
+        post: operations["deactivate_cockpit_scope_account_pool_cockpit_scope_deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/cockpit/scope/{subject_hash}": {
         parameters: {
             query?: never;
@@ -29138,6 +29172,13 @@ export interface components {
              */
             weight: number;
         };
+        /** CockpitScopeActivationRequest */
+        CockpitScopeActivationRequest: {
+            /** Revision */
+            revision: string;
+            /** Subject Hash */
+            subject_hash: string;
+        };
         /** CockpitScopePublishRequest */
         CockpitScopePublishRequest: {
             /** Receipt */
@@ -46691,6 +46732,72 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CockpitScopeRevokeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    activate_cockpit_scope_account_pool_cockpit_scope_activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitScopeActivationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    deactivate_cockpit_scope_account_pool_cockpit_scope_deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitScopeActivationRequest"];
             };
         };
         responses: {
