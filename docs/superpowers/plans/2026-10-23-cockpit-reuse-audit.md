@@ -311,6 +311,19 @@ LiteLLM 路由缓存 TTL 改为 `ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS`，范�
 
 验证：最终定向合并运行 152 项通过（scope、policy、preflight、runtime、admin、app、route owner），单个 route/app/scope 子集 32 项通过；新增行严格 Ruff 和 basedpyright 诊断均为 0，`cockpit_scope.py` 严格类型 0 errors。未连接真实 Cockpit、数据库、凭据或供应商，未启用 `enabled=true`，未重启或切流。
 
+### D2.3 分支收尾修复（2026-10-25）
+
+提交 `d1394aa749`、`32a5b5dfba`、`586b007aad`、`f1a0de7fc7` 和 `bf38f5be0e`。仍然只做本地代码、离线测试和本地提交，不激活、不部署、不切流，`ready_to_migrate` 保持 false。
+
+- 超时对齐：`CockpitSubjectClient` 的超时可配置；Manager 使用 3 秒的路由主体读取器和 10 秒的回执读取器，低于 LiteLLM 查询 Manager 的 5 秒预算，避免 Manager 慢时先被 LiteLLM 超时打断
+- 视图一致：`GET /api/cockpit/scope` 在 active 时也重新校验当前主体；主体缺失、读取失败或卡片/模型漂移时显示 blocked，不再出现页面 active、内部路由 blocked 的分裂
+- 直连参数：`dispatch_cockpit_route` 在调用 `litellm.aresponses` 前剥离 `router_settings_override`、`enable_tag_filtering`、`proxy_server_request`、`user_config`、`config` 和 `client`，避免 Router/代理层字段被当作供应商参数
+- 缓存失效：resolver 增加 generation，invalidate/clear 期间完成的旧 lookup 不再写回缓存；TTL 构造值做有限性和 1 到 300 秒夹取
+- 生成类型：`npm run gen:api` 重新生成 `schema.d.ts`，包含 scope 路由和三个公开模型；lazy OpenAPI snapshot 重跑后内容深度相等，只有行尾差异，规范化后无变更，没有提交噪声
+- 全量验证：完整 Manager 测试 1149 passed、5 skipped；完整 LiteLLM 号池管理测试 1039 passed、1 skipped；分支定向合并 164 passed；新增行严格 Ruff 和 basedpyright 诊断均为 0；此前失败的 `test_contracts` 用量字段断言已补 `spend_usd`
+
+`make check` 没有执行：它会通过 bootstrap 重建 uv 环境并运行全仓门禁，当前工作区不是该工具链的干净基线。完整 Manager 和 LiteLLM 号池测试、定向 lint/type、生成类型检查已完成，剩余的全仓门禁留给合并前单独执行。
+
 ### 替换阶段 E：行为兼容与差异验收
 
 - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
