@@ -1994,12 +1994,30 @@ index 05d062609a..a36f9a01d5 100644
              "updated_at": now.isoformat().replace("+00:00", "Z"),
          },
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281..0c281c593e 100644
+index 58d8051281..8976f3beec 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-@@ -1,5 +1,46 @@
+@@ -1,5 +1,64 @@
  # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
  
++## 2026-10-26 最新检查点：原生 scope 编排完成本地单元验证
++
++本轮由主代理直接实现，没有调用 DS。起点 `fc615e807b9734943edcde27efea4eb46cd0ce6e`，继续已批准的 worktree，本地提交、不推送、不部署
++
++新增 `account_pool_cockpit_scope_service.py` 和 `account_pool_cockpit_receipt_contracts.py`。`CockpitScopeService` 的第三个依赖改为显式 `routing_token: Callable[[str], str]`，移除对 Manager secret deriver 的运行时引用；原生 `subject_routing_token(SecretStr seed, subject_hash)` 保留原 UUID5/HMAC 上下文和输出。没有选择新 seed 或新增配置。回执值类型复用已完成的原生 TrustedCredentialScope，不复制旧环境库、ownership 库或 preflight
++
++发布仍默认 staged/disabled，显式启停只写投影，撤销只移除对应主体条目。启用和 active 路由必须重新验证主体；撤权后路由 blocked 且无 token。未注入 ReceiptRevalidator 时发布 unavailable；拒绝或过期回执不写入。ReceiptRevalidator 是可信依赖，只有完成签名、主体和实时状态校验才能返回成功 DTO，本轮没有实现或接线真实回执签发/校验器，不能把任意构造的 DTO 当成授权证明
++
++基线 543 passed，新模块缺失红灯 1 failed，首轮复制服务契约 19 passed，补充直接令牌注入、固定派生向量、异常 manifest、缺少校验器、原生主体读取组合和隔离导入后 39 passed，最终相关回归 586 passed/1 warning。原 Manager HTTP 路由测试未改，原有 LiteLLM scope HTTP 包装测试也在最终回归中；新套件只迁移服务用例，不用旧路由测试冒充原生服务覆盖。普通/strict Ruff、格式和新源码 basedpyright 通过；最初导入排序失败已修正并保留记录
++
++11 个模型 schema 一致，25,024 对通配匹配、2,919 对 manifest 校验输入和 6 个令牌派生向量与原实现相同，8 个基线文件 hash 不变。为遵守无可变累加状态约束，仅将 manifest 集合检查和 wildcard 游标推进改为等价的不可变计算；未改变公开错误码、状态或匹配语义
++
++BASELINE/MODIFIED/ROLLBACK 同输入 stdout 一致，exit 0、stderr 空：状态依次 absent/staged/staged/active/active/blocked/staged/absent/absent；主体读取 3 次，stale receipt 写入 0 次，409/revision_conflict 与 503/write_outcome_unknown 各只尝试 PUT 一次；未知字段和无关 Key 保留。恢复副本 hash 等于原件，新源码保持修改后版本。所有结果来自离线 MockTransport/隔离进程，runtime_activation 仍为 restart_required_or_unverified，不能解释为 Cockpit 实际运行配置已确认或服务器回滚已验证
++
++下一步由主代理继续迁移回执签名/重验核心及其可信观测接口，明确哪些来源仅用于一次性迁移、哪些授权状态由原生主库和 Cockpit 实时提供。未具备可信观测时保持发布关闭，不把旧 Manager 数据库留作永久依赖。随后才做服务实例/密钥生命周期、HTTP 接线、默认路由的无 Manager 验证和完整隔离部署。本轮未改默认请求链路、未迁移凭据、未重启、未构建镜像，旧生产未动
++
++证据：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-scope-verification.json`
++
 +## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
 +
 +用户最新要求改为主代理直接写代码，不再调用 DS。下文历史阶段中写给 DS 的实现任务均由主代理直接承担，保留测试先行、审查、本地验证和提交要求，不再等待外部派工。本轮两次 DS 调用均已结束，未更改其桌面配置
@@ -2044,7 +2062,7 @@ index 58d8051281..0c281c593e 100644
  > 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
  
  **目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
-@@ -12,6 +53,21 @@
+@@ -12,6 +71,21 @@
  
  **范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
  
@@ -2066,7 +2084,7 @@ index 58d8051281..0c281c593e 100644
  ## 迁移约束
  
  - 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改
-@@ -148,7 +204,7 @@
+@@ -148,7 +222,7 @@
  
  - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
  - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
@@ -2075,7 +2093,7 @@ index 58d8051281..0c281c593e 100644
  - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
  - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
  
-@@ -267,6 +323,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
+@@ -267,6 +341,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
  
  本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
  
@@ -2185,11 +2203,29 @@ index 58d8051281..0c281c593e 100644
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000..9aeec375d7
+index 0000000000..754d155f82
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,233 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
++
++## 2026-10-26 最新检查点：原生 scope 编排完成本地单元验证
++
++本轮由主代理直接实现，没有调用 DS。起点 `fc615e807b9734943edcde27efea4eb46cd0ce6e`，继续已批准的 worktree，本地提交、不推送、不部署
++
++新增 `account_pool_cockpit_scope_service.py` 和 `account_pool_cockpit_receipt_contracts.py`。`CockpitScopeService` 的第三个依赖改为显式 `routing_token: Callable[[str], str]`，移除对 Manager secret deriver 的运行时引用；原生 `subject_routing_token(SecretStr seed, subject_hash)` 保留原 UUID5/HMAC 上下文和输出。没有选择新 seed 或新增配置。回执值类型复用已完成的原生 TrustedCredentialScope，不复制旧环境库、ownership 库或 preflight
++
++发布仍默认 staged/disabled，显式启停只写投影，撤销只移除对应主体条目。启用和 active 路由必须重新验证主体；撤权后路由 blocked 且无 token。未注入 ReceiptRevalidator 时发布 unavailable；拒绝或过期回执不写入。ReceiptRevalidator 是可信依赖，只有完成签名、主体和实时状态校验才能返回成功 DTO，本轮没有实现或接线真实回执签发/校验器，不能把任意构造的 DTO 当成授权证明
++
++基线 543 passed，新模块缺失红灯 1 failed，首轮复制服务契约 19 passed，补充直接令牌注入、固定派生向量、异常 manifest、缺少校验器、原生主体读取组合和隔离导入后 39 passed，最终相关回归 586 passed/1 warning。原 Manager HTTP 路由测试未改，原有 LiteLLM scope HTTP 包装测试也在最终回归中；新套件只迁移服务用例，不用旧路由测试冒充原生服务覆盖。普通/strict Ruff、格式和新源码 basedpyright 通过；最初导入排序失败已修正并保留记录
++
++11 个模型 schema 一致，25,024 对通配匹配、2,919 对 manifest 校验输入和 6 个令牌派生向量与原实现相同，8 个基线文件 hash 不变。为遵守无可变累加状态约束，仅将 manifest 集合检查和 wildcard 游标推进改为等价的不可变计算；未改变公开错误码、状态或匹配语义
++
++BASELINE/MODIFIED/ROLLBACK 同输入 stdout 一致，exit 0、stderr 空：状态依次 absent/staged/staged/active/active/blocked/staged/absent/absent；主体读取 3 次，stale receipt 写入 0 次，409/revision_conflict 与 503/write_outcome_unknown 各只尝试 PUT 一次；未知字段和无关 Key 保留。恢复副本 hash 等于原件，新源码保持修改后版本。所有结果来自离线 MockTransport/隔离进程，runtime_activation 仍为 restart_required_or_unverified，不能解释为 Cockpit 实际运行配置已确认或服务器回滚已验证
++
++下一步由主代理继续迁移回执签名/重验核心及其可信观测接口，明确哪些来源仅用于一次性迁移、哪些授权状态由原生主库和 Cockpit 实时提供。未具备可信观测时保持发布关闭，不把旧 Manager 数据库留作永久依赖。随后才做服务实例/密钥生命周期、HTTP 接线、默认路由的无 Manager 验证和完整隔离部署。本轮未改默认请求链路、未迁移凭据、未重启、未构建镜像，旧生产未动
++
++证据：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-scope-verification.json`
 +
 +## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
 +
@@ -3046,6 +3082,99 @@ index 0000000000..33fb0512ea
 +        editable=True,
 +        blocked_reason=None,
 +    )
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py b/litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py
+new file mode 100644
+index 0000000000..f059615893
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py
+@@ -0,0 +1,87 @@
++"""Native receipt values only; a constructed DTO is not a verified receipt."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import Final, Literal
++from uuid import UUID
++
++from pydantic import BaseModel, ConfigDict, Field, model_validator
++from typing_extensions import Self
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader import Digest, TrustedCredentialScope
++
++_ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
++_LIFETIME: Final = 300
++
++
++class CredentialBindings(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    scope: TrustedCredentialScope
++    source_version: int = Field(ge=0)
++    source_file: str = Field(repr=False)
++    source_state_digest: Digest
++    source_fingerprint_digest: Digest
++    source_content_digest: Digest
++    source_size: int = Field(gt=0)
++    target_account_id: UUID
++    target_auth_id: str = Field(repr=False)
++    target_file_revision: str = Field(pattern=_ETAG)
++    manifest_revision: str = Field(pattern=_ETAG)
++
++
++class CredentialReceiptPayload(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    version: Literal[1] = 1
++    purpose: Literal["cockpit-owned-artifact-dry-run"] = "cockpit-owned-artifact-dry-run"
++    issued_at: int = Field(gt=0, strict=True)
++    expires_at: int = Field(gt=0, strict=True)
++    bindings: CredentialBindings
++
++    @model_validator(mode="after")
++    def bounded_lifetime(self) -> Self:
++        if self.expires_at - self.issued_at != _LIFETIME:
++            raise ValueError("Invalid receipt lifetime")
++        return self
++
++
++class CredentialReceipt(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    status: Literal["owned_artifact_correspondence"] = "owned_artifact_correspondence"
++    ready_to_migrate: Literal[False] = False
++    payload: CredentialReceiptPayload
++    signature: Digest = Field(repr=False)
++
++
++ReceiptRejectionCode = Literal[
++    "invalid_subject",
++    "subject_unverified",
++    "invalid_clock",
++    "read_unavailable",
++    "state_changed",
++    "source_missing",
++    "source_unavailable",
++    "source_credential_missing",
++    "source_auth_unsupported",
++    "source_identity_mismatch",
++    "source_ownership_unverified",
++    "source_credential_collision",
++    "target_account_missing",
++    "target_account_collision",
++    "target_credential_missing",
++    "target_credential_collision",
++    "target_auth_unsupported",
++    "target_content_mismatch",
++    "invalid_receipt",
++    "receipt_time_invalid",
++    "stale_receipt",
++]
++
++
++@dataclass(frozen=True, slots=True)
++class CredentialReceiptRejection:
++    code: ReceiptRejectionCode
++    status: Literal["rejected"] = "rejected"
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_route.py b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
 new file mode 100644
 index 0000000000..af1cdb49da
@@ -3486,6 +3615,718 @@ index 0000000000..4dd5551b64
 +    if client is None:
 +        return RuntimeFailure(503, "unavailable")
 +    return _runtime_result(await client.apply_policy(request.revision), applying=True)
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py b/litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py
+new file mode 100644
+index 0000000000..e57cb7d527
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py
+@@ -0,0 +1,706 @@
++"""管理 Cockpit 授权投影；依赖原生主体读取和可信回执，不重启或切流。"""
++
++from __future__ import annotations
++
++import base64
++import hashlib
++import hmac
++import re
++from collections.abc import Callable, Mapping
++from dataclasses import dataclass
++from functools import reduce
++from types import MappingProxyType
++from typing import Annotated, Final, Literal, Protocol
++from uuid import NAMESPACE_URL, UUID, uuid5
++
++from pydantic import BaseModel, ConfigDict, Field, JsonValue, SecretStr, ValidationError
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitFailure,
++    ManifestSnapshot,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_failure import (
++    precondition,
++    unavailable,
++    write_outcome_unknown,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_policy import CockpitAccount
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialBindings,
++    CredentialReceipt,
++    CredentialReceiptRejection,
++    TrustedCredentialScope,
++)
++
++
++class CockpitAlias(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    sourceModel: str = ""
++    alias: str = ""
++
++
++class CockpitAccountModelRule(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    accountId: str = ""
++    excludedModels: list[str] | None = None
++
++
++class CockpitScopeManifest(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    accounts: list[CockpitAccount] | None = None
++    apiKeys: list[dict[str, JsonValue]] | None = None
++    modelIds: list[str] | None = None
++    modelAliases: list[CockpitAlias] | None = None
++    excludedModels: list[str] | None = None
++    accountModelRules: list[CockpitAccountModelRule] | None = None
++
++
++_HASH: Final = r"^[0-9a-f]{64}$"
++_ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
++_RESERVED_PREFIX: Final = "litellm-subject-"
++_RESERVED_LABEL_PREFIX: Final = "LiteLLM native subject "
++_MAX_RECEIPT: Final = 16384
++
++SubjectHash = Annotated[str, Field(pattern=_HASH)]
++Revision = Annotated[str, Field(pattern=_ETAG)]
++ScopeState = Literal["absent", "staged", "active", "blocked"]
++ModelScope = Literal["none", "restricted"]
++ScopeFailureCode = Literal[
++    "invalid_receipt",
++    "subject_unverified",
++    "receipt_stale",
++    "scope_unverified",
++    "account_missing",
++    "model_scope_unsupported",
++    "model_unmapped",
++    "manifest_changed",
++    "publication_conflict",
++    "revision_conflict",
++    "invalid_manifest",
++    "invalid_response",
++    "unavailable",
++    "write_rejected",
++    "write_outcome_unknown",
++    "not_published",
++    "activation_blocked",
++]
++
++_STATUS: Final[Mapping[ScopeFailureCode, int]] = MappingProxyType(
++    {
++        "invalid_receipt": 422,
++        "subject_unverified": 409,
++        "receipt_stale": 409,
++        "scope_unverified": 422,
++        "account_missing": 422,
++        "model_scope_unsupported": 422,
++        "model_unmapped": 422,
++        "manifest_changed": 409,
++        "publication_conflict": 409,
++        "revision_conflict": 409,
++        "invalid_manifest": 422,
++        "invalid_response": 502,
++        "unavailable": 503,
++        "write_rejected": 502,
++        "write_outcome_unknown": 503,
++        "not_published": 409,
++        "activation_blocked": 409,
++    }
++)
++_RECEIPT_REJECTIONS: Final[Mapping[str, ScopeFailureCode]] = MappingProxyType(
++    {
++        "invalid_subject": "invalid_receipt",
++        "invalid_receipt": "invalid_receipt",
++        "receipt_time_invalid": "invalid_receipt",
++        "subject_unverified": "subject_unverified",
++        "stale_receipt": "receipt_stale",
++        "state_changed": "receipt_stale",
++        "read_unavailable": "unavailable",
++        "invalid_clock": "unavailable",
++    }
++)
++
++
++class CockpitScopePublishRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: SubjectHash
++    receipt: str = Field(min_length=1, max_length=_MAX_RECEIPT)
++    revision: Revision
++
++
++class CockpitScopeRevokeRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: SubjectHash
++    revision: Revision
++
++
++class CockpitScopeActivationRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: SubjectHash
++    revision: Revision
++
++
++class CockpitSubjectScopeView(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_hash: str
++    state: ScopeState
++    account_ids: tuple[str, ...]
++    model_scope: ModelScope
++    models: tuple[str, ...]
++    persisted_manifest_revision: str | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++    ready_to_migrate: Literal[False] = False
++
++
++class CockpitSubjectRouteState(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_hash: str
++    state: ScopeState
++    account_ids: tuple[str, ...] = ()
++    model_scope: ModelScope = "none"
++    models: tuple[str, ...] = ()
++    origin: str | None = None
++    api_key: str | None = Field(default=None, repr=False)
++    persisted_manifest_revision: str | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++
++
++@dataclass(frozen=True, slots=True)
++class ScopeFailure:
++    status: int
++    code: ScopeFailureCode
++
++
++class ReceiptRevalidator(Protocol):
++    """Only return a receipt after signature, subject and live-state revalidation."""
++
++    async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection: ...
++
++
++class SubjectReader(Protocol):
++    async def read(self, subject_hash: str) -> TrustedCredentialScope | None: ...
++
++
++def _failure(code: ScopeFailureCode) -> ScopeFailure:
++    return ScopeFailure(_STATUS[code], code)
++
++
++def _manifest(snapshot: ManifestSnapshot) -> CockpitScopeManifest | ScopeFailure:
++    try:
++        return CockpitScopeManifest.model_validate(snapshot.data)
++    except ValidationError:
++        return _failure("invalid_response")
++
++
++def _reserved_id(subject_hash: str) -> str:
++    return _RESERVED_PREFIX + subject_hash
++
++
++def subject_routing_token(seed: SecretStr, subject_hash: str) -> str:
++    identity: Final = uuid5(NAMESPACE_URL, "litellm-cockpit-subject:" + subject_hash)
++    context: Final = f"litellm-account-pool:v1:cockpit-subject-routing:{identity.hex}".encode("ascii")
++    digest: Final = hmac.new(seed.get_secret_value().encode("utf-8"), context, hashlib.sha256).digest()
++    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
++
++
++class _ReservedKey(BaseModel):
++    model_config = ConfigDict(strict=True, extra="allow")
++
++    id: str
++    label: str = ""
++    key: str = Field(default="", repr=False)
++    enabled: bool = False
++    accountIds: list[str] | None = None
++    allowedModels: list[str] | None = None
++
++
++def _find_reserved(
++    manifest: CockpitScopeManifest, subject_hash: str
++) -> tuple[dict[str, JsonValue], _ReservedKey] | None:
++    expected: Final = _reserved_id(subject_hash)
++    for raw in manifest.apiKeys or ():
++        if raw.get("id") != expected:
++            continue
++        try:
++            return raw, _ReservedKey.model_validate(raw)
++        except ValidationError:
++            return raw, _ReservedKey(id=expected, label="", key="", enabled=False)
++    return None
++
++
++def _entry_valid(
++    entry: _ReservedKey,
++    subject_hash: str,
++    token: str,
++    account_ids: tuple[str, ...],
++) -> bool:
++    return (
++        entry.id == _reserved_id(subject_hash)
++        and entry.label.startswith(_RESERVED_LABEL_PREFIX)
++        and entry.key == token
++        and tuple(entry.accountIds or ()) == account_ids
++        and bool(entry.allowedModels)
++    )
++
++
++def _visible(model: str, manifest: CockpitScopeManifest, account_id: UUID) -> bool:
++    catalog: Final = {value.strip().casefold() for value in manifest.modelIds or () if value.strip()}
++    if model.strip().casefold() not in catalog:
++        return False
++    if any(wildcard_match(rule, model) for rule in manifest.excludedModels or ()):
++        return False
++    rule: Final = next(
++        (item for item in manifest.accountModelRules or () if item.accountId == str(account_id)),
++        None,
++    )
++    return rule is None or not any(wildcard_match(rule, model) for rule in rule.excludedModels or ())
++
++
++def _entry_authorized(
++    manifest: CockpitScopeManifest,
++    account_ids: tuple[str, ...],
++    models: tuple[str, ...],
++) -> bool:
++    accounts: Final = {account.id for account in manifest.accounts or ()}
++    if not account_ids or not set(account_ids).issubset(accounts):
++        return False
++    try:
++        cards: Final = tuple(UUID(account_id) for account_id in account_ids)
++    except ValueError:
++        return False
++    return all(_visible(model, manifest, card) for card in cards for model in models)
++
++
++def _manifest_problem(manifest: CockpitScopeManifest, extra: dict[str, JsonValue] | None = None) -> bool:
++    account_ids: Final = tuple(account.id.strip() for account in manifest.accounts or ())
++    known_accounts: Final = frozenset(account_ids)
++    if any(not identifier for identifier in account_ids) or len(account_ids) != len(known_accounts):
++        return True
++    keys: Final = (*(manifest.apiKeys or ()), *((extra,) if extra is not None else ()))
++    key_ids: Final = tuple(value for raw in keys if isinstance(value := raw.get("id"), str) and value.strip())
++    if len(key_ids) != len(keys) or len(key_ids) != len(frozenset(key_ids)):
++        return True
++    if any(not isinstance(raw.get("enabled", False), bool) or not isinstance(raw.get("key", ""), str) for raw in keys):
++        return True
++    enabled: Final = tuple(raw for raw in keys if raw.get("enabled", False) is True)
++    values: Final = tuple(value for raw in enabled if isinstance(value := raw.get("key", ""), str) and value.strip())
++    if len(values) != len(enabled) or len(values) != len(frozenset(values)):
++        return True
++    return any(
++        not isinstance(accounts, list)
++        or not accounts
++        or any(not isinstance(item, str) or not item.strip() or item not in known_accounts for item in accounts)
++        for raw in enabled
++        for accounts in (raw.get("accountIds", []),)
++    )
++
++
++def _desired_entry(subject_hash: str, card_id: UUID, models: tuple[str, ...], token: str) -> dict[str, JsonValue]:
++    return {
++        "id": _reserved_id(subject_hash),
++        "label": _RESERVED_LABEL_PREFIX + subject_hash[:12],
++        "key": token,
++        "accountIds": [str(card_id)],
++        "allowedModels": list(models),
++        "enabled": False,
++    }
++
++
++@dataclass(frozen=True, slots=True)
++class _Publication:
++    entry: dict[str, JsonValue]
++    card_id: UUID
++    models: tuple[str, ...]
++
++
++def _prepared_publication(
++    request: CockpitScopePublishRequest,
++    bindings: CredentialBindings,
++    snapshot: ManifestSnapshot,
++    manifest: CockpitScopeManifest,
++    token: str,
++) -> _Publication | ScopeFailure:
++    if request.revision != snapshot.revision or bindings.manifest_revision != snapshot.revision:
++        return _failure("manifest_changed")
++    account_id: Final = bindings.target_account_id
++    if bindings.scope.model_scope != "restricted" or not bindings.scope.models:
++        return _failure("model_scope_unsupported")
++    account: Final = next((item for item in manifest.accounts or () if item.id == str(account_id)), None)
++    if account is None:
++        return _failure("account_missing")
++    if (
++        account.authKind not in ("", "oauth")
++        or account.accessTokenOnly
++        or account.upstreamApiKey.strip()
++        or account.authId != bindings.target_auth_id
++    ):
++        return _failure("scope_unverified")
++    models: Final = tuple(bindings.scope.models)
++    if any(not _visible(model, manifest, account_id) for model in models):
++        return _failure("model_unmapped")
++    return _Publication(
++        entry=_desired_entry(request.subject_hash, account_id, models, token), card_id=account_id, models=models
++    )
++
++
++class CockpitScopeService:
++    def __init__(
++        self,
++        receipts: ReceiptRevalidator | None,
++        target: CockpitAdminClient,
++        routing_token: Callable[[str], str],
++        origin: str | None = None,
++        subjects: SubjectReader | None = None,
++    ) -> None:
++        self._receipts: Final = receipts
++        self._target: Final = target
++        self._routing_token: Final = routing_token
++        self._origin: Final = origin
++        self._subjects: Final = subjects
++
++    async def read(self, subject_hash: str) -> CockpitSubjectScopeView | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return manifest
++        view: Final = self._view(subject_hash, snapshot, manifest)
++        if isinstance(view, ScopeFailure) or view.state != "active":
++            return view
++        if await self._authorized(manifest, subject_hash, view.account_ids, view.models):
++            return view
++        return view.model_copy(update={"state": "blocked"})
++
++    async def publish(self, request: CockpitScopePublishRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        if self._receipts is None:
++            return _failure("unavailable")
++        receipt: Final = await self._receipts.revalidate(request.subject_hash, request.receipt)
++        if isinstance(receipt, CredentialReceiptRejection):
++            return _failure(_RECEIPT_REJECTIONS.get(receipt.code, "scope_unverified"))
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return _failure("invalid_manifest")
++        token: Final = self._routing_token(request.subject_hash)
++        prepared: Final = _prepared_publication(
++            request,
++            receipt.payload.bindings,
++            snapshot,
++            manifest,
++            token,
++        )
++        if isinstance(prepared, ScopeFailure):
++            return prepared
++        existing: Final = _find_reserved(manifest, request.subject_hash)
++        if any(
++            raw.get("key") == token and raw.get("id") != _reserved_id(request.subject_hash)
++            for raw in manifest.apiKeys or ()
++        ):
++            return _failure("publication_conflict")
++        if existing is not None:
++            raw, entry = existing
++            if not _entry_valid(entry, request.subject_hash, token, (str(prepared.card_id),)) or raw != prepared.entry:
++                return _failure("publication_conflict")
++            if _manifest_problem(manifest):
++                return _failure("invalid_manifest")
++            return self._view(request.subject_hash, snapshot, manifest)
++        if _manifest_problem(manifest, prepared.entry):
++            return _failure("invalid_manifest")
++        data: Final[dict[str, JsonValue]] = {
++            **snapshot.data,
++            "apiKeys": [*(manifest.apiKeys or ()), prepared.entry],
++        }
++        receipt_after: Final = await self._target.write_manifest(data, snapshot.revision)
++        if isinstance(receipt_after, CockpitFailure):
++            return _write_failure(receipt_after)
++        if receipt_after.revision is None:
++            return _failure("write_outcome_unknown")
++        return CockpitSubjectScopeView(
++            subject_hash=request.subject_hash,
++            state="staged",
++            account_ids=(str(prepared.card_id),),
++            model_scope="restricted",
++            models=prepared.models,
++            persisted_manifest_revision=receipt_after.revision,
++        )
++
++    async def revoke(self, request: CockpitScopeRevokeRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        if request.revision != snapshot.revision:
++            return _failure("revision_conflict")
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return _failure("invalid_manifest")
++        expected: Final = _reserved_id(request.subject_hash)
++        remaining: Final = tuple(raw for raw in manifest.apiKeys or () if raw.get("id") != expected)
++        if len(remaining) == len(manifest.apiKeys or ()):
++            return CockpitSubjectScopeView(
++                subject_hash=request.subject_hash,
++                state="absent",
++                account_ids=(),
++                model_scope="none",
++                models=(),
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if _manifest_problem(manifest.model_copy(update={"apiKeys": list(remaining)})):
++            return _failure("invalid_manifest")
++        data: Final[dict[str, JsonValue]] = {**snapshot.data, "apiKeys": list(remaining)}
++        receipt: Final = await self._target.write_manifest(data, snapshot.revision)
++        if isinstance(receipt, CockpitFailure):
++            return _write_failure(receipt)
++        if receipt.revision is None:
++            return _failure("write_outcome_unknown")
++        return CockpitSubjectScopeView(
++            subject_hash=request.subject_hash,
++            state="absent",
++            account_ids=(),
++            model_scope="none",
++            models=(),
++            persisted_manifest_revision=receipt.revision,
++        )
++
++    async def activate(self, request: CockpitScopeActivationRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        return await self._set_enabled(request.subject_hash, request.revision, True)
++
++    async def deactivate(self, request: CockpitScopeActivationRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        return await self._set_enabled(request.subject_hash, request.revision, False)
++
++    async def _set_enabled(
++        self,
++        subject_hash: str,
++        revision: str,
++        enabled: bool,
++    ) -> CockpitSubjectScopeView | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        if revision != snapshot.revision:
++            return _failure("revision_conflict")
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return _failure("invalid_manifest")
++        found: Final = _find_reserved(manifest, subject_hash)
++        if found is None:
++            return _failure("not_published")
++        raw, entry = found
++        token: Final = self._routing_token(subject_hash)
++        account_ids: Final = tuple(entry.accountIds or ())
++        models: Final = tuple(entry.allowedModels or ())
++        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
++            return _failure("activation_blocked")
++        if enabled:
++            if self._origin is None or not await self._authorized(manifest, subject_hash, account_ids, models):
++                return _failure("activation_blocked")
++            if entry.enabled:
++                return self._activation_view(subject_hash, account_ids, models, snapshot.revision, True)
++        elif not entry.enabled:
++            return self._activation_view(subject_hash, account_ids, models, snapshot.revision, False)
++        updated: Final = {**raw, "enabled": enabled}
++        keys: Final = [updated if item.get("id") == raw.get("id") else item for item in manifest.apiKeys or ()]
++        candidate: Final = manifest.model_copy(update={"apiKeys": keys})
++        if _manifest_problem(candidate):
++            return _failure("invalid_manifest")
++        keys_json: Final[list[JsonValue]] = [dict(item) for item in keys]
++        data: Final[dict[str, JsonValue]] = {**snapshot.data, "apiKeys": keys_json}
++        receipt: Final = await self._target.write_manifest(data, snapshot.revision)
++        if isinstance(receipt, CockpitFailure):
++            return _write_failure(receipt)
++        if receipt.revision is None:
++            return _failure("write_outcome_unknown")
++        return self._activation_view(subject_hash, account_ids, models, receipt.revision, enabled)
++
++    def _activation_view(
++        self,
++        subject_hash: str,
++        account_ids: tuple[str, ...],
++        models: tuple[str, ...],
++        revision: str,
++        enabled: bool,
++    ) -> CockpitSubjectScopeView:
++        return CockpitSubjectScopeView(
++            subject_hash=subject_hash,
++            state="active" if enabled else "staged",
++            account_ids=account_ids,
++            model_scope="restricted",
++            models=models,
++            persisted_manifest_revision=revision,
++        )
++
++    async def route_state(self, subject_hash: str) -> CockpitSubjectRouteState | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return manifest
++        found: Final = _find_reserved(manifest, subject_hash)
++        if found is None:
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="absent",
++                persisted_manifest_revision=snapshot.revision,
++            )
++        _, entry = found
++        token: Final = self._routing_token(subject_hash)
++        account_ids: Final = tuple(entry.accountIds or ())
++        models: Final = tuple(entry.allowedModels or ())
++        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="blocked",
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if not entry.enabled:
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="staged",
++                account_ids=account_ids,
++                model_scope="restricted",
++                models=models,
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if self._origin is None or not await self._authorized(manifest, subject_hash, account_ids, models):
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="blocked",
++                account_ids=account_ids,
++                model_scope="restricted",
++                models=models,
++                persisted_manifest_revision=snapshot.revision,
++            )
++        return CockpitSubjectRouteState(
++            subject_hash=subject_hash,
++            state="active",
++            account_ids=account_ids,
++            model_scope="restricted",
++            models=models,
++            origin=self._origin,
++            api_key=token,
++            persisted_manifest_revision=snapshot.revision,
++        )
++
++    async def _authorized(
++        self,
++        manifest: CockpitScopeManifest,
++        subject_hash: str,
++        account_ids: tuple[str, ...],
++        models: tuple[str, ...],
++    ) -> bool:
++        if not _entry_authorized(manifest, account_ids, models) or self._subjects is None:
++            return False
++        try:
++            current: Final = await self._subjects.read(subject_hash)
++        except Exception:  # noqa: BLE001  # a failed subject read must fail closed
++            return False
++        return _subject_matches(current, subject_hash, account_ids, models)
++
++    def _view(
++        self,
++        subject_hash: str,
++        snapshot: ManifestSnapshot,
++        manifest: CockpitScopeManifest,
++    ) -> CockpitSubjectScopeView | ScopeFailure:
++        found: Final = _find_reserved(manifest, subject_hash)
++        if found is None:
++            return CockpitSubjectScopeView(
++                subject_hash=subject_hash,
++                state="absent",
++                account_ids=(),
++                model_scope="none",
++                models=(),
++                persisted_manifest_revision=snapshot.revision,
++            )
++        _, entry = found
++        token: Final = self._routing_token(subject_hash)
++        account_ids: Final = tuple(entry.accountIds or ())
++        models: Final = tuple(entry.allowedModels or ())
++        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
++            return CockpitSubjectScopeView(
++                subject_hash=subject_hash,
++                state="blocked",
++                account_ids=(),
++                model_scope="none",
++                models=(),
++                persisted_manifest_revision=snapshot.revision,
++            )
++        state: Final[ScopeState] = (
++            "staged" if not entry.enabled else "active" if self._origin is not None else "blocked"
++        )
++        return CockpitSubjectScopeView(
++            subject_hash=subject_hash,
++            state=state,
++            account_ids=account_ids,
++            model_scope="restricted",
++            models=models,
++            persisted_manifest_revision=snapshot.revision,
++        )
++
++
++def _subject_matches(
++    subject: TrustedCredentialScope | None,
++    subject_hash: str,
++    account_ids: tuple[str, ...],
++    models: tuple[str, ...],
++) -> bool:
++    return (
++        subject is not None
++        and subject.subject_hash == subject_hash
++        and subject.model_scope == "restricted"
++        and len(subject.models) == len(models)
++        and frozenset(subject.models) == frozenset(models)
++        and account_ids == (str(subject.card_id),)
++    )
++
++
++def _read_failure(failure: CockpitFailure) -> ScopeFailure:
++    if unavailable(failure):
++        return _failure("unavailable")
++    return _failure("invalid_response")
++
++
++def _write_failure(failure: CockpitFailure) -> ScopeFailure:
++    if precondition(failure):
++        return _failure("revision_conflict")
++    if write_outcome_unknown(failure):
++        return _failure("write_outcome_unknown")
++    return _failure("write_rejected")
++
++
++def valid_subject_hash(value: str) -> bool:
++    return re.fullmatch(_HASH, value) is not None
++
++
++def wildcard_match(pattern: str, model: str) -> bool:
++    normalized: Final = pattern.strip().casefold()
++    value: Final = model.strip().casefold()
++    if not normalized or not value:
++        return False
++    if normalized == "*":
++        return True
++    if "*" not in normalized:
++        return normalized == value
++    parts: Final = tuple(part for part in normalized.split("*") if part)
++    if not normalized.startswith("*") and parts and not value.startswith(parts[0]):
++        return False
++
++    def advance(cursor: int, part: str) -> int:
++        if cursor < 0:
++            return -1
++        found: Final = value.find(part, cursor)
++        return -1 if found < 0 else found + len(part)
++
++    cursor: Final = reduce(advance, parts, 0)
++    return cursor >= 0 and (normalized.endswith("*") or bool(parts) and value.endswith(parts[-1]))
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py b/litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py
 new file mode 100644
 index 0000000000..5ba8818f5d
@@ -5375,6 +6216,713 @@ index 0000000000..7e76182e3c
 +            "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "receipt": "r", "revision": R1}
 +        )
 +    assert broken.status_code == 502 and broken.json()["detail"] == "invalid_response"
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py
+new file mode 100644
+index 0000000000..02bb6bf566
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py
+@@ -0,0 +1,701 @@
++"""离线验证 Cockpit 授权范围发布只写暂存投影，不激活、不部署或读取真实凭据。"""
++
++from __future__ import annotations
++
++import asyncio
++import copy
++import hashlib
++import json
++from dataclasses import dataclass, field
++from functools import partial
++from typing import Final, Literal, TypedDict
++from uuid import UUID
++
++import httpx
++import pytest
++from pydantic import SecretStr, TypeAdapter
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import CockpitAdminClient, CockpitAdminConfig
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialBindings,
++    CredentialReceipt,
++    CredentialReceiptPayload,
++    CredentialReceiptRejection,
++    ReceiptRejectionCode,
++    TrustedCredentialScope,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_scope_service import (
++    CockpitScopeActivationRequest,
++    CockpitScopePublishRequest,
++    CockpitScopeRevokeRequest,
++    CockpitScopeService,
++    CockpitSubjectRouteState,
++    CockpitSubjectScopeView,
++    ScopeFailure,
++    subject_routing_token,
++)
++
++CARD: Final = UUID("00000000-0000-0000-0000-000000000001")
++SUBJECT: Final = "a" * 64
++R1: Final = '"sha256-' + "b" * 64 + '"'
++R2: Final = '"sha256-' + "c" * 64 + '"'
++R3: Final = '"sha256-' + "d" * 64 + '"'
++SECRETS: Final = SecretStr("FAKE-SEED-ONLY-32-CHARACTERS")
++
++
++class _FixtureData(TypedDict):
++    accounts: list[dict[str, object]]
++    apiKeys: list[dict[str, object]]
++    modelIds: list[str]
++    futureRoot: dict[str, str]
++
++
++@dataclass
++class ScopeFixture:
++    mode: str = "ok"
++    revision: str = R1
++    calls: list[tuple[str, str | None]] = field(default_factory=list)
++    data: _FixtureData = field(
++        default_factory=lambda: {
++            "accounts": [{"id": str(CARD), "authId": "target.json", "authKind": "oauth"}],
++            "apiKeys": [{"id": "private", "enabled": True, "key": "PRIVATE", "accountIds": [str(CARD)]}],
++            "modelIds": ["fixture-model"],
++            "futureRoot": {"secret": "PRIVATE"},
++        }
++    )
++
++    def handle(self, request: httpx.Request) -> httpx.Response:
++        self.calls.append((request.method, request.headers.get("If-Match")))
++        assert request.url.path == "/admin/v1/manifest"
++        if request.method == "GET":
++            return httpx.Response(200, headers={"ETag": self.revision}, json=self.data)
++        assert request.method == "PUT"
++        assert request.headers["If-Match"] == self.revision
++        if self.mode == "conflict":
++            return httpx.Response(412, text="PRIVATE")
++        if self.mode == "lost":
++            raise httpx.ReadTimeout("PRIVATE", request=request)
++        if self.mode == "rejected":
++            return httpx.Response(400, text="PRIVATE")
++        self.data = json.loads(request.content)
++        self.revision = R2
++        return httpx.Response(202, headers={"ETag": R2}, json={"status": "persisted", "restartRequired": True})
++
++
++def receipt(
++    *,
++    models: tuple[str, ...] = ("fixture-model",),
++    model_scope: Literal["restricted", "unrestricted"] = "restricted",
++    manifest_revision: str = R1,
++) -> CredentialReceipt:
++    scope: Final = TrustedCredentialScope(subject_hash=SUBJECT, card_id=CARD, model_scope=model_scope, models=models)
++    bindings: Final = CredentialBindings(
++        scope=scope,
++        source_version=1,
++        source_file="source.json",
++        source_state_digest=hashlib.sha256(b"state").hexdigest(),
++        source_fingerprint_digest=hashlib.sha256(b"fingerprint").hexdigest(),
++        source_content_digest=hashlib.sha256(b"content").hexdigest(),
++        source_size=1,
++        target_account_id=CARD,
++        target_auth_id="target.json",
++        target_file_revision='"sha256-' + hashlib.sha256(b"content").hexdigest() + '"',
++        manifest_revision=manifest_revision,
++    )
++    payload: Final = CredentialReceiptPayload(issued_at=1000, expires_at=1300, bindings=bindings)
++    return CredentialReceipt(payload=payload, signature="d" * 64)
++
++
++class Receipts:
++    def __init__(
++        self,
++        *,
++        rejection: str | None = None,
++        models: tuple[str, ...] = ("fixture-model",),
++        model_scope: Literal["restricted", "unrestricted"] = "restricted",
++        manifest_revision: str = R1,
++    ) -> None:
++        self.rejection: Final[ReceiptRejectionCode | None] = (
++            None if rejection is None else TypeAdapter(ReceiptRejectionCode).validate_python(rejection)
++        )
++        self.models = models
++        self.model_scope: Final[Literal["restricted", "unrestricted"]] = model_scope
++        self.manifest_revision = manifest_revision
++
++    async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection:
++        assert subject_hash == SUBJECT and encoded
++        if self.rejection is not None:
++            return CredentialReceiptRejection(self.rejection)
++        return receipt(models=self.models, model_scope=self.model_scope, manifest_revision=self.manifest_revision)
++
++
++class Subjects:
++    def __init__(self, scope: TrustedCredentialScope | None = None, *, fail: bool = False) -> None:
++        self.scope = scope
++        self.fail = fail
++        self.calls: list[str] = []
++
++    async def read(self, subject_hash: str) -> TrustedCredentialScope | None:
++        self.calls.append(subject_hash)
++        if self.fail:
++            raise RuntimeError("PRIVATE")
++        return self.scope
++
++
++def current_scope(**updates: object) -> TrustedCredentialScope:
++    return TrustedCredentialScope.model_validate(
++        {
++            "subject_hash": SUBJECT,
++            "card_id": CARD,
++            "model_scope": "restricted",
++            "models": ("fixture-model",),
++            **updates,
++        }
++    )
++
++
++def service_for(
++    fixture: ScopeFixture,
++    receipts: Receipts | None,
++    *,
++    origin: str | None = "http://cockpit-data.test:8080",
++    subjects: Subjects | None = None,
++) -> tuple[CockpitScopeService, httpx.AsyncClient]:
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++    return CockpitScopeService(
++        receipts, admin, partial(subject_routing_token, SECRETS), origin, subjects=subjects
++    ), http
++
++
++def publish(fixture: ScopeFixture, receipts: Receipts, *, revision: str | None = None) -> object:
++    service, http = service_for(fixture, receipts)
++    try:
++        return asyncio.run(
++            service.publish(
++                CockpitScopePublishRequest(
++                    subject_hash=SUBJECT, receipt="encoded", revision=revision or fixture.revision
++                )
++            )
++        )
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_publish_writes_only_a_disabled_staged_projection_and_preserves_unknown_fields() -> None:
++    fixture: Final = ScopeFixture()
++    original: Final = copy.deepcopy(fixture.data)
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, CockpitSubjectScopeView)
++    assert result.state == "staged" and result.ready_to_migrate is False
++    assert result.account_ids == (str(CARD),) and result.models == ("fixture-model",)
++    assert "key" not in result.model_dump() and "PRIVATE" not in result.model_dump_json()
++    assert fixture.data["apiKeys"][-1] == {
++        "id": "litellm-subject-" + SUBJECT,
++        "label": "LiteLLM native subject " + SUBJECT[:12],
++        "key": subject_routing_token(SECRETS, SUBJECT),
++        "accountIds": [str(CARD)],
++        "allowedModels": ["fixture-model"],
++        "enabled": False,
++    }
++    assert fixture.data["futureRoot"] == original["futureRoot"]
++    assert fixture.data["apiKeys"][0] == original["apiKeys"][0]
++    assert [(method, _) for method, _ in fixture.calls] == [("GET", None), ("PUT", R1)]
++
++
++@pytest.mark.parametrize(
++    "models,model_scope,detail",
++    [
++        ((), "unrestricted", "model_scope_unsupported"),
++        (("outside-model",), "restricted", "model_unmapped"),
++    ],
++)
++def test_publish_rejects_unrestricted_or_unmapped_models(
++    models: tuple[str, ...], model_scope: Literal["restricted", "unrestricted"], detail: str
++) -> None:
++    fixture: Final = ScopeFixture()
++    result: Final = publish(fixture, Receipts(models=models, model_scope=model_scope))
++    assert isinstance(result, ScopeFailure)
++    assert result.status == 422 and result.code == detail
++    assert [method for method, _ in fixture.calls] == ["GET"]
++
++
++def test_publish_requires_current_manifest_and_matching_receipt_revision() -> None:
++    fixture: Final = ScopeFixture()
++    stale: Final = publish(fixture, Receipts(), revision=R3)
++    assert isinstance(stale, ScopeFailure) and stale.status == 409 and stale.code == "manifest_changed"
++    fixture2: Final = ScopeFixture()
++    mismatched: Final = publish(fixture2, Receipts(manifest_revision=R3))
++    assert isinstance(mismatched, ScopeFailure) and mismatched.code == "manifest_changed"
++    assert all(method == "GET" for method, _ in fixture.calls + fixture2.calls)
++
++
++@pytest.mark.parametrize(
++    "rejection,status,detail",
++    [
++        ("subject_unverified", 409, "subject_unverified"),
++        ("stale_receipt", 409, "receipt_stale"),
++        ("source_missing", 422, "scope_unverified"),
++        ("read_unavailable", 503, "unavailable"),
++    ],
++)
++def test_receipt_rejections_map_to_fixed_public_codes(rejection: str, status: int, detail: str) -> None:
++    fixture: Final = ScopeFixture()
++    service, http = service_for(fixture, Receipts(rejection=rejection))
++    try:
++        result: Final = asyncio.run(
++            service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(result, ScopeFailure)
++    assert (result.status, result.code) == (status, detail)
++    assert fixture.calls == []
++
++
++def test_existing_reserved_entry_with_other_scope_is_not_overwritten() -> None:
++    fixture: Final = ScopeFixture()
++    fixture.data["apiKeys"].append(
++        {
++            "id": "litellm-subject-" + SUBJECT,
++            "label": "LiteLLM native subject " + SUBJECT[:12],
++            "key": "other-key",
++            "accountIds": [str(CARD)],
++            "allowedModels": ["fixture-model"],
++            "enabled": False,
++        }
++    )
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, ScopeFailure)
++    assert result.status == 409 and result.code == "publication_conflict"
++    assert [method for method, _ in fixture.calls] == ["GET"]
++
++
++def test_republish_is_idempotent_and_revoke_removes_only_the_reserved_entry() -> None:
++    fixture: Final = ScopeFixture()
++    receipts: Final = Receipts()
++    service, http = service_for(fixture, receipts)
++    try:
++        first: Final = asyncio.run(
++            service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++        )
++        service_second: Final = CockpitScopeService(
++            Receipts(manifest_revision=R2),
++            CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
++            partial(subject_routing_token, SECRETS),
++            "http://cockpit-data.test:8080",
++        )
++        second: Final = asyncio.run(
++            service_second.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R2))
++        )
++        revoked: Final = asyncio.run(service.revoke(CockpitScopeRevokeRequest(subject_hash=SUBJECT, revision=R2)))
++        absent_again: Final = asyncio.run(service.revoke(CockpitScopeRevokeRequest(subject_hash=SUBJECT, revision=R2)))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(first, CockpitSubjectScopeView) and first.state == "staged"
++    assert isinstance(second, CockpitSubjectScopeView) and second.persisted_manifest_revision == R2
++    assert isinstance(revoked, CockpitSubjectScopeView) and revoked.state == "absent"
++    assert isinstance(absent_again, CockpitSubjectScopeView) and absent_again.state == "absent"
++    assert fixture.data["apiKeys"] == [{"id": "private", "enabled": True, "key": "PRIVATE", "accountIds": [str(CARD)]}]
++    assert [method for method, _ in fixture.calls].count("PUT") == 2
++
++
++@pytest.mark.parametrize(
++    "mode,status,detail", [("conflict", 409, "revision_conflict"), ("lost", 503, "write_outcome_unknown")]
++)
++def test_write_conflict_or_lost_receipt_never_retries(mode: str, status: int, detail: str) -> None:
++    fixture: Final = ScopeFixture(mode=mode)
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, ScopeFailure)
++    assert (result.status, result.code) == (status, detail)
++    assert [method for method, _ in fixture.calls] == ["GET", "PUT"]
++
++
++def test_route_state_is_staged_until_enabled_and_hides_token_from_repr() -> None:
++    fixture: Final = ScopeFixture()
++    subjects: Final = Subjects(current_scope())
++    service, http = service_for(fixture, Receipts(), subjects=subjects)
++    try:
++        assert isinstance(
++            asyncio.run(
++                service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++            ),
++            CockpitSubjectScopeView,
++        )
++        staged: Final = asyncio.run(service.route_state(SUBJECT))
++        fixture.data["apiKeys"][-1]["enabled"] = True
++        active: Final = asyncio.run(service.route_state(SUBJECT))
++        blocked_service: Final = CockpitScopeService(
++            Receipts(),
++            CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
++            partial(subject_routing_token, SECRETS),
++            None,
++            subjects=subjects,
++        )
++        blocked: Final = asyncio.run(blocked_service.route_state(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(staged, CockpitSubjectRouteState) and staged.state == "staged"
++    assert staged.origin is None and staged.api_key is None
++    assert subjects.calls == [SUBJECT]
++    assert isinstance(active, CockpitSubjectRouteState) and active.state == "active"
++    assert active.origin == "http://cockpit-data.test:8080"
++    assert active.api_key == subject_routing_token(SECRETS, SUBJECT)
++    assert isinstance(active.api_key, str) and active.api_key not in repr(active)
++    assert isinstance(blocked, CockpitSubjectRouteState) and blocked.state == "blocked"
++
++
++def test_scope_view_reports_absent_and_blocks_tampered_reserved_entry() -> None:
++    fixture: Final = ScopeFixture()
++    service, http = service_for(fixture, Receipts())
++    try:
++        absent: Final = asyncio.run(service.read(SUBJECT))
++        fixture.data["apiKeys"].append(
++            {
++                "id": "litellm-subject-" + SUBJECT,
++                "label": "other",
++                "key": "other",
++                "accountIds": [str(CARD)],
++                "allowedModels": ["fixture-model"],
++                "enabled": True,
++            }
++        )
++        blocked: Final = asyncio.run(service.read(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(absent, CockpitSubjectScopeView) and absent.state == "absent"
++    assert isinstance(blocked, CockpitSubjectScopeView) and blocked.state == "blocked"
++    assert blocked.account_ids == () and blocked.models == ()
++
++
++def test_scope_contract_matches_public_proxy_models() -> None:
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitScopeActivationRequest as PublicActivation,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitScopePublishRequest as PublicPublish,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitScopeRevokeRequest as PublicRevoke,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitSubjectScopeView as PublicView,
++    )
++
++    assert CockpitScopeActivationRequest.model_json_schema() == PublicActivation.model_json_schema()
++    assert CockpitScopePublishRequest.model_json_schema() == PublicPublish.model_json_schema()
++    assert CockpitScopeRevokeRequest.model_json_schema() == PublicRevoke.model_json_schema()
++    assert CockpitSubjectScopeView.model_json_schema() == PublicView.model_json_schema()
++
++
++def test_route_state_revalidates_current_subject_and_fails_closed() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make(subjects: Subjects | None) -> CockpitScopeService:
++        return CockpitScopeService(
++            Receipts(),
++            admin,
++            partial(subject_routing_token, SECRETS),
++            "http://cockpit-data.test:8080",
++            subjects=subjects,
++        )
++
++    try:
++        assert isinstance(
++            asyncio.run(
++                make(Subjects(current_scope())).publish(
++                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++                )
++            ),
++            CockpitSubjectScopeView,
++        )
++        entries = fixture.data["apiKeys"]
++        assert isinstance(entries, list) and isinstance(entries[-1], dict)
++        entries[-1]["enabled"] = True
++        matching: Final = asyncio.run(make(Subjects(current_scope())).route_state(SUBJECT))
++        drifted: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).route_state(SUBJECT))
++        no_reader: Final = asyncio.run(make(None).route_state(SUBJECT))
++        failing: Final = asyncio.run(make(Subjects(fail=True)).route_state(SUBJECT))
++        matching_view: Final = asyncio.run(make(Subjects(current_scope())).read(SUBJECT))
++        drifted_view: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).read(SUBJECT))
++        no_reader_view: Final = asyncio.run(make(None).read(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(matching, CockpitSubjectRouteState) and matching.state == "active"
++    assert isinstance(drifted, CockpitSubjectRouteState) and drifted.state == "blocked"
++    assert isinstance(no_reader, CockpitSubjectRouteState) and no_reader.state == "blocked"
++    assert isinstance(failing, CockpitSubjectRouteState) and failing.state == "blocked"
++    assert isinstance(matching_view, CockpitSubjectScopeView) and matching_view.state == "active"
++    assert isinstance(drifted_view, CockpitSubjectScopeView) and drifted_view.state == "blocked"
++    assert isinstance(no_reader_view, CockpitSubjectScopeView) and no_reader_view.state == "blocked"
++
++
++def test_activation_and_deactivation_flip_the_reserved_entry() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make(subjects: Subjects | None) -> CockpitScopeService:
++        return CockpitScopeService(
++            Receipts(),
++            admin,
++            partial(subject_routing_token, SECRETS),
++            "http://cockpit-data.test:8080",
++            subjects=subjects,
++        )
++
++    try:
++        assert isinstance(
++            asyncio.run(
++                make(Subjects(current_scope())).publish(
++                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++                )
++            ),
++            CockpitSubjectScopeView,
++        )
++        activated: Final = asyncio.run(
++            make(Subjects(current_scope())).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++        )
++        route: Final = asyncio.run(make(Subjects(current_scope())).route_state(SUBJECT))
++        enabled_after_activate = fixture.data["apiKeys"][-1]["enabled"]
++        deactivated: Final = asyncio.run(
++            make(Subjects(current_scope())).deactivate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(activated, CockpitSubjectScopeView) and activated.state == "active"
++    assert enabled_after_activate is True
++    assert isinstance(route, CockpitSubjectRouteState) and route.state == "active"
++    assert isinstance(deactivated, CockpitSubjectScopeView) and deactivated.state == "staged"
++    assert fixture.data["apiKeys"][-1]["enabled"] is False
++
++
++def test_activation_rejects_absent_drifted_or_unverified_scope() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make(subjects: Subjects | None) -> CockpitScopeService:
++        return CockpitScopeService(
++            Receipts(),
++            admin,
++            partial(subject_routing_token, SECRETS),
++            "http://cockpit-data.test:8080",
++            subjects=subjects,
++        )
++
++    try:
++        absent: Final = asyncio.run(
++            make(Subjects(current_scope())).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R1))
++        )
++        assert isinstance(
++            asyncio.run(
++                make(Subjects(current_scope())).publish(
++                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++                )
++            ),
++            CockpitSubjectScopeView,
++        )
++        stale: Final = asyncio.run(
++            make(Subjects(current_scope())).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R1))
++        )
++        drifted: Final = asyncio.run(
++            make(Subjects(current_scope(models=("other-model",)))).activate(
++                CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2)
++            )
++        )
++        no_reader: Final = asyncio.run(
++            make(None).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(absent, ScopeFailure) and absent.code == "not_published"
++    assert isinstance(stale, ScopeFailure) and stale.code == "revision_conflict"
++    assert isinstance(drifted, ScopeFailure) and drifted.code == "activation_blocked"
++    assert isinstance(no_reader, ScopeFailure) and no_reader.code == "activation_blocked"
++    assert fixture.data["apiKeys"][-1]["enabled"] is False
++
++
++def test_route_and_view_block_after_the_authorized_account_is_removed() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make() -> CockpitScopeService:
++        return CockpitScopeService(
++            Receipts(),
++            admin,
++            partial(subject_routing_token, SECRETS),
++            "http://cockpit-data.test:8080",
++            subjects=Subjects(current_scope()),
++        )
++
++    try:
++        assert isinstance(
++            asyncio.run(
++                make().publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++            ),
++            CockpitSubjectScopeView,
++        )
++        assert isinstance(
++            asyncio.run(make().activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))),
++            CockpitSubjectScopeView,
++        )
++        fixture.data["accounts"] = []
++        route: Final = asyncio.run(make().route_state(SUBJECT))
++        view: Final = asyncio.run(make().read(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(route, CockpitSubjectRouteState) and route.state == "blocked"
++    assert isinstance(view, CockpitSubjectScopeView) and view.state == "blocked"
++
++
++def test_token_derivation_keeps_existing_fixture_identity() -> None:
++    assert subject_routing_token(SECRETS, SUBJECT) == "60KMmWTxYqLThx_ZncaYJjQa1YqW7tC3Rq47l3nk7-o"
++
++
++def test_absent_receipt_revalidator_never_reads_or_writes_manifest() -> None:
++    fixture: Final = ScopeFixture()
++    service, http = service_for(fixture, None)
++    try:
++        result: Final = asyncio.run(
++            service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="untrusted", revision=R1))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(result, ScopeFailure) and (result.status, result.code) == (503, "unavailable")
++    assert fixture.calls == []
++
++
++def test_scope_consumes_explicit_application_token_provider() -> None:
++    fixture: Final = ScopeFixture()
++    calls: Final[list[str]] = []
++
++    def token(subject_hash: str) -> str:
++        calls.append(subject_hash)
++        return "FIXTURE-PROVIDER-TOKEN"
++
++    async def run() -> CockpitSubjectScopeView | ScopeFailure:
++        async with httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle)) as http:
++            client = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++            return await CockpitScopeService(Receipts(), client, token).publish(
++                CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++            )
++
++    result: Final = asyncio.run(run())
++    assert isinstance(result, CockpitSubjectScopeView) and result.state == "staged"
++    assert calls == [SUBJECT]
++    assert fixture.data["apiKeys"][-1]["key"] == "FIXTURE-PROVIDER-TOKEN"
++    assert "FIXTURE-PROVIDER-TOKEN" not in result.model_dump_json()
++
++
++@pytest.mark.parametrize(
++    "field,value",
++    [
++        ("id", None),
++        ("id", 0),
++        ("id", []),
++        ("id", {}),
++        ("id", ""),
++        ("id", " "),
++        ("key", None),
++        ("key", []),
++        ("key", 4),
++        ("key", ""),
++        ("accountIds", None),
++        ("accountIds", []),
++        ("accountIds", "bad"),
++        ("accountIds", ["outside"]),
++        ("accountIds", [3]),
++    ],
++)
++def test_malformed_enabled_entries_never_get_written(field: str, value: object) -> None:
++    fixture: Final = ScopeFixture()
++    fixture.data["apiKeys"][0][field] = value
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, ScopeFailure) and result.code == "invalid_manifest"
++    assert [method for method, _ in fixture.calls] == ["GET"]
++
++
++def test_native_subject_reader_revocation_blocks_active_route() -> None:
++    from datetime import datetime, timezone
++
++    from litellm.proxy.management_endpoints.account_pool_cockpit_subject import NativeModelScope, NativeSubjectResult
++    from litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader import NativeTrustedSubjectReader
++
++    calls: Final[list[str]] = []
++
++    async def inspect(subject_hash: str) -> NativeSubjectResult:
++        calls.append(subject_hash)
++        if len(calls) == 1:
++            return NativeSubjectResult(
++                status="verified",
++                card_id=CARD,
++                model_scope=NativeModelScope(kind="restricted", models=("fixture-model",)),
++                checked_at=datetime(2026, 10, 26, tzinfo=timezone.utc),
++            )
++        return NativeSubjectResult(status="revoked", checked_at=datetime(2026, 10, 26, tzinfo=timezone.utc))
++
++    fixture: Final = ScopeFixture()
++
++    async def run() -> CockpitSubjectRouteState | ScopeFailure:
++        async with httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle)) as http:
++            admin = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++            service = CockpitScopeService(
++                Receipts(),
++                admin,
++                partial(subject_routing_token, SECRETS),
++                "http://cockpit-data.test",
++                NativeTrustedSubjectReader(inspect),
++            )
++            saved = await service.publish(
++                CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++            )
++            assert isinstance(saved, CockpitSubjectScopeView) and saved.state == "staged"
++            activated = await service.activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++            assert isinstance(activated, CockpitSubjectScopeView) and activated.state == "active"
++            return await service.route_state(SUBJECT)
++
++    result: Final = asyncio.run(run())
++    assert isinstance(result, CockpitSubjectRouteState) and result.state == "blocked" and result.api_key is None
++    assert calls == [SUBJECT, SUBJECT]
++
++
++def test_isolated_scope_service_does_not_import_manager() -> None:
++    import os
++    import subprocess
++    import sys
++    from pathlib import Path
++
++    root: Final = Path(__file__).resolve().parents[4]
++    script: Final = r"""
++import importlib.abc, runpy, sys
++sys.path.insert(0, sys.argv[1])
++attempted = []
++class RejectManager(importlib.abc.MetaPathFinder):
++    def find_spec(self, fullname, path=None, target=None):
++        if fullname == 'account_pool' or fullname.startswith('account_pool.'):
++            attempted.append(fullname)
++            raise ImportError(fullname)
++sys.meta_path.insert(0, RejectManager())
++values = runpy.run_path(sys.argv[2])
++values['test_publish_writes_only_a_disabled_staged_projection_and_preserves_unknown_fields']()
++values['test_native_subject_reader_revocation_blocks_active_route']()
++from litellm.proxy.management_endpoints import account_pool_cockpit_receipt_contracts as contracts
++from litellm.proxy.management_endpoints import account_pool_cockpit_subject_reader as subjects
++assert contracts.TrustedCredentialScope is subjects.TrustedCredentialScope
++assert not attempted and 'account_pool' not in sys.modules
++print('NATIVE-SCOPE-OK')
++"""
++    result: Final = subprocess.run(
++        [sys.executable, "-I", "-c", script, str(root), str(Path(__file__).resolve())],
++        cwd=root,
++        env={**os.environ, "LITELLM_LOCAL_MODEL_COST_MAP": "True"},
++        capture_output=True,
++        text=True,
++        timeout=120,
++    )
++    assert result.returncode == 0, result.stderr
++    assert result.stdout.strip() == "NATIVE-SCOPE-OK"
 diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py
 new file mode 100644
 index 0000000000..e284eab7ea

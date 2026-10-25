@@ -1,5 +1,23 @@
 # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
 
+## 2026-10-26 最新检查点：原生 scope 编排完成本地单元验证
+
+本轮由主代理直接实现，没有调用 DS。起点 `fc615e807b9734943edcde27efea4eb46cd0ce6e`，继续已批准的 worktree，本地提交、不推送、不部署
+
+新增 `account_pool_cockpit_scope_service.py` 和 `account_pool_cockpit_receipt_contracts.py`。`CockpitScopeService` 的第三个依赖改为显式 `routing_token: Callable[[str], str]`，移除对 Manager secret deriver 的运行时引用；原生 `subject_routing_token(SecretStr seed, subject_hash)` 保留原 UUID5/HMAC 上下文和输出。没有选择新 seed 或新增配置。回执值类型复用已完成的原生 TrustedCredentialScope，不复制旧环境库、ownership 库或 preflight
+
+发布仍默认 staged/disabled，显式启停只写投影，撤销只移除对应主体条目。启用和 active 路由必须重新验证主体；撤权后路由 blocked 且无 token。未注入 ReceiptRevalidator 时发布 unavailable；拒绝或过期回执不写入。ReceiptRevalidator 是可信依赖，只有完成签名、主体和实时状态校验才能返回成功 DTO，本轮没有实现或接线真实回执签发/校验器，不能把任意构造的 DTO 当成授权证明
+
+基线 543 passed，新模块缺失红灯 1 failed，首轮复制服务契约 19 passed，补充直接令牌注入、固定派生向量、异常 manifest、缺少校验器、原生主体读取组合和隔离导入后 39 passed，最终相关回归 586 passed/1 warning。原 Manager HTTP 路由测试未改，原有 LiteLLM scope HTTP 包装测试也在最终回归中；新套件只迁移服务用例，不用旧路由测试冒充原生服务覆盖。普通/strict Ruff、格式和新源码 basedpyright 通过；最初导入排序失败已修正并保留记录
+
+11 个模型 schema 一致，25,024 对通配匹配、2,919 对 manifest 校验输入和 6 个令牌派生向量与原实现相同，8 个基线文件 hash 不变。为遵守无可变累加状态约束，仅将 manifest 集合检查和 wildcard 游标推进改为等价的不可变计算；未改变公开错误码、状态或匹配语义
+
+BASELINE/MODIFIED/ROLLBACK 同输入 stdout 一致，exit 0、stderr 空：状态依次 absent/staged/staged/active/active/blocked/staged/absent/absent；主体读取 3 次，stale receipt 写入 0 次，409/revision_conflict 与 503/write_outcome_unknown 各只尝试 PUT 一次；未知字段和无关 Key 保留。恢复副本 hash 等于原件，新源码保持修改后版本。所有结果来自离线 MockTransport/隔离进程，runtime_activation 仍为 restart_required_or_unverified，不能解释为 Cockpit 实际运行配置已确认或服务器回滚已验证
+
+下一步由主代理继续迁移回执签名/重验核心及其可信观测接口，明确哪些来源仅用于一次性迁移、哪些授权状态由原生主库和 Cockpit 实时提供。未具备可信观测时保持发布关闭，不把旧 Manager 数据库留作永久依赖。随后才做服务实例/密钥生命周期、HTTP 接线、默认路由的无 Manager 验证和完整隔离部署。本轮未改默认请求链路、未迁移凭据、未重启、未构建镜像，旧生产未动
+
+证据：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-scope-verification.json`
+
 ## 2026-10-26 最新检查点：主代理直接实现，原生主体读取单元
 
 用户最新要求改为主代理直接写代码，不再调用 DS。下文历史阶段中写给 DS 的实现任务均由主代理直接承担，保留测试先行、审查、本地验证和提交要求，不再等待外部派工。本轮两次 DS 调用均已结束，未更改其桌面配置
