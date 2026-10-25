@@ -203,6 +203,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "cooldown_until": None,
             "automatic_cooldown": False,
             "last_error": None,
+            "spend_usd": 0.0,
             "created_at": now.isoformat().replace("+00:00", "Z"),
             "updated_at": now.isoformat().replace("+00:00", "Z"),
         },
