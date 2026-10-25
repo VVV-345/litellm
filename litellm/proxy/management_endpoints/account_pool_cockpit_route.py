@@ -26,6 +26,8 @@ _ETAG: Final = re.compile(r'^"sha256-[0-9a-f]{64}"$')
 _GATE: Final = "ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED"
 _TTL_SECONDS: Final = 30.0
 _TTL_ENV: Final = "ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS"
+_ACTIVE_TTL_ENV: Final = "ACCOUNT_POOL_COCKPIT_ACTIVE_TTL_SECONDS"
+_ACTIVE_TTL_SECONDS: Final = 5.0
 _MIN_TTL_SECONDS: Final = 1.0
 _MAX_TTL_SECONDS: Final = 300.0
 _PATH: Final = "/internal/cockpit/route/"
@@ -175,6 +177,17 @@ class _CacheEntry:
     decision: RouteDecision
 
 
+def active_route_ttl_seconds(raw: str | None = None) -> float:
+    value: Final = os.getenv(_ACTIVE_TTL_ENV, "") if raw is None else raw
+    try:
+        parsed: Final = float(value)
+    except ValueError:
+        return _ACTIVE_TTL_SECONDS
+    if not math.isfinite(parsed):
+        return _ACTIVE_TTL_SECONDS
+    return max(_MIN_TTL_SECONDS, min(parsed, 30.0))
+
+
 class CockpitRouteResolver:
     def __init__(
         self,
@@ -182,6 +195,7 @@ class CockpitRouteResolver:
         clock: Callable[[], float] = time.monotonic,
         lookup: RouteLookup | None = None,
         ttl_seconds: float | None = None,
+        active_ttl_seconds: float | None = None,
     ) -> None:
         self._clock: Final = clock
         self._lookup: RouteLookup | None = lookup
@@ -189,6 +203,10 @@ class CockpitRouteResolver:
         if not math.isfinite(requested_ttl):
             raise ValueError("route TTL must be finite")
         self._ttl: Final = max(_MIN_TTL_SECONDS, min(requested_ttl, _MAX_TTL_SECONDS))
+        requested_active_ttl: Final = active_route_ttl_seconds() if active_ttl_seconds is None else active_ttl_seconds
+        if not math.isfinite(requested_active_ttl):
+            raise ValueError("active route TTL must be finite")
+        self._active_ttl: Final = max(_MIN_TTL_SECONDS, min(requested_active_ttl, 30.0))
         self._entries: Mapping[str, _CacheEntry] = MappingProxyType({})
         self._lock = asyncio.Lock()
         self._generation = 0
@@ -217,7 +235,8 @@ class CockpitRouteResolver:
             if generation != self._generation:
                 return decision
             kept: Final = {key: entry for key, entry in self._entries.items() if entry.expires > now}
-            kept[subject_hash] = _CacheEntry(now + self._ttl, decision)
+            ttl: Final = self._active_ttl if decision.state == "active" else self._ttl
+            kept[subject_hash] = _CacheEntry(now + ttl, decision)
             self._entries = MappingProxyType(kept)
             return decision
 

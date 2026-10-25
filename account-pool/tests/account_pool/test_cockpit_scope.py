@@ -567,3 +567,33 @@ def test_activation_rejects_absent_drifted_or_unverified_scope() -> None:
     assert isinstance(drifted, ScopeFailure) and drifted.code == "activation_blocked"
     assert isinstance(no_reader, ScopeFailure) and no_reader.code == "activation_blocked"
     assert fixture.data["apiKeys"][-1]["enabled"] is False
+
+
+def test_route_and_view_block_after_the_authorized_account_is_removed() -> None:
+    fixture: Final = ScopeFixture()
+    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
+    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
+
+    def make() -> CockpitScopeService:
+        return CockpitScopeService(
+            Receipts(), admin, SECRETS, "http://cockpit-data.test:8080", subjects=Subjects(current_scope())
+        )
+
+    try:
+        assert isinstance(
+            asyncio.run(
+                make().publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
+            ),
+            CockpitSubjectScopeView,
+        )
+        assert isinstance(
+            asyncio.run(make().activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))),
+            CockpitSubjectScopeView,
+        )
+        fixture.data["accounts"] = []
+        route: Final = asyncio.run(make().route_state(SUBJECT))
+        view: Final = asyncio.run(make().read(SUBJECT))
+    finally:
+        asyncio.run(http.aclose())
+    assert isinstance(route, CockpitSubjectRouteState) and route.state == "blocked"
+    assert isinstance(view, CockpitSubjectScopeView) and view.state == "blocked"

@@ -223,6 +223,21 @@ def _visible(model: str, manifest: CockpitScopeManifest, account_id: UUID) -> bo
     return rule is None or not any(wildcard_match(rule, model) for rule in rule.excludedModels or ())
 
 
+def _entry_authorized(
+    manifest: CockpitScopeManifest,
+    account_ids: tuple[str, ...],
+    models: tuple[str, ...],
+) -> bool:
+    accounts: Final = {account.id for account in manifest.accounts or ()}
+    if not account_ids or not set(account_ids).issubset(accounts):
+        return False
+    try:
+        cards: Final = tuple(UUID(account_id) for account_id in account_ids)
+    except ValueError:
+        return False
+    return all(_visible(model, manifest, card) for card in cards for model in models)
+
+
 def _manifest_problem(manifest: CockpitScopeManifest, extra: dict[str, JsonValue] | None = None) -> bool:
     seen_accounts: set[str] = set()
     for account in manifest.accounts or ():
@@ -327,7 +342,7 @@ class CockpitScopeService:
         view: Final = self._view(subject_hash, snapshot, manifest)
         if isinstance(view, ScopeFailure) or view.state != "active":
             return view
-        if await self._authorized(subject_hash, view.account_ids, view.models):
+        if await self._authorized(manifest, subject_hash, view.account_ids, view.models):
             return view
         return view.model_copy(update={"state": "blocked"})
 
@@ -453,7 +468,7 @@ class CockpitScopeService:
         if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
             return _failure("activation_blocked")
         if enabled:
-            if self._origin is None or not await self._authorized(subject_hash, account_ids, models):
+            if self._origin is None or not await self._authorized(manifest, subject_hash, account_ids, models):
                 return _failure("activation_blocked")
             if entry.enabled:
                 return self._activation_view(subject_hash, account_ids, models, snapshot.revision, True)
@@ -523,7 +538,7 @@ class CockpitScopeService:
                 models=models,
                 persisted_manifest_revision=snapshot.revision,
             )
-        if self._origin is None or not await self._authorized(subject_hash, account_ids, models):
+        if self._origin is None or not await self._authorized(manifest, subject_hash, account_ids, models):
             return CockpitSubjectRouteState(
                 subject_hash=subject_hash,
                 state="blocked",
@@ -545,11 +560,12 @@ class CockpitScopeService:
 
     async def _authorized(
         self,
+        manifest: CockpitScopeManifest,
         subject_hash: str,
         account_ids: tuple[str, ...],
         models: tuple[str, ...],
     ) -> bool:
-        if self._subjects is None:
+        if not _entry_authorized(manifest, account_ids, models) or self._subjects is None:
             return False
         current: TrustedCredentialScope | None
         try:

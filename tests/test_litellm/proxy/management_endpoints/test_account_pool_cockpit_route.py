@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from pydantic import SecretStr
 
 import litellm
+from litellm.exceptions import BudgetExceededError, RateLimitError
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
     CockpitRoute,
@@ -20,6 +21,7 @@ from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
     CockpitRouteUnavailable,
     ManagerRouteLookup,
     RouteDecision,
+    active_route_ttl_seconds,
     cockpit_route_for_request,
     dispatch_cockpit_route,
     route_ttl_seconds,
@@ -161,6 +163,8 @@ def test_dispatch_is_one_direct_call_without_router_retries(monkeypatch: pytest.
                     "user_api_key": "hashed",
                     "user_api_key_hash": SUBJECT,
                     "user_api_key_user_id": "user-1",
+                    "user_api_key_team_id": "team-1",
+                    "end_user_id": "end-1",
                     "spend_logs_metadata": {"user_api_key_alias": "fixture-key"},
                 },
             },
@@ -179,9 +183,12 @@ def test_dispatch_is_one_direct_call_without_router_retries(monkeypatch: pytest.
     assert "enable_tag_filtering" not in kwargs
     assert "proxy_server_request" not in kwargs
     metadata: Final = kwargs["litellm_metadata"]
+    assert isinstance(metadata, dict)
     assert metadata["user_api_key"] == "hashed"
     assert metadata["user_api_key_hash"] == SUBJECT
     assert metadata["user_api_key_user_id"] == "user-1"
+    assert metadata["user_api_key_team_id"] == "team-1"
+    assert metadata["end_user_id"] == "end-1"
     assert metadata["spend_logs_metadata"] == {"user_api_key_alias": "fixture-key"}
     assert metadata["account_pool_route_owner"] == "cockpit"
     assert metadata["account_pool_subject_hash"] == SUBJECT
@@ -400,4 +407,117 @@ def test_active_route_failure_never_falls_back_to_the_router(monkeypatch: pytest
             )
     finally:
         pool_identity.reset(context)
+    assert len(calls) == 1
+
+
+def test_active_decisions_expire_before_staged_decisions() -> None:
+    assert active_route_ttl_seconds("bad") == 5.0
+    assert active_route_ttl_seconds("0") == 1.0
+    assert active_route_ttl_seconds("9999") == 30.0
+    now: Final[list[float]] = [0.0]
+    calls: Final[list[str]] = []
+
+    async def lookup(_subject: str) -> RouteDecision:
+        calls.append(_subject)
+        return RouteDecision("active", _route())
+
+    local: Final = CockpitRouteResolver(clock=lambda: now[0], lookup=lookup, ttl_seconds=30, active_ttl_seconds=5)
+    assert asyncio.run(local.decision(SUBJECT)).state == "active"
+    now[0] = 4.9
+    assert asyncio.run(local.decision(SUBJECT)).state == "active"
+    assert calls == [SUBJECT]
+    now[0] = 5.1
+    assert asyncio.run(local.decision(SUBJECT)).state == "active"
+    assert calls == [SUBJECT, SUBJECT]
+
+
+def test_quota_exhaustion_and_plain_rate_limit_do_not_trigger_litellm_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
+    local: Final = _resolver(RouteDecision("active", _route()))
+
+    def run(error: Exception) -> None:
+        calls: Final[list[dict[str, object]]] = []
+
+        async def failing(**kwargs: object) -> object:
+            calls.append(kwargs)
+            raise error
+
+        monkeypatch.setattr(litellm, "aresponses", failing)
+
+        class RejectingRouter(_Router):
+            def aresponses(self, **_kwargs: object) -> object:
+                raise AssertionError("a cockpit quota or rate-limit failure must not re-enter the router")
+
+        context = pool_identity.set(_identity())
+        try:
+            with pytest.raises(type(error)):
+                asyncio.run(
+                    _route_request_single_attempt(  # pyright: ignore[reportUnknownArgumentType]  # fake router returns a sentinel
+                        {"model": "fixture-model", "input": "hi"},
+                        RejectingRouter(),  # pyright: ignore[reportArgumentType]  # test double never called on this path
+                        None,
+                        "aresponses",
+                        _user(),
+                        cockpit_resolver=local,
+                    )
+                )
+        finally:
+            pool_identity.reset(context)
+        assert len(calls) == 1
+
+    run(RateLimitError("ordinary rate limit", llm_provider="openai", model="fixture-model"))
+    run(BudgetExceededError(current_cost=10.0, max_budget=10.0))
+
+
+def test_signed_history_variants_are_rejected_before_cockpit_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
+    local: Final = _resolver(RouteDecision("active", _route()))
+    payloads: Final = (
+        {"model": "fixture-model", "input": "hi", "encrypted_content": "opaque"},
+        {"model": "fixture-model", "input": "hi", "signature": "opaque"},
+        {"model": "fixture-model", "input": [{"type": "thinking", "signature": "opaque"}]},
+    )
+    for payload in payloads:
+        with pytest.raises(HTTPException) as error:
+            asyncio.run(cockpit_route_for_request(_identity(), SUBJECT, payload, "aresponses", resolver=local))
+        assert (error.value.status_code, error.value.detail) == (422, "cockpit_continuation_unsupported")
+
+
+class _FailingStream:
+    def __init__(self) -> None:
+        self.started = False
+
+    def __aiter__(self) -> _FailingStream:
+        return self
+
+    async def __anext__(self) -> object:
+        if not self.started:
+            self.started = True
+            return {"delta": "partial"}
+        raise RateLimitError("stream interrupted", llm_provider="openai", model="fixture-model")
+
+
+def test_streaming_failure_after_output_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: Final[list[dict[str, object]]] = []
+    stream: Final = _FailingStream()
+
+    async def fake_aresponses(**kwargs: object) -> object:
+        calls.append(kwargs)
+        return stream
+
+    monkeypatch.setattr(litellm, "aresponses", fake_aresponses)
+    result: Final = asyncio.run(
+        dispatch_cockpit_route(_route(), {"model": "fixture-model", "input": "hi", "stream": True}, "aresponses")
+    )
+    assert isinstance(result, _FailingStream)
+
+    async def consume() -> None:
+        iterator: Final = result.__aiter__()
+        assert await anext(iterator) == {"delta": "partial"}
+        with pytest.raises(RateLimitError):
+            await anext(iterator)
+
+    asyncio.run(consume())
     assert len(calls) == 1
