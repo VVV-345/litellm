@@ -4,41 +4,6 @@
  */
 
 export interface paths {
-    "/account_pool/cockpit/policy/runtime": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Cockpit Runtime */
-        get: operations["get_cockpit_runtime_account_pool_cockpit_policy_runtime_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/cockpit/policy/apply": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Post Cockpit Apply */
-        post: operations["post_cockpit_apply_account_pool_cockpit_policy_apply_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-
     "/": {
         parameters: {
             query?: never;
@@ -839,6 +804,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/cockpit/credential-receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Issue Credential Receipt */
+        post: operations["issue_credential_receipt_account_pool_cockpit_credential_receipts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/credential-receipts/revalidate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Revalidate Credential Receipt */
+        post: operations["revalidate_credential_receipt_account_pool_cockpit_credential_receipts_revalidate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/native-preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Check Native Cockpit Mapping */
+        post: operations["check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/cockpit/policy": {
         parameters: {
             query?: never;
@@ -857,6 +873,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/cockpit/policy/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Cockpit Apply */
+        post: operations["post_cockpit_apply_account_pool_cockpit_policy_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/policy/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cockpit Runtime */
+        get: operations["get_cockpit_runtime_account_pool_cockpit_policy_runtime_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/cockpit/preflight": {
         parameters: {
             query?: never;
@@ -868,6 +918,41 @@ export interface paths {
         put?: never;
         /** Check Cockpit Mapping */
         post: operations["check_cockpit_mapping_account_pool_cockpit_preflight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish Cockpit Scope */
+        post: operations["publish_cockpit_scope_account_pool_cockpit_scope_post"];
+        /** Revoke Cockpit Scope */
+        delete: operations["revoke_cockpit_scope_account_pool_cockpit_scope_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/cockpit/scope/{subject_hash}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Cockpit Scope */
+        get: operations["get_cockpit_scope_account_pool_cockpit_scope__subject_hash__get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1475,6 +1560,23 @@ export interface paths {
         post?: never;
         /** Revoke Token */
         delete: operations["revoke_token_account_pool_feedback_tokens__token_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/internal/cockpit/native-subject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read Internal Native Subject */
+        post: operations["read_internal_native_subject_account_pool_internal_cockpit_native_subject_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -24362,44 +24464,10 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/account_pool/cockpit/native-preflight": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Check Native Cockpit Mapping */
-        post: operations["check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** CockpitPolicyApply */
-        CockpitPolicyApply: {
-            /** Revision */
-            revision: string;
-        };
-        /** CockpitPolicyRuntime */
-        CockpitPolicyRuntime: {
-            /** Persisted Revision */
-            persisted_revision: string;
-            /** Active Revision */
-            active_revision: string | null;
-            /** Apply Supported */
-            apply_supported: boolean;
-            /** Blocked Reason */
-            blocked_reason: ("non_policy_change" | "unsupported_policy" | "runtime_unavailable") | null;
-        };
-
         /**
          * APIKeySecurityScheme
          * @description Defines a security scheme using an API key.
@@ -28819,6 +28887,100 @@ export interface components {
              */
             target_account_id: string;
         };
+        /** CockpitCredentialReceiptRequest */
+        CockpitCredentialReceiptRequest: {
+            /** Key Hash */
+            key_hash: string;
+        };
+        /** CockpitCredentialReceiptResponse */
+        CockpitCredentialReceiptResponse: {
+            /** Code */
+            code?: ("invalid_subject" | "subject_unverified" | "invalid_clock" | "read_unavailable" | "state_changed" | "source_missing" | "source_unavailable" | "source_credential_missing" | "source_auth_unsupported" | "source_identity_mismatch" | "source_ownership_unverified" | "source_credential_collision" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_credential_collision" | "target_auth_unsupported" | "target_content_mismatch" | "invalid_receipt" | "receipt_time_invalid" | "stale_receipt") | null;
+            /** Key Hash */
+            key_hash: string;
+            /**
+             * Ready To Migrate
+             * @default false
+             * @constant
+             */
+            ready_to_migrate: false;
+            /** Receipt */
+            receipt?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "owned_artifact_correspondence" | "rejected";
+        };
+        /** CockpitCredentialReceiptRevalidateRequest */
+        CockpitCredentialReceiptRevalidateRequest: {
+            /** Key Hash */
+            key_hash: string;
+            /** Receipt */
+            receipt: string;
+        };
+        /** CockpitNativePreflightReport */
+        CockpitNativePreflightReport: {
+            mapping?: components["schemas"]["CockpitPreflightReport"] | null;
+            /**
+             * Ready To Migrate
+             * @default false
+             * @constant
+             */
+            ready_to_migrate: false;
+            subject: components["schemas"]["NativeSubjectResult"];
+        };
+        /** CockpitNativePreflightRequest */
+        CockpitNativePreflightRequest: {
+            /** Candidate Ids */
+            candidate_ids?: string[] | null;
+            /** Key Hash */
+            key_hash: string;
+        };
+        /** CockpitNativeSubjectRequest */
+        CockpitNativeSubjectRequest: {
+            /** Subject Hash */
+            subject_hash: string;
+        };
+        /** CockpitNativeSubjectResponse */
+        CockpitNativeSubjectResponse: {
+            scope: components["schemas"]["CockpitNativeSubjectScope"] | null;
+            /** Subject Hash */
+            subject_hash: string;
+        };
+        /** CockpitNativeSubjectScope */
+        CockpitNativeSubjectScope: {
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /**
+             * Model Scope
+             * @enum {string}
+             */
+            model_scope: "unrestricted" | "restricted";
+            /** Models */
+            models: string[];
+            /** Subject Hash */
+            subject_hash: string;
+        };
+        /** CockpitPolicyApply */
+        CockpitPolicyApply: {
+            /** Revision */
+            revision: string;
+        };
+        /** CockpitPolicyRuntime */
+        CockpitPolicyRuntime: {
+            /** Active Revision */
+            active_revision: string | null;
+            /** Apply Supported */
+            apply_supported: boolean;
+            /** Blocked Reason */
+            blocked_reason: ("non_policy_change" | "unsupported_policy" | "runtime_unavailable") | null;
+            /** Persisted Revision */
+            persisted_revision: string;
+        };
         /** CockpitPolicyUpdate */
         CockpitPolicyUpdate: {
             /** Custom Rules */
@@ -28976,6 +29138,22 @@ export interface components {
              */
             weight: number;
         };
+        /** CockpitScopePublishRequest */
+        CockpitScopePublishRequest: {
+            /** Receipt */
+            receipt: string;
+            /** Revision */
+            revision: string;
+            /** Subject Hash */
+            subject_hash: string;
+        };
+        /** CockpitScopeRevokeRequest */
+        CockpitScopeRevokeRequest: {
+            /** Revision */
+            revision: string;
+            /** Subject Hash */
+            subject_hash: string;
+        };
         /** CockpitStatus */
         CockpitStatus: {
             /** Account Count */
@@ -28993,6 +29171,39 @@ export interface components {
              * @constant
              */
             runtime_activation: "restart_required_or_unverified";
+        };
+        /** CockpitSubjectScopeView */
+        CockpitSubjectScopeView: {
+            /** Account Ids */
+            account_ids: string[];
+            /**
+             * Model Scope
+             * @enum {string}
+             */
+            model_scope: "none" | "restricted";
+            /** Models */
+            models: string[];
+            /** Persisted Manifest Revision */
+            persisted_manifest_revision?: string | null;
+            /**
+             * Ready To Migrate
+             * @default false
+             * @constant
+             */
+            ready_to_migrate: false;
+            /**
+             * Runtime Activation
+             * @default restart_required_or_unverified
+             * @constant
+             */
+            runtime_activation: "restart_required_or_unverified";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "absent" | "staged" | "active" | "blocked";
+            /** Subject Hash */
+            subject_hash: string;
         };
         /** CodexPolicy */
         CodexPolicy: {
@@ -36328,6 +36539,32 @@ export interface components {
              * @constant
              */
             type: "mutualTLS";
+        };
+        /** NativeModelScope */
+        NativeModelScope: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "unrestricted" | "restricted";
+            /** Models */
+            models: string[];
+        };
+        /** NativeSubjectResult */
+        NativeSubjectResult: {
+            /** Card Id */
+            card_id?: string | null;
+            /**
+             * Checked At
+             * Format: date-time
+             */
+            checked_at: string;
+            model_scope?: components["schemas"]["NativeModelScope"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "verified" | "missing" | "revoked" | "blocked" | "expired" | "legacy_subject" | "card_scope_unverified" | "model_scope_unverified" | "invalid_record" | "unavailable";
         };
         /** NetworkSettingsProfile */
         NetworkSettingsProfile: {
@@ -45226,50 +45463,6 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** NativeSubjectResult */
-        NativeSubjectResult: {
-            /** Card Id */
-            card_id?: string | null;
-            /**
-             * Checked At
-             * Format: date-time
-             */
-            checked_at: string;
-            model_scope?: components["schemas"]["NativeModelScope"] | null;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "verified" | "missing" | "revoked" | "blocked" | "expired" | "legacy_subject" | "card_scope_unverified" | "model_scope_unverified" | "invalid_record" | "unavailable";
-        };
-        /** CockpitNativePreflightReport */
-        CockpitNativePreflightReport: {
-            mapping?: components["schemas"]["CockpitPreflightReport"] | null;
-            /**
-             * Ready To Migrate
-             * @default false
-             * @constant
-             */
-            ready_to_migrate: false;
-            subject: components["schemas"]["NativeSubjectResult"];
-        };
-        /** CockpitNativePreflightRequest */
-        CockpitNativePreflightRequest: {
-            /** Candidate Ids */
-            candidate_ids?: string[] | null;
-            /** Key Hash */
-            key_hash: string;
-        };
-        /** NativeModelScope */
-        NativeModelScope: {
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "unrestricted" | "restricted";
-            /** Models */
-            models: string[];
-        };
     };
     responses: never;
     parameters: never;
@@ -45279,60 +45472,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
-                };
-            };
-        };
-    };
-    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CockpitPolicyApply"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-
     home__get: {
         parameters: {
             query?: never;
@@ -46271,6 +46410,105 @@ export interface operations {
             };
         };
     };
+    issue_credential_receipt_account_pool_cockpit_credential_receipts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitCredentialReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitCredentialReceiptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revalidate_credential_receipt_account_pool_cockpit_credential_receipts_revalidate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitCredentialReceiptRevalidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitCredentialReceiptResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitNativePreflightRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitNativePreflightReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_cockpit_policy_account_pool_cockpit_policy_get: {
         parameters: {
             query?: never;
@@ -46324,6 +46562,59 @@ export interface operations {
             };
         };
     };
+    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitPolicyApply"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+                };
+            };
+        };
+    };
     check_cockpit_mapping_account_pool_cockpit_preflight_post: {
         parameters: {
             query?: never;
@@ -46344,6 +46635,103 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CockpitPreflightReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    publish_cockpit_scope_account_pool_cockpit_scope_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitScopePublishRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_cockpit_scope_account_pool_cockpit_scope_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitScopeRevokeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_cockpit_scope_account_pool_cockpit_scope__subject_hash__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subject_hash: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
                 };
             };
             /** @description Validation Error */
@@ -47825,6 +48213,41 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_internal_native_subject_account_pool_internal_cockpit_native_subject_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CockpitNativeSubjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CockpitNativeSubjectResponse"];
+                };
             };
             /** @description Validation Error */
             422: {
@@ -78362,39 +78785,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CockpitNativePreflightRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CockpitNativePreflightReport"];
                 };
             };
             /** @description Validation Error */
