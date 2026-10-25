@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
 from typing import Final, Literal
 from uuid import UUID
 
@@ -11,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from account_pool.application.effective_policy import effective_policy
 from account_pool.card_keys import CardKeyService
 from account_pool.cockpit_admin import AuthFileMetadata, CockpitAdminClient, CockpitFailure
+from account_pool.cockpit_manifest import CockpitAccountManifest, CockpitTargetAccount, auth_aliases
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus, SupplierKind
 from account_pool.policies import PolicyRepository
 from account_pool.ports import EnvironmentRepository
@@ -101,20 +101,6 @@ class CockpitPreflightReport(BaseModel):
     )
 
 
-class _TargetAccount(BaseModel):
-    model_config = ConfigDict(frozen=True, strict=True)
-
-    id: str = Field(min_length=1)
-    authId: str = ""
-    authKind: str = ""
-    accessTokenOnly: bool = False
-    upstreamApiKey: str = Field(default="", repr=False)
-
-
-class _Manifest(BaseModel):
-    accounts: tuple[_TargetAccount, ...] | None = None
-
-
 def _available(record: EnvironmentRecord) -> bool:
     return (
         record.enabled
@@ -125,14 +111,9 @@ def _available(record: EnvironmentRecord) -> bool:
     )
 
 
-def _auth_aliases(auth_id: str) -> frozenset[str]:
-    value: Final = auth_id.strip().lower()
-    return frozenset((value, PurePosixPath(value).name)) if value else frozenset()
-
-
-CockpitPreflightManifest = _Manifest
+CockpitPreflightManifest = CockpitAccountManifest
 source_available_for_cockpit_preflight: Final = _available
-cockpit_auth_aliases: Final = _auth_aliases
+cockpit_auth_aliases: Final = auth_aliases
 
 
 def _account_report(
@@ -140,7 +121,7 @@ def _account_report(
     source: EnvironmentRecord | None,
     origin: EnvironmentRecord | None,
     authorized: tuple[UUID, ...],
-    targets: tuple[_TargetAccount, ...],
+    targets: tuple[CockpitTargetAccount, ...],
     files: tuple[AuthFileMetadata, ...],
     records: tuple[EnvironmentRecord, ...],
 ) -> CockpitAccountPreflight:
@@ -181,8 +162,8 @@ def _account_report(
         ),
         (
             len(matches) == 1 and (
-                sum(bool(_auth_aliases(target.authId) & _auth_aliases(matches[0].authId)) for target in targets) > 1
-                or sum(bool(_auth_aliases(file.id) & _auth_aliases(matches[0].authId)) for file in files) > 1
+                sum(bool(auth_aliases(target.authId) & auth_aliases(matches[0].authId)) for target in targets) > 1
+                or sum(bool(auth_aliases(file.id) & auth_aliases(matches[0].authId)) for file in files) > 1
             ),
             "target_credential_collision",
         ),
@@ -241,7 +222,7 @@ async def cockpit_preflight(
     if isinstance(files, CockpitFailure):
         return files
     try:
-        manifest: Final = _Manifest.model_validate(snapshot.data)
+        manifest: Final = CockpitAccountManifest.model_validate(snapshot.data)
     except ValidationError:
         return CockpitFailure("invalid_response")
     accounts: Final = tuple(

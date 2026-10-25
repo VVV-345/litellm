@@ -13,6 +13,8 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
 
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, ManifestSnapshot
 from account_pool.cockpit_credential_receipts import CredentialBindings, CredentialReceipt, CredentialReceiptRejection
+from account_pool.cockpit_failure import precondition, unavailable, write_outcome_unknown
+from account_pool.cockpit_manifest import CockpitScopeManifest, wildcard_match
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _HASH: Final = r"^[0-9a-f]{64}$"
@@ -128,59 +130,13 @@ class ReceiptRevalidator(Protocol):
     async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection: ...
 
 
-class _Account(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    id: str
-    authId: str = ""
-    authKind: str = ""
-    accessTokenOnly: bool = False
-    upstreamApiKey: str = Field(default="", repr=False)
-
-
-class _Alias(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    sourceModel: str = ""
-    alias: str = ""
-
-
-class _AccountRule(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    accountId: str = ""
-    excludedModels: list[str] | None = None
-
-
-class _Manifest(BaseModel):
-    model_config = ConfigDict(strict=True)
-
-    accounts: list[_Account] | None = None
-    apiKeys: list[dict[str, JsonValue]] | None = None
-    modelIds: list[str] | None = None
-    modelAliases: list[_Alias] | None = None
-    excludedModels: list[str] | None = None
-    accountModelRules: list[_AccountRule] | None = None
-
-
-class _ReservedKey(BaseModel):
-    model_config = ConfigDict(strict=True, extra="allow")
-
-    id: str
-    label: str = ""
-    key: str = Field(default="", repr=False)
-    enabled: bool = False
-    accountIds: list[str] | None = None
-    allowedModels: list[str] | None = None
-
-
 def _failure(code: ScopeFailureCode) -> ScopeFailure:
     return ScopeFailure(_STATUS[code], code)
 
 
-def _manifest(snapshot: ManifestSnapshot) -> _Manifest | ScopeFailure:
+def _manifest(snapshot: ManifestSnapshot) -> CockpitScopeManifest | ScopeFailure:
     try:
-        return _Manifest.model_validate(snapshot.data)
+        return CockpitScopeManifest.model_validate(snapshot.data)
     except ValidationError:
         return _failure("invalid_response")
 
@@ -194,7 +150,18 @@ def subject_routing_token(secrets: EnvironmentSecretDeriver, subject_hash: str) 
     return secrets.derive(identity, SecretPurpose.COCKPIT_SUBJECT_ROUTING)
 
 
-def _find_reserved(manifest: _Manifest, subject_hash: str) -> tuple[dict[str, JsonValue], _ReservedKey] | None:
+class _ReservedKey(BaseModel):
+    model_config = ConfigDict(strict=True, extra="allow")
+
+    id: str
+    label: str = ""
+    key: str = Field(default="", repr=False)
+    enabled: bool = False
+    accountIds: list[str] | None = None
+    allowedModels: list[str] | None = None
+
+
+def _find_reserved(manifest: CockpitScopeManifest, subject_hash: str) -> tuple[dict[str, JsonValue], _ReservedKey] | None:
     expected: Final = _reserved_id(subject_hash)
     for raw in manifest.apiKeys or ():
         if raw.get("id") != expected:
@@ -221,41 +188,20 @@ def _entry_valid(
     )
 
 
-def _visible(model: str, manifest: _Manifest, account_id: UUID) -> bool:
+def _visible(model: str, manifest: CockpitScopeManifest, account_id: UUID) -> bool:
     catalog: Final = {value.strip().casefold() for value in manifest.modelIds or () if value.strip()}
     if model.strip().casefold() not in catalog:
         return False
-    if any(_wildcard_match(rule, model) for rule in manifest.excludedModels or ()):
+    if any(wildcard_match(rule, model) for rule in manifest.excludedModels or ()):
         return False
     rule: Final = next(
         (item for item in manifest.accountModelRules or () if item.accountId == str(account_id)),
         None,
     )
-    return rule is None or not any(_wildcard_match(rule, model) for rule in rule.excludedModels or ())
+    return rule is None or not any(wildcard_match(rule, model) for rule in rule.excludedModels or ())
 
 
-def _wildcard_match(pattern: str, model: str) -> bool:
-    normalized: Final = pattern.strip().casefold()
-    value: Final = model.strip().casefold()
-    if not normalized or not value:
-        return False
-    if normalized == "*":
-        return True
-    if "*" not in normalized:
-        return normalized == value
-    anchored_start: Final = not normalized.startswith("*")
-    anchored_end: Final = not normalized.endswith("*")
-    parts: Final = tuple(part for part in normalized.split("*") if part)
-    remaining: str = value
-    for index, part in enumerate(parts):
-        found = remaining.find(part)
-        if found < 0 or (index == 0 and anchored_start and found != 0):
-            return False
-        remaining = remaining[found + len(part) :]
-    return not anchored_end or bool(parts) and value.endswith(parts[-1])
-
-
-def _manifest_problem(manifest: _Manifest, extra: dict[str, JsonValue] | None = None) -> bool:
+def _manifest_problem(manifest: CockpitScopeManifest, extra: dict[str, JsonValue] | None = None) -> bool:
     seen_accounts: set[str] = set()
     for account in manifest.accounts or ():
         identifier = account.id.strip()
@@ -308,7 +254,7 @@ def _prepared_publication(
     request: CockpitScopePublishRequest,
     bindings: CredentialBindings,
     snapshot: ManifestSnapshot,
-    manifest: _Manifest,
+    manifest: CockpitScopeManifest,
     token: str,
 ) -> _Publication | ScopeFailure:
     if request.revision != snapshot.revision or bindings.manifest_revision != snapshot.revision:
@@ -414,7 +360,7 @@ class CockpitScopeService:
     async def revoke(self, request: CockpitScopeRevokeRequest) -> CockpitSubjectScopeView | ScopeFailure:
         snapshot: Final = await self._target.read_manifest()
         if isinstance(snapshot, CockpitFailure):
-            return _write_read_failure(snapshot)
+            return _read_failure(snapshot)
         if request.revision != snapshot.revision:
             return _failure("revision_conflict")
         manifest: Final = _manifest(snapshot)
@@ -505,7 +451,7 @@ class CockpitScopeService:
         self,
         subject_hash: str,
         snapshot: ManifestSnapshot,
-        manifest: _Manifest,
+        manifest: CockpitScopeManifest,
     ) -> CockpitSubjectScopeView | ScopeFailure:
         found: Final = _find_reserved(manifest, subject_hash)
         if found is None:
@@ -547,15 +493,15 @@ class CockpitScopeService:
 
 
 def _read_failure(failure: CockpitFailure) -> ScopeFailure:
-    if failure.category == "transport" or failure.status_code == 503:
+    if unavailable(failure):
         return _failure("unavailable")
     return _failure("invalid_response")
 
 
 def _write_failure(failure: CockpitFailure) -> ScopeFailure:
-    if failure.category == "precondition":
+    if precondition(failure):
         return _failure("revision_conflict")
-    if failure.category in {"transport", "invalid_response"} or (failure.status_code or 0) >= 500:
+    if write_outcome_unknown(failure):
         return _failure("write_outcome_unknown")
     return _failure("write_rejected")
 

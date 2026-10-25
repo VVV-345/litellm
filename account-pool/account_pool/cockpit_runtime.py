@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, RuntimeSnapshot
+from account_pool.cockpit_failure import invalid_payload, precondition
 
 
 class CockpitPolicyApply(BaseModel):
@@ -42,13 +43,13 @@ class RuntimeFailure:
 
 def _runtime_result(result: RuntimeSnapshot | CockpitFailure, *, applying: bool) -> CockpitPolicyRuntime | RuntimeFailure:
     if isinstance(result, CockpitFailure):
-        if result.category == "precondition":
+        if precondition(result):
             return RuntimeFailure(409, "revision_conflict")
         if result.code is not None:
             return RuntimeFailure(422, result.code)
         if applying:
             return RuntimeFailure(503, "apply_outcome_unknown")
-        if result.category == "invalid_response":
+        if invalid_payload(result):
             return RuntimeFailure(502, "invalid_response")
         return RuntimeFailure(503, "unavailable")
     return CockpitPolicyRuntime(

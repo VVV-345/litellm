@@ -8,6 +8,8 @@ from typing import Final, Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
 
 from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, ManifestSnapshot
+from account_pool.cockpit_failure import precondition, unavailable, write_outcome_unknown
+from account_pool.cockpit_manifest import CockpitPolicyManifest
 
 CockpitStrategy = Literal[
     "auto",
@@ -92,18 +94,6 @@ class PolicyFailure:
     ]
 
 
-class _Account(BaseModel):
-    model_config = ConfigDict(strict=True)
-    id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
-    authKind: str = ""
-
-
-class _Manifest(BaseModel):
-    routingStrategy: str = "auto"
-    accounts: tuple[_Account, ...] | None = None
-    customRoutingRules: tuple[dict[str, JsonValue], ...] | None = None
-
-
 def _rule(raw: dict[str, JsonValue]) -> CockpitRoutingRule:
     return CockpitRoutingRule.model_validate(
         {
@@ -118,7 +108,7 @@ def _rule(raw: dict[str, JsonValue]) -> CockpitRoutingRule:
 
 def _view(snapshot: ManifestSnapshot) -> CockpitPolicyView | PolicyFailure:
     try:
-        manifest: Final = _Manifest.model_validate(snapshot.data)
+        manifest: Final = CockpitPolicyManifest.model_validate(snapshot.data)
         rules: Final = tuple(_rule(raw) for raw in manifest.customRoutingRules or ())
     except ValidationError:
         return PolicyFailure(502, "invalid_response")
@@ -155,9 +145,7 @@ async def read_cockpit_policy(client: CockpitAdminClient | None) -> CockpitPolic
         return PolicyFailure(503, "unavailable")
     snapshot: Final = await client.read_manifest()
     if isinstance(snapshot, CockpitFailure):
-        return PolicyFailure(
-            503 if snapshot.category == "transport" or snapshot.status_code == 503 else 502, "unavailable"
-        )
+        return PolicyFailure(503 if unavailable(snapshot) else 502, "unavailable")
     return _view(snapshot)
 
 
@@ -180,7 +168,7 @@ async def save_cockpit_policy(
     ids: Final = tuple(rule.account_id for rule in request.custom_rules)
     if len(ids) != len(set(ids)) or any(account_id not in view.account_ids for account_id in ids):
         return PolicyFailure(422, "invalid_rule_accounts")
-    manifest: Final = _Manifest.model_validate(snapshot.data)
+    manifest: Final = CockpitPolicyManifest.model_validate(snapshot.data)
     old_rules: Final = {
         raw.get("accountId"): raw for raw in manifest.customRoutingRules or () if isinstance(raw.get("accountId"), str)
     }
@@ -202,9 +190,9 @@ async def save_cockpit_policy(
     # 单次 CAS 更新，不写第二份策略或凭据。响应丢失时不能盲目补偿覆盖并发管理员。
     receipt: Final = await client.write_manifest(data, request.revision)
     if isinstance(receipt, CockpitFailure):
-        if receipt.category == "precondition":
+        if precondition(receipt):
             return PolicyFailure(409, "revision_conflict")
-        if receipt.category in {"transport", "invalid_response"} or (receipt.status_code or 0) >= 500:
+        if write_outcome_unknown(receipt):
             return PolicyFailure(503, "write_outcome_unknown")
         return PolicyFailure(502, "write_rejected")
     if receipt.revision is None:

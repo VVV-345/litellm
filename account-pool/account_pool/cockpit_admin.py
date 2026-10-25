@@ -21,6 +21,8 @@ from pydantic import (
     model_validator,
 )
 
+from account_pool.cockpit_manifest import CockpitCountManifest
+
 _ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
 
@@ -154,16 +156,6 @@ class AuthFileMetadata(BaseModel):
         return value
 
 
-class _ClientKey(BaseModel):
-    model_config = ConfigDict(strict=True)
-    enabled: bool = False
-
-
-class _ManifestCounts(BaseModel):
-    accounts: tuple[dict[str, JsonValue], ...] | None = None
-    apiKeys: tuple[_ClientKey, ...] | None = None
-
-
 class _AuthFiles(BaseModel):
     files: tuple[AuthFileMetadata, ...]
 
@@ -244,7 +236,7 @@ class CockpitAdminClient:
             return CockpitFailure("invalid_response", result.status_code)
         try:
             data: Final = _JSON.validate_json(result.content)
-            counts: Final = _ManifestCounts.model_validate(data)
+            counts: Final = CockpitCountManifest.model_validate(data)
         except ValidationError:
             return CockpitFailure("invalid_response", result.status_code)
         return ManifestSnapshot(
