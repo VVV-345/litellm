@@ -337,6 +337,21 @@ LiteLLM 路由缓存 TTL 改为 `ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS`，范�
 
 真正的运行时激活没有执行：当前环境没有 Cockpit 服务，也没有配置管理地址、数据面地址、主体读取地址或 LiteLLM 路由开关。接下来需要在目标环境按顺序执行：发布范围 -> 调激活接口 -> 重启 Cockpit 并确认 revision -> 设置 LiteLLM 路由开关和短 TTL/重启 worker -> 小范围验证用量、错误和回滚。`ready_to_migrate` 仍为 false。
 
+### D2.4 Cockpit 接管核心行为测试（2026-10-25）
+
+提交 `e3a1b3664f`。只补测试和必要的授权边界，不部署、不激活、不切流。
+
+- 额度耗尽和普通限流都在 Cockpit 接管路径上原样抛出，LiteLLM 只调用一次 `litellm.aresponses`，不进入 Router、不做冷却、不换卡；Cockpit 内部如何区分额度耗尽和普通 429 仍由 Cockpit 负责，当前仓库无法验证
+- 出站参数固定 `num_retries=0`、`max_retries=0`，fallbacks 全部为空；流式响应已经输出部分内容后再抛错，也只保留一次调用，不重放
+- `previous_response_id`、`encrypted_content`、`signature` 和 thinking 签名历史在派发前统一返回 422；当前接管路径不支持续聊或跨卡重放
+- 路由校验新增 manifest 账号存在性和模型可见性检查；发布后账号被删除时，内部路由和管理视图都转为 blocked
+- active 决策使用独立短 TTL，默认 5 秒，环境变量 `ACCOUNT_POOL_COCKPIT_ACTIVE_TTL_SECONDS`，范围 1 到 30 秒；权限撤销后最多一个短窗口内失效。跨 worker 仍没有推送失效
+- 用量归属测试确认 `litellm_metadata` 保留用户、Key、团队和 end user，并附加 Cockpit owner 标记
+
+验证：定向合并 38 项通过；完整 Manager 1152 项通过、5 项跳过；完整 LiteLLM 号池管理 1043 项通过、1 项跳过；新增行严格 Ruff 和 basedpyright 诊断均为 0。
+
+未验证：Cockpit 侧的额度分类、冷却、会话亲和性和真实换卡；工具执行后的真实重放边界；真实数据库、供应商和用量落库；跨 worker 权限撤销。接管路径当前只支持 Responses 协议、单卡受限模型和无签名历史的请求，不能宣传成完整后台替换。
+
 ### 替换阶段 E：行为兼容与差异验收
 
 - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
