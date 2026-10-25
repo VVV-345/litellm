@@ -296,8 +296,11 @@ async def test_latest_probe_survives_reopen_and_older_writes_and_cascades_on_del
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("renamed,swap_names", ((False, False), (True, False), (True, True)))
 @pytest.mark.skipif(not os.environ.get("PROXY_CATALOG_TEST_DATABASE_URL"), reason="isolated PostgreSQL URL required")
-async def test_isp_subscription_refresh_preserves_node_ids_bindings_and_encryption() -> None:
+async def test_isp_subscription_refresh_preserves_node_ids_bindings_and_encryption(
+    renamed: bool, swap_names: bool,
+) -> None:
     base: Final = os.environ["PROXY_CATALOG_TEST_DATABASE_URL"]
     schema: Final = "isp_subscription_test_" + uuid4().hex
     first_url: Final = "https://isp.example/first.yaml?token=subscription-secret"
@@ -351,14 +354,24 @@ async def test_isp_subscription_refresh_preserves_node_ids_bindings_and_encrypti
             await repository.bind_isp(7892, first_node.id)
             await repository.bind_isp(7893, missing_node.id)
             await repository.bind_front_node(7892, "airport-a")
+            first_name: Final = missing_node.name if swap_names else "local alias"
+            missing_name: Final = first_node.name if swap_names else "missing alias"
+            if renamed:
+                await repository.update_isp(first_node.model_copy(update={"name": "temporary alias"}))
+                await repository.update_isp(missing_node.model_copy(update={"name": missing_name}))
+                await repository.update_isp(first_node.model_copy(update={"name": first_name}))
 
-            refreshed: Final = await repository.save_isp_subscription(
+            reopened: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            refreshed: Final = await reopened.save_isp_subscription(
                 "https://isp.example/updated.yaml?token=subscription-secret",
                 parse_isp_subscription(changed_content),
             )
             refreshed_node: Final = await repository.get_isp(first_node.id)
             assert refreshed.configured and refreshed.node_count == 1 and refreshed.enabled_node_count == 1
             assert refreshed_node is not None and refreshed_node.id == first_node.id
+            assert refreshed_node.enabled
+            assert refreshed_node.name == (first_name if renamed else first_node.name)
+            assert len(await repository.list_isps()) == 3
             assert refreshed_node.config["password"] == "node-secret-updated"
             assert await repository.list_isp_bindings() == (
                 (7891, manual.id),
@@ -371,8 +384,12 @@ async def test_isp_subscription_refresh_preserves_node_ids_bindings_and_encrypti
             await repository.save_isp_subscription(first_url, parse_isp_subscription(restored_content))
             restored_node: Final = await repository.get_isp(missing_node.id)
             assert restored_node is not None and restored_node.id == missing_node.id and restored_node.enabled
+            assert restored_node.name == (missing_name if renamed else missing_node.name)
             restored_first: Final = await repository.get_isp(first_node.id)
             assert restored_first is not None and restored_first.config["password"] == "node-secret-restored"
+            assert restored_first.enabled
+            assert restored_first.name == (first_name if renamed else first_node.name)
+            assert len(await repository.list_isps()) == 3
             assert await repository.get_isp_subscription_url() == first_url
 
             async with database_connection(dsn) as connection:
@@ -433,5 +450,77 @@ async def test_subscription_edit_probe_persistence_and_guarded_delete() -> None:
             await repository.unbind_isp(7891)
             assert await repository.delete_isp(profile.id)
             assert await reopened.list_isp_probes() == ()
+        finally:
+            await admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict", ("duplicate_source", "display_name"))
+@pytest.mark.parametrize("method", ("PUT", "POST"))
+@pytest.mark.skipif(not os.environ.get("PROXY_CATALOG_TEST_DATABASE_URL"), reason="isolated PostgreSQL URL required")
+async def test_subscription_refresh_rejects_ambiguous_identity_without_changing_bindings(
+    conflict: str, method: str,
+) -> None:
+    import httpx
+    from account_pool.api import create_router
+    from fastapi import FastAPI
+
+    base: Final = os.environ["PROXY_CATALOG_TEST_DATABASE_URL"]
+    schema: Final = "isp_refresh_conflict_" + uuid4().hex
+    content: Final = (
+        "proxies:\n  - name: first\n    type: socks5\n    server: first.example\n    port: 1080\n"
+    )
+    async with await psycopg.AsyncConnection.connect(base, autocommit=True) as admin:
+        await admin.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(schema)))
+        try:
+            dsn: Final = make_conninfo(base, options=f"-c search_path={schema}")
+            async with database_connection(dsn) as connection:
+                await connection.execute("CREATE TABLE account_pool_proxy_gateways (port integer PRIMARY KEY)")
+                await connection.execute("INSERT INTO account_pool_proxy_gateways VALUES (7891)")
+            cipher: Final = ProxyCatalogCipher(EnvironmentSecretDeriver("test-seed-" * 4))
+            repository: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            await repository.initialize()
+            await repository.save_isp_subscription("https://isp.example/old.yaml", parse_isp_subscription(content))
+            first: Final = (await repository.list_isps())[0]
+            await repository.bind_isp(7891, first.id)
+            await repository.update_isp(first.model_copy(update={"name": "second"}))
+            if conflict == "duplicate_source":
+                duplicate_id: Final = uuid4()
+                async with database_connection(dsn) as connection:
+                    await connection.execute(
+                        "INSERT INTO account_pool_isp_subscription_nodes "
+                        "(id, name, proxy_type, config_ciphertext, enabled) VALUES (%s, %s, %s, %s, true)",
+                        (duplicate_id, "first", "socks5", cipher.seal(
+                            duplicate_id,
+                            '{"name":"first","type":"socks5","server":"first.example","port":1080}',
+                        )),
+                    )
+            before: Final = await repository.list_isps()
+            before_subscription: Final = await repository.get_isp_subscription_view()
+            refreshed_content: Final = content if conflict == "duplicate_source" else content + (
+                "  - name: second\n    type: http\n    server: second.example\n    port: 8080\n"
+            )
+            async def fetch(url: str) -> str:
+                return refreshed_content
+
+            app: Final = FastAPI()
+            app.include_router(create_router(
+                object(), "manager-test", proxy_catalog=ProxyCatalogService(repository, fetch_subscription=fetch),
+            ))
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+                response: Final = await client.request(
+                    method,
+                    "/api/proxy-isps/subscription" + ("/refresh" if method == "POST" else ""),
+                    headers={"Authorization": "Bearer manager-test"},
+                    json={"url": "https://isp.example/new.yaml?token=private-token"} if method == "PUT" else None,
+                )
+            assert response.status_code == 409
+            assert ("identity" if conflict == "duplicate_source" else "display name") in response.json()["detail"]
+            assert "private-token" not in response.text and "ciphertext" not in response.text
+            reopened: Final = PostgresProxyCatalogRepository(dsn, cipher)
+            assert await reopened.list_isps() == before
+            assert await reopened.get_isp_subscription_view() == before_subscription
+            assert await reopened.get_isp_subscription_url() == "https://isp.example/old.yaml"
+            assert await reopened.list_isp_bindings() == ((7891, first.id),)
         finally:
             await admin.execute(sql.SQL("DROP SCHEMA {} CASCADE").format(sql.Identifier(schema)))

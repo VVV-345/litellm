@@ -830,3 +830,36 @@ def test_isp_probe_upgrade_allows_only_the_exact_additive_table() -> None:
     assert not additive_manager_schema_upgrade(baseline, (*target, (
         "unreviewed.py", b'SQL = "CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid PRIMARY KEY)"',
     )))
+
+
+def test_isp_subscription_probe_upgrade_from_existing_v17_catalog() -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    probe: Final = next(statement for statement in _SCHEMA if "account_pool_isp_subscription_probe_results" in statement)
+    catalog: Final = tuple(statement for statement in _SCHEMA if statement != probe)
+    baseline: Final = (("schema.prisma", b"model A { id String @id }"),
+                       ("catalog.py", f"SQL = {catalog!r}".encode()))
+    target: Final = (*baseline, ("probe.py", f"SQL = {probe!r}".encode()))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*target, (
+        "unreviewed.py", b'SQL = "CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid PRIMARY KEY)"',
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (baseline[0], target[-1]))
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("INCLUDING CONSTRAINTS", ""),
+    ("ON DELETE CASCADE", "ON DELETE RESTRICT"),
+    ("account_pool_isp_subscription_nodes", "account_pool_isp_profiles"),
+    ("PRIMARY KEY (profile_id)", "PRIMARY KEY (profile_id), extra text"),
+))
+def test_isp_subscription_probe_upgrade_rejects_unreviewed_table_changes(original: str, replacement: str) -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    probe: Final = next(statement for statement in _SCHEMA if "account_pool_isp_subscription_probe_results" in statement)
+    catalog: Final = tuple(statement for statement in _SCHEMA if statement != probe)
+    baseline: Final = (("schema.prisma", b"model A { id String @id }"),
+                       ("catalog.py", f"SQL = {catalog!r}".encode()))
+    target: Final = (*baseline, ("probe.py", f"SQL = {probe.replace(original, replacement)!r}".encode()))
+    assert not additive_manager_schema_upgrade(baseline, target)

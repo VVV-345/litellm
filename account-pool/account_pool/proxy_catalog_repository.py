@@ -274,11 +274,12 @@ class PostgresProxyCatalogRepository:
         refreshed_at: Final = datetime.now(timezone.utc)
         async with database_connection(self._database_url) as connection:
             existing_cursor: Final = await connection.execute(
-                "SELECT id, name FROM account_pool_isp_subscription_nodes"
+                "SELECT id, name, proxy_type, config_ciphertext, enabled FROM account_pool_isp_subscription_nodes"
             )
             existing_rows: Final[Sequence[Mapping[str, object]]] = await existing_cursor.fetchall()
+            existing_profiles: Final = tuple(self._subscription_node_from_row(row) for row in existing_rows)
             node_identities: Final = tuple(
-                _subscription_node_identity(node, existing_rows) for node in nodes
+                _subscription_node_identity(node, existing_profiles) for node in nodes
             )
             await connection.execute(
                 """
@@ -317,8 +318,8 @@ class PostgresProxyCatalogRepository:
                 )
             await connection.execute(
                 "UPDATE account_pool_isp_subscription_nodes SET enabled = false "
-                "WHERE enabled AND NOT (name = ANY(%s))",
-                (list(node.name for node in nodes),),
+                "WHERE enabled AND NOT (id = ANY(%s))",
+                (list(identity for _, identity in node_identities),),
             )
             node_cursor: Final = await connection.execute(
                 "SELECT count(*) AS total, count(*) FILTER (WHERE enabled) AS enabled "
@@ -751,14 +752,16 @@ class PostgresProxyCatalogRepository:
 
 def _subscription_node_identity(
     node: MihomoISPNode,
-    existing_rows: Sequence[Mapping[str, object]],
+    existing_profiles: tuple[ISPSubscriptionNodeProfile, ...],
 ) -> tuple[MihomoISPNode, UUID]:
-    existing_id: Final = next(
-        (
-            row["id"]
-            for row in existing_rows
-            if row.get("name") == node.name and isinstance(row.get("id"), UUID)
-        ),
-        None,
+    # 加密连接配置中的订阅原名不随本地显示名编辑变化，端口绑定始终沿用原 ID。
+    matches: Final = tuple(
+        profile.id for profile in existing_profiles if profile.config.get("name") == node.name
     )
-    return node, existing_id if isinstance(existing_id, UUID) else uuid4()
+    if len(matches) > 1:
+        raise ValueError("ISP subscription node identity is ambiguous; remove duplicate nodes before refreshing")
+    if matches:
+        return node, matches[0]
+    if any(profile.name == node.name for profile in existing_profiles):
+        raise ValueError("ISP subscription node conflicts with an existing display name; rename it before refreshing")
+    return node, uuid4()

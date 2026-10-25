@@ -72,6 +72,10 @@ from account_pool.settings import AccountPoolSettings, AccountPoolSettingsReposi
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _BEARER: Final = HTTPBearer(auto_error=False)
+_ISP_SUBSCRIPTION_CONFLICT_DETAILS: Final = (
+    "ISP subscription node identity is ambiguous; remove duplicate nodes before refreshing",
+    "ISP subscription node conflicts with an existing display name; rename it before refreshing",
+)
 T = TypeVar("T")
 
 
@@ -929,6 +933,8 @@ def create_router(
             try:
                 return await proxy_catalog.configure_isp_subscription(request.url)
             except (ClashError, ValueError) as error:
+                if str(error) in _ISP_SUBSCRIPTION_CONFLICT_DETAILS:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="ISP subscription import failed; check the URL and subscription content",
@@ -939,6 +945,8 @@ def create_router(
             try:
                 return await proxy_catalog.refresh_isp_subscription()
             except (ClashError, ValueError) as error:
+                if str(error) in _ISP_SUBSCRIPTION_CONFLICT_DETAILS:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="ISP subscription refresh failed; verify its URL and content",
