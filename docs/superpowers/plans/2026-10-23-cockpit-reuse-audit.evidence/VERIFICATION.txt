@@ -70,3 +70,133 @@ OLD PLAN-ONLY EVIDENCE
   VERIFICATION-plan-2026-10-24.txt
   DIFF_FILE-plan-2026-10-24.patch
   ROLLBACK-plan-2026-10-24.sh
+
+
+SUPPLEMENTAL D2.5 UI READINESS (2026-10-25)
+Source commit: 5b1af2bdbb9b59682ad00bf8d0984135c3eb6dcb
+Literal command arrays, cwd, stdout, stderr and exit statuses: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\ui-readiness-20261025.json
+No application source changed. Plan gained D2.5 first-round UI/build findings and isolated-server prerequisites. ROLLBACK.sh gained explicit --restore-file TARGET_COPY BASELINE_FILE for disposable document rollback. Existing --check and worktree rollback modes retained.
+
+baseline-224308
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "account-pool/tests/account_pool/test_cockpit_receipt_adapter.py", "account-pool/tests/account_pool/test_cockpit_receipt_api.py", "account-pool/tests/account_pool/test_app.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_receipts.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\ui-readiness-20261025\\tmp-baseline-224308"]
+EXIT: 0
+STDOUT:
+................                                                         [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+16 passed, 1 warning in 16.95s
+STDERR:
+
+
+cockpit-ui-baseline
+COMMAND: ["C:/Program Files/nodejs/node.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\ui-readiness-20261025\\build-copy\\ui\\litellm-dashboard\\node_modules\\vitest\\vitest.mjs", "run", "--project", "unit", "--project", "component", "--project", "integration", "src/features/account-pool/api/AccountPoolManagementApi.test.ts", "src/features/account-pool/utils/cockpitPolicyDraft.test.ts", "src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx", "src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx", "--maxWorkers", "2"]
+EXIT: 0
+STDOUT:
+
+ RUN  v4.1.11 C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/ui-readiness-20261025/build-copy/ui/litellm-dashboard
+
+
+ Test Files  4 passed (4)
+      Tests  66 passed (66)
+   Start at  22:46:07
+   Duration  50.34s (transform 2.42s, setup 16.58s, import 11.41s, tests 7.05s, environment 56.68s)
+
+STDERR:
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+
+vitest-types-baseline
+COMMAND: ["C:/Program Files/nodejs/node.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\ui-readiness-20261025\\build-copy\\ui\\litellm-dashboard\\node_modules\\vitest\\vitest.mjs", "run", "--project", "types"]
+EXIT: 0
+STDOUT:
+
+ RUN  v4.1.11 C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/ui-readiness-20261025/build-copy/ui/litellm-dashboard
+
+
+ Test Files  2 passed (2)
+      Tests  4 passed (4)
+Type Errors  no errors
+   Start at  22:46:58
+   Duration  44.59s (transform 0ms, setup 0ms, import 0ms, tests 0ms, environment 0ms, typecheck 44.43s)
+
+STDERR:
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+Testing types with tsc and vue-tsc is an experimental feature.
+Breaking changes might not follow SemVer, please pin Vitest's version when using it.
+
+
+cockpit-ui-eslint
+COMMAND: ["C:/Program Files/nodejs/node.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\ui-readiness-20261025\\build-copy\\ui\\litellm-dashboard\\node_modules\\eslint\\bin\\eslint.js", "src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx", "src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx", "src/features/account-pool/api/AccountPoolManagementApi.ts", "src/features/account-pool/api/AccountPoolManagementApi.test.ts", "src/features/account-pool/utils/cockpitPolicyDraft.ts", "src/features/account-pool/utils/cockpitPolicyDraft.test.ts"]
+EXIT: 0
+STDOUT:
+
+C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\.superpowers\sdd\2026-10-23-cockpit-reuse-audit\ui-readiness-20261025\build-copy\ui\litellm-dashboard\src\features\account-pool\components\dashboard\AccountPoolCockpitPolicyPanel.tsx
+  45:1  warning  Function 'CockpitPolicyEditor' has a complexity of 28. Maximum allowed is 20  complexity
+
+✖ 1 problem (0 errors, 1 warning)
+
+STDERR:
+
+
+next-build-webpack-baseline
+COMMAND: ["C:/Program Files/nodejs/node.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\ui-readiness-20261025\\build-copy\\ui\\litellm-dashboard\\node_modules\\next\\dist\\bin\\next", "build", "--webpack"]
+EXIT: 1
+STDOUT:
+▲ Next.js 16.3.8 (webpack)
+- Environments: .env.production
+✓ Running next.config.mjs took 73ms
+- Experiments (use with caution):
+  ⨯ useTypeScriptCli
+
+  Creating an optimized production build ...
+STDERR:
+Failed to compile.
+
+Module not found: Error: Can't resolve './D:/Work2api/litellm/ui/litellm-dashboard/node_modules/next/dist/client/next.js' in 'C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\.superpowers\sdd\2026-10-23-cockpit-reuse-audit\ui-readiness-20261025\build-copy\ui\litellm-dashboard'
+
+Module not found: Error: Can't resolve './D:/Work2api/litellm/ui/litellm-dashboard/node_modules/next/dist/client/app-next.js' in 'C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\.superpowers\sdd\2026-10-23-cockpit-reuse-audit\ui-readiness-20261025\build-copy\ui\litellm-dashboard'
+
+
+> Build failed because of webpack errors
+
+
+next-typegen
+COMMAND: ["C:/Program Files/nodejs/node.exe", "D:\\Work2api\\litellm\\.superpowers\\sdd\\cockpit-ui-check-20261025\\ui\\litellm-dashboard\\node_modules\\next\\dist\\bin\\next", "typegen"]
+EXIT: 0
+STDOUT:
+Generating route types...
+✓ Types generated successfully
+STDERR:
+
+
+tsc-after-typegen
+COMMAND: ["C:/Program Files/nodejs/node.exe", "D:\\Work2api\\litellm\\.superpowers\\sdd\\cockpit-ui-check-20261025\\ui\\litellm-dashboard\\node_modules\\typescript\\bin\\tsc", "--noEmit", "--incremental", "false", "--pretty", "false"]
+EXIT: 2
+Full output retained in supplemental JSON; 1083 diagnostics, all in test files. Complete tsc failed; no source diagnostic after Next typegen.
+
+next-build-webpack-same-drive
+COMMAND: ["C:/Program Files/nodejs/node.exe", "D:\\Work2api\\litellm\\.superpowers\\sdd\\cockpit-ui-check-20261025\\ui\\litellm-dashboard\\node_modules\\next\\dist\\bin\\next", "build", "--webpack"]
+EXIT: 0
+STDOUT (JSON-escaped literal string):
+"▲ Next.js 16.3.8 (webpack)\n- Environments: .env.production\n✓ Running next.config.mjs took 42ms\n- Experiments (use with caution):\n  ⨯ useTypeScriptCli\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 92s\n  Running TypeScript ...\n  Finished TypeScript in 40s ...\n  Collecting page data using 15 workers ...\n  Generating static pages using 15 workers (0/54) ...\n  Generating static pages using 15 workers (13/54) \n  Generating static pages using 15 workers (26/54) \n  Generating static pages using 15 workers (40/54) \n✓ Generating static pages using 15 workers (54/54) in 910ms\n  Finalizing page optimization ...\n  Collecting build traces ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n├ ○ /access-groups\n├ ○ /account-pool\n├ ○ /admin-panel\n├ ○ /agents\n├ ○ /api-keys\n├ ○ /api-reference\n├ ○ /budgets\n├ ○ /caching\n├ ○ /chat\n├ ○ /chat/api-keys\n├ ○ /chat/credentials\n├ ○ /chat/integrations\n├ ○ /chat/logs\n├ ○ /chat/usage\n├ ○ /connect\n├ ○ /cost-optimization\n├ ○ /cost-tracking\n├ ○ /feedback\n├ ○ /guardrails\n├ ○ /guardrails-monitor\n├ ○ /logging-and-alerts\n├ ○ /login\n├ ○ /logs\n├ ○ /mcp-servers\n├ ○ /mcp/oauth/callback\n├ ○ /memory\n├ ○ /model_hub\n├ ○ /model_hub_table\n├ ○ /model-hub-table\n├ ○ /models-and-endpoints\n├ ○ /old-usage\n├ ○ /onboarding\n├ ○ /organizations\n├ ○ /playground\n├ ○ /policies\n├ ○ /policy-center\n├ ○ /projects\n├ ○ /prompts\n├ ○ /router-settings\n├ ○ /search-tools\n├ ○ /skills\n├ ○ /tag-management\n├ ○ /teams\n├ ○ /tool-policies\n├ ○ /transform-request\n├ ○ /ui-theme\n├ ○ /usage\n├ ○ /users\n├ ○ /vector-stores\n└ ○ /workflows\n\n\n○  (Static)  prerendered as static content\n\n"
+STDERR:
+
+
+make-check
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "-lc", "make check"]
+EXIT: 127
+STDOUT:
+STDERR:
+/usr/bin/bash: line 1: make: command not found
+
+
+BASELINE/MODIFIED/ROLLBACK document contract: each stdout missing=0 forbidden=0; stderr empty; exit 0. Baseline and restored hash 0b7a72a73dd87d397ace0b3b2b641542dce50f145d9a3a84b7b1e3204e1ba3a5. Modified hash 77f26dc5425d84091312e383b6d02e5685aab17b120dfbea1f5f97556104bc02. These document checks do not validate production behavior.
+Patch reconstructs 23 changed file blobs from base 1a6902d443, each matching the candidate; reverse-apply check exit 0. Server rollback remains unverified. Historical D2.4 evidence remains above; latest supplemental evidence takes precedence for frontend/build outcomes.

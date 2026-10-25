@@ -6,6 +6,15 @@ set -eu
 # digest, database backup and an operator-approved maintenance window.
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "${1:-}" = "--restore-file" ]; then
+    if [ "$#" -ne 3 ] || [ ! -f "$2" ] || [ ! -f "$3" ]; then
+        printf '%s\n' "usage: $0 --restore-file TARGET_COPY BASELINE_FILE" >&2
+        exit 2
+    fi
+    cp -- "$3" "$2"
+    exit 0
+fi
+
 repo_root=$(git -C "$script_dir" rev-parse --show-toplevel)
 patch="$script_dir/DIFF_FILE.patch"
 base_commit="1a6902d443ae8209a80a5be8eb3c26ede0f06e16"
