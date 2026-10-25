@@ -1,0 +1,4560 @@
+diff --git a/account-pool/account_pool/api.py b/account-pool/account_pool/api.py
+index e51bbcd02f..97398cfae4 100644
+--- a/account-pool/account_pool/api.py
++++ b/account-pool/account_pool/api.py
+@@ -36,6 +36,8 @@ from account_pool.cockpit_preflight import (
+     CockpitPreflightRequest,
+     cockpit_preflight,
+ )
++from account_pool.cockpit_scope import CockpitScopeService
++from account_pool.cockpit_scope_api import create_cockpit_scope_router
+ from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
+ from account_pool.domain import (
+     AuthorizationFlow,
+@@ -436,11 +438,13 @@ def create_router(
+     feedback: FeedbackService | None = None,
+     cockpit_admin: CockpitAdminClient | None = None,
+     credential_receipts: CredentialReceiptOperations | None = None,
++    cockpit_scope: CockpitScopeService | None = None,
+ ) -> APIRouter:
+     router: Final = APIRouter()
+ 
+     require_manager: Final = _manager_guard(manager_token)
+     router.include_router(_create_credential_receipt_router(credential_receipts, require_manager))
++    router.include_router(create_cockpit_scope_router(cockpit_scope, require_manager))
+ 
+     @router.get("/api/cockpit/status", dependencies=[Depends(require_manager)])
+     async def get_cockpit_status(response: Response) -> CockpitStatus:
+diff --git a/account-pool/account_pool/app.py b/account-pool/account_pool/app.py
+index 9ca458f0e8..b1a2f4f697 100644
+--- a/account-pool/account_pool/app.py
++++ b/account-pool/account_pool/app.py
+@@ -31,6 +31,7 @@ from account_pool.cockpit_credential_receipts import (
+     CredentialSourceReader,
+ )
+ from account_pool.cockpit_receipt_adapter import CockpitSubjectClient, CockpitSubjectConfig
++from account_pool.cockpit_scope import CockpitScopeService
+ from account_pool.compose_runtime import ComposeRuntime
+ from account_pool.config import Settings
+ from account_pool.credential_ownership import CredentialOwnership
+@@ -86,21 +87,28 @@ def _create_cockpit_resources(
+     CockpitAdminClient | None,
+     httpx.AsyncClient | None,
+     CockpitCredentialReceiptService | None,
++    CockpitSubjectClient | None,
+ ]:
+     if cockpit_config is None:
+-        return None, None, None, None
++        return None, None, None, None, None
+     cockpit_http: Final = client_factory()
+     cockpit_admin: Final = CockpitAdminClient(cockpit_config, cockpit_http)
+     if subject_url is None:
+-        return cockpit_http, cockpit_admin, None, None
++        return cockpit_http, cockpit_admin, None, None, None
+     subject_http: Final = client_factory()
+-    subject_reader: Final = CockpitSubjectClient(
+-        CockpitSubjectConfig(url=subject_url, token=SecretStr(manager_token)), subject_http,
+-    )
++    subject_config: Final = CockpitSubjectConfig(url=subject_url, token=SecretStr(manager_token))
++    subject_reader: Final = CockpitSubjectClient(subject_config, subject_http)
++    route_subject_reader: Final = CockpitSubjectClient(subject_config, subject_http, timeout_seconds=3.0)
+     receipts: Final = CockpitCredentialReceiptService(
+-        subject_reader, sources, downloader, ownership, cockpit_admin, secrets, lambda: int(time.time()),
++        subject_reader,
++        sources,
++        downloader,
++        ownership,
++        cockpit_admin,
++        secrets,
++        lambda: int(time.time()),
+     )
+-    return cockpit_http, cockpit_admin, subject_http, receipts
++    return cockpit_http, cockpit_admin, subject_http, receipts, route_subject_reader
+ 
+ 
+ @asynccontextmanager
+@@ -146,9 +154,7 @@ def create_app(
+     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
+     litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
+     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
+-    proxy_catalog_repository: Final = PostgresProxyCatalogRepository(
+-        resolved.database_url, ProxyCatalogCipher(secrets)
+-    )
++    proxy_catalog_repository: Final = PostgresProxyCatalogRepository(resolved.database_url, ProxyCatalogCipher(secrets))
+     cooldown_client: Final = HttpCLIProxyClient(secrets)
+     ownership: Final = CredentialOwnership(resolved.database_url)
+     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
+@@ -195,7 +201,9 @@ def create_app(
+         settings_repository,
+         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
+     )
+-    quota_trigger: Final = QuotaRefreshTrigger(service.refresh_quota_after_failure, resolved.quota_refresh_max_concurrency)
++    quota_trigger: Final = QuotaRefreshTrigger(
++        service.refresh_quota_after_failure, resolved.quota_refresh_max_concurrency
++    )
+     auth_refresh_scheduler: Final = RefreshScheduler(
+         settings_repository,
+         service.refresh_auth_files,
+@@ -212,7 +220,13 @@ def create_app(
+             _notify_refresh_schedulers_after_settings_sync(quota_scheduler, auth_refresh_scheduler)
+         return failed
+ 
+-    cockpit_http, cockpit_admin, subject_http, credential_receipts = _create_cockpit_resources(
++    (
++        cockpit_http,
++        cockpit_admin,
++        subject_http,
++        credential_receipts,
++        route_subject_reader,
++    ) = _create_cockpit_resources(
+         resolved.cockpit_subject_url,
+         resolved.manager_token,
+         cockpit_config,
+@@ -222,6 +236,17 @@ def create_app(
+         ownership,
+         secrets,
+     )
++    cockpit_scope: Final = (
++        CockpitScopeService(
++            credential_receipts,
++            cockpit_admin,
++            secrets,
++            resolved.cockpit_data_url,
++            subjects=route_subject_reader,
++        )
++        if cockpit_admin is not None
++        else None
++    )
+ 
+     @asynccontextmanager
+     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+@@ -360,6 +385,7 @@ def create_app(
+             feedback=feedback,
+             cockpit_admin=cockpit_admin,
+             credential_receipts=credential_receipts,
++            cockpit_scope=cockpit_scope,
+         )
+     )
+     return app
+@@ -479,4 +505,4 @@ async def _restore_control_plane_connection(channels: ChannelRegistry, record: E
+             "Failed to restore account pool network for %s: %s",
+             record.id,
+             error.__class__.__name__,
+-        )
++        )
+\ No newline at end of file
+diff --git a/account-pool/account_pool/cockpit_admin.py b/account-pool/account_pool/cockpit_admin.py
+index be53a9af67..c2c9b75002 100644
+--- a/account-pool/account_pool/cockpit_admin.py
++++ b/account-pool/account_pool/cockpit_admin.py
+@@ -21,6 +21,8 @@ from pydantic import (
+     model_validator,
+ )
+ 
++from account_pool.cockpit_manifest import CockpitCountManifest
++
+ _ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
+ _JSON: Final = TypeAdapter(dict[str, JsonValue])
+ 
+@@ -154,16 +156,6 @@ class AuthFileMetadata(BaseModel):
+         return value
+ 
+ 
+-class _ClientKey(BaseModel):
+-    model_config = ConfigDict(strict=True)
+-    enabled: bool = False
+-
+-
+-class _ManifestCounts(BaseModel):
+-    accounts: tuple[dict[str, JsonValue], ...] | None = None
+-    apiKeys: tuple[_ClientKey, ...] | None = None
+-
+-
+ class _AuthFiles(BaseModel):
+     files: tuple[AuthFileMetadata, ...]
+ 
+@@ -244,7 +236,7 @@ class CockpitAdminClient:
+             return CockpitFailure("invalid_response", result.status_code)
+         try:
+             data: Final = _JSON.validate_json(result.content)
+-            counts: Final = _ManifestCounts.model_validate(data)
++            counts: Final = CockpitCountManifest.model_validate(data)
+         except ValidationError:
+             return CockpitFailure("invalid_response", result.status_code)
+         return ManifestSnapshot(
+@@ -345,4 +337,4 @@ async def cockpit_status(client: CockpitAdminClient | None) -> CockpitStatus | C
+         enabled_key_count=manifest.enabled_key_count,
+         credential_count=len(files),
+         persisted_manifest_revision=manifest.revision,
+-    )
++    )
+\ No newline at end of file
+diff --git a/account-pool/account_pool/cockpit_failure.py b/account-pool/account_pool/cockpit_failure.py
+new file mode 100644
+index 0000000000..fab254b346
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_failure.py
+@@ -0,0 +1,31 @@
++"""分类 Cockpit 管理失败；各功能仍保留自己的公开错误码和状态映射。"""
++
++from __future__ import annotations
++
++from typing import Final
++
++from account_pool.cockpit_admin import CockpitFailure
++
++
++def unavailable(failure: CockpitFailure) -> bool:
++    return failure.category == "transport" or failure.status_code == 503
++
++
++def precondition(failure: CockpitFailure) -> bool:
++    return failure.category == "precondition"
++
++
++def invalid_payload(failure: CockpitFailure) -> bool:
++    return failure.category == "invalid_response"
++
++
++def server_error(failure: CockpitFailure) -> bool:
++    return (failure.status_code or 0) >= 500
++
++
++def write_outcome_unknown(failure: CockpitFailure) -> bool:
++    return failure.category in {"transport", "invalid_response"} or server_error(failure)
++
++
++READ_FAILURE_STATUS: Final = 502
++UNAVAILABLE_STATUS: Final = 503
+diff --git a/account-pool/account_pool/cockpit_manifest.py b/account-pool/account_pool/cockpit_manifest.py
+new file mode 100644
+index 0000000000..dfd77ae8a5
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_manifest.py
+@@ -0,0 +1,102 @@
++"""集中定义 Cockpit manifest 的只读字段视图；写入仍基于原始快照保留未知字段。"""
++
++from __future__ import annotations
++
++from pathlib import PurePosixPath
++from typing import Final
++
++from pydantic import BaseModel, ConfigDict, Field, JsonValue
++
++
++class CockpitAccount(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    id: str
++    authId: str = ""
++    authKind: str = ""
++    accessTokenOnly: bool = False
++    upstreamApiKey: str = Field(default="", repr=False)
++
++
++class CockpitTargetAccount(CockpitAccount):
++    model_config = ConfigDict(frozen=True, strict=True)
++
++    id: str = Field(min_length=1)
++
++
++class CockpitPolicyAccount(CockpitAccount):
++    model_config = ConfigDict(strict=True)
++
++    id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
++
++
++class CockpitAlias(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    sourceModel: str = ""
++    alias: str = ""
++
++
++class CockpitAccountModelRule(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    accountId: str = ""
++    excludedModels: list[str] | None = None
++
++
++class CockpitPolicyManifest(BaseModel):
++    routingStrategy: str = "auto"
++    accounts: tuple[CockpitPolicyAccount, ...] | None = None
++    customRoutingRules: tuple[dict[str, JsonValue], ...] | None = None
++
++
++class CockpitAccountManifest(BaseModel):
++    accounts: tuple[CockpitTargetAccount, ...] | None = None
++
++
++class CockpitScopeManifest(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    accounts: list[CockpitAccount] | None = None
++    apiKeys: list[dict[str, JsonValue]] | None = None
++    modelIds: list[str] | None = None
++    modelAliases: list[CockpitAlias] | None = None
++    excludedModels: list[str] | None = None
++    accountModelRules: list[CockpitAccountModelRule] | None = None
++
++
++class CockpitKeyCount(BaseModel):
++    model_config = ConfigDict(strict=True)
++
++    enabled: bool = False
++
++
++class CockpitCountManifest(BaseModel):
++    accounts: tuple[dict[str, JsonValue], ...] | None = None
++    apiKeys: tuple[CockpitKeyCount, ...] | None = None
++
++
++def auth_aliases(auth_id: str) -> frozenset[str]:
++    value: Final = auth_id.strip().lower()
++    return frozenset((value, PurePosixPath(value).name)) if value else frozenset()
++
++
++def wildcard_match(pattern: str, model: str) -> bool:
++    normalized: Final = pattern.strip().casefold()
++    value: Final = model.strip().casefold()
++    if not normalized or not value:
++        return False
++    if normalized == "*":
++        return True
++    if "*" not in normalized:
++        return normalized == value
++    anchored_start: Final = not normalized.startswith("*")
++    anchored_end: Final = not normalized.endswith("*")
++    parts: Final = tuple(part for part in normalized.split("*") if part)
++    remaining: str = value
++    for index, part in enumerate(parts):
++        found = remaining.find(part)
++        if found < 0 or (index == 0 and anchored_start and found != 0):
++            return False
++        remaining = remaining[found + len(part) :]
++    return not anchored_end or bool(parts) and value.endswith(parts[-1])
+diff --git a/account-pool/account_pool/cockpit_policy.py b/account-pool/account_pool/cockpit_policy.py
+index 2b74ac525b..3a1c38b63f 100644
+--- a/account-pool/account_pool/cockpit_policy.py
++++ b/account-pool/account_pool/cockpit_policy.py
+@@ -8,6 +8,8 @@ from typing import Final, Literal, Self
+ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, model_validator
+ 
+ from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, ManifestSnapshot
++from account_pool.cockpit_failure import precondition, unavailable, write_outcome_unknown
++from account_pool.cockpit_manifest import CockpitPolicyManifest
+ 
+ CockpitStrategy = Literal[
+     "auto",
+@@ -92,18 +94,6 @@ class PolicyFailure:
+     ]
+ 
+ 
+-class _Account(BaseModel):
+-    model_config = ConfigDict(strict=True)
+-    id: str = Field(min_length=1, max_length=256, pattern=r"^[A-Za-z0-9_-]+$")
+-    authKind: str = ""
+-
+-
+-class _Manifest(BaseModel):
+-    routingStrategy: str = "auto"
+-    accounts: tuple[_Account, ...] | None = None
+-    customRoutingRules: tuple[dict[str, JsonValue], ...] | None = None
+-
+-
+ def _rule(raw: dict[str, JsonValue]) -> CockpitRoutingRule:
+     return CockpitRoutingRule.model_validate(
+         {
+@@ -118,7 +108,7 @@ def _rule(raw: dict[str, JsonValue]) -> CockpitRoutingRule:
+ 
+ def _view(snapshot: ManifestSnapshot) -> CockpitPolicyView | PolicyFailure:
+     try:
+-        manifest: Final = _Manifest.model_validate(snapshot.data)
++        manifest: Final = CockpitPolicyManifest.model_validate(snapshot.data)
+         rules: Final = tuple(_rule(raw) for raw in manifest.customRoutingRules or ())
+     except ValidationError:
+         return PolicyFailure(502, "invalid_response")
+@@ -155,9 +145,7 @@ async def read_cockpit_policy(client: CockpitAdminClient | None) -> CockpitPolic
+         return PolicyFailure(503, "unavailable")
+     snapshot: Final = await client.read_manifest()
+     if isinstance(snapshot, CockpitFailure):
+-        return PolicyFailure(
+-            503 if snapshot.category == "transport" or snapshot.status_code == 503 else 502, "unavailable"
+-        )
++        return PolicyFailure(503 if unavailable(snapshot) else 502, "unavailable")
+     return _view(snapshot)
+ 
+ 
+@@ -180,7 +168,7 @@ async def save_cockpit_policy(
+     ids: Final = tuple(rule.account_id for rule in request.custom_rules)
+     if len(ids) != len(set(ids)) or any(account_id not in view.account_ids for account_id in ids):
+         return PolicyFailure(422, "invalid_rule_accounts")
+-    manifest: Final = _Manifest.model_validate(snapshot.data)
++    manifest: Final = CockpitPolicyManifest.model_validate(snapshot.data)
+     old_rules: Final = {
+         raw.get("accountId"): raw for raw in manifest.customRoutingRules or () if isinstance(raw.get("accountId"), str)
+     }
+@@ -202,9 +190,9 @@ async def save_cockpit_policy(
+     # 单次 CAS 更新，不写第二份策略或凭据。响应丢失时不能盲目补偿覆盖并发管理员。
+     receipt: Final = await client.write_manifest(data, request.revision)
+     if isinstance(receipt, CockpitFailure):
+-        if receipt.category == "precondition":
++        if precondition(receipt):
+             return PolicyFailure(409, "revision_conflict")
+-        if receipt.category in {"transport", "invalid_response"} or (receipt.status_code or 0) >= 500:
++        if write_outcome_unknown(receipt):
+             return PolicyFailure(503, "write_outcome_unknown")
+         return PolicyFailure(502, "write_rejected")
+     if receipt.revision is None:
+@@ -216,4 +204,4 @@ async def save_cockpit_policy(
+         account_ids=view.account_ids,
+         editable=True,
+         blocked_reason=None,
+-    )
++    )
+\ No newline at end of file
+diff --git a/account-pool/account_pool/cockpit_preflight.py b/account-pool/account_pool/cockpit_preflight.py
+index 8f17d3fdd7..ffd304292f 100644
+--- a/account-pool/account_pool/cockpit_preflight.py
++++ b/account-pool/account_pool/cockpit_preflight.py
+@@ -2,7 +2,6 @@
+ 
+ from __future__ import annotations
+ 
+-from pathlib import PurePosixPath
+ from typing import Final, Literal
+ from uuid import UUID
+ 
+@@ -11,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
+ from account_pool.application.effective_policy import effective_policy
+ from account_pool.card_keys import CardKeyService
+ from account_pool.cockpit_admin import AuthFileMetadata, CockpitAdminClient, CockpitFailure
++from account_pool.cockpit_manifest import CockpitAccountManifest, CockpitTargetAccount, auth_aliases
+ from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus, SupplierKind
+ from account_pool.policies import PolicyRepository
+ from account_pool.ports import EnvironmentRepository
+@@ -101,20 +101,6 @@ class CockpitPreflightReport(BaseModel):
+     )
+ 
+ 
+-class _TargetAccount(BaseModel):
+-    model_config = ConfigDict(frozen=True, strict=True)
+-
+-    id: str = Field(min_length=1)
+-    authId: str = ""
+-    authKind: str = ""
+-    accessTokenOnly: bool = False
+-    upstreamApiKey: str = Field(default="", repr=False)
+-
+-
+-class _Manifest(BaseModel):
+-    accounts: tuple[_TargetAccount, ...] | None = None
+-
+-
+ def _available(record: EnvironmentRecord) -> bool:
+     return (
+         record.enabled
+@@ -125,14 +111,9 @@ def _available(record: EnvironmentRecord) -> bool:
+     )
+ 
+ 
+-def _auth_aliases(auth_id: str) -> frozenset[str]:
+-    value: Final = auth_id.strip().lower()
+-    return frozenset((value, PurePosixPath(value).name)) if value else frozenset()
+-
+-
+-CockpitPreflightManifest = _Manifest
++CockpitPreflightManifest = CockpitAccountManifest
+ source_available_for_cockpit_preflight: Final = _available
+-cockpit_auth_aliases: Final = _auth_aliases
++cockpit_auth_aliases: Final = auth_aliases
+ 
+ 
+ def _account_report(
+@@ -140,7 +121,7 @@ def _account_report(
+     source: EnvironmentRecord | None,
+     origin: EnvironmentRecord | None,
+     authorized: tuple[UUID, ...],
+-    targets: tuple[_TargetAccount, ...],
++    targets: tuple[CockpitTargetAccount, ...],
+     files: tuple[AuthFileMetadata, ...],
+     records: tuple[EnvironmentRecord, ...],
+ ) -> CockpitAccountPreflight:
+@@ -181,8 +162,8 @@ def _account_report(
+         ),
+         (
+             len(matches) == 1 and (
+-                sum(bool(_auth_aliases(target.authId) & _auth_aliases(matches[0].authId)) for target in targets) > 1
+-                or sum(bool(_auth_aliases(file.id) & _auth_aliases(matches[0].authId)) for file in files) > 1
++                sum(bool(auth_aliases(target.authId) & auth_aliases(matches[0].authId)) for target in targets) > 1
++                or sum(bool(auth_aliases(file.id) & auth_aliases(matches[0].authId)) for file in files) > 1
+             ),
+             "target_credential_collision",
+         ),
+@@ -241,7 +222,7 @@ async def cockpit_preflight(
+     if isinstance(files, CockpitFailure):
+         return files
+     try:
+-        manifest: Final = _Manifest.model_validate(snapshot.data)
++        manifest: Final = CockpitAccountManifest.model_validate(snapshot.data)
+     except ValidationError:
+         return CockpitFailure("invalid_response")
+     accounts: Final = tuple(
+@@ -285,4 +266,4 @@ async def cockpit_preflight(
+             else "native_subject_mapping_unimplemented",
+             "runtime_activation_unverified",
+         ),
+-    )
++    )
+\ No newline at end of file
+diff --git a/account-pool/account_pool/cockpit_receipt_adapter.py b/account-pool/account_pool/cockpit_receipt_adapter.py
+index 91c1012a8f..653200866c 100644
+--- a/account-pool/account_pool/cockpit_receipt_adapter.py
++++ b/account-pool/account_pool/cockpit_receipt_adapter.py
+@@ -51,9 +51,18 @@ class _Response(BaseModel):
+ 
+ 
+ class CockpitSubjectClient:
+-    def __init__(self, config: CockpitSubjectConfig, client: httpx.AsyncClient) -> None:
++    def __init__(
++        self,
++        config: CockpitSubjectConfig,
++        client: httpx.AsyncClient,
++        *,
++        timeout_seconds: float = 10.0,
++    ) -> None:
++        if not 0 < timeout_seconds <= 30:
++            raise ValueError("Subject reader timeout must be between 0 and 30 seconds")
+         self._config = config
+         self._client = client
++        self._timeout = timeout_seconds
+ 
+     async def read(self, subject_hash: str) -> TrustedCredentialScope | None:
+         if len(subject_hash) != 64 or any(char not in "0123456789abcdef" for char in subject_hash):
+@@ -64,7 +73,7 @@ class CockpitSubjectClient:
+                 json={"subject_hash": subject_hash},
+                 headers={"Authorization": "Bearer " + self._config.token.get_secret_value()},
+                 follow_redirects=False,
+-                timeout=10.0,
++                timeout=self._timeout,
+             )
+             if response.status_code != 200:
+                 return None
+diff --git a/account-pool/account_pool/cockpit_runtime.py b/account-pool/account_pool/cockpit_runtime.py
+index 5a4a722696..6f77ddedec 100644
+--- a/account-pool/account_pool/cockpit_runtime.py
++++ b/account-pool/account_pool/cockpit_runtime.py
+@@ -8,6 +8,7 @@ from typing import Annotated, Literal, Self
+ from pydantic import BaseModel, ConfigDict, Field, model_validator
+ 
+ from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, RuntimeSnapshot
++from account_pool.cockpit_failure import invalid_payload, precondition
+ 
+ 
+ class CockpitPolicyApply(BaseModel):
+@@ -42,13 +43,13 @@ class RuntimeFailure:
+ 
+ def _runtime_result(result: RuntimeSnapshot | CockpitFailure, *, applying: bool) -> CockpitPolicyRuntime | RuntimeFailure:
+     if isinstance(result, CockpitFailure):
+-        if result.category == "precondition":
++        if precondition(result):
+             return RuntimeFailure(409, "revision_conflict")
+         if result.code is not None:
+             return RuntimeFailure(422, result.code)
+         if applying:
+             return RuntimeFailure(503, "apply_outcome_unknown")
+-        if result.category == "invalid_response":
++        if invalid_payload(result):
+             return RuntimeFailure(502, "invalid_response")
+         return RuntimeFailure(503, "unavailable")
+     return CockpitPolicyRuntime(
+@@ -70,4 +71,4 @@ async def apply_cockpit_policy(
+ ) -> CockpitPolicyRuntime | RuntimeFailure:
+     if client is None:
+         return RuntimeFailure(503, "unavailable")
+-    return _runtime_result(await client.apply_policy(request.revision), applying=True)
++    return _runtime_result(await client.apply_policy(request.revision), applying=True)
+\ No newline at end of file
+diff --git a/account-pool/account_pool/cockpit_scope.py b/account-pool/account_pool/cockpit_scope.py
+new file mode 100644
+index 0000000000..cad545e6e8
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_scope.py
+@@ -0,0 +1,653 @@
++"""发布已核对原生主体的 Cockpit 授权范围投影；只写暂存条目，不激活或迁移凭据。"""
++
++from __future__ import annotations
++
++import re
++from collections.abc import Mapping
++from dataclasses import dataclass
++from types import MappingProxyType
++from typing import Annotated, Final, Literal, Protocol
++from uuid import NAMESPACE_URL, UUID, uuid5
++
++from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError
++
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitFailure, ManifestSnapshot
++from account_pool.cockpit_credential_receipts import (
++    CredentialBindings,
++    CredentialReceipt,
++    CredentialReceiptRejection,
++    TrustedCredentialScope,
++)
++from account_pool.cockpit_failure import precondition, unavailable, write_outcome_unknown
++from account_pool.cockpit_manifest import CockpitScopeManifest, wildcard_match
++from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
++
++_HASH: Final = r"^[0-9a-f]{64}$"
++_ETAG: Final = r'^"sha256-[0-9a-f]{64}"$'
++_RESERVED_PREFIX: Final = "litellm-subject-"
++_RESERVED_LABEL_PREFIX: Final = "LiteLLM native subject "
++_MAX_RECEIPT: Final = 16384
++
++SubjectHash = Annotated[str, Field(pattern=_HASH)]
++Revision = Annotated[str, Field(pattern=_ETAG)]
++ScopeState = Literal["absent", "staged", "active", "blocked"]
++ModelScope = Literal["none", "restricted"]
++ScopeFailureCode = Literal[
++    "invalid_receipt",
++    "subject_unverified",
++    "receipt_stale",
++    "scope_unverified",
++    "account_missing",
++    "model_scope_unsupported",
++    "model_unmapped",
++    "manifest_changed",
++    "publication_conflict",
++    "revision_conflict",
++    "invalid_manifest",
++    "invalid_response",
++    "unavailable",
++    "write_rejected",
++    "write_outcome_unknown",
++    "not_published",
++    "activation_blocked",
++]
++
++_STATUS: Final[Mapping[ScopeFailureCode, int]] = MappingProxyType(
++    {
++        "invalid_receipt": 422,
++        "subject_unverified": 409,
++        "receipt_stale": 409,
++        "scope_unverified": 422,
++        "account_missing": 422,
++        "model_scope_unsupported": 422,
++        "model_unmapped": 422,
++        "manifest_changed": 409,
++        "publication_conflict": 409,
++        "revision_conflict": 409,
++        "invalid_manifest": 422,
++        "invalid_response": 502,
++        "unavailable": 503,
++        "write_rejected": 502,
++        "write_outcome_unknown": 503,
++        "not_published": 409,
++        "activation_blocked": 409,
++    }
++)
++_RECEIPT_REJECTIONS: Final[Mapping[str, ScopeFailureCode]] = MappingProxyType(
++    {
++        "invalid_subject": "invalid_receipt",
++        "invalid_receipt": "invalid_receipt",
++        "receipt_time_invalid": "invalid_receipt",
++        "subject_unverified": "subject_unverified",
++        "stale_receipt": "receipt_stale",
++        "state_changed": "receipt_stale",
++        "read_unavailable": "unavailable",
++        "invalid_clock": "unavailable",
++    }
++)
++
++
++class CockpitScopePublishRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: SubjectHash
++    receipt: str = Field(min_length=1, max_length=_MAX_RECEIPT)
++    revision: Revision
++
++
++class CockpitScopeRevokeRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: SubjectHash
++    revision: Revision
++
++
++class CockpitScopeActivationRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: SubjectHash
++    revision: Revision
++
++
++class CockpitSubjectScopeView(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_hash: str
++    state: ScopeState
++    account_ids: tuple[str, ...]
++    model_scope: ModelScope
++    models: tuple[str, ...]
++    persisted_manifest_revision: str | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++    ready_to_migrate: Literal[False] = False
++
++
++class CockpitSubjectRouteState(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_hash: str
++    state: ScopeState
++    account_ids: tuple[str, ...] = ()
++    model_scope: ModelScope = "none"
++    models: tuple[str, ...] = ()
++    origin: str | None = None
++    api_key: str | None = Field(default=None, repr=False)
++    persisted_manifest_revision: str | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++
++
++@dataclass(frozen=True, slots=True)
++class ScopeFailure:
++    status: int
++    code: ScopeFailureCode
++
++
++class ReceiptRevalidator(Protocol):
++    async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection: ...
++
++
++class SubjectReader(Protocol):
++    async def read(self, subject_hash: str) -> TrustedCredentialScope | None: ...
++
++
++def _failure(code: ScopeFailureCode) -> ScopeFailure:
++    return ScopeFailure(_STATUS[code], code)
++
++
++def _manifest(snapshot: ManifestSnapshot) -> CockpitScopeManifest | ScopeFailure:
++    try:
++        return CockpitScopeManifest.model_validate(snapshot.data)
++    except ValidationError:
++        return _failure("invalid_response")
++
++
++def _reserved_id(subject_hash: str) -> str:
++    return _RESERVED_PREFIX + subject_hash
++
++
++def subject_routing_token(secrets: EnvironmentSecretDeriver, subject_hash: str) -> str:
++    identity: Final = uuid5(NAMESPACE_URL, "litellm-cockpit-subject:" + subject_hash)
++    return secrets.derive(identity, SecretPurpose.COCKPIT_SUBJECT_ROUTING)
++
++
++class _ReservedKey(BaseModel):
++    model_config = ConfigDict(strict=True, extra="allow")
++
++    id: str
++    label: str = ""
++    key: str = Field(default="", repr=False)
++    enabled: bool = False
++    accountIds: list[str] | None = None
++    allowedModels: list[str] | None = None
++
++
++def _find_reserved(
++    manifest: CockpitScopeManifest, subject_hash: str
++) -> tuple[dict[str, JsonValue], _ReservedKey] | None:
++    expected: Final = _reserved_id(subject_hash)
++    for raw in manifest.apiKeys or ():
++        if raw.get("id") != expected:
++            continue
++        try:
++            return raw, _ReservedKey.model_validate(raw)
++        except ValidationError:
++            return raw, _ReservedKey(id=expected, label="", key="", enabled=False)
++    return None
++
++
++def _entry_valid(
++    entry: _ReservedKey,
++    subject_hash: str,
++    token: str,
++    account_ids: tuple[str, ...],
++) -> bool:
++    return (
++        entry.id == _reserved_id(subject_hash)
++        and entry.label.startswith(_RESERVED_LABEL_PREFIX)
++        and entry.key == token
++        and tuple(entry.accountIds or ()) == account_ids
++        and bool(entry.allowedModels)
++    )
++
++
++def _visible(model: str, manifest: CockpitScopeManifest, account_id: UUID) -> bool:
++    catalog: Final = {value.strip().casefold() for value in manifest.modelIds or () if value.strip()}
++    if model.strip().casefold() not in catalog:
++        return False
++    if any(wildcard_match(rule, model) for rule in manifest.excludedModels or ()):
++        return False
++    rule: Final = next(
++        (item for item in manifest.accountModelRules or () if item.accountId == str(account_id)),
++        None,
++    )
++    return rule is None or not any(wildcard_match(rule, model) for rule in rule.excludedModels or ())
++
++
++def _entry_authorized(
++    manifest: CockpitScopeManifest,
++    account_ids: tuple[str, ...],
++    models: tuple[str, ...],
++) -> bool:
++    accounts: Final = {account.id for account in manifest.accounts or ()}
++    if not account_ids or not set(account_ids).issubset(accounts):
++        return False
++    try:
++        cards: Final = tuple(UUID(account_id) for account_id in account_ids)
++    except ValueError:
++        return False
++    return all(_visible(model, manifest, card) for card in cards for model in models)
++
++
++def _manifest_problem(manifest: CockpitScopeManifest, extra: dict[str, JsonValue] | None = None) -> bool:
++    seen_accounts: set[str] = set()
++    for account in manifest.accounts or ():
++        identifier = account.id.strip()
++        if not identifier or identifier in seen_accounts:
++            return True
++        seen_accounts.add(identifier)
++    seen_ids: set[str] = set()
++    seen_values: set[str] = set()
++    for raw in (*(manifest.apiKeys or ()), *((extra,) if extra is not None else ())):
++        key_id = raw.get("id")
++        if not isinstance(key_id, str) or not key_id.strip() or key_id in seen_ids:
++            return True
++        seen_ids.add(key_id)
++        enabled = raw.get("enabled", False)
++        value = raw.get("key", "")
++        if not isinstance(enabled, bool) or not isinstance(value, str):
++            return True
++        if not enabled:
++            continue
++        if not value.strip() or value in seen_values:
++            return True
++        seen_values.add(value)
++        accounts = raw.get("accountIds", [])
++        if not isinstance(accounts, list) or not accounts:
++            return True
++        if any(not isinstance(item, str) or not item.strip() or item not in seen_accounts for item in accounts):
++            return True
++    return False
++
++
++def _desired_entry(subject_hash: str, card_id: UUID, models: tuple[str, ...], token: str) -> dict[str, JsonValue]:
++    return {
++        "id": _reserved_id(subject_hash),
++        "label": _RESERVED_LABEL_PREFIX + subject_hash[:12],
++        "key": token,
++        "accountIds": [str(card_id)],
++        "allowedModels": list(models),
++        "enabled": False,
++    }
++
++
++@dataclass(frozen=True, slots=True)
++class _Publication:
++    entry: dict[str, JsonValue]
++    card_id: UUID
++    models: tuple[str, ...]
++
++
++def _prepared_publication(
++    request: CockpitScopePublishRequest,
++    bindings: CredentialBindings,
++    snapshot: ManifestSnapshot,
++    manifest: CockpitScopeManifest,
++    token: str,
++) -> _Publication | ScopeFailure:
++    if request.revision != snapshot.revision or bindings.manifest_revision != snapshot.revision:
++        return _failure("manifest_changed")
++    account_id: Final = bindings.target_account_id
++    if bindings.scope.model_scope != "restricted" or not bindings.scope.models:
++        return _failure("model_scope_unsupported")
++    account = next((item for item in manifest.accounts or () if item.id == str(account_id)), None)
++    if account is None:
++        return _failure("account_missing")
++    if (
++        account.authKind not in ("", "oauth")
++        or account.accessTokenOnly
++        or account.upstreamApiKey.strip()
++        or account.authId != bindings.target_auth_id
++    ):
++        return _failure("scope_unverified")
++    models: Final = tuple(bindings.scope.models)
++    if any(not _visible(model, manifest, account_id) for model in models):
++        return _failure("model_unmapped")
++    return _Publication(
++        entry=_desired_entry(request.subject_hash, account_id, models, token), card_id=account_id, models=models
++    )
++
++
++class CockpitScopeService:
++    def __init__(
++        self,
++        receipts: ReceiptRevalidator | None,
++        target: CockpitAdminClient,
++        secrets: EnvironmentSecretDeriver,
++        origin: str | None = None,
++        subjects: SubjectReader | None = None,
++    ) -> None:
++        self._receipts: Final = receipts
++        self._target: Final = target
++        self._secrets: Final = secrets
++        self._origin: Final = origin
++        self._subjects: Final = subjects
++
++    async def read(self, subject_hash: str) -> CockpitSubjectScopeView | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return manifest
++        view: Final = self._view(subject_hash, snapshot, manifest)
++        if isinstance(view, ScopeFailure) or view.state != "active":
++            return view
++        if await self._authorized(manifest, subject_hash, view.account_ids, view.models):
++            return view
++        return view.model_copy(update={"state": "blocked"})
++
++    async def publish(self, request: CockpitScopePublishRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        if self._receipts is None:
++            return _failure("unavailable")
++        receipt: Final = await self._receipts.revalidate(request.subject_hash, request.receipt)
++        if isinstance(receipt, CredentialReceiptRejection):
++            return _failure(_RECEIPT_REJECTIONS.get(receipt.code, "scope_unverified"))
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return _failure("invalid_manifest")
++        token: Final = subject_routing_token(self._secrets, request.subject_hash)
++        prepared: Final = _prepared_publication(
++            request,
++            receipt.payload.bindings,
++            snapshot,
++            manifest,
++            token,
++        )
++        if isinstance(prepared, ScopeFailure):
++            return prepared
++        existing: Final = _find_reserved(manifest, request.subject_hash)
++        if any(
++            raw.get("key") == token and raw.get("id") != _reserved_id(request.subject_hash)
++            for raw in manifest.apiKeys or ()
++        ):
++            return _failure("publication_conflict")
++        if existing is not None:
++            raw, entry = existing
++            if not _entry_valid(entry, request.subject_hash, token, (str(prepared.card_id),)) or raw != prepared.entry:
++                return _failure("publication_conflict")
++            if _manifest_problem(manifest):
++                return _failure("invalid_manifest")
++            return self._view(request.subject_hash, snapshot, manifest)
++        if _manifest_problem(manifest, prepared.entry):
++            return _failure("invalid_manifest")
++        data: Final[dict[str, JsonValue]] = {
++            **snapshot.data,
++            "apiKeys": [*(manifest.apiKeys or ()), prepared.entry],
++        }
++        receipt_after: Final = await self._target.write_manifest(data, snapshot.revision)
++        if isinstance(receipt_after, CockpitFailure):
++            return _write_failure(receipt_after)
++        if receipt_after.revision is None:
++            return _failure("write_outcome_unknown")
++        return CockpitSubjectScopeView(
++            subject_hash=request.subject_hash,
++            state="staged",
++            account_ids=(str(prepared.card_id),),
++            model_scope="restricted",
++            models=prepared.models,
++            persisted_manifest_revision=receipt_after.revision,
++        )
++
++    async def revoke(self, request: CockpitScopeRevokeRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        if request.revision != snapshot.revision:
++            return _failure("revision_conflict")
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return _failure("invalid_manifest")
++        expected: Final = _reserved_id(request.subject_hash)
++        remaining: Final = tuple(raw for raw in manifest.apiKeys or () if raw.get("id") != expected)
++        if len(remaining) == len(manifest.apiKeys or ()):
++            return CockpitSubjectScopeView(
++                subject_hash=request.subject_hash,
++                state="absent",
++                account_ids=(),
++                model_scope="none",
++                models=(),
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if _manifest_problem(manifest.model_copy(update={"apiKeys": list(remaining)})):
++            return _failure("invalid_manifest")
++        data: Final[dict[str, JsonValue]] = {**snapshot.data, "apiKeys": list(remaining)}
++        receipt: Final = await self._target.write_manifest(data, snapshot.revision)
++        if isinstance(receipt, CockpitFailure):
++            return _write_failure(receipt)
++        if receipt.revision is None:
++            return _failure("write_outcome_unknown")
++        return CockpitSubjectScopeView(
++            subject_hash=request.subject_hash,
++            state="absent",
++            account_ids=(),
++            model_scope="none",
++            models=(),
++            persisted_manifest_revision=receipt.revision,
++        )
++
++    async def activate(self, request: CockpitScopeActivationRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        return await self._set_enabled(request.subject_hash, request.revision, True)
++
++    async def deactivate(self, request: CockpitScopeActivationRequest) -> CockpitSubjectScopeView | ScopeFailure:
++        return await self._set_enabled(request.subject_hash, request.revision, False)
++
++    async def _set_enabled(
++        self,
++        subject_hash: str,
++        revision: str,
++        enabled: bool,
++    ) -> CockpitSubjectScopeView | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        if revision != snapshot.revision:
++            return _failure("revision_conflict")
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return _failure("invalid_manifest")
++        found: Final = _find_reserved(manifest, subject_hash)
++        if found is None:
++            return _failure("not_published")
++        raw, entry = found
++        token: Final = subject_routing_token(self._secrets, subject_hash)
++        account_ids: Final = tuple(entry.accountIds or ())
++        models: Final = tuple(entry.allowedModels or ())
++        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
++            return _failure("activation_blocked")
++        if enabled:
++            if self._origin is None or not await self._authorized(manifest, subject_hash, account_ids, models):
++                return _failure("activation_blocked")
++            if entry.enabled:
++                return self._activation_view(subject_hash, account_ids, models, snapshot.revision, True)
++        elif not entry.enabled:
++            return self._activation_view(subject_hash, account_ids, models, snapshot.revision, False)
++        updated: Final = {**raw, "enabled": enabled}
++        keys: Final = [updated if item.get("id") == raw.get("id") else item for item in manifest.apiKeys or ()]
++        candidate: Final = manifest.model_copy(update={"apiKeys": keys})
++        if _manifest_problem(candidate):
++            return _failure("invalid_manifest")
++        keys_json: Final[list[JsonValue]] = [dict(item) for item in keys]
++        data: Final[dict[str, JsonValue]] = {**snapshot.data, "apiKeys": keys_json}
++        receipt: Final = await self._target.write_manifest(data, snapshot.revision)
++        if isinstance(receipt, CockpitFailure):
++            return _write_failure(receipt)
++        if receipt.revision is None:
++            return _failure("write_outcome_unknown")
++        return self._activation_view(subject_hash, account_ids, models, receipt.revision, enabled)
++
++    def _activation_view(
++        self,
++        subject_hash: str,
++        account_ids: tuple[str, ...],
++        models: tuple[str, ...],
++        revision: str,
++        enabled: bool,
++    ) -> CockpitSubjectScopeView:
++        return CockpitSubjectScopeView(
++            subject_hash=subject_hash,
++            state="active" if enabled else "staged",
++            account_ids=account_ids,
++            model_scope="restricted",
++            models=models,
++            persisted_manifest_revision=revision,
++        )
++
++    async def route_state(self, subject_hash: str) -> CockpitSubjectRouteState | ScopeFailure:
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return _read_failure(snapshot)
++        manifest: Final = _manifest(snapshot)
++        if isinstance(manifest, ScopeFailure):
++            return manifest
++        found: Final = _find_reserved(manifest, subject_hash)
++        if found is None:
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="absent",
++                persisted_manifest_revision=snapshot.revision,
++            )
++        _, entry = found
++        token: Final = subject_routing_token(self._secrets, subject_hash)
++        account_ids: Final = tuple(entry.accountIds or ())
++        models: Final = tuple(entry.allowedModels or ())
++        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="blocked",
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if not entry.enabled:
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="staged",
++                account_ids=account_ids,
++                model_scope="restricted",
++                models=models,
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if self._origin is None or not await self._authorized(manifest, subject_hash, account_ids, models):
++            return CockpitSubjectRouteState(
++                subject_hash=subject_hash,
++                state="blocked",
++                account_ids=account_ids,
++                model_scope="restricted",
++                models=models,
++                persisted_manifest_revision=snapshot.revision,
++            )
++        return CockpitSubjectRouteState(
++            subject_hash=subject_hash,
++            state="active",
++            account_ids=account_ids,
++            model_scope="restricted",
++            models=models,
++            origin=self._origin,
++            api_key=token,
++            persisted_manifest_revision=snapshot.revision,
++        )
++
++    async def _authorized(
++        self,
++        manifest: CockpitScopeManifest,
++        subject_hash: str,
++        account_ids: tuple[str, ...],
++        models: tuple[str, ...],
++    ) -> bool:
++        if not _entry_authorized(manifest, account_ids, models) or self._subjects is None:
++            return False
++        current: TrustedCredentialScope | None
++        try:
++            current = await self._subjects.read(subject_hash)
++        except Exception:  # noqa: BLE001  # a failed subject read must fail closed
++            current = None
++        return _subject_matches(current, subject_hash, account_ids, models)
++
++    def _view(
++        self,
++        subject_hash: str,
++        snapshot: ManifestSnapshot,
++        manifest: CockpitScopeManifest,
++    ) -> CockpitSubjectScopeView | ScopeFailure:
++        found: Final = _find_reserved(manifest, subject_hash)
++        if found is None:
++            return CockpitSubjectScopeView(
++                subject_hash=subject_hash,
++                state="absent",
++                account_ids=(),
++                model_scope="none",
++                models=(),
++                persisted_manifest_revision=snapshot.revision,
++            )
++        _, entry = found
++        token: Final = subject_routing_token(self._secrets, subject_hash)
++        account_ids: Final = tuple(entry.accountIds or ())
++        models: Final = tuple(entry.allowedModels or ())
++        if not _entry_valid(entry, subject_hash, token, account_ids) or not account_ids:
++            return CockpitSubjectScopeView(
++                subject_hash=subject_hash,
++                state="blocked",
++                account_ids=(),
++                model_scope="none",
++                models=(),
++                persisted_manifest_revision=snapshot.revision,
++            )
++        if not entry.enabled:
++            state: ScopeState = "staged"
++        elif self._origin is not None:
++            state = "active"
++        else:
++            state = "blocked"
++        return CockpitSubjectScopeView(
++            subject_hash=subject_hash,
++            state=state,
++            account_ids=account_ids,
++            model_scope="restricted",
++            models=models,
++            persisted_manifest_revision=snapshot.revision,
++        )
++
++
++def _subject_matches(
++    subject: TrustedCredentialScope | None,
++    subject_hash: str,
++    account_ids: tuple[str, ...],
++    models: tuple[str, ...],
++) -> bool:
++    return (
++        subject is not None
++        and subject.subject_hash == subject_hash
++        and subject.model_scope == "restricted"
++        and len(subject.models) == len(models)
++        and frozenset(subject.models) == frozenset(models)
++        and account_ids == (str(subject.card_id),)
++    )
++
++
++def _read_failure(failure: CockpitFailure) -> ScopeFailure:
++    if unavailable(failure):
++        return _failure("unavailable")
++    return _failure("invalid_response")
++
++
++def _write_failure(failure: CockpitFailure) -> ScopeFailure:
++    if precondition(failure):
++        return _failure("revision_conflict")
++    if write_outcome_unknown(failure):
++        return _failure("write_outcome_unknown")
++    return _failure("write_rejected")
++
++
++def valid_subject_hash(value: str) -> bool:
++    return re.fullmatch(_HASH, value) is not None
+diff --git a/account-pool/account_pool/cockpit_scope_api.py b/account-pool/account_pool/cockpit_scope_api.py
+new file mode 100644
+index 0000000000..753a1a76bd
+--- /dev/null
++++ b/account-pool/account_pool/cockpit_scope_api.py
+@@ -0,0 +1,98 @@
++"""对外暴露 Cockpit 授权范围发布与内部路由状态读取路由。"""
++
++from __future__ import annotations
++
++from collections.abc import Callable
++from typing import Final
++
++from fastapi import APIRouter, Depends, HTTPException, Response
++from fastapi.security import HTTPAuthorizationCredentials
++
++from account_pool.cockpit_scope import (
++    CockpitScopeActivationRequest,
++    CockpitScopePublishRequest,
++    CockpitScopeRevokeRequest,
++    CockpitScopeService,
++    CockpitSubjectRouteState,
++    CockpitSubjectScopeView,
++    ScopeFailure,
++    valid_subject_hash,
++)
++
++
++def create_cockpit_scope_router(
++    cockpit_scope: CockpitScopeService | None,
++    require_manager: Callable[[HTTPAuthorizationCredentials | None], None],
++) -> APIRouter:
++    router: Final = APIRouter()
++
++    def scope_result(result: CockpitSubjectScopeView | ScopeFailure) -> CockpitSubjectScopeView:
++        if isinstance(result, ScopeFailure):
++            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
++        return result
++
++    def scope_service() -> CockpitScopeService:
++        if cockpit_scope is None:
++            raise HTTPException(503, "Cockpit scope unavailable", headers={"Cache-Control": "no-store"})
++        return cockpit_scope
++
++    @router.get("/api/cockpit/scope/{subject_hash}", dependencies=[Depends(require_manager)])
++    async def get_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        subject_hash: str,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        if not valid_subject_hash(subject_hash):
++            raise HTTPException(422, "invalid_receipt", headers={"Cache-Control": "no-store"})
++        return scope_result(await scope_service().read(subject_hash))
++
++    @router.post("/api/cockpit/scope", dependencies=[Depends(require_manager)])
++    async def publish_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopePublishRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        return scope_result(await scope_service().publish(request))
++
++    @router.delete("/api/cockpit/scope", dependencies=[Depends(require_manager)])
++    async def revoke_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopeRevokeRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        return scope_result(await scope_service().revoke(request))
++
++    @router.post("/api/cockpit/scope/activate", dependencies=[Depends(require_manager)])
++    async def activate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopeActivationRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        return scope_result(await scope_service().activate(request))
++
++    @router.post("/api/cockpit/scope/deactivate", dependencies=[Depends(require_manager)])
++    async def deactivate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopeActivationRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        return scope_result(await scope_service().deactivate(request))
++
++    @router.get(
++        "/internal/cockpit/route/{subject_hash}",
++        dependencies=[Depends(require_manager)],
++        include_in_schema=False,
++    )
++    async def get_cockpit_route(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        subject_hash: str,
++        response: Response,
++    ) -> CockpitSubjectRouteState:
++        response.headers["Cache-Control"] = "no-store"
++        if not valid_subject_hash(subject_hash):
++            raise HTTPException(422, "invalid_receipt", headers={"Cache-Control": "no-store"})
++        result: Final = await scope_service().route_state(subject_hash)
++        if isinstance(result, ScopeFailure):
++            raise HTTPException(result.status, result.code, headers={"Cache-Control": "no-store"})
++        return result
++
++    return router
+diff --git a/account-pool/account_pool/config.py b/account-pool/account_pool/config.py
+index cf605f9eab..0289429f1a 100644
+--- a/account-pool/account_pool/config.py
++++ b/account-pool/account_pool/config.py
+@@ -38,6 +38,7 @@ class Settings(BaseSettings):
+     cockpit_admin_url: str | None = Field(default=None, repr=False)
+     cockpit_admin_token: SecretStr | None = Field(default=None, min_length=32)
+     cockpit_subject_url: str | None = Field(default=None, repr=False)
++    cockpit_data_url: str | None = Field(default=None, repr=False)
+     secret_seed: str = Field(min_length=32)
+     manager_container: str = Field(default="litellm-account-pool", pattern=r"^[a-zA-Z0-9_.-]+$")
+     gateway_container: str = Field(default="litellm", pattern=r"^[a-zA-Z0-9_.-]+$")
+@@ -103,9 +104,11 @@ class Settings(BaseSettings):
+     def validate_cockpit_subject(self) -> "Settings":
+         if self.cockpit_subject_url is not None and self.cockpit_admin_config() is None:
+             raise ValueError("Cockpit subject URL requires Cockpit admin configuration")
++        if self.cockpit_data_url is not None and self.cockpit_admin_config() is None:
++            raise ValueError("Cockpit data URL requires Cockpit admin configuration")
+         return self
+ 
+-    @field_validator("cockpit_subject_url")
++    @field_validator("cockpit_subject_url", "cockpit_data_url")
+     @classmethod
+     def validate_cockpit_subject_url(cls, value: str | None) -> str | None:
+         return None if value is None else validate_http_origin(value)
+diff --git a/account-pool/account_pool/shared/secrets.py b/account-pool/account_pool/shared/secrets.py
+index e28601652b..6b59fd0efd 100644
+--- a/account-pool/account_pool/shared/secrets.py
++++ b/account-pool/account_pool/shared/secrets.py
+@@ -19,6 +19,7 @@ class SecretPurpose(StrEnum):
+     AUTHORIZATION_STATE = "authorization-state"
+     CREDENTIAL_IDENTITY = "credential-identity"
+     COCKPIT_CREDENTIAL_RECEIPT = "cockpit-credential-receipt"
++    COCKPIT_SUBJECT_ROUTING = "cockpit-subject-routing"
+ 
+ 
+ class EnvironmentSecretDeriver:
+diff --git a/account-pool/tests/account_pool/test_cockpit_scope.py b/account-pool/tests/account_pool/test_cockpit_scope.py
+new file mode 100644
+index 0000000000..5e2be77749
+--- /dev/null
++++ b/account-pool/tests/account_pool/test_cockpit_scope.py
+@@ -0,0 +1,599 @@
++"""离线验证 Cockpit 授权范围发布只写暂存投影，不激活、不部署或读取真实凭据。"""
++
++from __future__ import annotations
++
++import asyncio
++import copy
++import hashlib
++import json
++from dataclasses import dataclass, field
++from typing import Final, Literal, TypedDict
++from uuid import UUID
++
++import httpx
++import pytest
++from account_pool.cockpit_admin import CockpitAdminClient, CockpitAdminConfig
++from account_pool.cockpit_credential_receipts import (
++    CredentialBindings,
++    CredentialReceipt,
++    CredentialReceiptPayload,
++    CredentialReceiptRejection,
++    ReceiptRejectionCode,
++    TrustedCredentialScope,
++)
++from account_pool.cockpit_scope import (
++    CockpitScopeActivationRequest,
++    CockpitScopePublishRequest,
++    CockpitScopeRevokeRequest,
++    CockpitScopeService,
++    CockpitSubjectRouteState,
++    CockpitSubjectScopeView,
++    ScopeFailure,
++    subject_routing_token,
++)
++from account_pool.shared.secrets import EnvironmentSecretDeriver
++from pydantic import SecretStr, TypeAdapter
++
++CARD: Final = UUID("00000000-0000-0000-0000-000000000001")
++SUBJECT: Final = "a" * 64
++R1: Final = '"sha256-' + "b" * 64 + '"'
++R2: Final = '"sha256-' + "c" * 64 + '"'
++R3: Final = '"sha256-' + "d" * 64 + '"'
++SECRETS: Final = EnvironmentSecretDeriver("FAKE-SEED-ONLY-32-CHARACTERS")
++
++
++class _FixtureData(TypedDict):
++    accounts: list[dict[str, object]]
++    apiKeys: list[dict[str, object]]
++    modelIds: list[str]
++    futureRoot: dict[str, str]
++
++
++@dataclass
++class ScopeFixture:
++    mode: str = "ok"
++    revision: str = R1
++    calls: list[tuple[str, str | None]] = field(default_factory=list)
++    data: _FixtureData = field(
++        default_factory=lambda: {
++            "accounts": [{"id": str(CARD), "authId": "target.json", "authKind": "oauth"}],
++            "apiKeys": [{"id": "private", "enabled": True, "key": "PRIVATE", "accountIds": [str(CARD)]}],
++            "modelIds": ["fixture-model"],
++            "futureRoot": {"secret": "PRIVATE"},
++        }
++    )
++
++    def handle(self, request: httpx.Request) -> httpx.Response:
++        self.calls.append((request.method, request.headers.get("If-Match")))
++        assert request.url.path == "/admin/v1/manifest"
++        if request.method == "GET":
++            return httpx.Response(200, headers={"ETag": self.revision}, json=self.data)
++        assert request.method == "PUT"
++        assert request.headers["If-Match"] == self.revision
++        if self.mode == "conflict":
++            return httpx.Response(412, text="PRIVATE")
++        if self.mode == "lost":
++            raise httpx.ReadTimeout("PRIVATE", request=request)
++        if self.mode == "rejected":
++            return httpx.Response(400, text="PRIVATE")
++        self.data = json.loads(request.content)
++        self.revision = R2
++        return httpx.Response(202, headers={"ETag": R2}, json={"status": "persisted", "restartRequired": True})
++
++
++def receipt(
++    *,
++    models: tuple[str, ...] = ("fixture-model",),
++    model_scope: Literal["restricted", "unrestricted"] = "restricted",
++    manifest_revision: str = R1,
++) -> CredentialReceipt:
++    scope: Final = TrustedCredentialScope(subject_hash=SUBJECT, card_id=CARD, model_scope=model_scope, models=models)
++    bindings: Final = CredentialBindings(
++        scope=scope,
++        source_version=1,
++        source_file="source.json",
++        source_state_digest=hashlib.sha256(b"state").hexdigest(),
++        source_fingerprint_digest=hashlib.sha256(b"fingerprint").hexdigest(),
++        source_content_digest=hashlib.sha256(b"content").hexdigest(),
++        source_size=1,
++        target_account_id=CARD,
++        target_auth_id="target.json",
++        target_file_revision='"sha256-' + hashlib.sha256(b"content").hexdigest() + '"',
++        manifest_revision=manifest_revision,
++    )
++    payload: Final = CredentialReceiptPayload(issued_at=1000, expires_at=1300, bindings=bindings)
++    return CredentialReceipt(payload=payload, signature="d" * 64)
++
++
++class Receipts:
++    def __init__(
++        self,
++        *,
++        rejection: str | None = None,
++        models: tuple[str, ...] = ("fixture-model",),
++        model_scope: Literal["restricted", "unrestricted"] = "restricted",
++        manifest_revision: str = R1,
++    ) -> None:
++        self.rejection: Final[ReceiptRejectionCode | None] = (
++            None if rejection is None else TypeAdapter(ReceiptRejectionCode).validate_python(rejection)
++        )
++        self.models = models
++        self.model_scope: Final[Literal["restricted", "unrestricted"]] = model_scope
++        self.manifest_revision = manifest_revision
++
++    async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection:
++        assert subject_hash == SUBJECT and encoded
++        if self.rejection is not None:
++            return CredentialReceiptRejection(self.rejection)
++        return receipt(models=self.models, model_scope=self.model_scope, manifest_revision=self.manifest_revision)
++
++
++class Subjects:
++    def __init__(self, scope: TrustedCredentialScope | None = None, *, fail: bool = False) -> None:
++        self.scope = scope
++        self.fail = fail
++        self.calls: list[str] = []
++
++    async def read(self, subject_hash: str) -> TrustedCredentialScope | None:
++        self.calls.append(subject_hash)
++        if self.fail:
++            raise RuntimeError("PRIVATE")
++        return self.scope
++
++
++def current_scope(**updates: object) -> TrustedCredentialScope:
++    return TrustedCredentialScope.model_validate(
++        {
++            "subject_hash": SUBJECT,
++            "card_id": CARD,
++            "model_scope": "restricted",
++            "models": ("fixture-model",),
++            **updates,
++        }
++    )
++
++
++def service_for(
++    fixture: ScopeFixture,
++    receipts: Receipts,
++    *,
++    origin: str | None = "http://cockpit-data.test:8080",
++    subjects: Subjects | None = None,
++) -> tuple[CockpitScopeService, httpx.AsyncClient]:
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++    return CockpitScopeService(receipts, admin, SECRETS, origin, subjects=subjects), http
++
++
++def publish(fixture: ScopeFixture, receipts: Receipts, *, revision: str | None = None) -> object:
++    service, http = service_for(fixture, receipts)
++    try:
++        return asyncio.run(
++            service.publish(
++                CockpitScopePublishRequest(
++                    subject_hash=SUBJECT, receipt="encoded", revision=revision or fixture.revision
++                )
++            )
++        )
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_publish_writes_only_a_disabled_staged_projection_and_preserves_unknown_fields() -> None:
++    fixture: Final = ScopeFixture()
++    original: Final = copy.deepcopy(fixture.data)
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, CockpitSubjectScopeView)
++    assert result.state == "staged" and result.ready_to_migrate is False
++    assert result.account_ids == (str(CARD),) and result.models == ("fixture-model",)
++    assert "key" not in result.model_dump() and "PRIVATE" not in result.model_dump_json()
++    assert fixture.data["apiKeys"][-1] == {
++        "id": "litellm-subject-" + SUBJECT,
++        "label": "LiteLLM native subject " + SUBJECT[:12],
++        "key": subject_routing_token(SECRETS, SUBJECT),
++        "accountIds": [str(CARD)],
++        "allowedModels": ["fixture-model"],
++        "enabled": False,
++    }
++    assert fixture.data["futureRoot"] == original["futureRoot"]
++    assert fixture.data["apiKeys"][0] == original["apiKeys"][0]
++    assert [(method, _) for method, _ in fixture.calls] == [("GET", None), ("PUT", R1)]
++
++
++@pytest.mark.parametrize(
++    "models,model_scope,detail",
++    [
++        ((), "unrestricted", "model_scope_unsupported"),
++        (("outside-model",), "restricted", "model_unmapped"),
++    ],
++)
++def test_publish_rejects_unrestricted_or_unmapped_models(
++    models: tuple[str, ...], model_scope: Literal["restricted", "unrestricted"], detail: str
++) -> None:
++    fixture: Final = ScopeFixture()
++    result: Final = publish(fixture, Receipts(models=models, model_scope=model_scope))
++    assert isinstance(result, ScopeFailure)
++    assert result.status == 422 and result.code == detail
++    assert [method for method, _ in fixture.calls] == ["GET"]
++
++
++def test_publish_requires_current_manifest_and_matching_receipt_revision() -> None:
++    fixture: Final = ScopeFixture()
++    stale: Final = publish(fixture, Receipts(), revision=R3)
++    assert isinstance(stale, ScopeFailure) and stale.status == 409 and stale.code == "manifest_changed"
++    fixture2: Final = ScopeFixture()
++    mismatched: Final = publish(fixture2, Receipts(manifest_revision=R3))
++    assert isinstance(mismatched, ScopeFailure) and mismatched.code == "manifest_changed"
++    assert all(method == "GET" for method, _ in fixture.calls + fixture2.calls)
++
++
++@pytest.mark.parametrize(
++    "rejection,status,detail",
++    [
++        ("subject_unverified", 409, "subject_unverified"),
++        ("stale_receipt", 409, "receipt_stale"),
++        ("source_missing", 422, "scope_unverified"),
++        ("read_unavailable", 503, "unavailable"),
++    ],
++)
++def test_receipt_rejections_map_to_fixed_public_codes(rejection: str, status: int, detail: str) -> None:
++    fixture: Final = ScopeFixture()
++    service, http = service_for(fixture, Receipts(rejection=rejection))
++    try:
++        result: Final = asyncio.run(
++            service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(result, ScopeFailure)
++    assert (result.status, result.code) == (status, detail)
++    assert fixture.calls == []
++
++
++def test_existing_reserved_entry_with_other_scope_is_not_overwritten() -> None:
++    fixture: Final = ScopeFixture()
++    fixture.data["apiKeys"].append(
++        {
++            "id": "litellm-subject-" + SUBJECT,
++            "label": "LiteLLM native subject " + SUBJECT[:12],
++            "key": "other-key",
++            "accountIds": [str(CARD)],
++            "allowedModels": ["fixture-model"],
++            "enabled": False,
++        }
++    )
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, ScopeFailure)
++    assert result.status == 409 and result.code == "publication_conflict"
++    assert [method for method, _ in fixture.calls] == ["GET"]
++
++
++def test_republish_is_idempotent_and_revoke_removes_only_the_reserved_entry() -> None:
++    fixture: Final = ScopeFixture()
++    receipts: Final = Receipts()
++    service, http = service_for(fixture, receipts)
++    try:
++        first: Final = asyncio.run(
++            service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++        )
++        service_second: Final = CockpitScopeService(
++            Receipts(manifest_revision=R2),
++            CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
++            SECRETS,
++            "http://cockpit-data.test:8080",
++        )
++        second: Final = asyncio.run(
++            service_second.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R2))
++        )
++        revoked: Final = asyncio.run(service.revoke(CockpitScopeRevokeRequest(subject_hash=SUBJECT, revision=R2)))
++        absent_again: Final = asyncio.run(service.revoke(CockpitScopeRevokeRequest(subject_hash=SUBJECT, revision=R2)))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(first, CockpitSubjectScopeView) and first.state == "staged"
++    assert isinstance(second, CockpitSubjectScopeView) and second.persisted_manifest_revision == R2
++    assert isinstance(revoked, CockpitSubjectScopeView) and revoked.state == "absent"
++    assert isinstance(absent_again, CockpitSubjectScopeView) and absent_again.state == "absent"
++    assert fixture.data["apiKeys"] == [{"id": "private", "enabled": True, "key": "PRIVATE", "accountIds": [str(CARD)]}]
++    assert [method for method, _ in fixture.calls].count("PUT") == 2
++
++
++@pytest.mark.parametrize(
++    "mode,status,detail", [("conflict", 409, "revision_conflict"), ("lost", 503, "write_outcome_unknown")]
++)
++def test_write_conflict_or_lost_receipt_never_retries(mode: str, status: int, detail: str) -> None:
++    fixture: Final = ScopeFixture(mode=mode)
++    result: Final = publish(fixture, Receipts())
++    assert isinstance(result, ScopeFailure)
++    assert (result.status, result.code) == (status, detail)
++    assert [method for method, _ in fixture.calls] == ["GET", "PUT"]
++
++
++def test_route_state_is_staged_until_enabled_and_hides_token_from_repr() -> None:
++    fixture: Final = ScopeFixture()
++    subjects: Final = Subjects(current_scope())
++    service, http = service_for(fixture, Receipts(), subjects=subjects)
++    try:
++        assert isinstance(
++            asyncio.run(
++                service.publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++            ),
++            CockpitSubjectScopeView,
++        )
++        staged: Final = asyncio.run(service.route_state(SUBJECT))
++        fixture.data["apiKeys"][-1]["enabled"] = True
++        active: Final = asyncio.run(service.route_state(SUBJECT))
++        blocked_service: Final = CockpitScopeService(
++            Receipts(),
++            CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http),
++            SECRETS,
++            None,
++            subjects=subjects,
++        )
++        blocked: Final = asyncio.run(blocked_service.route_state(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(staged, CockpitSubjectRouteState) and staged.state == "staged"
++    assert staged.origin is None and staged.api_key is None
++    assert subjects.calls == [SUBJECT]
++    assert isinstance(active, CockpitSubjectRouteState) and active.state == "active"
++    assert active.origin == "http://cockpit-data.test:8080"
++    assert active.api_key == subject_routing_token(SECRETS, SUBJECT)
++    assert isinstance(active.api_key, str) and active.api_key not in repr(active)
++    assert isinstance(blocked, CockpitSubjectRouteState) and blocked.state == "blocked"
++
++
++def test_scope_view_reports_absent_and_blocks_tampered_reserved_entry() -> None:
++    fixture: Final = ScopeFixture()
++    service, http = service_for(fixture, Receipts())
++    try:
++        absent: Final = asyncio.run(service.read(SUBJECT))
++        fixture.data["apiKeys"].append(
++            {
++                "id": "litellm-subject-" + SUBJECT,
++                "label": "other",
++                "key": "other",
++                "accountIds": [str(CARD)],
++                "allowedModels": ["fixture-model"],
++                "enabled": True,
++            }
++        )
++        blocked: Final = asyncio.run(service.read(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(absent, CockpitSubjectScopeView) and absent.state == "absent"
++    assert isinstance(blocked, CockpitSubjectScopeView) and blocked.state == "blocked"
++    assert blocked.account_ids == () and blocked.models == ()
++
++
++def test_scope_contract_matches_public_proxy_models() -> None:
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitScopeActivationRequest as PublicActivation,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitScopePublishRequest as PublicPublish,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitScopeRevokeRequest as PublicRevoke,
++    )
++    from litellm.proxy.management_endpoints.account_pool_management_models import (
++        CockpitSubjectScopeView as PublicView,
++    )
++
++    assert CockpitScopeActivationRequest.model_json_schema() == PublicActivation.model_json_schema()
++    assert CockpitScopePublishRequest.model_json_schema() == PublicPublish.model_json_schema()
++    assert CockpitScopeRevokeRequest.model_json_schema() == PublicRevoke.model_json_schema()
++    assert CockpitSubjectScopeView.model_json_schema() == PublicView.model_json_schema()
++
++
++class _EmptyKeys:
++    async def status(self, _card_id: object) -> None:
++        return None
++
++
++class _EmptyLogs:
++    async def record(self, *_args: object, **_kwargs: object) -> None:
++        return None
++
++
++class _EmptyEnvironments:
++    async def get(self, _card_id: object) -> None:
++        return None
++
++    async def list(self) -> tuple[()]:
++        return ()
++
++
++class _EmptyPolicies:
++    async def get(self, _card_id: object) -> None:
++        return None
++
++
++def test_scope_routes_require_manager_and_expose_only_staged_state() -> None:
++    from account_pool.api import create_router
++    from account_pool.card_keys import CardKeyService
++    from fastapi import FastAPI
++    from fastapi.testclient import TestClient
++
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++    service: Final = CockpitScopeService(Receipts(), admin, SECRETS, "http://cockpit-data.test:8080")
++    app: Final = FastAPI()
++    app.include_router(
++        create_router(
++            None,  # pyright: ignore[reportArgumentType]  # route handlers under test do not use the environment service
++            "m" * 32,
++            keys=CardKeyService(_EmptyKeys()),  # pyright: ignore[reportArgumentType]  # only card routes use the repository
++            logs=_EmptyLogs(),  # pyright: ignore[reportArgumentType]  # only log routes use the service
++            environments=_EmptyEnvironments(),  # pyright: ignore[reportArgumentType]  # only card routes list environments
++            policies=_EmptyPolicies(),  # pyright: ignore[reportArgumentType]  # policy routes are not requested here
++            cockpit_admin=admin,
++            cockpit_scope=service,
++        )
++    )
++    body: Final = {"subject_hash": SUBJECT, "receipt": "encoded", "revision": R1}
++    with TestClient(app) as client:
++        denied: Final = client.post("/api/cockpit/scope", json=body)
++        published: Final = client.post("/api/cockpit/scope", json=body, headers={"Authorization": "Bearer " + "m" * 32})
++        read: Final = client.get("/api/cockpit/scope/" + SUBJECT, headers={"Authorization": "Bearer " + "m" * 32})
++        route: Final = client.get("/internal/cockpit/route/" + SUBJECT, headers={"Authorization": "Bearer " + "m" * 32})
++        invalid: Final = client.get("/api/cockpit/scope/not-a-hash", headers={"Authorization": "Bearer " + "m" * 32})
++        revoked: Final = client.request(
++            "DELETE",
++            "/api/cockpit/scope",
++            json={"subject_hash": SUBJECT, "revision": R2},
++            headers={"Authorization": "Bearer " + "m" * 32},
++        )
++    asyncio.run(http.aclose())
++    assert denied.status_code == 401
++    assert published.status_code == 200 and published.json()["state"] == "staged"
++    assert published.headers["cache-control"] == "no-store"
++    assert "key" not in published.json() and subject_routing_token(SECRETS, SUBJECT) not in published.text
++    assert read.status_code == 200 and read.json()["state"] == "staged"
++    assert route.status_code == 200 and route.json()["state"] == "staged"
++    assert route.json()["api_key"] is None and route.json()["origin"] is None
++    assert invalid.status_code == 422 and invalid.json()["detail"] == "invalid_receipt"
++    assert revoked.status_code == 200 and revoked.json()["state"] == "absent"
++    assert revoked.headers["cache-control"] == "no-store"
++
++
++def test_route_state_revalidates_current_subject_and_fails_closed() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make(subjects: Subjects | None) -> CockpitScopeService:
++        return CockpitScopeService(Receipts(), admin, SECRETS, "http://cockpit-data.test:8080", subjects=subjects)
++
++    try:
++        assert isinstance(
++            asyncio.run(
++                make(Subjects(current_scope())).publish(
++                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++                )
++            ),
++            CockpitSubjectScopeView,
++        )
++        entries = fixture.data["apiKeys"]
++        assert isinstance(entries, list) and isinstance(entries[-1], dict)
++        entries[-1]["enabled"] = True
++        matching: Final = asyncio.run(make(Subjects(current_scope())).route_state(SUBJECT))
++        drifted: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).route_state(SUBJECT))
++        no_reader: Final = asyncio.run(make(None).route_state(SUBJECT))
++        failing: Final = asyncio.run(make(Subjects(fail=True)).route_state(SUBJECT))
++        matching_view: Final = asyncio.run(make(Subjects(current_scope())).read(SUBJECT))
++        drifted_view: Final = asyncio.run(make(Subjects(current_scope(models=("other-model",)))).read(SUBJECT))
++        no_reader_view: Final = asyncio.run(make(None).read(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(matching, CockpitSubjectRouteState) and matching.state == "active"
++    assert isinstance(drifted, CockpitSubjectRouteState) and drifted.state == "blocked"
++    assert isinstance(no_reader, CockpitSubjectRouteState) and no_reader.state == "blocked"
++    assert isinstance(failing, CockpitSubjectRouteState) and failing.state == "blocked"
++    assert isinstance(matching_view, CockpitSubjectScopeView) and matching_view.state == "active"
++    assert isinstance(drifted_view, CockpitSubjectScopeView) and drifted_view.state == "blocked"
++    assert isinstance(no_reader_view, CockpitSubjectScopeView) and no_reader_view.state == "blocked"
++
++
++def test_activation_and_deactivation_flip_the_reserved_entry() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make(subjects: Subjects | None) -> CockpitScopeService:
++        return CockpitScopeService(Receipts(), admin, SECRETS, "http://cockpit-data.test:8080", subjects=subjects)
++
++    try:
++        assert isinstance(
++            asyncio.run(
++                make(Subjects(current_scope())).publish(
++                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++                )
++            ),
++            CockpitSubjectScopeView,
++        )
++        activated: Final = asyncio.run(
++            make(Subjects(current_scope())).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++        )
++        route: Final = asyncio.run(make(Subjects(current_scope())).route_state(SUBJECT))
++        enabled_after_activate = fixture.data["apiKeys"][-1]["enabled"]
++        deactivated: Final = asyncio.run(
++            make(Subjects(current_scope())).deactivate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(activated, CockpitSubjectScopeView) and activated.state == "active"
++    assert enabled_after_activate is True
++    assert isinstance(route, CockpitSubjectRouteState) and route.state == "active"
++    assert isinstance(deactivated, CockpitSubjectScopeView) and deactivated.state == "staged"
++    assert fixture.data["apiKeys"][-1]["enabled"] is False
++
++
++def test_activation_rejects_absent_drifted_or_unverified_scope() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make(subjects: Subjects | None) -> CockpitScopeService:
++        return CockpitScopeService(Receipts(), admin, SECRETS, "http://cockpit-data.test:8080", subjects=subjects)
++
++    try:
++        absent: Final = asyncio.run(
++            make(Subjects(current_scope())).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R1))
++        )
++        assert isinstance(
++            asyncio.run(
++                make(Subjects(current_scope())).publish(
++                    CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1)
++                )
++            ),
++            CockpitSubjectScopeView,
++        )
++        stale: Final = asyncio.run(
++            make(Subjects(current_scope())).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R1))
++        )
++        drifted: Final = asyncio.run(
++            make(Subjects(current_scope(models=("other-model",)))).activate(
++                CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2)
++            )
++        )
++        no_reader: Final = asyncio.run(
++            make(None).activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))
++        )
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(absent, ScopeFailure) and absent.code == "not_published"
++    assert isinstance(stale, ScopeFailure) and stale.code == "revision_conflict"
++    assert isinstance(drifted, ScopeFailure) and drifted.code == "activation_blocked"
++    assert isinstance(no_reader, ScopeFailure) and no_reader.code == "activation_blocked"
++    assert fixture.data["apiKeys"][-1]["enabled"] is False
++
++
++def test_route_and_view_block_after_the_authorized_account_is_removed() -> None:
++    fixture: Final = ScopeFixture()
++    http: Final = httpx.AsyncClient(transport=httpx.MockTransport(fixture.handle))
++    admin: Final = CockpitAdminClient(CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("s" * 32)), http)
++
++    def make() -> CockpitScopeService:
++        return CockpitScopeService(
++            Receipts(), admin, SECRETS, "http://cockpit-data.test:8080", subjects=Subjects(current_scope())
++        )
++
++    try:
++        assert isinstance(
++            asyncio.run(
++                make().publish(CockpitScopePublishRequest(subject_hash=SUBJECT, receipt="encoded", revision=R1))
++            ),
++            CockpitSubjectScopeView,
++        )
++        assert isinstance(
++            asyncio.run(make().activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=R2))),
++            CockpitSubjectScopeView,
++        )
++        fixture.data["accounts"] = []
++        route: Final = asyncio.run(make().route_state(SUBJECT))
++        view: Final = asyncio.run(make().read(SUBJECT))
++    finally:
++        asyncio.run(http.aclose())
++    assert isinstance(route, CockpitSubjectRouteState) and route.state == "blocked"
++    assert isinstance(view, CockpitSubjectScopeView) and view.state == "blocked"
+diff --git a/account-pool/tests/account_pool/test_contracts.py b/account-pool/tests/account_pool/test_contracts.py
+index 05d062609a..a36f9a01d5 100644
+--- a/account-pool/tests/account_pool/test_contracts.py
++++ b/account-pool/tests/account_pool/test_contracts.py
+@@ -203,6 +203,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
+             "cooldown_until": None,
+             "automatic_cooldown": False,
+             "last_error": None,
++            "spend_usd": 0.0,
+             "created_at": now.isoformat().replace("+00:00", "Z"),
+             "updated_at": now.isoformat().replace("+00:00", "Z"),
+         },
+diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
+index 58d8051281..4e5b2fb49a 100644
+--- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
++++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
+@@ -148,7 +148,7 @@
+ 
+ - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
+ - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
+-- [ ] D2.3 请求接管：按 scope 发布 Cockpit 路由，验证外层 retry/fallback 不会再次发请求，验证原有 LiteLLM 标准 token/spend 统计继续归属原用户/Key；客户端协议不新增内部管理 Token
++- [ ] D2.3 请求接管：按 scope 发布 Cockpit 路由，验证外层 retry/fallback 不会再次发请求，验证原有 LiteLLM 标准 token/spend 统计继续归属原用户/Key；客户端协议不新增内部管理 Token（本地代码与离线契约已完成，激活和运行验证未完成，见 D2.3 第一段结果）
+ - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
+ - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
+ 
+@@ -267,6 +267,91 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
+ 
+ 本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
+ 
++### D2.3 第一段本地代码结果：授权范围发布与唯一请求 owner 接线（2026-10-25）
++
++本段基于 `1a6902d443`，沿用现有 `codex/cockpit-reuse-plan` 工作区；Cockpit 保持 `ec9989c0` 和既有未提交 workflow 不动。只写代码、离线测试和本地提交，没有推送、镜像构建、部署、真实数据库/供应商访问、真实凭据迁移或切流。按用户确认的四项执行：A+B 两段都做；发布记录 `enabled=false` 且预生成派生通行证；只接原生虚拟 Key 的 Responses 请求；数据面地址由 Manager 内部路由状态下发
++
++Manager 新增 `account-pool/account_pool/cockpit_scope.py`，并通过 `create_router` 暴露管理路由。发布输入只有 subject hash、D2.2 第五段的签名回执和期望 manifest revision；账号、模型和回执状态只能来自服务端当前读取。发布前重新校验回执，要求目标 account 为 Codex OAuth/default、authId 与回执一致，回执中的每个模型都能在 manifest modelIds 和排除规则下映射；任一不满足整体拒绝，不静默裁剪。投影写入保留 apiKey 条目，id 为 `litellm-subject-<subject hash>`，`accountIds` 只含回执绑定的单卡，`allowedModels` 只含受限模型，`enabled=false`，key 使用新 `SecretPurpose.COCKPIT_SUBJECT_ROUTING` 派生，不在响应或日志出现
++
++写入沿用单次 manifest CAS，保留未知字段；revision 冲突、同名但不同结构、通行证冲突和写入结果不明分别返回固定 409/409/503，不自动重试。撤销同样走 CAS 删除，幂等。新增 `GET/POST/DELETE /api/cockpit/scope` 与内部 `GET /internal/cockpit/route/{subject_hash}`；LiteLLM 增加仅 proxy admin 的 `/account_pool/cockpit/scope` 代理。所有响应禁缓存。视图返回 `state=staged`、account_ids、models、manifest revision、`runtime_activation=restart_required_or_unverified` 和 `ready_to_migrate=false`，不把发布当运行授权
++
++LiteLLM 新增 `account_pool_cockpit_route.py`，按 subject hash 读取 Manager 内部路由状态。开关 `ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED` 默认关闭；关闭时不查询、不改变现有链路。开启后 absent/staged 继续走原链路；active 时校验模型、协议和可重放边界，在 `_route_request_single_attempt` 绕过 Router 与 Manager resolve/acquire，单次直接调用 `litellm.aresponses`，设置 `num_retries=0`、`max_retries=0`、清空 fallbacks、禁用缓存，并保留原请求的 `litellm_metadata` 归属字段，只追加 `account_pool_route_owner=cockpit`。blocked、路由读取失败、模型越界、非 Responses 或带 `previous_response_id`/签名历史的请求明确失败，不回退旧链路
++
++首期只在测试中注入 active 路由；没有实现把发布记录改为 `enabled=true`、重启 Cockpit、确认运行 revision 或切流。生产上发布记录保持 disabled，Router 和 Manager 仍是实际请求 owner；因此“代码具备单 owner 路径”不等于“运行中已接管”。30 秒路由缓存和未实现激活意味着发布/撤销传播存在窗口，切换顺序仍属后续门槛
++
++本轮新增测试：Manager 范围发布与路由状态 16 项、LiteLLM 发布代理 4 项、LiteLLM 唯一 owner 13 项，共 33 项，均为离线或 MockTransport 测试。更广的 Manager/LiteLLM 定向回归、严格类型、Ruff 和新增行诊断见 `d23-20261025/` 证据。新增源文件严格类型 0 errors；改动文件仅保留既有诊断，新增行严格 Ruff/基于 pyright 诊断均为 0。`npm run gen:api` 尝试重新生成时产生既有路由顺序导致的大范围重排，未提交该噪声；本轮没有 UI 使用新类型。`ready_to_migrate` 保持 false，真实统计持久化、运行中 Cockpit、凭据和供应商身份仍未验证
++
++### D2.3 解耦整理第一批：Cockpit manifest 视图与 scope 路由（2026-10-25）
++
++提交 `2c13604360` 和 `c7a65a3bf7`。只做结构整理，不改变默认值、API 路径、状态码、错误码或运行链路；总开关仍关闭，`ready_to_migrate` 保持 false。
++
++新增 `account-pool/account_pool/cockpit_manifest.py`，集中定义账号、策略、计数和 scope 的只读 manifest 视图；`cockpit_admin`、`cockpit_policy`、`cockpit_preflight`、`cockpit_scope` 已迁移到共享视图。写入仍基于原始 `snapshot.data` 展开，未知字段不丢失。新增 `cockpit_failure.py`，只提供 transport、precondition、invalid response、5xx 的共享判定；各功能继续保留自己的 `PolicyFailure`、`RuntimeFailure`、`ScopeFailure` 和公开错误码。新增 `cockpit_scope_api.py`，把 scope 发布、读取、撤销和内部路由状态从 `api.py` 的 `create_router` 闭包移出，`api.py` 只负责 include。
++
++验证：Manager 与 LiteLLM 号池 cockpit 相关测试 256 项通过，管理路由测试 34 项通过；全部为未加载兼容 shim 的正常收集。新增行严格 Ruff 和 basedpyright 诊断均为 0；新模块严格类型 0 errors。重构过程中曾因一次临时文件截断导致 `test_account_pool` 导入失败，恢复源文件后确认不是仓库既有问题，也没有提交任何 shim。
++
++未做：激活本身。请求时主体重校验和路由缓存参数已在第三批补上，见下节；真实服务、数据库、凭据和供应商仍未验证。
++
++### D2.3 解耦整理第二批：显式路由解析器（2026-10-25）
++
++提交 `6ecf34a356`。只做依赖注入整理，不改变总开关、错误码、请求路径或转发次数。
++
++`CockpitRouteResolver` 不再提供模块级 `configure/clear` 测试后门，lookup 和时钟都在构造时注入。`cockpit_route_for_request` 接受可选的 resolver 参数，生产入口使用模块默认实例，测试传入本地实例。`_route_request_single_attempt` 增加可选的 `cockpit_resolver` 参数，只用于测试注入；生产调用不传，默认行为不变。这样测试不再修改全局解析器状态。
++
++未拆 `account_pool_cockpit_route.py`：当前约 287 行，路由状态读取、缓存、owner 决策和单次转发仍在同一职责边界内；强行拆分会增加导入和测试迁移，没有实际收益。
++
++验证：合并文件集一次运行 269 项通过，其中 route owner 13 项、请求路由 72 项；Manager/LiteLLM cockpit 其余文件 256 项通过；管理路由 34 项通过。新增行严格 Ruff 和 basedpyright 诊断均为 0。未启动真实服务，路由仍关闭，`ready_to_migrate` 仍为 false。
++
++### D2.3 解耦整理第三批：请求时主体重校验与路由缓存（2026-10-25）
++
++提交 `499a72e19b` 和 `dedc0576e7`。本批改变失败语义，但仍不激活：总开关保持关闭，`ready_to_migrate` 保持 false。
++
++Manager 的 `route_state` 在返回 active 前，必须通过注入的 `SubjectReader` 重新读取当前原生主体：主体 hash、单卡和受限模型列表必须与 manifest 投影完全一致。主体读取失败、读取器未配置、卡片或模型范围漂移时返回 `blocked`，不返回 token。staged 状态不读取凭据或主体。`create_app` 复用现有 `CockpitSubjectClient`，没有新增凭据读取路径；未配置 `ACCOUNT_POOL_COCKPIT_SUBJECT_URL` 时 active 一律阻断。
++
++LiteLLM 路由缓存 TTL 改为 `ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS`，范围 1 到 300 秒，默认 30 秒；`CockpitRouteResolver` 增加显式 `invalidate` 和 `clear` 操作。缓存仍按进程独立，没有跨 worker 推送失效；激活时必须使用短 TTL 或重启 worker，这一限制保留到激活方案里。
++
++验证：最终定向合并运行 152 项通过（scope、policy、preflight、runtime、admin、app、route owner），单个 route/app/scope 子集 32 项通过；新增行严格 Ruff 和 basedpyright 诊断均为 0，`cockpit_scope.py` 严格类型 0 errors。未连接真实 Cockpit、数据库、凭据或供应商，未启用 `enabled=true`，未重启或切流。
++
++### D2.3 分支收尾修复（2026-10-25）
++
++提交 `d1394aa749`、`32a5b5dfba`、`586b007aad`、`f1a0de7fc7` 和 `bf38f5be0e`。仍然只做本地代码、离线测试和本地提交，不激活、不部署、不切流，`ready_to_migrate` 保持 false。
++
++- 超时对齐：`CockpitSubjectClient` 的超时可配置；Manager 使用 3 秒的路由主体读取器和 10 秒的回执读取器，低于 LiteLLM 查询 Manager 的 5 秒预算，避免 Manager 慢时先被 LiteLLM 超时打断
++- 视图一致：`GET /api/cockpit/scope` 在 active 时也重新校验当前主体；主体缺失、读取失败或卡片/模型漂移时显示 blocked，不再出现页面 active、内部路由 blocked 的分裂
++- 直连参数：`dispatch_cockpit_route` 在调用 `litellm.aresponses` 前剥离 `router_settings_override`、`enable_tag_filtering`、`proxy_server_request`、`user_config`、`config` 和 `client`，避免 Router/代理层字段被当作供应商参数
++- 缓存失效：resolver 增加 generation，invalidate/clear 期间完成的旧 lookup 不再写回缓存；TTL 构造值做有限性和 1 到 300 秒夹取
++- 生成类型：`npm run gen:api` 重新生成 `schema.d.ts`，包含 scope 路由和三个公开模型；lazy OpenAPI snapshot 重跑后内容深度相等，只有行尾差异，规范化后无变更，没有提交噪声
++- 全量验证：完整 Manager 测试 1149 passed、5 skipped；完整 LiteLLM 号池管理测试 1039 passed、1 skipped；分支定向合并 164 passed；新增行严格 Ruff 和 basedpyright 诊断均为 0；此前失败的 `test_contracts` 用量字段断言已补 `spend_usd`
++
++`make check` 没有执行：它会通过 bootstrap 重建 uv 环境并运行全仓门禁，当前工作区不是该工具链的干净基线。完整 Manager 和 LiteLLM 号池测试、定向 lint/type、生成类型检查已完成，剩余的全仓门禁留给合并前单独执行。
++
++### D2.3 激活接口（2026-10-25）
++
++提交 `a3958bff81` 和 `b877984e23`。新增显式激活与停用接口，仍然不自动切流：
++
++- Manager `POST /api/cockpit/scope/activate` 和 `/deactivate`，输入 subject hash 和 manifest revision；激活前重新读取当前主体，要求卡片和模型完全匹配、origin 已配置，否则 `activation_blocked` 或 `not_published`
++- 激活只把保留 apiKey 的 `enabled` 改为 true，仍使用 manifest CAS 和原 revision；停用对称切回 false，保留撤销和回滚能力
++- LiteLLM 管理代理增加对应 POST 路由，错误码加入 `not_published` 和 `activation_blocked`，响应禁缓存
++- 公开 schema 重新生成，包含激活请求和两个新路径
++
++验证：范围、策略、预检、运行时、管理、回执、请求路由和激活接口合并运行 166 项通过；新增行严格 Ruff 和 basedpyright 诊断均为 0；schema 再次生成无额外差异。
++
++真正的运行时激活没有执行：当前环境没有 Cockpit 服务，也没有配置管理地址、数据面地址、主体读取地址或 LiteLLM 路由开关。接下来需要在目标环境按顺序执行：发布范围 -> 调激活接口 -> 重启 Cockpit 并确认 revision -> 设置 LiteLLM 路由开关和短 TTL/重启 worker -> 小范围验证用量、错误和回滚。`ready_to_migrate` 仍为 false。
++
++### D2.4 Cockpit 接管核心行为测试（2026-10-25）
++
++提交 `e3a1b3664f`。只补测试和必要的授权边界，不部署、不激活、不切流。
++
++- 额度耗尽和普通限流都在 Cockpit 接管路径上原样抛出，LiteLLM 只调用一次 `litellm.aresponses`，不进入 Router、不做冷却、不换卡；Cockpit 内部如何区分额度耗尽和普通 429 仍由 Cockpit 负责，当前仓库无法验证
++- 出站参数固定 `num_retries=0`、`max_retries=0`，fallbacks 全部为空；流式响应已经输出部分内容后再抛错，也只保留一次调用，不重放
++- `previous_response_id`、`encrypted_content`、`signature` 和 thinking 签名历史在派发前统一返回 422；当前接管路径不支持续聊或跨卡重放
++- 路由校验新增 manifest 账号存在性和模型可见性检查；发布后账号被删除时，内部路由和管理视图都转为 blocked
++- active 决策使用独立短 TTL，默认 5 秒，环境变量 `ACCOUNT_POOL_COCKPIT_ACTIVE_TTL_SECONDS`，范围 1 到 30 秒；权限撤销后最多一个短窗口内失效。跨 worker 仍没有推送失效
++- 用量归属测试确认 `litellm_metadata` 保留用户、Key、团队和 end user，并附加 Cockpit owner 标记
++
++验证：定向合并 38 项通过；完整 Manager 1152 项通过、5 项跳过；完整 LiteLLM 号池管理 1043 项通过、1 项跳过；新增行严格 Ruff 和 basedpyright 诊断均为 0。
++
++未验证：Cockpit 侧的额度分类、冷却、会话亲和性和真实换卡；工具执行后的真实重放边界；真实数据库、供应商和用量落库；跨 worker 权限撤销。接管路径当前只支持 Responses 协议、单卡受限模型和无签名历史的请求，不能宣传成完整后台替换。
++
+ ### 替换阶段 E：行为兼容与差异验收
+ 
+ - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_route.py b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
+new file mode 100644
+index 0000000000..af1cdb49da
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
+@@ -0,0 +1,337 @@
++"""按已发布 Cockpit 主体范围选择唯一请求 owner；默认关闭且不重试或回放。"""
++
++from __future__ import annotations
++
++import asyncio
++import math
++import os
++import re
++import time
++from collections.abc import Awaitable, Callable, Mapping
++from dataclasses import dataclass
++from types import MappingProxyType
++from typing import Final, Literal
++from urllib.parse import urlsplit
++
++import httpx
++from fastapi import HTTPException
++from pydantic import BaseModel, ConfigDict, Field, SecretStr, TypeAdapter, ValidationError
++
++from litellm._logging import verbose_proxy_logger
++from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity
++from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
++
++_HASH: Final = re.compile(r"^[0-9a-f]{64}$")
++_ETAG: Final = re.compile(r'^"sha256-[0-9a-f]{64}"$')
++_GATE: Final = "ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED"
++_TTL_SECONDS: Final = 30.0
++_TTL_ENV: Final = "ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS"
++_ACTIVE_TTL_ENV: Final = "ACCOUNT_POOL_COCKPIT_ACTIVE_TTL_SECONDS"
++_ACTIVE_TTL_SECONDS: Final = 5.0
++_MIN_TTL_SECONDS: Final = 1.0
++_MAX_TTL_SECONDS: Final = 300.0
++_PATH: Final = "/internal/cockpit/route/"
++_MAX_RESPONSE: Final = 1 << 20
++_DATA: Final = TypeAdapter(dict[str, object])
++_PROXY_ONLY: Final = frozenset(
++    ("router_settings_override", "enable_tag_filtering", "proxy_server_request", "user_config", "config", "client")
++)
++
++
++class CockpitRouteState(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
++    state: Literal["absent", "staged", "active", "blocked"]
++    account_ids: list[str] = Field(default_factory=list)
++    model_scope: Literal["none", "restricted"] = "none"
++    models: list[str] = Field(default_factory=list)
++    origin: str | None = None
++    api_key: SecretStr | None = Field(default=None, repr=False)
++    persisted_manifest_revision: str | None = Field(default=None, pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++@dataclass(frozen=True, slots=True)
++class CockpitRoute:
++    subject_hash: str
++    origin: str
++    api_key: SecretStr
++    account_ids: tuple[str, ...]
++    models: tuple[str, ...]
++    manifest_revision: str
++
++
++@dataclass(frozen=True, slots=True)
++class RouteDecision:
++    state: Literal["absent", "staged", "active", "blocked"]
++    route: CockpitRoute | None = None
++
++
++class CockpitRouteUnavailable(Exception):
++    pass
++
++
++RouteLookup = Callable[[str], Awaitable[RouteDecision]]
++
++
++def routing_enabled() -> bool:
++    return os.getenv(_GATE, "").strip().lower() in {"1", "true", "yes", "on"}
++
++
++def route_ttl_seconds(raw: str | None = None) -> float:
++    value: Final = os.getenv(_TTL_ENV, "") if raw is None else raw
++    try:
++        parsed: Final = float(value)
++    except ValueError:
++        return _TTL_SECONDS
++    if not math.isfinite(parsed):
++        return _TTL_SECONDS
++    return max(_MIN_TTL_SECONDS, min(parsed, _MAX_TTL_SECONDS))
++
++
++def _valid_origin(value: str) -> bool:
++    try:
++        parsed: Final = urlsplit(value)
++        port: Final = parsed.port
++    except ValueError:
++        return False
++    return (
++        parsed.scheme in {"http", "https"}
++        and parsed.hostname is not None
++        and parsed.username is None
++        and parsed.password is None
++        and parsed.path in {"", "/"}
++        and not parsed.query
++        and not parsed.fragment
++        and (port is None or 1 <= port <= 65535)
++        and all(32 < ord(char) < 127 for char in value)
++    )
++
++
++def _active_route(state: CockpitRouteState) -> CockpitRoute:
++    if (
++        state.state != "active"
++        or state.origin is None
++        or not _valid_origin(state.origin)
++        or state.api_key is None
++        or not state.account_ids
++        or not state.models
++        or state.persisted_manifest_revision is None
++        or _ETAG.fullmatch(state.persisted_manifest_revision) is None
++    ):
++        raise CockpitRouteUnavailable
++    return CockpitRoute(
++        subject_hash=state.subject_hash,
++        origin=state.origin.rstrip("/"),
++        api_key=state.api_key,
++        account_ids=tuple(state.account_ids),
++        models=tuple(state.models),
++        manifest_revision=state.persisted_manifest_revision,
++    )
++
++
++def _decision(payload: bytes, subject_hash: str) -> RouteDecision:
++    try:
++        state: Final = CockpitRouteState.model_validate_json(payload)
++    except ValidationError:
++        raise CockpitRouteUnavailable from None
++    if state.subject_hash != subject_hash:
++        raise CockpitRouteUnavailable
++    if state.state == "active":
++        return RouteDecision("active", _active_route(state))
++    return RouteDecision(state.state)
++
++
++class ManagerRouteLookup:
++    def __init__(
++        self,
++        base_url: str,
++        token: str,
++        client_factory: Callable[[], httpx.AsyncClient] | None = None,
++    ) -> None:
++        self._base_url: Final = base_url.rstrip("/")
++        self._token: Final = token
++        self._client_factory: Final = client_factory or (
++            lambda: httpx.AsyncClient(timeout=5.0, trust_env=False, follow_redirects=False)
++        )
++
++    async def read(self, subject_hash: str) -> RouteDecision:
++        if len(self._token) < 32:
++            raise CockpitRouteUnavailable
++        try:
++            async with self._client_factory() as client:
++                response: Final = await client.get(
++                    self._base_url + _PATH + subject_hash,
++                    headers={"Authorization": "Bearer " + self._token},
++                )
++        except httpx.HTTPError:
++            raise CockpitRouteUnavailable from None
++        if response.status_code != 200 or len(response.content) > _MAX_RESPONSE:
++            raise CockpitRouteUnavailable
++        return _decision(response.content, subject_hash)
++
++
++@dataclass(frozen=True, slots=True)
++class _CacheEntry:
++    expires: float
++    decision: RouteDecision
++
++
++def active_route_ttl_seconds(raw: str | None = None) -> float:
++    value: Final = os.getenv(_ACTIVE_TTL_ENV, "") if raw is None else raw
++    try:
++        parsed: Final = float(value)
++    except ValueError:
++        return _ACTIVE_TTL_SECONDS
++    if not math.isfinite(parsed):
++        return _ACTIVE_TTL_SECONDS
++    return max(_MIN_TTL_SECONDS, min(parsed, 30.0))
++
++
++class CockpitRouteResolver:
++    def __init__(
++        self,
++        *,
++        clock: Callable[[], float] = time.monotonic,
++        lookup: RouteLookup | None = None,
++        ttl_seconds: float | None = None,
++        active_ttl_seconds: float | None = None,
++    ) -> None:
++        self._clock: Final = clock
++        self._lookup: RouteLookup | None = lookup
++        requested_ttl: Final = route_ttl_seconds() if ttl_seconds is None else ttl_seconds
++        if not math.isfinite(requested_ttl):
++            raise ValueError("route TTL must be finite")
++        self._ttl: Final = max(_MIN_TTL_SECONDS, min(requested_ttl, _MAX_TTL_SECONDS))
++        requested_active_ttl: Final = active_route_ttl_seconds() if active_ttl_seconds is None else active_ttl_seconds
++        if not math.isfinite(requested_active_ttl):
++            raise ValueError("active route TTL must be finite")
++        self._active_ttl: Final = max(_MIN_TTL_SECONDS, min(requested_active_ttl, 30.0))
++        self._entries: Mapping[str, _CacheEntry] = MappingProxyType({})
++        self._lock = asyncio.Lock()
++        self._generation = 0
++
++    def invalidate(self, subject_hash: str) -> None:
++        self._generation += 1
++        self._entries = MappingProxyType({key: entry for key, entry in self._entries.items() if key != subject_hash})
++
++    def clear(self) -> None:
++        self._generation += 1
++        self._entries = MappingProxyType({})
++
++    async def decision(self, subject_hash: str) -> RouteDecision:
++        now = self._clock()
++        cached = self._entries.get(subject_hash)
++        if cached is not None and cached.expires > now:
++            return cached.decision
++        async with self._lock:
++            now = self._clock()
++            cached = self._entries.get(subject_hash)
++            if cached is not None and cached.expires > now:
++                return cached.decision
++            generation: Final = self._generation
++            lookup: Final = self._lookup or self._default_lookup
++            decision: Final = await lookup(subject_hash)
++            if generation != self._generation:
++                return decision
++            kept: Final = {key: entry for key, entry in self._entries.items() if entry.expires > now}
++            ttl: Final = self._active_ttl if decision.state == "active" else self._ttl
++            kept[subject_hash] = _CacheEntry(now + ttl, decision)
++            self._entries = MappingProxyType(kept)
++            return decision
++
++    @staticmethod
++    async def _default_lookup(subject_hash: str) -> RouteDecision:
++        token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
++        base_url: Final = os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091")
++        return await ManagerRouteLookup(base_url, token).read(subject_hash)
++
++
++default_resolver: Final = CockpitRouteResolver()
++
++
++async def cockpit_route_for_request(
++    identity: PoolIdentity | None,
++    token: str | None,
++    data: object,
++    route_type: str,
++    *,
++    resolver: CockpitRouteResolver | None = None,
++) -> CockpitRoute | None:
++    if not routing_enabled() or identity is None or identity.card_id is None:
++        return None
++    if not isinstance(token, str) or _HASH.fullmatch(token) is None:
++        return None
++    try:
++        request: Final = _DATA.validate_python(data)
++    except ValidationError:
++        raise HTTPException(400, "Invalid account pool request body") from None
++    active_resolver: Final = resolver or default_resolver
++    try:
++        decision: Final = await active_resolver.decision(token)
++    except CockpitRouteUnavailable:
++        raise HTTPException(503, "cockpit_route_unavailable") from None
++    if decision.state in {"absent", "staged"}:
++        return None
++    if decision.state == "blocked" or decision.route is None:
++        raise HTTPException(503, "cockpit_route_blocked")
++    route: Final = decision.route
++    model: Final = request.get("model")
++    if not isinstance(model, str) or not any(model.casefold() == allowed.casefold() for allowed in route.models):
++        raise HTTPException(403, "model_outside_cockpit_scope")
++    if route_type != "aresponses":
++        raise HTTPException(422, "cockpit_protocol_unsupported")
++    if has_signed_history(request):
++        raise HTTPException(422, "cockpit_continuation_unsupported")
++    return route
++
++
++async def dispatch_cockpit_route(
++    route: CockpitRoute,
++    data: object,
++    route_type: str,
++) -> object:
++    import litellm
++
++    if route_type != "aresponses":
++        raise HTTPException(422, "cockpit_protocol_unsupported")
++    try:
++        request: Final = _DATA.validate_python(data)
++    except ValidationError:
++        raise HTTPException(400, "Invalid account pool request body") from None
++
++    outbound: Final[dict[str, object]] = {
++        **{key: value for key, value in request.items() if key not in _PROXY_ONLY},
++        "api_base": route.origin + "/v1",
++        "api_key": route.api_key.get_secret_value(),
++        "custom_llm_provider": "openai",
++        "num_retries": 0,
++        "max_retries": 0,
++        "fallbacks": [],
++        "context_window_fallbacks": [],
++        "content_policy_fallbacks": [],
++        "caching": False,
++        "cache": {"no-cache": True, "no-store": True},
++    }
++    metadata_name: Final = "litellm_metadata" if "litellm_metadata" in outbound else "metadata"
++    metadata: Final = outbound.get(metadata_name)
++    merged: Final[dict[str, object]] = {}
++    if isinstance(metadata, Mapping):
++        try:
++            merged.update(_DATA.validate_python(metadata))
++        except ValidationError:
++            pass
++    merged.update(
++        {
++            "account_pool_route_owner": "cockpit",
++            "account_pool_subject_hash": route.subject_hash,
++            "account_pool_cockpit_manifest_revision": route.manifest_revision,
++        }
++    )
++    outbound[metadata_name] = merged
++    verbose_proxy_logger.info(
++        "account pool cockpit route selected for subject %s revision %s",
++        route.subject_hash[:12],
++        route.manifest_revision,
++    )
++    return await litellm.aresponses(**outbound)  # pyright: ignore[reportArgumentType, reportUnknownMemberType, reportAny]  # request kwargs are validated JSON; a typed Responses model would duplicate the proxy schema
+diff --git a/litellm/proxy/management_endpoints/account_pool_management.py b/litellm/proxy/management_endpoints/account_pool_management.py
+index 3732404dc4..48b8c98f62 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management.py
++++ b/litellm/proxy/management_endpoints/account_pool_management.py
+@@ -30,6 +30,10 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
+     CockpitPolicyRuntime,
+     CockpitPolicyUpdate,
+     CockpitPolicyView,
++    CockpitScopeActivationRequest,
++    CockpitScopePublishRequest,
++    CockpitScopeRevokeRequest,
++    CockpitSubjectScopeView,
+     CodexReviewPackage,
+     PolicyUpdate,
+     PolicyView,
+@@ -79,8 +83,11 @@ def create_management_router(
+         try:
+             upstream: Final = await request_manager(method, "/api/cockpit/policy", body)
+         except HTTPException:
+-            raise HTTPException(503, "write_outcome_unknown" if method == "PUT" else "unavailable",
+-                                headers={"Cache-Control": "no-store"}) from None
++            raise HTTPException(
++                503,
++                "write_outcome_unknown" if method == "PUT" else "unavailable",
++                headers={"Cache-Control": "no-store"},
++            ) from None
+         if upstream.status_code != 200:
+             safe_codes: Final = {
+                 409: frozenset({"revision_conflict"}),
+@@ -90,20 +97,26 @@ def create_management_router(
+             try:
+                 error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
+             except ValidationError:
+-                raise HTTPException(503 if method == "PUT" else 502,
+-                                    "write_outcome_unknown" if method == "PUT" else "unavailable",
+-                                    headers={"Cache-Control": "no-store"}) from None
++                raise HTTPException(
++                    503 if method == "PUT" else 502,
++                    "write_outcome_unknown" if method == "PUT" else "unavailable",
++                    headers={"Cache-Control": "no-store"},
++                ) from None
+             detail: Final = error.get("detail", "")
+             accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
+-            raise HTTPException(upstream.status_code if accepted else 503 if method == "PUT" else 502,
+-                                detail if accepted else "write_outcome_unknown" if method == "PUT" else "unavailable",
+-                                headers={"Cache-Control": "no-store"})
++            raise HTTPException(
++                upstream.status_code if accepted else 503 if method == "PUT" else 502,
++                detail if accepted else "write_outcome_unknown" if method == "PUT" else "unavailable",
++                headers={"Cache-Control": "no-store"},
++            )
+         try:
+             return CockpitPolicyView.model_validate_json(upstream.content)
+         except ValidationError:
+-            raise HTTPException(503 if method == "PUT" else 502,
+-                                "write_outcome_unknown" if method == "PUT" else "invalid_response",
+-                                headers={"Cache-Control": "no-store"}) from None
++            raise HTTPException(
++                503 if method == "PUT" else 502,
++                "write_outcome_unknown" if method == "PUT" else "invalid_response",
++                headers={"Cache-Control": "no-store"},
++            ) from None
+ 
+     @router.get("/cockpit/policy")
+     async def get_cockpit_policy(response: Response) -> CockpitPolicyView:
+@@ -139,8 +152,9 @@ def create_management_router(
+                 raise HTTPException(status, failure, headers=headers) from None
+             detail: Final = error.get("detail", "")
+             accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
+-            raise HTTPException(upstream.status_code if accepted else status,
+-                                detail if accepted else failure, headers=headers)
++            raise HTTPException(
++                upstream.status_code if accepted else status, detail if accepted else failure, headers=headers
++            )
+         try:
+             result: Final = CockpitPolicyRuntime.model_validate_json(upstream.content)
+         except ValidationError:
+@@ -163,6 +177,119 @@ def create_management_router(
+         response.headers["Cache-Control"] = "no-store"
+         return await cockpit_runtime_call(request)
+ 
++    async def cockpit_scope_call(
++        method: Literal["GET", "POST", "DELETE"],
++        path: str,
++        body: bytes | None = None,
++    ) -> CockpitSubjectScopeView:
++        headers: Final = {"Cache-Control": "no-store"}
++        try:
++            upstream: Final = await request_manager(method, path, body)
++        except HTTPException:
++            raise HTTPException(
++                503,
++                "write_outcome_unknown" if method != "GET" else "unavailable",
++                headers=headers,
++            ) from None
++        if upstream.status_code != 200:
++            safe_codes: Final = {
++                409: frozenset(
++                    {
++                        "activation_blocked",
++                        "manifest_changed",
++                        "not_published",
++                        "publication_conflict",
++                        "receipt_stale",
++                        "revision_conflict",
++                        "subject_unverified",
++                    }
++                ),
++                422: frozenset(
++                    {
++                        "account_missing",
++                        "invalid_manifest",
++                        "invalid_receipt",
++                        "model_scope_unsupported",
++                        "model_unmapped",
++                        "scope_unverified",
++                    }
++                ),
++                503: frozenset({"unavailable", "write_outcome_unknown"}),
++            }
++            try:
++                error: Final = TypeAdapter(dict[str, str]).validate_json(upstream.content)
++            except ValidationError:
++                raise HTTPException(502, "invalid_response", headers=headers) from None
++            detail: Final = error.get("detail", "")
++            accepted: Final = detail in safe_codes.get(upstream.status_code, frozenset())
++            raise HTTPException(
++                upstream.status_code if accepted else (503 if method != "GET" else 502),
++                detail if accepted else ("write_outcome_unknown" if method != "GET" else "invalid_response"),
++                headers=headers,
++            )
++        try:
++            return CockpitSubjectScopeView.model_validate_json(upstream.content)
++        except ValidationError:
++            raise HTTPException(502, "invalid_response", headers=headers) from None
++
++    def scope_mismatch(expected: str, view: CockpitSubjectScopeView) -> None:
++        if view.subject_hash != expected:
++            raise HTTPException(502, "invalid_response", headers={"Cache-Control": "no-store"})
++
++    @router.get("/cockpit/scope/{subject_hash}")
++    async def get_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        subject_hash: str,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        view: Final = await cockpit_scope_call("GET", f"/api/cockpit/scope/{subject_hash}")
++        scope_mismatch(subject_hash, view)
++        return view
++
++    @router.post("/cockpit/scope")
++    async def publish_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopePublishRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        view: Final = await cockpit_scope_call("POST", "/api/cockpit/scope", request.model_dump_json().encode())
++        scope_mismatch(request.subject_hash, view)
++        return view
++
++    @router.delete("/cockpit/scope")
++    async def revoke_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopeRevokeRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        view: Final = await cockpit_scope_call("DELETE", "/api/cockpit/scope", request.model_dump_json().encode())
++        scope_mismatch(request.subject_hash, view)
++        return view
++
++    @router.post("/cockpit/scope/activate")
++    async def activate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopeActivationRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        view: Final = await cockpit_scope_call(
++            "POST", "/api/cockpit/scope/activate", request.model_dump_json().encode()
++        )
++        scope_mismatch(request.subject_hash, view)
++        return view
++
++    @router.post("/cockpit/scope/deactivate")
++    async def deactivate_cockpit_scope(  # pyright: ignore[reportUnusedFunction]  # FastAPI registers by decorator.
++        request: CockpitScopeActivationRequest,
++        response: Response,
++    ) -> CockpitSubjectScopeView:
++        response.headers["Cache-Control"] = "no-store"
++        view: Final = await cockpit_scope_call(
++            "POST", "/api/cockpit/scope/deactivate", request.model_dump_json().encode()
++        )
++        scope_mismatch(request.subject_hash, view)
++        return view
++
+     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
+     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])
+     async def credentials() -> tuple[AccountPoolCredential, ...]:
+diff --git a/litellm/proxy/management_endpoints/account_pool_management_models.py b/litellm/proxy/management_endpoints/account_pool_management_models.py
+index cc74e7b108..3463ec3989 100644
+--- a/litellm/proxy/management_endpoints/account_pool_management_models.py
++++ b/litellm/proxy/management_endpoints/account_pool_management_models.py
+@@ -20,12 +20,24 @@ from pydantic import (
+ )
+ 
+ CockpitStrategy = Literal[
+-    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
+-    "expiry_soon_first", "custom",
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
+ ]
+ _COCKPIT_STRATEGIES: Final[tuple[CockpitStrategy, ...]] = (
+-    "auto", "random", "quota_high_first", "quota_low_first", "plan_high_first", "plan_low_first",
+-    "expiry_soon_first", "custom",
++    "auto",
++    "random",
++    "quota_high_first",
++    "quota_low_first",
++    "plan_high_first",
++    "plan_low_first",
++    "expiry_soon_first",
++    "custom",
+ )
+ 
+ 
+@@ -66,10 +78,50 @@ class CockpitPolicyView(BaseModel):
+     runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
+     supported_strategies: tuple[CockpitStrategy, ...] = _COCKPIT_STRATEGIES
+     unsupported_fields: tuple[str, ...] = (
+-        "account_enabled", "candidate_scope", "fallback_enabled", "max_attempts", "cooldown", "session_affinity",
++        "account_enabled",
++        "candidate_scope",
++        "fallback_enabled",
++        "max_attempts",
++        "cooldown",
++        "session_affinity",
+     )
+ 
+ 
++class CockpitScopePublishRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
++    receipt: str = Field(min_length=1, max_length=16384)
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++class CockpitScopeActivationRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++class CockpitScopeRevokeRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid")
++
++    subject_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
++    revision: str = Field(pattern=r'^"sha256-[0-9a-f]{64}"$')
++
++
++class CockpitSubjectScopeView(BaseModel):
++    model_config = ConfigDict(frozen=True)
++
++    subject_hash: str
++    state: Literal["absent", "staged", "active", "blocked"]
++    account_ids: tuple[str, ...]
++    model_scope: Literal["none", "restricted"]
++    models: tuple[str, ...]
++    persisted_manifest_revision: str | None = None
++    runtime_activation: Literal["restart_required_or_unverified"] = "restart_required_or_unverified"
++    ready_to_migrate: Literal[False] = False
++
++
+ class CockpitStatus(BaseModel):
+     model_config = ConfigDict(frozen=True, strict=True)
+ 
+@@ -91,13 +143,26 @@ class CockpitPreflightRequest(BaseModel):
+ 
+ 
+ PreflightBlocker = Literal[
+-    "source_card_missing", "source_card_unavailable", "subject_binding_unverified", "empty_candidates",
+-    "duplicate_candidates", "outside_authorized_scope", "source_account_missing", "supplier_mismatch",
+-    "account_unavailable", "source_credential_missing", "supplier_mapping_unsupported",
+-    "target_account_missing", "target_account_collision", "target_credential_missing",
+-    "target_auth_kind_unsupported", "target_identity_unverified", "strategy_mapping_unverified",
++    "source_card_missing",
++    "source_card_unavailable",
++    "subject_binding_unverified",
++    "empty_candidates",
++    "duplicate_candidates",
++    "outside_authorized_scope",
++    "source_account_missing",
++    "supplier_mismatch",
++    "account_unavailable",
++    "source_credential_missing",
++    "supplier_mapping_unsupported",
++    "target_account_missing",
++    "target_account_collision",
++    "target_credential_missing",
++    "target_auth_kind_unsupported",
++    "target_identity_unverified",
++    "strategy_mapping_unverified",
+     "legacy_account_scope_unsupported",
+-    "source_credential_collision", "target_credential_collision",
++    "source_credential_collision",
++    "target_credential_collision",
+ ]
+ 
+ 
+@@ -124,13 +189,24 @@ class CockpitPreflightReport(BaseModel):
+     accounts: tuple[CockpitAccountPreflight, ...]
+     blockers: tuple[PreflightBlocker, ...]
+     ready_to_migrate: Literal[False] = False
+-    pending_checks: tuple[Literal[
+-        "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
+-        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "native_runtime_authorization_unverified",
++    pending_checks: tuple[
++        Literal[
++            "runtime_eligibility_unverified",
++            "credentials_and_ownership_unverified",
++            "models_proxy_quota_unmapped",
++            "policy_behavior_unverified",
++            "native_subject_mapping_unimplemented",
++            "native_runtime_authorization_unverified",
++            "runtime_activation_unverified",
++        ],
++        ...,
++    ] = (
++        "runtime_eligibility_unverified",
++        "credentials_and_ownership_unverified",
++        "models_proxy_quota_unmapped",
++        "policy_behavior_unverified",
++        "native_subject_mapping_unimplemented",
+         "runtime_activation_unverified",
+-    ], ...] = (
+-        "runtime_eligibility_unverified", "credentials_and_ownership_unverified", "models_proxy_quota_unmapped",
+-        "policy_behavior_unverified", "native_subject_mapping_unimplemented", "runtime_activation_unverified",
+     )
+ 
+ 
+@@ -642,7 +718,9 @@ class AccountPoolSettings(BaseModel):
+     default_route: Literal["auto", "priority", "random", "quota"] = "auto"
+     default_concurrency_limit: int = Field(default=1, ge=0, le=1000)
+     default_model_discovery: bool = True
+-    model_test_greetings: tuple[Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)], ...] = Field(default=(), max_length=50)
++    model_test_greetings: tuple[Annotated[str, StringConstraints(strip_whitespace=True, max_length=1000)], ...] = Field(
++        default=(), max_length=50
++    )
+     auth_file_template: AuthFileTemplate | None = None
+     default_proxy_profile_id: str | None = Field(default=None, max_length=120)
+     max_attempts: int = Field(default=3, ge=1, le=5)
+diff --git a/litellm/proxy/route_llm_request.py b/litellm/proxy/route_llm_request.py
+index 68d72d0311..69b7512261 100644
+--- a/litellm/proxy/route_llm_request.py
++++ b/litellm/proxy/route_llm_request.py
+@@ -28,6 +28,7 @@ GATED_MOCK_PARAM_NAMES: Final[tuple[str, ...]] = (
+ MOCK_TESTING_CONFIG_KEY: Final = "dangerously_allow_mock_testing_request_params"
+ 
+ if TYPE_CHECKING:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_route import CockpitRouteResolver
+     from litellm.router import Router as _Router
+ 
+     LitellmRouter = _Router
+@@ -470,6 +471,7 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
+     user_model: str | None,
+     route_type: RouteType,
+     user_api_key_dict: UserAPIKeyAuth | None = None,
++    cockpit_resolver: "CockpitRouteResolver | None" = None,
+ ):
+     raise_if_required_body_param_missing(route_type=route_type, data=data)
+ 
+@@ -486,12 +488,29 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
+         data["fallbacks"] = []
+         data["context_window_fallbacks"] = []
+         data["content_policy_fallbacks"] = []
+-
+     await add_shared_session_to_data(data)
+ 
+     raise_if_mock_testing_params_disallowed(data, allowed=mock_testing_params_allowed())
+ 
+     if pool_caller is not None and pool_caller.card_id is not None:
++        from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
++            cockpit_route_for_request,
++            dispatch_cockpit_route,
++        )
++
++        cockpit_route: Final = await cockpit_route_for_request(
++            pool_caller,
++            getattr(user_api_key_dict, "token", None),
++            data,  # pyright: ignore[reportUnknownArgumentType]  # validated inside the cockpit route module
++            route_type,
++            resolver=cockpit_resolver,
++        )
++        if cockpit_route is not None:
++            return await dispatch_cockpit_route(
++                cockpit_route,
++                data,  # pyright: ignore[reportUnknownArgumentType]  # validated inside the cockpit route module
++                route_type,
++            )
+         if llm_router is None:
+             raise HTTPException(503, "Card keys require the configured LiteLLM router")
+         return getattr(llm_router, route_type)(**data)
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py
+new file mode 100644
+index 0000000000..7304baa58c
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py
+@@ -0,0 +1,523 @@
++"""验证 Cockpit 主体路由只选择一个 owner，默认关闭且单次直连不重试。"""
++
++from __future__ import annotations
++
++import asyncio
++import json
++from typing import Final
++from uuid import UUID, uuid4
++
++import httpx
++import pytest
++from fastapi import HTTPException
++from pydantic import SecretStr
++
++import litellm
++from litellm.exceptions import BudgetExceededError, RateLimitError
++from litellm.proxy._types import UserAPIKeyAuth
++from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
++    CockpitRoute,
++    CockpitRouteResolver,
++    CockpitRouteUnavailable,
++    ManagerRouteLookup,
++    RouteDecision,
++    active_route_ttl_seconds,
++    cockpit_route_for_request,
++    dispatch_cockpit_route,
++    route_ttl_seconds,
++)
++from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
++from litellm.proxy.route_llm_request import _route_request_single_attempt
++
++SUBJECT: Final = "a" * 64
++CARD: Final = UUID("00000000-0000-0000-0000-000000000001")
++REVISION: Final = '"sha256-' + "b" * 64 + '"'
++TOKEN: Final = "m" * 32
++
++
++def _route(models: tuple[str, ...] = ("fixture-model",), origin: str = "http://cockpit.test:8080") -> CockpitRoute:
++    return CockpitRoute(
++        subject_hash=SUBJECT,
++        origin=origin,
++        api_key=SecretStr("cockpit-internal-key"),
++        account_ids=(str(CARD),),
++        models=models,
++        manifest_revision=REVISION,
++    )
++
++
++class _Router:
++    model_names: Final[tuple[str, ...]] = ()
++
++    def aresponses(self, **_kwargs: object) -> object:
++        return "router-path"
++
++
++def _identity() -> PoolIdentity:
++    return PoolIdentity(key_hash=SUBJECT, card_id=CARD, request_id=uuid4())
++
++
++def _user() -> UserAPIKeyAuth:
++    return UserAPIKeyAuth(token=SUBJECT)
++
++
++def _resolver(decision: RouteDecision | Exception) -> CockpitRouteResolver:
++    async def lookup(_subject: str) -> RouteDecision:
++        if isinstance(decision, Exception):
++            raise decision
++        return decision
++
++    return CockpitRouteResolver(lookup=lookup)
++
++
++def test_gate_off_never_calls_the_route_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.delenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", raising=False)
++    calls: Final[list[str]] = []
++
++    async def lookup(subject: str) -> RouteDecision:
++        calls.append(subject)
++        return RouteDecision("active", _route())
++
++    local: Final = CockpitRouteResolver(lookup=lookup)
++    result: Final = asyncio.run(
++        cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses", resolver=local)
++    )
++    assert result is None and calls == []
++
++
++@pytest.mark.parametrize("state", ["absent", "staged"])
++def test_absent_or_staged_route_keeps_the_existing_path(state: str, monkeypatch: pytest.MonkeyPatch) -> None:
++    decisions: Final = {"absent": RouteDecision("absent"), "staged": RouteDecision("staged")}
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(decisions[state])
++    result: Final = asyncio.run(
++        cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses", resolver=local)
++    )
++    assert result is None
++
++
++def test_active_route_requires_published_model_responses_protocol_and_safe_history(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(RouteDecision("active", _route(models=("fixture-model",))))
++    accepted: Final = asyncio.run(
++        cockpit_route_for_request(_identity(), SUBJECT, {"model": "Fixture-Model"}, "aresponses", resolver=local)
++    )
++    with pytest.raises(HTTPException) as model_error:
++        asyncio.run(
++            cockpit_route_for_request(_identity(), SUBJECT, {"model": "other-model"}, "aresponses", resolver=local)
++        )
++    with pytest.raises(HTTPException) as protocol_error:
++        asyncio.run(
++            cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "acompletion", resolver=local)
++        )
++    with pytest.raises(HTTPException) as history_error:
++        asyncio.run(
++            cockpit_route_for_request(
++                _identity(),
++                SUBJECT,
++                {"model": "fixture-model", "previous_response_id": "resp_1"},
++                "aresponses",
++                resolver=local,
++            )
++        )
++    assert accepted is not None and accepted.subject_hash == SUBJECT
++    assert model_error.value.status_code == 403
++    assert protocol_error.value.status_code == 422
++    assert history_error.value.status_code == 422
++    assert history_error.value.detail == "cockpit_continuation_unsupported"
++
++
++@pytest.mark.parametrize("decision", [RouteDecision("blocked"), CockpitRouteUnavailable()])
++def test_blocked_or_unavailable_active_state_fails_closed(
++    decision: RouteDecision | Exception, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(decision)
++    with pytest.raises(HTTPException) as error:
++        asyncio.run(
++            cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses", resolver=local)
++        )
++    assert error.value.status_code == 503
++
++
++def test_dispatch_is_one_direct_call_without_router_retries(monkeypatch: pytest.MonkeyPatch) -> None:
++    calls: Final[list[dict[str, object]]] = []
++
++    async def fake_aresponses(**kwargs: object) -> object:
++        calls.append(kwargs)
++        return "cockpit-response"
++
++    monkeypatch.setattr(litellm, "aresponses", fake_aresponses)
++    result: Final = asyncio.run(
++        dispatch_cockpit_route(
++            _route(),
++            {
++                "model": "fixture-model",
++                "input": "hi",
++                "router_settings_override": {"num_retries": 9},
++                "enable_tag_filtering": True,
++                "proxy_server_request": {"url": "http://proxy.test"},
++                "litellm_metadata": {
++                    "user_api_key": "hashed",
++                    "user_api_key_hash": SUBJECT,
++                    "user_api_key_user_id": "user-1",
++                    "user_api_key_team_id": "team-1",
++                    "end_user_id": "end-1",
++                    "spend_logs_metadata": {"user_api_key_alias": "fixture-key"},
++                },
++            },
++            "aresponses",
++        )
++    )
++    assert result == "cockpit-response" and len(calls) == 1
++    kwargs: Final = calls[0]
++    assert kwargs["api_base"] == "http://cockpit.test:8080/v1"
++    assert kwargs["api_key"] == "cockpit-internal-key"
++    assert kwargs["custom_llm_provider"] == "openai"
++    assert kwargs["num_retries"] == 0 and kwargs["max_retries"] == 0
++    assert kwargs["fallbacks"] == [] and kwargs["context_window_fallbacks"] == []
++    assert kwargs["caching"] is False and kwargs["cache"] == {"no-cache": True, "no-store": True}
++    assert "router_settings_override" not in kwargs
++    assert "enable_tag_filtering" not in kwargs
++    assert "proxy_server_request" not in kwargs
++    metadata: Final = kwargs["litellm_metadata"]
++    assert isinstance(metadata, dict)
++    assert metadata["user_api_key"] == "hashed"
++    assert metadata["user_api_key_hash"] == SUBJECT
++    assert metadata["user_api_key_user_id"] == "user-1"
++    assert metadata["user_api_key_team_id"] == "team-1"
++    assert metadata["end_user_id"] == "end-1"
++    assert metadata["spend_logs_metadata"] == {"user_api_key_alias": "fixture-key"}
++    assert metadata["account_pool_route_owner"] == "cockpit"
++    assert metadata["account_pool_subject_hash"] == SUBJECT
++    assert "cockpit-internal-key" not in json.dumps(metadata)
++
++
++def test_request_routing_uses_cockpit_once_and_never_touches_the_router(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(RouteDecision("active", _route()))
++    calls: Final[list[dict[str, object]]] = []
++
++    async def fake_aresponses(**kwargs: object) -> object:
++        calls.append(kwargs)
++        return "cockpit-response"
++
++    monkeypatch.setattr(litellm, "aresponses", fake_aresponses)
++
++    class RejectingRouter(_Router):
++        def aresponses(self, **_kwargs: object) -> object:
++            raise AssertionError("the LiteLLM router must not own a cockpit request")
++
++    context = pool_identity.set(_identity())
++    try:
++        result: Final = asyncio.run(
++            _route_request_single_attempt(
++                {"model": "fixture-model", "input": "hi"},
++                RejectingRouter(),
++                None,
++                "aresponses",
++                _user(),
++                cockpit_resolver=local,
++            )
++        )
++    finally:
++        pool_identity.reset(context)
++    assert result == "cockpit-response" and len(calls) == 1
++
++
++def test_gate_off_keeps_the_existing_router_path(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.delenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", raising=False)
++
++    async def forbidden_lookup(_subject: str) -> RouteDecision:
++        raise AssertionError("gate off must not read cockpit routes")
++
++    local: Final = CockpitRouteResolver(lookup=forbidden_lookup)
++    context = pool_identity.set(_identity())
++    try:
++        result: Final = asyncio.run(
++            _route_request_single_attempt(
++                {"model": "fixture-model", "input": "hi"},
++                _Router(),
++                None,
++                "aresponses",
++                _user(),
++                cockpit_resolver=local,
++            )
++        )
++    finally:
++        pool_identity.reset(context)
++    assert result == "router-path"
++
++
++def test_manager_route_lookup_parses_active_scope_and_rejects_bad_origin() -> None:
++    seen: Final[list[httpx.Request]] = []
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        seen.append(request)
++        return httpx.Response(
++            200,
++            json={
++                "subject_hash": SUBJECT,
++                "state": "active",
++                "account_ids": [str(CARD)],
++                "model_scope": "restricted",
++                "models": ["fixture-model"],
++                "origin": "http://cockpit.test:8080",
++                "api_key": "cockpit-internal-key",
++                "persisted_manifest_revision": REVISION,
++                "runtime_activation": "restart_required_or_unverified",
++            },
++        )
++
++    lookup: Final = ManagerRouteLookup(
++        "http://manager.test",
++        TOKEN,
++        lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
++    )
++    decision: Final = asyncio.run(lookup.read(SUBJECT))
++    assert decision.state == "active" and decision.route is not None
++    assert decision.route.origin == "http://cockpit.test:8080"
++    assert decision.route.api_key.get_secret_value() == "cockpit-internal-key"
++    assert "cockpit-internal-key" not in repr(decision.route)
++    assert seen[0].url.path == "/internal/cockpit/route/" + SUBJECT
++    assert seen[0].headers["authorization"] == "Bearer " + TOKEN
++
++    def bad_origin(request: httpx.Request) -> httpx.Response:
++        return httpx.Response(
++            200,
++            json={
++                "subject_hash": SUBJECT,
++                "state": "active",
++                "account_ids": [str(CARD)],
++                "model_scope": "restricted",
++                "models": ["fixture-model"],
++                "origin": "http://user:pass@cockpit.test:8080",
++                "api_key": "cockpit-internal-key",
++                "persisted_manifest_revision": REVISION,
++            },
++        )
++
++    bad: Final = ManagerRouteLookup(
++        "http://manager.test",
++        TOKEN,
++        lambda: httpx.AsyncClient(transport=httpx.MockTransport(bad_origin)),
++    )
++    with pytest.raises(CockpitRouteUnavailable):
++        asyncio.run(bad.read(SUBJECT))
++
++
++def test_route_resolver_caches_successes_but_not_failures() -> None:
++    now: Final[list[float]] = [0.0]
++    calls: Final[list[str]] = []
++
++    async def lookup(_subject: str) -> RouteDecision:
++        calls.append(_subject)
++        return RouteDecision("staged")
++
++    local: Final = CockpitRouteResolver(clock=lambda: now[0], lookup=lookup)
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    assert calls == [SUBJECT]
++    now[0] = 31.0
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    assert calls == [SUBJECT, SUBJECT]
++
++    failures: Final[list[str]] = []
++
++    async def failing(subject: str) -> RouteDecision:
++        failures.append(subject)
++        raise CockpitRouteUnavailable
++
++    failing_resolver: Final = CockpitRouteResolver(clock=lambda: now[0], lookup=failing)
++    for _ in range(2):
++        with pytest.raises(CockpitRouteUnavailable):
++            asyncio.run(failing_resolver.decision(SUBJECT))
++    assert failures == [SUBJECT, SUBJECT]
++
++
++def test_route_ttl_is_configurable_and_invalidation_refreshes(monkeypatch: pytest.MonkeyPatch) -> None:
++    assert route_ttl_seconds("bad") == 30.0
++    assert route_ttl_seconds("0") == 1.0
++    assert route_ttl_seconds("9999") == 300.0
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTE_TTL_SECONDS", "2")
++    now: Final[list[float]] = [0.0]
++    calls: Final[list[str]] = []
++
++    async def lookup(_subject: str) -> RouteDecision:
++        calls.append(_subject)
++        return RouteDecision("staged")
++
++    local: Final = CockpitRouteResolver(clock=lambda: now[0], lookup=lookup)
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    now[0] = 1.9
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    assert calls == [SUBJECT]
++    now[0] = 2.1
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    assert calls == [SUBJECT, SUBJECT]
++    local.invalidate(SUBJECT)
++    assert asyncio.run(local.decision(SUBJECT)).state == "staged"
++    assert calls == [SUBJECT, SUBJECT, SUBJECT]
++
++
++def test_dispatch_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
++    calls: Final[list[dict[str, object]]] = []
++
++    async def failing(**_kwargs: object) -> object:
++        calls.append(_kwargs)
++        raise HTTPException(429, "upstream quota exhausted")
++
++    monkeypatch.setattr(litellm, "aresponses", failing)
++    with pytest.raises(HTTPException):
++        asyncio.run(dispatch_cockpit_route(_route(), {"model": "fixture-model", "input": "hi"}, "aresponses"))
++    assert len(calls) == 1
++
++
++def test_active_route_failure_never_falls_back_to_the_router(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(RouteDecision("active", _route()))
++    calls: Final[list[dict[str, object]]] = []
++
++    async def failing(**kwargs: object) -> object:
++        calls.append(kwargs)
++        raise HTTPException(429, "upstream quota exhausted")
++
++    monkeypatch.setattr(litellm, "aresponses", failing)
++
++    class RejectingRouter(_Router):
++        def aresponses(self, **_kwargs: object) -> object:
++            raise AssertionError("failed cockpit request must not fall back")
++
++    context = pool_identity.set(_identity())
++    try:
++        with pytest.raises(HTTPException):
++            asyncio.run(
++                _route_request_single_attempt(
++                    {"model": "fixture-model", "input": "hi"},
++                    RejectingRouter(),
++                    None,
++                    "aresponses",
++                    _user(),
++                    cockpit_resolver=local,
++                )
++            )
++    finally:
++        pool_identity.reset(context)
++    assert len(calls) == 1
++
++
++def test_active_decisions_expire_before_staged_decisions() -> None:
++    assert active_route_ttl_seconds("bad") == 5.0
++    assert active_route_ttl_seconds("0") == 1.0
++    assert active_route_ttl_seconds("9999") == 30.0
++    now: Final[list[float]] = [0.0]
++    calls: Final[list[str]] = []
++
++    async def lookup(_subject: str) -> RouteDecision:
++        calls.append(_subject)
++        return RouteDecision("active", _route())
++
++    local: Final = CockpitRouteResolver(clock=lambda: now[0], lookup=lookup, ttl_seconds=30, active_ttl_seconds=5)
++    assert asyncio.run(local.decision(SUBJECT)).state == "active"
++    now[0] = 4.9
++    assert asyncio.run(local.decision(SUBJECT)).state == "active"
++    assert calls == [SUBJECT]
++    now[0] = 5.1
++    assert asyncio.run(local.decision(SUBJECT)).state == "active"
++    assert calls == [SUBJECT, SUBJECT]
++
++
++def test_quota_exhaustion_and_plain_rate_limit_do_not_trigger_litellm_selection(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(RouteDecision("active", _route()))
++
++    def run(error: Exception) -> None:
++        calls: Final[list[dict[str, object]]] = []
++
++        async def failing(**kwargs: object) -> object:
++            calls.append(kwargs)
++            raise error
++
++        monkeypatch.setattr(litellm, "aresponses", failing)
++
++        class RejectingRouter(_Router):
++            def aresponses(self, **_kwargs: object) -> object:
++                raise AssertionError("a cockpit quota or rate-limit failure must not re-enter the router")
++
++        context = pool_identity.set(_identity())
++        try:
++            with pytest.raises(type(error)):
++                asyncio.run(
++                    _route_request_single_attempt(  # pyright: ignore[reportUnknownArgumentType]  # fake router returns a sentinel
++                        {"model": "fixture-model", "input": "hi"},
++                        RejectingRouter(),  # pyright: ignore[reportArgumentType]  # test double never called on this path
++                        None,
++                        "aresponses",
++                        _user(),
++                        cockpit_resolver=local,
++                    )
++                )
++        finally:
++            pool_identity.reset(context)
++        assert len(calls) == 1
++
++    run(RateLimitError("ordinary rate limit", llm_provider="openai", model="fixture-model"))
++    run(BudgetExceededError(current_cost=10.0, max_budget=10.0))
++
++
++def test_signed_history_variants_are_rejected_before_cockpit_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    local: Final = _resolver(RouteDecision("active", _route()))
++    payloads: Final = (
++        {"model": "fixture-model", "input": "hi", "encrypted_content": "opaque"},
++        {"model": "fixture-model", "input": "hi", "signature": "opaque"},
++        {"model": "fixture-model", "input": [{"type": "thinking", "signature": "opaque"}]},
++    )
++    for payload in payloads:
++        with pytest.raises(HTTPException) as error:
++            asyncio.run(cockpit_route_for_request(_identity(), SUBJECT, payload, "aresponses", resolver=local))
++        assert (error.value.status_code, error.value.detail) == (422, "cockpit_continuation_unsupported")
++
++
++class _FailingStream:
++    def __init__(self) -> None:
++        self.started = False
++
++    def __aiter__(self) -> _FailingStream:
++        return self
++
++    async def __anext__(self) -> object:
++        if not self.started:
++            self.started = True
++            return {"delta": "partial"}
++        raise RateLimitError("stream interrupted", llm_provider="openai", model="fixture-model")
++
++
++def test_streaming_failure_after_output_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
++    calls: Final[list[dict[str, object]]] = []
++    stream: Final = _FailingStream()
++
++    async def fake_aresponses(**kwargs: object) -> object:
++        calls.append(kwargs)
++        return stream
++
++    monkeypatch.setattr(litellm, "aresponses", fake_aresponses)
++    result: Final = asyncio.run(
++        dispatch_cockpit_route(_route(), {"model": "fixture-model", "input": "hi", "stream": True}, "aresponses")
++    )
++    assert isinstance(result, _FailingStream)
++
++    async def consume() -> None:
++        iterator: Final = result.__aiter__()
++        assert await anext(iterator) == {"delta": "partial"}
++        with pytest.raises(RateLimitError):
++            await anext(iterator)
++
++    asyncio.run(consume())
++    assert len(calls) == 1
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py
+new file mode 100644
+index 0000000000..7e76182e3c
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py
+@@ -0,0 +1,152 @@
++"""验证 Cockpit 授权范围发布代理的管理员边界、固定路径与安全错误映射。"""
++
++from __future__ import annotations
++
++import json
++from collections.abc import Callable
++from typing import Final
++from uuid import UUID
++
++import httpx
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++
++from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
++from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
++from litellm.proxy.management_endpoints.account_pool_endpoints import (
++    AccountPoolManagerClient,
++    ManagerClientFactory,
++    create_account_pool_router,
++)
++
++TOKEN: Final = "m" * 32
++SUBJECT: Final = "a" * 64
++CARD: Final = UUID(int=1)
++R1: Final = '"sha256-' + "b" * 64 + '"'
++R2: Final = '"sha256-' + "c" * 64 + '"'
++
++
++def _app(factory: ManagerClientFactory, user: UserAPIKeyAuth | None = None) -> FastAPI:
++    app: Final = FastAPI()
++    app.include_router(create_account_pool_router(factory))
++    app.dependency_overrides[user_api_key_auth] = lambda: user or UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
++    return app
++
++
++def _client(handler: Callable[[httpx.Request], httpx.Response]) -> AccountPoolManagerClient:
++    return AccountPoolManagerClient(
++        "http://manager.test", TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler))
++    )
++
++
++def _view(*, subject: str = SUBJECT, state: str = "staged") -> dict[str, object]:
++    return {
++        "subject_hash": subject,
++        "state": state,
++        "account_ids": [str(CARD)],
++        "model_scope": "restricted",
++        "models": ["fixture-model"],
++        "persisted_manifest_revision": R1,
++        "runtime_activation": "restart_required_or_unverified",
++        "ready_to_migrate": False,
++    }
++
++
++def test_scope_routes_require_proxy_admin_before_manager() -> None:
++    calls: Final[list[httpx.Request]] = []
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        calls.append(request)
++        return httpx.Response(200, json=_view())
++
++    app: Final = _app(lambda: _client(handler), user=UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER))
++    with TestClient(app) as client:
++        read: Final = client.get("/account_pool/cockpit/scope/" + SUBJECT)
++        publish: Final = client.post(
++            "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "receipt": "r", "revision": R1}
++        )
++        revoke: Final = client.request(
++            "DELETE", "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "revision": R1}
++        )
++        activate: Final = client.post(
++            "/account_pool/cockpit/scope/activate", json={"subject_hash": SUBJECT, "revision": R1}
++        )
++        deactivate: Final = client.post(
++            "/account_pool/cockpit/scope/deactivate", json={"subject_hash": SUBJECT, "revision": R1}
++        )
++    assert read.status_code == publish.status_code == revoke.status_code == 403
++    assert activate.status_code == deactivate.status_code == 403
++    assert calls == []
++
++
++def test_scope_proxy_forwards_exact_requests_and_never_returns_a_key() -> None:
++    calls: Final[list[httpx.Request]] = []
++
++    def handler(request: httpx.Request) -> httpx.Response:
++        calls.append(request)
++        return httpx.Response(200, json=_view())
++
++    with TestClient(_app(lambda: _client(handler))) as client:
++        read: Final = client.get("/account_pool/cockpit/scope/" + SUBJECT)
++        publish: Final = client.post(
++            "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "receipt": "encoded", "revision": R1}
++        )
++        revoke: Final = client.request(
++            "DELETE", "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "revision": R1}
++        )
++        activate: Final = client.post(
++            "/account_pool/cockpit/scope/activate", json={"subject_hash": SUBJECT, "revision": R1}
++        )
++        deactivate: Final = client.post(
++            "/account_pool/cockpit/scope/deactivate", json={"subject_hash": SUBJECT, "revision": R1}
++        )
++    assert (read.status_code, publish.status_code, revoke.status_code) == (200, 200, 200)
++    assert (activate.status_code, deactivate.status_code) == (200, 200)
++    assert all(response.headers["cache-control"] == "no-store" for response in (read, publish, revoke))
++    assert "key" not in read.json() and "api_key" not in read.json()
++    assert [(request.method, request.url.path) for request in calls] == [
++        ("GET", "/api/cockpit/scope/" + SUBJECT),
++        ("POST", "/api/cockpit/scope"),
++        ("DELETE", "/api/cockpit/scope"),
++        ("POST", "/api/cockpit/scope/activate"),
++        ("POST", "/api/cockpit/scope/deactivate"),
++    ]
++    assert json.loads(calls[1].content) == {"subject_hash": SUBJECT, "receipt": "encoded", "revision": R1}
++    assert json.loads(calls[2].content) == {"subject_hash": SUBJECT, "revision": R1}
++    assert json.loads(calls[3].content) == {"subject_hash": SUBJECT, "revision": R1}
++    assert json.loads(calls[4].content) == {"subject_hash": SUBJECT, "revision": R1}
++
++
++def test_scope_proxy_preserves_safe_conflict_and_rejects_unknown_details() -> None:
++    def handler(request: httpx.Request) -> httpx.Response:
++        if request.method == "GET":
++            return httpx.Response(409, json={"detail": "receipt_stale"})
++        return httpx.Response(422, json={"detail": "PRIVATE-DETAIL"})
++
++    with TestClient(_app(lambda: _client(handler))) as client:
++        read: Final = client.get("/account_pool/cockpit/scope/" + SUBJECT)
++        publish: Final = client.post(
++            "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "receipt": "encoded", "revision": R1}
++        )
++    assert read.status_code == 409 and read.json()["detail"] == "receipt_stale"
++    assert publish.status_code == 503 and publish.json()["detail"] == "write_outcome_unknown"
++    assert "PRIVATE" not in read.text + publish.text
++    assert publish.headers["cache-control"] == "no-store"
++
++
++def test_scope_proxy_rejects_manager_view_for_another_subject_or_missing_fields() -> None:
++    def mismatch(request: httpx.Request) -> httpx.Response:
++        return httpx.Response(200, json=_view(subject="0" * 64))
++
++    with TestClient(_app(lambda: _client(mismatch))) as client:
++        response: Final = client.get("/account_pool/cockpit/scope/" + SUBJECT)
++    assert response.status_code == 502 and response.json()["detail"] == "invalid_response"
++
++    def missing(request: httpx.Request) -> httpx.Response:
++        return httpx.Response(200, json={"subject_hash": SUBJECT})
++
++    with TestClient(_app(lambda: _client(missing))) as client:
++        broken: Final = client.post(
++            "/account_pool/cockpit/scope", json={"subject_hash": SUBJECT, "receipt": "r", "revision": R1}
++        )
++    assert broken.status_code == 502 and broken.json()["detail"] == "invalid_response"
+diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+index 0ea2e8cbc6..0c93575647 100644
+--- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
++++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
+@@ -4,41 +4,6 @@
+  */
+ 
+ export interface paths {
+-    "/account_pool/cockpit/policy/runtime": {
+-        parameters: {
+-            query?: never;
+-            header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        /** Get Cockpit Runtime */
+-        get: operations["get_cockpit_runtime_account_pool_cockpit_policy_runtime_get"];
+-        put?: never;
+-        post?: never;
+-        delete?: never;
+-        options?: never;
+-        head?: never;
+-        patch?: never;
+-        trace?: never;
+-    };
+-    "/account_pool/cockpit/policy/apply": {
+-        parameters: {
+-            query?: never;
+-            header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        get?: never;
+-        put?: never;
+-        /** Post Cockpit Apply */
+-        post: operations["post_cockpit_apply_account_pool_cockpit_policy_apply_post"];
+-        delete?: never;
+-        options?: never;
+-        head?: never;
+-        patch?: never;
+-        trace?: never;
+-    };
+-
+     "/": {
+         parameters: {
+             query?: never;
+@@ -839,6 +804,57 @@ export interface paths {
+         patch?: never;
+         trace?: never;
+     };
++    "/account_pool/cockpit/credential-receipts": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Issue Credential Receipt */
++        post: operations["issue_credential_receipt_account_pool_cockpit_credential_receipts_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/credential-receipts/revalidate": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Revalidate Credential Receipt */
++        post: operations["revalidate_credential_receipt_account_pool_cockpit_credential_receipts_revalidate_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native-preflight": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Check Native Cockpit Mapping */
++        post: operations["check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
+     "/account_pool/cockpit/policy": {
+         parameters: {
+             query?: never;
+@@ -857,6 +873,40 @@ export interface paths {
+         patch?: never;
+         trace?: never;
+     };
++    "/account_pool/cockpit/policy/apply": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Post Cockpit Apply */
++        post: operations["post_cockpit_apply_account_pool_cockpit_policy_apply_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/policy/runtime": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Get Cockpit Runtime */
++        get: operations["get_cockpit_runtime_account_pool_cockpit_policy_runtime_get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
+     "/account_pool/cockpit/preflight": {
+         parameters: {
+             query?: never;
+@@ -874,6 +924,75 @@ export interface paths {
+         patch?: never;
+         trace?: never;
+     };
++    "/account_pool/cockpit/scope": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Publish Cockpit Scope */
++        post: operations["publish_cockpit_scope_account_pool_cockpit_scope_post"];
++        /** Revoke Cockpit Scope */
++        delete: operations["revoke_cockpit_scope_account_pool_cockpit_scope_delete"];
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/scope/activate": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Activate Cockpit Scope */
++        post: operations["activate_cockpit_scope_account_pool_cockpit_scope_activate_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/scope/deactivate": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Deactivate Cockpit Scope */
++        post: operations["deactivate_cockpit_scope_account_pool_cockpit_scope_deactivate_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/scope/{subject_hash}": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Get Cockpit Scope */
++        get: operations["get_cockpit_scope_account_pool_cockpit_scope__subject_hash__get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
+     "/account_pool/cockpit/status": {
+         parameters: {
+             query?: never;
+@@ -1480,6 +1599,23 @@ export interface paths {
+         patch?: never;
+         trace?: never;
+     };
++    "/account_pool/internal/cockpit/native-subject": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Read Internal Native Subject */
++        post: operations["read_internal_native_subject_account_pool_internal_cockpit_native_subject_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
+     "/account_pool/oauth-browser-sessions/": {
+         parameters: {
+             query?: never;
+@@ -24362,44 +24498,10 @@ export interface paths {
+         patch?: never;
+         trace?: never;
+     };
+-    "/account_pool/cockpit/native-preflight": {
+-        parameters: {
+-            query?: never;
+-            header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        get?: never;
+-        put?: never;
+-        /** Check Native Cockpit Mapping */
+-        post: operations["check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post"];
+-        delete?: never;
+-        options?: never;
+-        head?: never;
+-        patch?: never;
+-        trace?: never;
+-    };
+ }
+ export type webhooks = Record<string, never>;
+ export interface components {
+     schemas: {
+-        /** CockpitPolicyApply */
+-        CockpitPolicyApply: {
+-            /** Revision */
+-            revision: string;
+-        };
+-        /** CockpitPolicyRuntime */
+-        CockpitPolicyRuntime: {
+-            /** Persisted Revision */
+-            persisted_revision: string;
+-            /** Active Revision */
+-            active_revision: string | null;
+-            /** Apply Supported */
+-            apply_supported: boolean;
+-            /** Blocked Reason */
+-            blocked_reason: ("non_policy_change" | "unsupported_policy" | "runtime_unavailable") | null;
+-        };
+-
+         /**
+          * APIKeySecurityScheme
+          * @description Defines a security scheme using an API key.
+@@ -28819,6 +28921,100 @@ export interface components {
+              */
+             target_account_id: string;
+         };
++        /** CockpitCredentialReceiptRequest */
++        CockpitCredentialReceiptRequest: {
++            /** Key Hash */
++            key_hash: string;
++        };
++        /** CockpitCredentialReceiptResponse */
++        CockpitCredentialReceiptResponse: {
++            /** Code */
++            code?: ("invalid_subject" | "subject_unverified" | "invalid_clock" | "read_unavailable" | "state_changed" | "source_missing" | "source_unavailable" | "source_credential_missing" | "source_auth_unsupported" | "source_identity_mismatch" | "source_ownership_unverified" | "source_credential_collision" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_credential_collision" | "target_auth_unsupported" | "target_content_mismatch" | "invalid_receipt" | "receipt_time_invalid" | "stale_receipt") | null;
++            /** Key Hash */
++            key_hash: string;
++            /**
++             * Ready To Migrate
++             * @default false
++             * @constant
++             */
++            ready_to_migrate: false;
++            /** Receipt */
++            receipt?: string | null;
++            /**
++             * Status
++             * @enum {string}
++             */
++            status: "owned_artifact_correspondence" | "rejected";
++        };
++        /** CockpitCredentialReceiptRevalidateRequest */
++        CockpitCredentialReceiptRevalidateRequest: {
++            /** Key Hash */
++            key_hash: string;
++            /** Receipt */
++            receipt: string;
++        };
++        /** CockpitNativePreflightReport */
++        CockpitNativePreflightReport: {
++            mapping?: components["schemas"]["CockpitPreflightReport"] | null;
++            /**
++             * Ready To Migrate
++             * @default false
++             * @constant
++             */
++            ready_to_migrate: false;
++            subject: components["schemas"]["NativeSubjectResult"];
++        };
++        /** CockpitNativePreflightRequest */
++        CockpitNativePreflightRequest: {
++            /** Candidate Ids */
++            candidate_ids?: string[] | null;
++            /** Key Hash */
++            key_hash: string;
++        };
++        /** CockpitNativeSubjectRequest */
++        CockpitNativeSubjectRequest: {
++            /** Subject Hash */
++            subject_hash: string;
++        };
++        /** CockpitNativeSubjectResponse */
++        CockpitNativeSubjectResponse: {
++            scope: components["schemas"]["CockpitNativeSubjectScope"] | null;
++            /** Subject Hash */
++            subject_hash: string;
++        };
++        /** CockpitNativeSubjectScope */
++        CockpitNativeSubjectScope: {
++            /**
++             * Card Id
++             * Format: uuid
++             */
++            card_id: string;
++            /**
++             * Model Scope
++             * @enum {string}
++             */
++            model_scope: "unrestricted" | "restricted";
++            /** Models */
++            models: string[];
++            /** Subject Hash */
++            subject_hash: string;
++        };
++        /** CockpitPolicyApply */
++        CockpitPolicyApply: {
++            /** Revision */
++            revision: string;
++        };
++        /** CockpitPolicyRuntime */
++        CockpitPolicyRuntime: {
++            /** Active Revision */
++            active_revision: string | null;
++            /** Apply Supported */
++            apply_supported: boolean;
++            /** Blocked Reason */
++            blocked_reason: ("non_policy_change" | "unsupported_policy" | "runtime_unavailable") | null;
++            /** Persisted Revision */
++            persisted_revision: string;
++        };
+         /** CockpitPolicyUpdate */
+         CockpitPolicyUpdate: {
+             /** Custom Rules */
+@@ -28976,6 +29172,29 @@ export interface components {
+              */
+             weight: number;
+         };
++        /** CockpitScopeActivationRequest */
++        CockpitScopeActivationRequest: {
++            /** Revision */
++            revision: string;
++            /** Subject Hash */
++            subject_hash: string;
++        };
++        /** CockpitScopePublishRequest */
++        CockpitScopePublishRequest: {
++            /** Receipt */
++            receipt: string;
++            /** Revision */
++            revision: string;
++            /** Subject Hash */
++            subject_hash: string;
++        };
++        /** CockpitScopeRevokeRequest */
++        CockpitScopeRevokeRequest: {
++            /** Revision */
++            revision: string;
++            /** Subject Hash */
++            subject_hash: string;
++        };
+         /** CockpitStatus */
+         CockpitStatus: {
+             /** Account Count */
+@@ -28994,6 +29213,39 @@ export interface components {
+              */
+             runtime_activation: "restart_required_or_unverified";
+         };
++        /** CockpitSubjectScopeView */
++        CockpitSubjectScopeView: {
++            /** Account Ids */
++            account_ids: string[];
++            /**
++             * Model Scope
++             * @enum {string}
++             */
++            model_scope: "none" | "restricted";
++            /** Models */
++            models: string[];
++            /** Persisted Manifest Revision */
++            persisted_manifest_revision?: string | null;
++            /**
++             * Ready To Migrate
++             * @default false
++             * @constant
++             */
++            ready_to_migrate: false;
++            /**
++             * Runtime Activation
++             * @default restart_required_or_unverified
++             * @constant
++             */
++            runtime_activation: "restart_required_or_unverified";
++            /**
++             * State
++             * @enum {string}
++             */
++            state: "absent" | "staged" | "active" | "blocked";
++            /** Subject Hash */
++            subject_hash: string;
++        };
+         /** CodexPolicy */
+         CodexPolicy: {
+             /**
+@@ -36329,6 +36581,32 @@ export interface components {
+              */
+             type: "mutualTLS";
+         };
++        /** NativeModelScope */
++        NativeModelScope: {
++            /**
++             * Kind
++             * @enum {string}
++             */
++            kind: "unrestricted" | "restricted";
++            /** Models */
++            models: string[];
++        };
++        /** NativeSubjectResult */
++        NativeSubjectResult: {
++            /** Card Id */
++            card_id?: string | null;
++            /**
++             * Checked At
++             * Format: date-time
++             */
++            checked_at: string;
++            model_scope?: components["schemas"]["NativeModelScope"] | null;
++            /**
++             * Status
++             * @enum {string}
++             */
++            status: "verified" | "missing" | "revoked" | "blocked" | "expired" | "legacy_subject" | "card_scope_unverified" | "model_scope_unverified" | "invalid_record" | "unavailable";
++        };
+         /** NetworkSettingsProfile */
+         NetworkSettingsProfile: {
+             /**
+@@ -45226,50 +45504,6 @@ export interface components {
+         } & {
+             [key: string]: unknown;
+         };
+-        /** NativeSubjectResult */
+-        NativeSubjectResult: {
+-            /** Card Id */
+-            card_id?: string | null;
+-            /**
+-             * Checked At
+-             * Format: date-time
+-             */
+-            checked_at: string;
+-            model_scope?: components["schemas"]["NativeModelScope"] | null;
+-            /**
+-             * Status
+-             * @enum {string}
+-             */
+-            status: "verified" | "missing" | "revoked" | "blocked" | "expired" | "legacy_subject" | "card_scope_unverified" | "model_scope_unverified" | "invalid_record" | "unavailable";
+-        };
+-        /** CockpitNativePreflightReport */
+-        CockpitNativePreflightReport: {
+-            mapping?: components["schemas"]["CockpitPreflightReport"] | null;
+-            /**
+-             * Ready To Migrate
+-             * @default false
+-             * @constant
+-             */
+-            ready_to_migrate: false;
+-            subject: components["schemas"]["NativeSubjectResult"];
+-        };
+-        /** CockpitNativePreflightRequest */
+-        CockpitNativePreflightRequest: {
+-            /** Candidate Ids */
+-            candidate_ids?: string[] | null;
+-            /** Key Hash */
+-            key_hash: string;
+-        };
+-        /** NativeModelScope */
+-        NativeModelScope: {
+-            /**
+-             * Kind
+-             * @enum {string}
+-             */
+-            kind: "unrestricted" | "restricted";
+-            /** Models */
+-            models: string[];
+-        };
+     };
+     responses: never;
+     parameters: never;
+@@ -45279,60 +45513,6 @@ export interface components {
+ }
+ export type $defs = Record<string, never>;
+ export interface operations {
+-    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
+-        parameters: {
+-            query?: never;
+-            header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        requestBody?: never;
+-        responses: {
+-            /** @description Successful Response */
+-            200: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+-                };
+-            };
+-        };
+-    };
+-    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
+-        parameters: {
+-            query?: never;
+-            header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        requestBody: {
+-            content: {
+-                "application/json": components["schemas"]["CockpitPolicyApply"];
+-            };
+-        };
+-        responses: {
+-            /** @description Successful Response */
+-            200: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+-                };
+-            };
+-            /** @description Validation Error */
+-            422: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["HTTPValidationError"];
+-                };
+-            };
+-        };
+-    };
+-
+     home__get: {
+         parameters: {
+             query?: never;
+@@ -46271,6 +46451,105 @@ export interface operations {
+             };
+         };
+     };
++    issue_credential_receipt_account_pool_cockpit_credential_receipts_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitCredentialReceiptRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitCredentialReceiptResponse"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    revalidate_credential_receipt_account_pool_cockpit_credential_receipts_revalidate_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitCredentialReceiptRevalidateRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitCredentialReceiptResponse"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitNativePreflightRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitNativePreflightReport"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
+     get_cockpit_policy_account_pool_cockpit_policy_get: {
+         parameters: {
+             query?: never;
+@@ -46324,6 +46603,59 @@ export interface operations {
+             };
+         };
+     };
++    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitPolicyApply"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                };
++            };
++        };
++    };
+     check_cockpit_mapping_account_pool_cockpit_preflight_post: {
+         parameters: {
+             query?: never;
+@@ -46357,6 +46689,169 @@ export interface operations {
+             };
+         };
+     };
++    publish_cockpit_scope_account_pool_cockpit_scope_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopePublishRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    revoke_cockpit_scope_account_pool_cockpit_scope_delete: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopeRevokeRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    activate_cockpit_scope_account_pool_cockpit_scope_activate_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopeActivationRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    deactivate_cockpit_scope_account_pool_cockpit_scope_deactivate_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopeActivationRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    get_cockpit_scope_account_pool_cockpit_scope__subject_hash__get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path: {
++                subject_hash: string;
++            };
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitSubjectScopeView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
+     get_cockpit_status_account_pool_cockpit_status_get: {
+         parameters: {
+             query?: never;
+@@ -47837,6 +48332,41 @@ export interface operations {
+             };
+         };
+     };
++    read_internal_native_subject_account_pool_internal_cockpit_native_subject_post: {
++        parameters: {
++            query?: never;
++            header?: {
++                authorization?: string | null;
++            };
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitNativeSubjectRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitNativeSubjectResponse"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
+     websocket_browser_websocket: {
+         parameters: {
+             query?: never;
+@@ -78375,37 +78905,4 @@ export interface operations {
+             };
+         };
+     };
+-    check_native_cockpit_mapping_account_pool_cockpit_native_preflight_post: {
+-        parameters: {
+-            query?: never;
+-            header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        requestBody: {
+-            content: {
+-                "application/json": components["schemas"]["CockpitNativePreflightRequest"];
+-            };
+-        };
+-        responses: {
+-            /** @description Successful Response */
+-            200: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["CockpitNativePreflightReport"];
+-                };
+-            };
+-            /** @description Validation Error */
+-            422: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["HTTPValidationError"];
+-                };
+-            };
+-        };
+-    };
+ }

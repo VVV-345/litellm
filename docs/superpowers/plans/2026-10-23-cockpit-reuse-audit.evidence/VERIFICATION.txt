@@ -1,0 +1,72 @@
+TARGET
+  C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+
+BRANCH
+  codex/cockpit-reuse-plan
+
+PATCH BASE
+  1a6902d443ae8209a80a5be8eb3c26ede0f06e16
+
+CODE HEAD
+  e3a1b3664f2333ee11de6fcf2dad18cd9236d399
+ 功能(account-pool): 补齐 Cockpit 接管行为约束与测试
+
+PLAN HEAD
+  7a5a63ffd3f6d57737d327592a938e09b852ffc9
+  文档(account-pool): 记录 D2.4 接管行为测试结果
+
+PATCH FILE
+  docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/DIFF_FILE.patch
+  Generated with git diff --binary BASE HEAD -- . :(exclude)evidence
+  It rebuilds code and plan, not the evidence directory itself.
+  Forward-apply check against the base index: PASS.
+  Reverse-apply check against the working tree: PASS.
+
+WHAT IS CODE-COMPLETE
+  - Cockpit manifest publication, activation and deactivation through Manager admin APIs
+  - Request-time trusted subject revalidation and account/model authorization
+  - Single-owner Cockpit dispatch for native Responses requests
+  - Default-off routing gate and per-process resolver cache
+  - Active-route TTL of 5 seconds by default, configurable 1..30 seconds
+  - Cockpit route, activation and management proxy handlers
+  - Generated dashboard schema and request/response type contracts
+  - D2.4 takeover behavior tests listed below
+
+WHAT IS NOT VERIFIED
+  - No Cockpit Go sidecar or real data-plane call
+  - No real PostgreSQL, provider, credential migration, spend-log persistence or restart
+  - No server deployment, image build, traffic cutover or rollback
+  - No Cockpit-side quota classification, cooldown, affinity or failover behavior
+  - No cross-worker revocation push; active decisions can remain cached for up to 5 seconds
+  - Only Responses protocol, one authorized card, restricted models and no signed history are accepted
+  - make check / full repository gate was not run; make and bash are unavailable in this environment
+  - Full frontend tsc and production build were not run
+
+D2.4 BEHAVIOR EVIDENCE
+  - Quota exhaustion and ordinary rate-limit errors both propagate after exactly one Cockpit call, with no Router fallback
+  - Outbound Cockpit call forces num_retries=0, max_retries=0 and empty fallbacks
+  - Partial stream output followed by an error is not retried
+  - previous_response_id, encrypted_content, signature and thinking signature history are rejected before dispatch
+  - Removing the authorized manifest account makes both route_state and the admin view blocked
+  - Active route cache expires at 5 seconds; staged cache remains at the normal TTL
+  - litellm_metadata retains user, Key hash, team and end user attribution
+
+TEST RESULTS
+  Full Manager: 1152 passed, 5 skipped, 1 warning in 83.11s
+  Full LiteLLM account-pool suite: 1043 passed, 1 skipped, 101 warnings in 1244.69s
+  D2.4 focused suite: 38 passed, 1 warning in 24.42s
+  Strict Ruff on added lines: 0
+  basedpyright on added lines: 0
+  Schema generation: regenerated with no additional diff after commit
+  Lazy OpenAPI snapshot: content deep-equal; CRLF normalized locally, no commit
+  make check: NOT RUN (make/bash unavailable; full Manager and LiteLLM suites were run instead)
+
+EVIDENCE BOUNDARY
+  Code or offline test completion is recorded above. Runtime activation is not claimed.
+  ready_to_migrate remains false. The next step is a separate isolated-environment deployment
+  and explicit activation approval, not a production cutover.
+
+OLD PLAN-ONLY EVIDENCE
+  VERIFICATION-plan-2026-10-24.txt
+  DIFF_FILE-plan-2026-10-24.patch
+  ROLLBACK-plan-2026-10-24.sh
