@@ -96,10 +96,9 @@ def _create_cockpit_resources(
     if subject_url is None:
         return cockpit_http, cockpit_admin, None, None, None
     subject_http: Final = client_factory()
-    subject_reader: Final = CockpitSubjectClient(
-        CockpitSubjectConfig(url=subject_url, token=SecretStr(manager_token)),
-        subject_http,
-    )
+    subject_config: Final = CockpitSubjectConfig(url=subject_url, token=SecretStr(manager_token))
+    subject_reader: Final = CockpitSubjectClient(subject_config, subject_http)
+    route_subject_reader: Final = CockpitSubjectClient(subject_config, subject_http, timeout_seconds=3.0)
     receipts: Final = CockpitCredentialReceiptService(
         subject_reader,
         sources,
@@ -109,7 +108,7 @@ def _create_cockpit_resources(
         secrets,
         lambda: int(time.time()),
     )
-    return cockpit_http, cockpit_admin, subject_http, receipts, subject_reader
+    return cockpit_http, cockpit_admin, subject_http, receipts, route_subject_reader
 
 
 @asynccontextmanager
@@ -221,7 +220,13 @@ def create_app(
             _notify_refresh_schedulers_after_settings_sync(quota_scheduler, auth_refresh_scheduler)
         return failed
 
-    cockpit_http, cockpit_admin, subject_http, credential_receipts, subject_reader = _create_cockpit_resources(
+    (
+        cockpit_http,
+        cockpit_admin,
+        subject_http,
+        credential_receipts,
+        route_subject_reader,
+    ) = _create_cockpit_resources(
         resolved.cockpit_subject_url,
         resolved.manager_token,
         cockpit_config,
@@ -237,7 +242,7 @@ def create_app(
             cockpit_admin,
             secrets,
             resolved.cockpit_data_url,
-            subjects=subject_reader,
+            subjects=route_subject_reader,
         )
         if cockpit_admin is not None
         else None

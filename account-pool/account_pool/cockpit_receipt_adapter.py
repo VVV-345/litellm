@@ -51,9 +51,18 @@ class _Response(BaseModel):
 
 
 class CockpitSubjectClient:
-    def __init__(self, config: CockpitSubjectConfig, client: httpx.AsyncClient) -> None:
+    def __init__(
+        self,
+        config: CockpitSubjectConfig,
+        client: httpx.AsyncClient,
+        *,
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        if not 0 < timeout_seconds <= 30:
+            raise ValueError("Subject reader timeout must be between 0 and 30 seconds")
         self._config = config
         self._client = client
+        self._timeout = timeout_seconds
 
     async def read(self, subject_hash: str) -> TrustedCredentialScope | None:
         if len(subject_hash) != 64 or any(char not in "0123456789abcdef" for char in subject_hash):
@@ -64,7 +73,7 @@ class CockpitSubjectClient:
                 json={"subject_hash": subject_hash},
                 headers={"Authorization": "Bearer " + self._config.token.get_secret_value()},
                 follow_redirects=False,
-                timeout=10.0,
+                timeout=self._timeout,
             )
             if response.status_code != 200:
                 return None
