@@ -22,7 +22,6 @@ from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
     RouteDecision,
     cockpit_route_for_request,
     dispatch_cockpit_route,
-    resolver,
 )
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.route_llm_request import _route_request_single_attempt
@@ -59,14 +58,13 @@ def _user() -> UserAPIKeyAuth:
     return UserAPIKeyAuth(token=SUBJECT)
 
 
-def _use_lookup(decision: RouteDecision | Exception) -> None:
+def _resolver(decision: RouteDecision | Exception) -> CockpitRouteResolver:
     async def lookup(_subject: str) -> RouteDecision:
         if isinstance(decision, Exception):
             raise decision
         return decision
 
-    resolver.configure(lookup)
-    resolver.clear()
+    return CockpitRouteResolver(lookup=lookup)
 
 
 def test_gate_off_never_calls_the_route_lookup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -77,29 +75,21 @@ def test_gate_off_never_calls_the_route_lookup(monkeypatch: pytest.MonkeyPatch) 
         calls.append(subject)
         return RouteDecision("active", _route())
 
-    resolver.configure(lookup)
-    resolver.clear()
-    try:
-        result: Final = asyncio.run(
-            cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses")
-        )
-    finally:
-        resolver.configure(None)
-        resolver.clear()
+    local: Final = CockpitRouteResolver(lookup=lookup)
+    result: Final = asyncio.run(
+        cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses", resolver=local)
+    )
     assert result is None and calls == []
 
 
 @pytest.mark.parametrize("state", ["absent", "staged"])
 def test_absent_or_staged_route_keeps_the_existing_path(state: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    decisions: Final = {"absent": RouteDecision("absent"), "staged": RouteDecision("staged")}
     monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
-    _use_lookup(RouteDecision(state))  # type: ignore[arg-type]
-    try:
-        result: Final = asyncio.run(
-            cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses")
-        )
-    finally:
-        resolver.configure(None)
-        resolver.clear()
+    local: Final = _resolver(decisions[state])
+    result: Final = asyncio.run(
+        cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses", resolver=local)
+    )
     assert result is None
 
 
@@ -107,27 +97,28 @@ def test_active_route_requires_published_model_responses_protocol_and_safe_histo
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
-    _use_lookup(RouteDecision("active", _route(models=("fixture-model",))))
-    try:
-        accepted: Final = asyncio.run(
-            cockpit_route_for_request(_identity(), SUBJECT, {"model": "Fixture-Model"}, "aresponses")
+    local: Final = _resolver(RouteDecision("active", _route(models=("fixture-model",))))
+    accepted: Final = asyncio.run(
+        cockpit_route_for_request(_identity(), SUBJECT, {"model": "Fixture-Model"}, "aresponses", resolver=local)
+    )
+    with pytest.raises(HTTPException) as model_error:
+        asyncio.run(
+            cockpit_route_for_request(_identity(), SUBJECT, {"model": "other-model"}, "aresponses", resolver=local)
         )
-        with pytest.raises(HTTPException) as model_error:
-            asyncio.run(cockpit_route_for_request(_identity(), SUBJECT, {"model": "other-model"}, "aresponses"))
-        with pytest.raises(HTTPException) as protocol_error:
-            asyncio.run(cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "acompletion"))
-        with pytest.raises(HTTPException) as history_error:
-            asyncio.run(
-                cockpit_route_for_request(
-                    _identity(),
-                    SUBJECT,
-                    {"model": "fixture-model", "previous_response_id": "resp_1"},
-                    "aresponses",
-                )
+    with pytest.raises(HTTPException) as protocol_error:
+        asyncio.run(
+            cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "acompletion", resolver=local)
+        )
+    with pytest.raises(HTTPException) as history_error:
+        asyncio.run(
+            cockpit_route_for_request(
+                _identity(),
+                SUBJECT,
+                {"model": "fixture-model", "previous_response_id": "resp_1"},
+                "aresponses",
+                resolver=local,
             )
-    finally:
-        resolver.configure(None)
-        resolver.clear()
+        )
     assert accepted is not None and accepted.subject_hash == SUBJECT
     assert model_error.value.status_code == 403
     assert protocol_error.value.status_code == 422
@@ -135,21 +126,16 @@ def test_active_route_requires_published_model_responses_protocol_and_safe_histo
     assert history_error.value.detail == "cockpit_continuation_unsupported"
 
 
-@pytest.mark.parametrize(
-    "decision",
-    [RouteDecision("blocked"), CockpitRouteUnavailable()],
-)
+@pytest.mark.parametrize("decision", [RouteDecision("blocked"), CockpitRouteUnavailable()])
 def test_blocked_or_unavailable_active_state_fails_closed(
     decision: RouteDecision | Exception, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
-    _use_lookup(decision)
-    try:
-        with pytest.raises(HTTPException) as error:
-            asyncio.run(cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses"))
-    finally:
-        resolver.configure(None)
-        resolver.clear()
+    local: Final = _resolver(decision)
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(
+            cockpit_route_for_request(_identity(), SUBJECT, {"model": "fixture-model"}, "aresponses", resolver=local)
+        )
     assert error.value.status_code == 503
 
 
@@ -177,8 +163,7 @@ def test_dispatch_is_one_direct_call_without_router_retries(monkeypatch: pytest.
             "aresponses",
         )
     )
-    assert result == "cockpit-response"
-    assert len(calls) == 1
+    assert result == "cockpit-response" and len(calls) == 1
     kwargs: Final = calls[0]
     assert kwargs["api_base"] == "http://cockpit.test:8080/v1"
     assert kwargs["api_key"] == "cockpit-internal-key"
@@ -200,7 +185,7 @@ def test_request_routing_uses_cockpit_once_and_never_touches_the_router(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
-    _use_lookup(RouteDecision("active", _route()))
+    local: Final = _resolver(RouteDecision("active", _route()))
     calls: Final[list[dict[str, object]]] = []
 
     async def fake_aresponses(**kwargs: object) -> object:
@@ -221,13 +206,12 @@ def test_request_routing_uses_cockpit_once_and_never_touches_the_router(
                 RejectingRouter(),
                 None,
                 "aresponses",
-                _user(),  # type: ignore[arg-type]
+                _user(),
+                cockpit_resolver=local,
             )
         )
     finally:
         pool_identity.reset(context)
-        resolver.configure(None)
-        resolver.clear()
     assert result == "cockpit-response" and len(calls) == 1
 
 
@@ -237,8 +221,7 @@ def test_gate_off_keeps_the_existing_router_path(monkeypatch: pytest.MonkeyPatch
     async def forbidden_lookup(_subject: str) -> RouteDecision:
         raise AssertionError("gate off must not read cockpit routes")
 
-    resolver.configure(forbidden_lookup)
-    resolver.clear()
+    local: Final = CockpitRouteResolver(lookup=forbidden_lookup)
     context = pool_identity.set(_identity())
     try:
         result: Final = asyncio.run(
@@ -247,13 +230,12 @@ def test_gate_off_keeps_the_existing_router_path(monkeypatch: pytest.MonkeyPatch
                 _Router(),
                 None,
                 "aresponses",
-                _user(),  # type: ignore[arg-type]
+                _user(),
+                cockpit_resolver=local,
             )
         )
     finally:
         pool_identity.reset(context)
-        resolver.configure(None)
-        resolver.clear()
     assert result == "router-path"
 
 
@@ -358,7 +340,7 @@ def test_dispatch_failure_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_active_route_failure_never_falls_back_to_the_router(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
-    _use_lookup(RouteDecision("active", _route()))
+    local: Final = _resolver(RouteDecision("active", _route()))
     calls: Final[list[dict[str, object]]] = []
 
     async def failing(**kwargs: object) -> object:
@@ -381,10 +363,9 @@ def test_active_route_failure_never_falls_back_to_the_router(monkeypatch: pytest
                     None,
                     "aresponses",
                     _user(),
+                    cockpit_resolver=local,
                 )
             )
     finally:
         pool_identity.reset(context)
-        resolver.configure(None)
-        resolver.clear()
     assert len(calls) == 1

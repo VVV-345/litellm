@@ -169,13 +169,6 @@ class CockpitRouteResolver:
         self._entries: Mapping[str, _CacheEntry] = MappingProxyType({})
         self._lock = asyncio.Lock()
 
-    def configure(self, lookup: RouteLookup | None) -> None:
-        self._lookup = lookup
-
-    def clear(self) -> None:
-        self._entries = MappingProxyType({})
-        self._lock = asyncio.Lock()
-
     async def decision(self, subject_hash: str) -> RouteDecision:
         now = self._clock()
         cached = self._entries.get(subject_hash)
@@ -200,7 +193,7 @@ class CockpitRouteResolver:
         return await ManagerRouteLookup(base_url, token).read(subject_hash)
 
 
-resolver: Final = CockpitRouteResolver()
+default_resolver: Final = CockpitRouteResolver()
 
 
 async def cockpit_route_for_request(
@@ -208,6 +201,8 @@ async def cockpit_route_for_request(
     token: str | None,
     data: object,
     route_type: str,
+    *,
+    resolver: CockpitRouteResolver | None = None,
 ) -> CockpitRoute | None:
     if not routing_enabled() or identity is None or identity.card_id is None:
         return None
@@ -217,8 +212,9 @@ async def cockpit_route_for_request(
         request: Final = _DATA.validate_python(data)
     except ValidationError:
         raise HTTPException(400, "Invalid account pool request body") from None
+    active_resolver: Final = resolver or default_resolver
     try:
-        decision: Final = await resolver.decision(token)
+        decision: Final = await active_resolver.decision(token)
     except CockpitRouteUnavailable:
         raise HTTPException(503, "cockpit_route_unavailable") from None
     if decision.state in {"absent", "staged"}:

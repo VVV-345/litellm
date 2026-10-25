@@ -28,6 +28,7 @@ GATED_MOCK_PARAM_NAMES: Final[tuple[str, ...]] = (
 MOCK_TESTING_CONFIG_KEY: Final = "dangerously_allow_mock_testing_request_params"
 
 if TYPE_CHECKING:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_route import CockpitRouteResolver
     from litellm.router import Router as _Router
 
     LitellmRouter = _Router
@@ -470,6 +471,7 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
     user_model: str | None,
     route_type: RouteType,
     user_api_key_dict: UserAPIKeyAuth | None = None,
+    cockpit_resolver: "CockpitRouteResolver | None" = None,
 ):
     raise_if_required_body_param_missing(route_type=route_type, data=data)
 
@@ -501,6 +503,7 @@ async def _route_request_single_attempt(  # noqa: ANN202  # returns unawaited pr
             getattr(user_api_key_dict, "token", None),
             data,  # pyright: ignore[reportUnknownArgumentType]  # validated inside the cockpit route module
             route_type,
+            resolver=cockpit_resolver,
         )
         if cockpit_route is not None:
             return await dispatch_cockpit_route(
