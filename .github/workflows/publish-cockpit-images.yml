@@ -21,15 +21,28 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.metadata.outputs.version }}
+      release_version: ${{ steps.release.outputs.release_version }}
       litellm_revision: ${{ steps.metadata.outputs.litellm_revision }}
       cockpit_revision: ${{ steps.metadata.outputs.cockpit_revision }}
       compatibility: ${{ steps.metadata.outputs.compatibility }}
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          fetch-depth: 0
       - name: Controller tests
         run: |
           python3 -m pip install pytest==8.4.2 PyYAML==6.0.3
-          python3 -m pytest --confcutdir=deploy/cockpit -o addopts='' deploy/cockpit/test_releasectl.py -q
+          python3 -m pytest --confcutdir=deploy/cockpit -o addopts='' deploy/cockpit/test_releasectl.py deploy/cockpit/test_release_version.py -q
+      - id: release
+        name: Resolve the next cockpit release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          git tag --list > "$RUNNER_TEMP/all-tags.txt"
+          git tag --points-at HEAD > "$RUNNER_TEMP/head-tags.txt"
+          python3 deploy/cockpit/release_version.py deploy/cockpit/VERSION \
+            --tags-file "$RUNNER_TEMP/all-tags.txt" \
+            --head-tags-file "$RUNNER_TEMP/head-tags.txt" >> "$GITHUB_OUTPUT"
       - id: metadata
         run: python3 deploy/cockpit/release_bundle.py prepare
       - name: Require fixed Cockpit source and an unused release identity
@@ -233,11 +246,40 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.prepare.outputs.version }}
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
           REVISION: ${{ needs.prepare.outputs.litellm_revision }}
         run: |
           set -euo pipefail
           python3 deploy/cockpit/release_bundle.py bundle
           gh release create "cockpit-test-$VERSION" release.json runtime.tar.gz SHA256SUMS \
             --target "$REVISION" --prerelease --latest=false \
-            --title "Cockpit isolated test $VERSION" \
-            --notes "Isolated LiteLLM + Cockpit pair. Production packages unchanged. Real account, billing and recovery acceptance still required."
+            --title "Cockpit isolated test $VERSION ($RELEASE_VERSION)" \
+            --notes "Release $RELEASE_VERSION. Isolated LiteLLM + Cockpit pair. Production packages unchanged. Real account, billing and recovery acceptance still required."
+
+  tag-version:
+    name: Record the successful cockpit release version
+    needs: [prepare, publish]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          ref: ${{ needs.prepare.outputs.litellm_revision }}
+      - name: Create the immutable version tag
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          REVISION: ${{ needs.prepare.outputs.litellm_revision }}
+        run: |
+          set -euo pipefail
+          existing="$(git ls-remote --tags origin "refs/tags/$RELEASE_VERSION" | awk '{print $1}')"
+          if [ -n "$existing" ]; then
+            if [ "$existing" != "$REVISION" ]; then
+              echo "Tag $RELEASE_VERSION already points to $existing, expected $REVISION" >&2
+              exit 1
+            fi
+            echo "Tag $RELEASE_VERSION already records $REVISION"
+          else
+            git tag "$RELEASE_VERSION" "$REVISION"
+            git push origin "refs/tags/$RELEASE_VERSION"
+          fi

@@ -8,6 +8,8 @@
 
 推送 `codex/cockpit-reuse-plan` 会触发独立工作流 **Publish isolated LiteLLM Cockpit images**，不会部署服务器。也支持手动选择该分支运行。工作流先检查固定 Cockpit commit，再构建四份架构镜像，在两个原生架构 runner 启动隔离栈检查健康、页面和未鉴权请求，最后配对发布 `cockpit-test-VERSION` 预发布 Release。它不会递增生产版本、设置 latest、运行生产清理任务或删除任何 Packages
 
+发布版本是一条独立记录，从 `deploy/cockpit/VERSION` 开始：首个成功构建是 `v1.0`，之后每次成功构建默认递增补丁位（`v1.0.1`、`v1.0.2`），由工作流在发布成功后创建不可变版本标签。构建失败不创建标签，重跑同一提交沿用已分配版本。要在下一次发布显式换系列（如 `v1.1`、`v2.0`），只修改 `deploy/cockpit/VERSION`，不改代码。版本标签只用于发布记录，部署仍使用 10 位提交号
+
 `release_bundle.py` 固定 Cockpit commit 为 `ec9989c009042a3f8770781926f6087000825ee9`。该 commit 必须先存在于 GitHub，禁止因找不到而换成 main。源代码推送、工作流触发均需用户明确授权。新 workflow 首次发布走分支 push 触发，不依赖手动运行按钮；GitHub 只有在默认分支存在 workflow_dispatch 定义时才显示该按钮，不能为此擅自改默认分支或触发旧生产工作流
 
 只有包含 `release.json`、`runtime.tar.gz`、`SHA256SUMS` 的完整测试 Release 才可部署。组件发布中断可能留下未配对标签，但不会生成可部署清单。禁止覆盖已有组件标签或 Release；这种失败需检查残留记录后使用新的源提交重发，不自动删除镜像强行重跑
