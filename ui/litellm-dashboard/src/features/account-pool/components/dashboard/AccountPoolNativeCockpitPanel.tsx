@@ -6,12 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { accountPoolBackendOptions, nativeCockpitAccountsOptions } from "../../hooks/accountPoolOptions";
 import { AccountPoolCockpitPolicyPanel } from "./AccountPoolCockpitPolicyPanel";
 import {
   changeNativeScope,
-  getNativeBackend,
-  getNativeCockpitAccounts,
   nativeReceipt,
   preflightNativeCockpit,
   readNativeScope,
@@ -20,13 +18,7 @@ import {
 } from "../../api/NativeCockpitApi";
 
 export function AccountPoolBackendBoundary({ accessToken, children }: { accessToken: string; children: ReactNode }) {
-  const backendOptions = {
-    queryKey: accountPoolQueryKeys.cockpitBackend(accessToken),
-    queryFn: () => getNativeBackend(accessToken),
-    retry: false,
-    refetchOnWindowFocus: false,
-  };
-  const backend = useQuery(backendOptions);
+  const backend = useQuery(accountPoolBackendOptions(accessToken));
   if (backend.isPending)
     return (
       <p role="status" className="p-6">
@@ -48,13 +40,7 @@ export function AccountPoolBackendBoundary({ accessToken, children }: { accessTo
 }
 
 export function AccountPoolNativeCockpitPanel({ accessToken }: { accessToken: string }) {
-  const accountsOptions = {
-    queryKey: accountPoolQueryKeys.nativeCockpitAccounts(accessToken),
-    queryFn: () => getNativeCockpitAccounts(accessToken),
-    retry: false,
-    refetchOnWindowFocus: false,
-  };
-  const accounts = useQuery(accountsOptions);
+  const accounts = useQuery(nativeCockpitAccountsOptions(accessToken));
   const [input, setInput] = useState("");
   const [subject, setSubject] = useState("");
   return (

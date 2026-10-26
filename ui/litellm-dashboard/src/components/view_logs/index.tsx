@@ -35,12 +35,15 @@ import { parseAsString, useQueryStates } from "nuqs";
 import { useEffect, useState } from "react";
 import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+import { accountPoolBackendOptions } from "@/features/account-pool/hooks/accountPoolOptions";
+import { useQuery } from "@tanstack/react-query";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { useTranslation } from "react-i18next";
 import useCan from "@/app/(dashboard)/hooks/useCan";
 import RequestLogsPanel from "./RequestLogsPanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UiLoadingSpinner } from "@/components/ui/ui-loading-spinner";
+import { Button } from "@/components/ui/button";
 
 interface SpendLogsTableProps {
   accessToken: string | null;
@@ -69,16 +72,21 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
     account_id: parseAsString,
   });
   const canManageLogs = canManageAccountPool(userRole, false);
+  const backend = useQuery({
+    ...accountPoolBackendOptions(accessToken ?? ""),
+    enabled: canManageLogs && Boolean(accessToken),
+  });
+  const managerLogsEnabled = canManageLogs && backend.data?.backend === "manager";
   useEffect(() => {
-    if (!canManageLogs || !accessToken) return;
+    if (!managerLogsEnabled || !accessToken) return;
     return schedulePreloads(LOG_MODULE_LOADERS);
-  }, [accessToken, canManageLogs]);
+  }, [accessToken, managerLogsEnabled]);
   const canViewAuditLogs = useCan("viewAuditLogs");
   const canViewDeletedTeams = useCan("viewDeletedTeams");
   const [visitedTabs, setVisitedTabs] = useState<string[]>([]);
   const accounts = useAccountPoolQuery(
     accessToken,
-    canManageLogs && !["settings", "audit logs", "deleted keys", "deleted teams"].includes(log_view),
+    managerLogsEnabled && !["settings", "audit logs", "deleted keys", "deleted teams"].includes(log_view),
     false,
   );
 
@@ -97,7 +105,7 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
 
   const tabs: LogsTab[] = [
     { ...REQUEST_LOGS_TAB, label: t("ui.Request Logs") },
-    ...(canManageLogs
+    ...(managerLogsEnabled
       ? [
           { id: "operations" as const, label: "运行日志" },
           { id: "full" as const, label: "完整日志" },
@@ -164,7 +172,18 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
 
   return (
     <div className="box-border w-full overflow-x-hidden p-6">
-      {canManageLogs && ["request logs", "operations", "full"].includes(activeTab) && (
+      {canManageLogs && backend.isError && (
+        <div className="mb-4">
+          <p role="alert">日志后端读取失败，未尝试切回 Manager；请求日志仍可使用</p>
+          <Button onClick={() => void backend.refetch()}>重新读取</Button>
+        </div>
+      )}
+      {canManageLogs && backend.data?.backend === "cockpit" && (
+        <p className="mb-4 text-sm text-muted-foreground">
+          Cockpit 模式不提供旧 Manager 的运行日志、完整日志和日志设置；请求日志仍可使用
+        </p>
+      )}
+      {managerLogsEnabled && ["request logs", "operations", "full"].includes(activeTab) && (
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <label htmlFor="logs-account">账号筛选</label>
           <select

@@ -8,6 +8,25 @@ import {
 } from "../api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment } from "../utils/AccountPoolTypes";
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
+import { getNativeBackend, getNativeCockpitAccounts } from "../api/NativeCockpitApi";
+
+export const accountPoolBackendOptions = (accessToken: string) =>
+  queryOptions({
+    queryKey: accountPoolQueryKeys.cockpitBackend(accessToken),
+    queryFn: () => getNativeBackend(accessToken),
+    retry: false,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
+
+export const nativeCockpitAccountsOptions = (accessToken: string) =>
+  queryOptions({
+    queryKey: accountPoolQueryKeys.nativeCockpitAccounts(accessToken),
+    queryFn: () => getNativeCockpitAccounts(accessToken),
+    retry: false,
+    staleTime: 10_000,
+    refetchOnWindowFocus: false,
+  });
 
 export const accountPoolEnvironmentOptions = (accessToken: string | null) =>
   queryOptions<AccountPoolEnvironment[]>({

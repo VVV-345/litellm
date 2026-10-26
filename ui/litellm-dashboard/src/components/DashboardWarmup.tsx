@@ -9,10 +9,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import { usePluginMode } from "@/contexts/PluginModeContext";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import {
+  accountPoolBackendOptions,
   accountPoolDashboardStatsOptions,
   accountPoolEnvironmentOptions,
   accountPoolPolicyOptions,
   accountPoolQuotaRefreshStatusOptions,
+  nativeCockpitAccountsOptions,
 } from "@/features/account-pool/hooks/accountPoolOptions";
 import { proxyGatewayQueryOptions } from "@/features/account-pool/hooks/useProxyGateways";
 import { allTeamsQueryOptions, teamsQueryOptions } from "@/app/(dashboard)/hooks/teams/useTeams";
@@ -181,6 +183,12 @@ const createPrimaryTasks = (
     await loadAccountPoolPage(router);
     if (signal.aborted) return;
     if (!canManageAccountPool(userRole, false)) return;
+    const backend = await runQuery(queryClient, accountPoolBackendOptions(accessToken));
+    if (signal.aborted) return;
+    if (backend.backend === "cockpit") {
+      await runQuery(queryClient, nativeCockpitAccountsOptions(accessToken));
+      return;
+    }
     await Promise.all([
       runQuery(queryClient, accountPoolEnvironmentOptions(accessToken)),
       runQuery(queryClient, accountPoolPolicyOptions(accessToken)),
@@ -196,13 +204,15 @@ const createPrimaryTasks = (
   }),
   task("logs", async () => {
     await loadLogsPage(router);
-    await preloadOperationLogModule();
     if (signal.aborted) return;
     await runQuery(
       queryClient,
       defaultRequestLogOptions({ queryClient, router, accessToken, userId, userRole, token }, 0),
     );
     if (signal.aborted || !canManageAccountPool(userRole, false)) return;
+    const backend = await runQuery(queryClient, accountPoolBackendOptions(accessToken));
+    if (signal.aborted || backend.backend !== "manager") return;
+    await preloadOperationLogModule();
     const filters = {};
     await runQuery(
       queryClient,
@@ -243,6 +253,8 @@ const createBackgroundBatches = async (
   const tasks: PreloadTask[] = [...dashboardBackgroundTasks(context, signal, disabledPages)];
   tasks.push(task("other-log-modules", preloadOtherLogModules));
   if (canManageAccountPool(userRole, false)) {
+    const backend = await runQuery(queryClient, accountPoolBackendOptions(accessToken));
+    if (signal.aborted || backend.backend !== "manager") return batchesOfTwo(tasks);
     tasks.unshift(
       task("full-logs-module", preloadFullLogModule),
       task("log-settings-module", preloadLogSettingsModule),
@@ -295,10 +307,12 @@ const progressPercent = (completed: number, total: number): number =>
 function WarmupProgress({
   state,
   primaryOnly,
+  blocking = primaryOnly,
   retry,
 }: {
   state: PreloadStageProgress;
   primaryOnly: boolean;
+  blocking?: boolean;
   retry: () => void;
 }) {
   const progress = primaryOnly ? state.primary : state.background;
@@ -307,14 +321,14 @@ function WarmupProgress({
   return (
     <div
       className={
-        primaryOnly
+        blocking
           ? "flex min-h-screen items-center justify-center bg-background p-6"
           : "fixed bottom-4 right-4 z-floating w-72 rounded-md border bg-background p-3 shadow-sm"
       }
       role="status"
       aria-live="polite"
     >
-      <div className={primaryOnly ? "w-full max-w-md space-y-3" : "space-y-2"}>
+      <div className={blocking ? "w-full max-w-md space-y-3" : "space-y-2"}>
         <div className="flex items-center justify-between gap-3 text-sm">
           <span>{primaryOnly ? "正在准备主要模块" : "后台加载中"}</span>
           <span>
@@ -362,7 +376,7 @@ export default function DashboardWarmup({
   });
 
   const shouldWarmup = Boolean(accessToken && mode === "ai-gateway");
-  const warmupKey = shouldWarmup ? `${accessToken}:${userID}:${userRole}:${attempt}` : null;
+  const warmupKey = shouldWarmup ? `${accessToken}:${userID}:${userRole}` : null;
   const ready = !shouldWarmup || readyKey === warmupKey;
   const disabledPagesKey = JSON.stringify(disabledPages);
 
@@ -386,7 +400,7 @@ export default function DashboardWarmup({
       (next) => {
         if (controller.signal.aborted) return;
         setState(next);
-        if (next.stage !== "primary") setReadyKey(warmupKey);
+        if (next.primary.completed === next.primary.total) setReadyKey(warmupKey);
       },
       controller.signal,
       JSON.parse(disabledPagesKey) as string[],
@@ -402,8 +416,8 @@ export default function DashboardWarmup({
   return (
     <DashboardReadinessProvider value={ready}>
       {children}
-      {(shouldWarmup && (state.stage === "background" || state.background.failed > 0)) && (
-        <WarmupProgress state={state} primaryOnly={false} retry={retry} />
+      {(shouldWarmup && (state.primary.failed > 0 || state.stage === "background" || state.background.failed > 0)) && (
+        <WarmupProgress state={state} primaryOnly={state.primary.failed > 0} blocking={false} retry={retry} />
       )}
     </DashboardReadinessProvider>
   );

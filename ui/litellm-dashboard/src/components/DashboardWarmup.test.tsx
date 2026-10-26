@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
 import { useDashboardReadiness } from "./DashboardReadinessContext";
@@ -71,6 +71,7 @@ describe("dashboard warmup wiring", () => {
       const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
       urls.push(url);
       if (urls.length > 60) controller.abort();
+      if (url.pathname === "/account_pool/cockpit/native/configuration") return Response.json({ backend: "manager" });
       if (url.pathname === "/v2/team/list") return Response.json({ teams: [], total_pages: 1 });
       if (url.pathname === "/logs/operations") return Response.json({ data: [], total: 50000 });
       if (url.pathname === "/logs/full/sessions")
@@ -287,7 +288,7 @@ describe("dashboard warmup wiring", () => {
     expect(fetch).toHaveBeenCalledTimes(count);
   });
 
-  it("keeps the initial page blocked and offers retry when a required preload fails", async () => {
+  it("reveals the page with an error after failed preloads settle", async () => {
     fetch.mockRejectedValue(new Error("offline"));
     render(
       <QueryClientProvider client={client}>
@@ -298,7 +299,82 @@ describe("dashboard warmup wiring", () => {
     );
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "重试加载" }, { timeout: 10_000 })).toBeInTheDocument();
-    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(await screen.findByText("Dashboard content")).toBeInTheDocument();
+  });
+
+  it("warms Cockpit without requesting legacy Manager APIs in either stage", async () => {
+    vi.useFakeTimers();
+    const send = fetch.getMockImplementation()!;
+    const legacy: string[] = [];
+    fetch.mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/account_pool/cockpit/native/configuration") {
+        urls.push(url);
+        return Promise.resolve(Response.json({ backend: "cockpit" }));
+      }
+      if (url.pathname === "/account_pool/cockpit/native/accounts") {
+        urls.push(url);
+        return Promise.resolve(Response.json([]));
+      }
+      if (url.pathname.startsWith("/account_pool/") || url.pathname.startsWith("/logs/")) {
+        legacy.push(url.pathname);
+        return Promise.resolve(Response.json({ detail: "Legacy Manager API is disabled in Cockpit mode" }, { status: 503 }));
+      }
+      return send(input, init);
+    });
+    const finished = runDashboardWarmup(
+      { queryClient: client, router, accessToken: "test", userId: "user", userRole: "Admin", token: "session" },
+      () => {},
+      controller.signal,
+    );
+    await vi.runAllTimersAsync();
+    expect(await finished).toMatchObject({ stage: "complete", primary: { failed: 0 }, background: { failed: 0 } });
+    expect(legacy).toEqual([]);
+    expect(modules.loaded.size).toBe(0);
+    expect(urls.filter((url) => url.pathname.endsWith("/configuration"))).toHaveLength(1);
+    expect(urls.some((url) => url.pathname === "/account_pool/cockpit/native/accounts")).toBe(true);
+  });
+
+  it("never falls back to Manager when backend discovery fails", async () => {
+    vi.useFakeTimers();
+    const send = fetch.getMockImplementation()!;
+    fetch.mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/account_pool/cockpit/native/configuration") {
+        urls.push(url);
+        return Promise.resolve(Response.json({ detail: "unavailable" }, { status: 503 }));
+      }
+      return send(input, init);
+    });
+    const finished = runDashboardWarmup(
+      { queryClient: client, router, accessToken: "test", userId: "user", userRole: "Admin", token: "session" },
+      () => {},
+      controller.signal,
+    );
+    await vi.runAllTimersAsync();
+    expect((await finished).primary.failed).toBe(2);
+    expect(new Set(urls.filter((url) => url.pathname.startsWith("/account_pool/")).map((url) => url.pathname)))
+      .toEqual(new Set(["/account_pool/cockpit/native/configuration"]));
+    expect(urls.some((url) => url.pathname.startsWith("/logs/"))).toBe(false);
+  });
+
+  it("keeps the page and its draft mounted while retrying a failed warmup", async () => {
+    vi.useFakeTimers();
+    const send = fetch.getMockImplementation()!;
+    fetch.mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/logs/operations")
+        return Promise.resolve(Response.json({ detail: "offline" }, { status: 503 }));
+      return send(input, init);
+    });
+    render(<QueryClientProvider client={client}><DashboardWarmup><input aria-label="Draft" /></DashboardWarmup></QueryClientProvider>);
+    await act(() => vi.runAllTimersAsync());
+    fireEvent.change(screen.getByRole("textbox", { name: "Draft" }), { target: { value: "unsaved" } });
+    fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
+    expect(screen.getByRole("textbox", { name: "Draft" })).toHaveValue("unsaved");
+    await act(() => vi.runAllTimersAsync());
+    expect(screen.getByRole("textbox", { name: "Draft" })).toHaveValue("unsaved");
+    expect(screen.getByRole("alert")).toHaveTextContent("模块加载失败");
   });
 
   it("continues loading other log pages when the full-log service is unavailable", async () => {
