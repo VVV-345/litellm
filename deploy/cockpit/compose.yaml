@@ -1,0 +1,86 @@
+name: litellm-cockpit-test
+
+services:
+  db:
+    image: postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: litellm
+      POSTGRES_USER: llmproxy
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?run releasectl.py init}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U llmproxy -d litellm]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    mem_limit: 1g
+    cpus: "1.0"
+    logging: &logging
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  cockpit:
+    image: ${COCKPIT_IMAGE:?use releasectl.py deploy VERSION}
+    restart: unless-stopped
+    environment:
+      COCKPIT_ADMIN_TOKEN: ${COCKPIT_ADMIN_TOKEN:?run releasectl.py init}
+    volumes:
+      - type: bind
+        source: ./cockpit-data
+        target: /data
+        bind:
+          create_host_path: false
+    networks: [gateway]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 1g
+    cpus: "1.0"
+    pids_limit: 256
+    logging: *logging
+
+  litellm:
+    image: ${LITELLM_IMAGE:?use releasectl.py deploy VERSION}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:18400:4000"
+    environment:
+      DATABASE_URL: postgresql://llmproxy:${DB_PASSWORD:?run releasectl.py init}@db:5432/litellm
+      STORE_MODEL_IN_DB: "True"
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?run releasectl.py init}
+      UI_USERNAME: admin
+      UI_PASSWORD: ${UI_PASSWORD:?run releasectl.py init}
+      ACCOUNT_POOL_BACKEND: cockpit
+      ACCOUNT_POOL_COCKPIT_ADMIN_URL: http://cockpit:8317
+      ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN: ${COCKPIT_ADMIN_TOKEN:?run releasectl.py init}
+      ACCOUNT_POOL_COCKPIT_DATA_URL: http://cockpit:8317
+      ACCOUNT_POOL_COCKPIT_RECEIPT_KEY: ${RECEIPT_KEY:?run releasectl.py init}
+      ACCOUNT_POOL_COCKPIT_ROUTING_SEED: ${ROUTING_SEED:?run releasectl.py init}
+    depends_on:
+      db:
+        condition: service_healthy
+      cockpit:
+        condition: service_healthy
+    networks: [database, gateway]
+    healthcheck:
+      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=10)"]
+      interval: 10s
+      timeout: 15s
+      retries: 30
+      start_period: 60s
+    mem_limit: 4g
+    cpus: "2.0"
+    pids_limit: 512
+    logging: *logging
+
+volumes:
+  postgres_data:
+
+networks:
+  database:
+    internal: true
+  gateway:

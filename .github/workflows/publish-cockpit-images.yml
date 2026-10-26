@@ -1,0 +1,229 @@
+name: Publish isolated LiteLLM Cockpit images
+
+on:
+  push:
+    branches: [codex/cockpit-reuse-plan]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-cockpit-test
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/vvv-345/litellm-cockpit
+
+jobs:
+  prepare:
+    if: github.repository == 'VVV-345/litellm' && github.ref == 'refs/heads/codex/cockpit-reuse-plan'
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      litellm_revision: ${{ steps.metadata.outputs.litellm_revision }}
+      cockpit_revision: ${{ steps.metadata.outputs.cockpit_revision }}
+      compatibility: ${{ steps.metadata.outputs.compatibility }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+      - name: Controller tests
+        run: |
+          python3 -m pip install pytest==8.4.2 PyYAML==6.0.3
+          python3 -m pytest --confcutdir=deploy/cockpit -o addopts='' deploy/cockpit/test_releasectl.py -q
+      - id: metadata
+        run: python3 deploy/cockpit/release_bundle.py prepare
+      - name: Require fixed Cockpit source and an unused release identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.metadata.outputs.version }}
+          COCKPIT_REVISION: ${{ steps.metadata.outputs.cockpit_revision }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/VVV-345/cockpit-tools/commits/$COCKPIT_REVISION" --jq .sha)" = "$COCKPIT_REVISION"
+          python3 - <<'PY'
+          import os, urllib.request, urllib.error
+          for path in (f"releases/tags/cockpit-test-{os.environ['VERSION']}", f"git/ref/tags/cockpit-test-{os.environ['VERSION']}"):
+              req = urllib.request.Request("https://api.github.com/repos/VVV-345/litellm/" + path,
+                  headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"]})
+              try:
+                  with urllib.request.urlopen(req, timeout=30):
+                      raise SystemExit("Release identity already exists; no overwrite allowed")
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+          PY
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        with:
+          name: cockpit-build-metadata
+          path: build-metadata.json
+
+  build:
+    needs: prepare
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [litellm, cockpit]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          ref: ${{ needs.prepare.outputs.litellm_revision }}
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        if: matrix.component == 'cockpit'
+        with:
+          repository: VVV-345/cockpit-tools
+          ref: ${{ needs.prepare.outputs.cockpit_revision }}
+          path: cockpit-source
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy' || '.' }}
+          file: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy/Dockerfile' || './Dockerfile' }}
+          platforms: linux/${{ matrix.arch }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          labels: |
+            org.opencontainers.image.source=https://github.com/VVV-345/litellm
+            org.opencontainers.image.revision=${{ matrix.component == 'cockpit' && needs.prepare.outputs.cockpit_revision || needs.prepare.outputs.litellm_revision }}
+            ai.zlia.channel=cockpit-test
+            ai.zlia.component=${{ matrix.component }}
+            ai.zlia.release=${{ needs.prepare.outputs.version }}
+            ai.zlia.compatibility=${{ needs.prepare.outputs.compatibility }}
+      - name: Record digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          COMPONENT: ${{ matrix.component }}
+          ARCH: ${{ matrix.arch }}
+        run: printf '%s\n' "$DIGEST" > "$COMPONENT-$ARCH.digest"
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
+        with:
+          name: digest-${{ matrix.component }}-${{ matrix.arch }}
+          path: '*.digest'
+
+  smoke:
+    needs: [prepare, build]
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          ref: ${{ needs.prepare.outputs.litellm_revision }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Real isolated stack health, UI, and unauthenticated boundary
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          export TEST_RUNTIME="$RUNNER_TEMP/cockpit-runtime"
+          mkdir -p "$TEST_RUNTIME"
+          cp deploy/cockpit/compose.yaml "$TEST_RUNTIME/compose.yaml"
+          sudo env PYTHONPATH="$PWD/deploy/cockpit" TEST_RUNTIME="$TEST_RUNTIME" python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from releasectl import initialize
+          initialize(Path(os.environ["TEST_RUNTIME"]))
+          PY
+          printf 'LITELLM_IMAGE=%s@%s\nCOCKPIT_IMAGE=%s@%s\n' "$IMAGE" "$(cat digests/litellm-$ARCH.digest)" "$IMAGE" "$(cat digests/cockpit-$ARCH.digest)" | sudo tee "$TEST_RUNTIME/images.env" >/dev/null
+          dc() { sudo env DOCKER_CONFIG="$HOME/.docker" docker compose -p litellm-cockpit-test --project-directory "$TEST_RUNTIME" --env-file "$TEST_RUNTIME/.env" --env-file "$TEST_RUNTIME/images.env" -f "$TEST_RUNTIME/compose.yaml" "$@"; }
+          trap 'dc down --volumes' EXIT
+          dc up -d --wait --wait-timeout 300
+          curl --fail --silent --show-error http://127.0.0.1:18400/health/readiness
+          curl --fail --silent --show-error --output /tmp/cockpit-ui.html http://127.0.0.1:18400/ui/
+          grep -qi '<html' /tmp/cockpit-ui.html
+          code="$(curl --silent --output /tmp/models.json --write-out '%{http_code}' http://127.0.0.1:18400/v1/models)"
+          test "$code" = 401
+          dc exec -T cockpit sh -c 'wget -q -O /dev/null http://127.0.0.1:8317/healthz'
+          if dc exec -T cockpit sh -c 'wget -q -O /dev/null http://127.0.0.1:8317/admin/v1/manifest'; then
+            echo 'Unauthenticated Cockpit admin unexpectedly succeeded' >&2
+            exit 1
+          fi
+
+  publish:
+    needs: [prepare, build, smoke]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
+        with:
+          ref: ${{ needs.prepare.outputs.litellm_revision }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: cockpit-build-metadata
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pair both architectures without overwriting component tags
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          for component in litellm cockpit; do
+            tag="$IMAGE:$component-$VERSION"
+            if docker buildx imagetools inspect "$tag" > /tmp/existing 2>/tmp/inspect-error; then
+              echo "Tag already exists: $tag; no overwrite allowed" >&2
+              exit 1
+            fi
+            grep -Eqi 'not found|manifest unknown' /tmp/inspect-error || { cat /tmp/inspect-error >&2; exit 1; }
+          done
+          for component in litellm cockpit; do
+            tag="$IMAGE:$component-$VERSION"
+            docker buildx imagetools create -t "$tag" "$IMAGE@$(cat digests/$component-amd64.digest)" "$IMAGE@$(cat digests/$component-arm64.digest)"
+            digest="$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')"
+            printf '%s_DIGEST=%s\n' "${component^^}" "$digest" >> "$GITHUB_ENV"
+          done
+      - name: Publish deployable test manifest and first-install bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          REVISION: ${{ needs.prepare.outputs.litellm_revision }}
+        run: |
+          set -euo pipefail
+          python3 deploy/cockpit/release_bundle.py bundle
+          gh release create "cockpit-test-$VERSION" release.json runtime.tar.gz SHA256SUMS \
+            --target "$REVISION" --prerelease --latest=false \
+            --title "Cockpit isolated test $VERSION" \
+            --notes "Isolated LiteLLM + Cockpit pair. Production packages unchanged. Real account, billing and recovery acceptance still required."

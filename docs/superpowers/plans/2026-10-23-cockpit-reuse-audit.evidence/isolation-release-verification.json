@@ -1,0 +1,1546 @@
+{
+  "actionlint-download-corrected": {
+    "command": [
+      "gh",
+      "release",
+      "download",
+      "v1.7.7",
+      "--repo",
+      "rhysd/actionlint",
+      "--pattern",
+      "actionlint_1.7.7_windows_amd64.zip",
+      "--dir",
+      ".superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/actionlint"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 9.73
+  },
+  "actionlint-download": {
+    "command": [
+      "gh",
+      "release",
+      "download",
+      "v1.7.7",
+      "--repo",
+      "rhysd/actionlint",
+      "--pattern",
+      "actionlint_1.7.7_windows_amd64.tar.gz",
+      "--pattern",
+      "actionlint_1.7.7_checksums.txt",
+      "--dir",
+      ".superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/actionlint"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 3.64
+  },
+  "actionlint-provenance": {
+    "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_windows_amd64.zip",
+    "sha256": "7f12f1801bca3d480d67aaf7774f4c2a6359a3ca8eebe382c95c10c9704aa731",
+    "official_checksum_matches": true
+  },
+  "bundle-assemble-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "bundle"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-acceptance",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.49
+  },
+  "bundle-assemble-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "bundle"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-acceptance4",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.52
+  },
+  "bundle-assemble-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "bundle"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-final",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.42
+  },
+  "bundle-assemble": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "bundle"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-smoke",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.5
+  },
+  "bundle-assertions-acceptance": {
+    "archive_members": [
+      "releasectl.py",
+      "compose.yaml",
+      "README.md"
+    ],
+    "all_source_bytes_match": true,
+    "checksums_match": true,
+    "digest_values": "FIXTURES ONLY; not a published release"
+  },
+  "bundle-assertions-acceptance4": {
+    "archive_members": [
+      "releasectl.py",
+      "compose.yaml",
+      "README.md"
+    ],
+    "all_source_bytes_match": true,
+    "checksums_match": true,
+    "digest_values": "FIXTURES ONLY; not a published release"
+  },
+  "bundle-assertions-final": {
+    "archive_members": [
+      "releasectl.py",
+      "compose.yaml",
+      "README.md"
+    ],
+    "all_source_bytes_match": true,
+    "checksums_match": true,
+    "digest_values": "FIXTURES ONLY; not a published release"
+  },
+  "bundle-assertions": {
+    "archive_members": [
+      "releasectl.py",
+      "compose.yaml",
+      "README.md"
+    ],
+    "all_source_bytes_match": true,
+    "checksums_match": true,
+    "digest_values": "FIXTURES ONLY; not a published release"
+  },
+  "bundle-prepare-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "prepare"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-acceptance",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.72
+  },
+  "bundle-prepare-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "prepare"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-acceptance4",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.74
+  },
+  "bundle-prepare-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "prepare"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-final",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.64
+  },
+  "bundle-prepare": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\release_bundle.py",
+      "prepare"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\bundle-smoke",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 3.27
+  },
+  "cli-baseline-utf8": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] [--directory DIRECTORY] [--snapshot SNAPSHOT]\n                     {status,scan,apply,delete,deploy,recover,restore_data}\n                     [target]\n\n项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092\n\npositional arguments:\n  {status,scan,apply,delete,deploy,recover,restore_data}\n  target                apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位\n\noptions:\n  -h, --help            show this help message and exit\n  --directory DIRECTORY\n  --snapshot SNAPSHOT   restore_data 必须指定完整快照编号\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.38
+  },
+  "cli-baseline": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] [--directory DIRECTORY] [--snapshot SNAPSHOT]\n                     {status,scan,apply,delete,deploy,recover,restore_data}\n                     [target]\n\n��Ŀ���񱸷���ָ��������ӷ����� 127.0.0.1:8092\n\npositional arguments:\n  {status,scan,apply,delete,deploy,recover,restore_data}\n  target                apply/delete ʹ�ñ��� ID��deploy ʹ���°汾 commit ǰ 10 λ\n\noptions:\n  -h, --help            show this help message and exit\n  --directory DIRECTORY\n  --snapshot SNAPSHOT   restore_data ����ָ���������ձ��\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.37
+  },
+  "cli-modified-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/cockpit/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] {init,status,deploy,recover} [version]\n\nIsolated LiteLLM + Cockpit deployer; never calls production 8092\n\npositional arguments:\n  {init,status,deploy,recover}\n  version               deploy: LiteLLM commit first 10 lowercase hex\n                        characters\n\noptions:\n  -h, --help            show this help message and exit\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.41
+  },
+  "cli-modified-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/cockpit/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] {init,status,deploy,recover} [version]\n\nIsolated LiteLLM + Cockpit deployer; never calls production 8092\n\npositional arguments:\n  {init,status,deploy,recover}\n  version               deploy: LiteLLM commit first 10 lowercase hex\n                        characters\n\noptions:\n  -h, --help            show this help message and exit\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.46
+  },
+  "cli-modified-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/cockpit/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] {init,status,deploy,recover} [version]\n\nIsolated LiteLLM + Cockpit deployer; never calls production 8092\n\npositional arguments:\n  {init,status,deploy,recover}\n  version               deploy: LiteLLM commit first 10 lowercase hex\n                        characters\n\noptions:\n  -h, --help            show this help message and exit\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.46
+  },
+  "cli-modified-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/cockpit/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] {init,status,deploy,recover} [version]\n\nIsolated LiteLLM + Cockpit deployer; never calls production 8092\n\npositional arguments:\n  {init,status,deploy,recover}\n  version               deploy: LiteLLM commit first 10 lowercase hex\n                        characters\n\noptions:\n  -h, --help            show this help message and exit\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.45
+  },
+  "cli-modified": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "deploy/cockpit/releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] {init,status,deploy,recover} [version]\n\nIsolated LiteLLM + Cockpit deployer; never calls production 8092\n\npositional arguments:\n  {init,status,deploy,recover}\n  version               deploy: LiteLLM commit first 10 lowercase hex\n                        characters\n\noptions:\n  -h, --help            show this help message and exit\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.45
+  },
+  "cli-restore-acceptance2": {
+    "command": [
+      "C:/Program Files/Git/usr/bin/sh.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "--restore-file",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\releasectl.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.16
+  },
+  "cli-restore-acceptance3": {
+    "command": [
+      "C:/Program Files/Git/usr/bin/sh.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "--restore-file",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\releasectl.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.17
+  },
+  "cli-restore-acceptance4": {
+    "command": [
+      "C:/Program Files/Git/usr/bin/sh.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "--restore-file",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\releasectl.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.17
+  },
+  "cli-restore-corrected": {
+    "command": [
+      "C:/Program Files/Git/usr/bin/sh.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "--restore-file",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\releasectl.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.19
+  },
+  "cli-restore": {
+    "command": [
+      "C:/Program Files/Git/usr/bin/sh.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "--restore-file",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-releasectl.py",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\releasectl.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh: line 8: dirname: command not found\nC:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh: line 14: cp: command not found\n",
+    "exit_status": 127,
+    "elapsed_seconds": 0.24
+  },
+  "cli-rollback-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] [--directory DIRECTORY] [--snapshot SNAPSHOT]\n                     {status,scan,apply,delete,deploy,recover,restore_data}\n                     [target]\n\n项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092\n\npositional arguments:\n  {status,scan,apply,delete,deploy,recover,restore_data}\n  target                apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位\n\noptions:\n  -h, --help            show this help message and exit\n  --directory DIRECTORY\n  --snapshot SNAPSHOT   restore_data 必须指定完整快照编号\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.31
+  },
+  "cli-rollback-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] [--directory DIRECTORY] [--snapshot SNAPSHOT]\n                     {status,scan,apply,delete,deploy,recover,restore_data}\n                     [target]\n\n项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092\n\npositional arguments:\n  {status,scan,apply,delete,deploy,recover,restore_data}\n  target                apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位\n\noptions:\n  -h, --help            show this help message and exit\n  --directory DIRECTORY\n  --snapshot SNAPSHOT   restore_data 必须指定完整快照编号\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.36
+  },
+  "cli-rollback-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] [--directory DIRECTORY] [--snapshot SNAPSHOT]\n                     {status,scan,apply,delete,deploy,recover,restore_data}\n                     [target]\n\n项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092\n\npositional arguments:\n  {status,scan,apply,delete,deploy,recover,restore_data}\n  target                apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位\n\noptions:\n  -h, --help            show this help message and exit\n  --directory DIRECTORY\n  --snapshot SNAPSHOT   restore_data 必须指定完整快照编号\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.34
+  },
+  "cli-rollback": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\restored-cli\\releasectl.py",
+      "--help"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "usage: releasectl.py [-h] [--directory DIRECTORY] [--snapshot SNAPSHOT]\n                     {status,scan,apply,delete,deploy,recover,restore_data}\n                     [target]\n\n项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092\n\npositional arguments:\n  {status,scan,apply,delete,deploy,recover,restore_data}\n  target                apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位\n\noptions:\n  -h, --help            show this help message and exit\n  --directory DIRECTORY\n  --snapshot SNAPSHOT   restore_data 必须指定完整快照编号\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.32
+  },
+  "cockpit-remote-commit": {
+    "command": [
+      "gh",
+      "api",
+      "repos/VVV-345/cockpit-tools/commits/ec9989c009042a3f8770781926f6087000825ee9",
+      "--jq",
+      ".sha"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"message\":\"No commit found for SHA: ec9989c009042a3f8770781926f6087000825ee9\",\"documentation_url\":\"https://docs.github.com/rest/commits/commits#get-a-commit\",\"status\":\"422\"}",
+    "stderr": "gh: No commit found for SHA: ec9989c009042a3f8770781926f6087000825ee9 (HTTP 422)\n",
+    "exit_status": 1,
+    "elapsed_seconds": 0.81
+  },
+  "compose-assertions": {
+    "services": [
+      "cockpit",
+      "db",
+      "litellm"
+    ],
+    "project": "litellm-cockpit-test",
+    "no_external_volumes": true,
+    "only_loopback_18400": true
+  },
+  "compose-render": {
+    "command": [
+      "C:/Program Files/Docker/Docker/resources/bin/docker.exe",
+      "compose",
+      "--env-file",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\compose-fixture.env",
+      "-f",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\cockpit\\compose.yaml",
+      "config",
+      "--format",
+      "json"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\n  \"name\": \"litellm-cockpit-test\",\n  \"networks\": {\n    \"database\": {\n      \"name\": \"litellm-cockpit-test_database\",\n      \"ipam\": {},\n      \"internal\": true\n    },\n    \"gateway\": {\n      \"name\": \"litellm-cockpit-test_gateway\",\n      \"ipam\": {}\n    }\n  },\n  \"services\": {\n    \"cockpit\": {\n      \"cap_drop\": [\n        \"ALL\"\n      ],\n      \"cpus\": 1,\n      \"command\": null,\n      \"entrypoint\": null,\n      \"environment\": {\n        \"COCKPIT_ADMIN_TOKEN\": \"fixture_admin_only\"\n      },\n      \"image\": \"ghcr.io/vvv-345/litellm-cockpit@sha256:2222222222222222222222222222222222222222222222222222222222222222\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"1073741824\",\n      \"networks\": {\n        \"gateway\": null\n      },\n      \"pids_limit\": 256,\n      \"restart\": \"unless-stopped\",\n      \"security_opt\": [\n        \"no-new-privileges:true\"\n      ],\n      \"volumes\": [\n        {\n          \"type\": \"bind\",\n          \"source\": \"C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\deploy\\\\cockpit\\\\cockpit-data\",\n          \"target\": \"/data\",\n          \"bind\": {\n            \"create_host_path\": false\n          }\n        }\n      ]\n    },\n    \"db\": {\n      \"cpus\": 1,\n      \"command\": null,\n      \"entrypoint\": null,\n      \"environment\": {\n        \"POSTGRES_DB\": \"litellm\",\n        \"POSTGRES_PASSWORD\": \"fixture_db_only\",\n        \"POSTGRES_USER\": \"llmproxy\"\n      },\n      \"healthcheck\": {\n        \"test\": [\n          \"CMD-SHELL\",\n          \"pg_isready -U llmproxy -d litellm\"\n        ],\n        \"timeout\": \"5s\",\n        \"interval\": \"5s\",\n        \"retries\": 30\n      },\n      \"image\": \"postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"1073741824\",\n      \"networks\": {\n        \"database\": null\n      },\n      \"restart\": \"unless-stopped\",\n      \"volumes\": [\n        {\n          \"type\": \"volume\",\n          \"source\": \"postgres_data\",\n          \"target\": \"/var/lib/postgresql/data\",\n          \"volume\": {}\n        }\n      ]\n    },\n    \"litellm\": {\n      \"cpus\": 2,\n      \"command\": null,\n      \"depends_on\": {\n        \"cockpit\": {\n          \"condition\": \"service_healthy\",\n          \"required\": true\n        },\n        \"db\": {\n          \"condition\": \"service_healthy\",\n          \"required\": true\n        }\n      },\n      \"entrypoint\": null,\n      \"environment\": {\n        \"ACCOUNT_POOL_BACKEND\": \"cockpit\",\n        \"ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN\": \"fixture_admin_only\",\n        \"ACCOUNT_POOL_COCKPIT_ADMIN_URL\": \"http://cockpit:8317\",\n        \"ACCOUNT_POOL_COCKPIT_DATA_URL\": \"http://cockpit:8317\",\n        \"ACCOUNT_POOL_COCKPIT_RECEIPT_KEY\": \"fixture_receipt_only\",\n        \"ACCOUNT_POOL_COCKPIT_ROUTING_SEED\": \"fixture_routing_only\",\n        \"DATABASE_URL\": \"postgresql://llmproxy:fixture_db_only@db:5432/litellm\",\n        \"LITELLM_MASTER_KEY\": \"sk-fixture_master_only\",\n        \"STORE_MODEL_IN_DB\": \"True\",\n        \"UI_PASSWORD\": \"fixture_ui_only\",\n        \"UI_USERNAME\": \"admin\"\n      },\n      \"healthcheck\": {\n        \"test\": [\n          \"CMD\",\n          \"python3\",\n          \"-c\",\n          \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=10)\"\n        ],\n        \"timeout\": \"15s\",\n        \"interval\": \"10s\",\n        \"retries\": 30,\n        \"start_period\": \"1m0s\"\n      },\n      \"image\": \"ghcr.io/vvv-345/litellm-cockpit@sha256:1111111111111111111111111111111111111111111111111111111111111111\",\n      \"logging\": {\n        \"driver\": \"json-file\",\n        \"options\": {\n          \"max-file\": \"3\",\n          \"max-size\": \"10m\"\n        }\n      },\n      \"mem_limit\": \"4294967296\",\n      \"networks\": {\n        \"database\": null,\n        \"gateway\": null\n      },\n      \"pids_limit\": 512,\n      \"ports\": [\n        {\n          \"mode\": \"ingress\",\n          \"host_ip\": \"127.0.0.1\",\n          \"target\": 4000,\n          \"published\": \"18400\",\n          \"protocol\": \"tcp\"\n        }\n      ],\n      \"restart\": \"unless-stopped\"\n    }\n  },\n  \"volumes\": {\n    \"postgres_data\": {\n      \"name\": \"litellm-cockpit-test_postgres_data\"\n    }\n  }\n}",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.39
+  },
+  "diff-check": {
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.19
+  },
+  "digest-format-check": {
+    "command": [
+      "C:/Program Files/Docker/Docker/resources/bin/docker.exe",
+      "buildx",
+      "imagetools",
+      "inspect",
+      "postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b",
+      "--format",
+      "{{.Manifest.Digest}}"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "ERROR: failed to do request: Head \"https://registry-1.docker.io/v2/library/postgres/manifests/sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b\": dial tcp 104.244.46.246:443: connectex: A connection attempt failed because the connected party did not properly respond after a period of time, or established connection failed because connected host has failed to respond.\n",
+    "exit_status": 1,
+    "elapsed_seconds": 43.0
+  },
+  "docker-compose-version": {
+    "command": [
+      "docker",
+      "compose",
+      "version",
+      "--short"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "5.5.0\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.34
+  },
+  "docker-daemon-check": {
+    "command": [
+      "C:/Program Files/Docker/Docker/resources/bin/docker.exe",
+      "info",
+      "--format",
+      "{{.ServerVersion}}"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "\n",
+    "stderr": "failed to connect to the docker API at npipe:////./pipe/dockerDesktopLinuxEngine; check if the path is correct and if the daemon is running: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.\n",
+    "exit_status": 1,
+    "elapsed_seconds": 0.91
+  },
+  "format-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "3 files already formatted\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.33
+  },
+  "format-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "3 files already formatted\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.28
+  },
+  "format-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "3 files already formatted\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.28
+  },
+  "format-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "3 files already formatted\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.26
+  },
+  "format-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "format",
+      "--check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "3 files already formatted\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.24
+  },
+  "intent-to-add": {
+    "command": [
+      "git",
+      "add",
+      "-N",
+      "--",
+      ".github/workflows/publish-cockpit-images.yml",
+      "deploy/cockpit/README.md",
+      "deploy/cockpit/compose.yaml",
+      "deploy/cockpit/release_bundle.py",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/test_releasectl.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.08
+  },
+  "isolation-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\tmp-acceptance"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "........................                                                 [100%]\n24 passed in 1.13s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 9.67
+  },
+  "isolation-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\tmp-acceptance2"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "........................                                                 [100%]\n24 passed in 1.30s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 9.27
+  },
+  "isolation-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\tmp-acceptance3"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": ".........................                                                [100%]\n25 passed in 1.26s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 10.05
+  },
+  "isolation-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\tmp-acceptance4"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "..........................                                               [100%]\n26 passed in 1.36s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 10.3
+  },
+  "isolation-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\tmp-final"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "........................                                                 [100%]\n24 passed in 1.02s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 9.07
+  },
+  "isolation-first-green": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "....................                                                     [100%]\n20 passed in 0.70s\n",
+    "stderr": "Exception ignored in atexit callback: <function cleanup_numbered_dir at 0x00000252B10D0CC0>\nTraceback (most recent call last):\n  File \"D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\_pytest\\pathlib.py\", line 374, in cleanup_numbered_dir\n    cleanup_dead_symlinks(root)\n  File \"D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\_pytest\\pathlib.py\", line 359, in cleanup_dead_symlinks\n    if not left_dir.resolve().exists():\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\42117\\MiniConda3\\Lib\\pathlib.py\", line 860, in exists\n    self.stat(follow_symlinks=follow_symlinks)\n  File \"C:\\Users\\42117\\MiniConda3\\Lib\\pathlib.py\", line 840, in stat\n    return os.stat(self, follow_symlinks=follow_symlinks)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nPermissionError: [WinError 5] 拒绝访问。: 'C:\\\\Users\\\\42117\\\\AppData\\\\Local\\\\Temp\\\\pytest-of-42117\\\\pytest-current'\n",
+    "exit_status": 0,
+    "elapsed_seconds": 9.35
+  },
+  "isolation-red": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "deploy/cockpit/test_releasectl.py",
+      "-q"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "EEEEEEEEEEEEEEEEEEFF                                                     [100%]\n=================================== ERRORS ====================================\n____ ERROR at setup of test_manifest_is_a_pair_of_digests_not_mutable_tags ____\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[format-2] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[channel-production] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[version-../bad] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[litellm-ghcr.io/vvv-345/litellm:latest] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[cockpit-ghcr.io/vvv-345/litellm-cockpit:cockpit-aaaaaaaaaa] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[cockpit_revision-main] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[compatibility-] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[runtime-] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_reject_wrong_package_channel_identity_and_mutable_refs[litellm_revision-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb] _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_initialization_creates_persistent_independent_secrets_and_empty_manifest _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n______ ERROR at setup of test_cli_refuses_original_production_directory _______\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_first_deploy_records_success_only_after_health_probe _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_different_compatibility_stops_before_any_docker_action _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n__ ERROR at setup of test_wrong_image_identity_stops_before_mutating_runtime __\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_failed_update_retains_snapshot_and_recover_restores_data_and_pair _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n_ ERROR at setup of test_first_deploy_failure_is_recoverable_without_deleting_volume _\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n________ ERROR at setup of test_pending_operation_prevents_new_deploy _________\n\n    @pytest.fixture\n    def ctl():\n        path = HERE / \"releasectl.py\"\n>       assert path.exists(), \"isolated release controller has not been implemented\"\nE       AssertionError: isolated release controller has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/releasectl.py').exists\n\ndeploy\\cockpit\\test_releasectl.py:15: AssertionError\n================================== FAILURES ===================================\n___________________ test_compose_has_only_isolated_services ___________________\n\n    def test_compose_has_only_isolated_services():\n        path = HERE / \"compose.yaml\"\n>       assert path.exists(), \"isolated Compose has not been implemented\"\nE       AssertionError: isolated Compose has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/deploy/cockpit/compose.yaml').exists\n\ndeploy\\cockpit\\test_releasectl.py:189: AssertionError\n___ test_workflow_separates_publication_and_uses_native_architecture_gates ____\n\n    def test_workflow_separates_publication_and_uses_native_architecture_gates():\n        path = HERE.parents[1] / \".github/workflows/publish-cockpit-images.yml\"\n>       assert path.exists(), \"isolated publishing workflow has not been implemented\"\nE       AssertionError: isolated publishing workflow has not been implemented\nE       assert False\nE        +  where False = exists()\nE        +    where exists = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.github/workflows/publish-cockpit-images.yml').exists\n\ndeploy\\cockpit\\test_releasectl.py:205: AssertionError\n=========================== short test summary info ===========================\nFAILED deploy/cockpit/test_releasectl.py::test_compose_has_only_isolated_services\nFAILED deploy/cockpit/test_releasectl.py::test_workflow_separates_publication_and_uses_native_architecture_gates\nERROR deploy/cockpit/test_releasectl.py::test_manifest_is_a_pair_of_digests_not_mutable_tags\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[format-2]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[channel-production]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[version-../bad]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[litellm-ghcr.io/vvv-345/litellm:latest]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[cockpit-ghcr.io/vvv-345/litellm-cockpit:cockpit-aaaaaaaaaa]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[cockpit_revision-main]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[compatibility-]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[runtime-]\nERROR deploy/cockpit/test_releasectl.py::test_reject_wrong_package_channel_identity_and_mutable_refs[litellm_revision-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb]\nERROR deploy/cockpit/test_releasectl.py::test_initialization_creates_persistent_independent_secrets_and_empty_manifest\nERROR deploy/cockpit/test_releasectl.py::test_cli_refuses_original_production_directory\nERROR deploy/cockpit/test_releasectl.py::test_first_deploy_records_success_only_after_health_probe\nERROR deploy/cockpit/test_releasectl.py::test_different_compatibility_stops_before_any_docker_action\nERROR deploy/cockpit/test_releasectl.py::test_wrong_image_identity_stops_before_mutating_runtime\nERROR deploy/cockpit/test_releasectl.py::test_failed_update_retains_snapshot_and_recover_restores_data_and_pair\nERROR deploy/cockpit/test_releasectl.py::test_first_deploy_failure_is_recoverable_without_deleting_volume\nERROR deploy/cockpit/test_releasectl.py::test_pending_operation_prevents_new_deploy\n2 failed, 18 errors in 1.29s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 10.76
+  },
+  "isolation-review-green": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-review-green"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "........................                                                 [100%]\n24 passed in 1.24s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 9.61
+  },
+  "isolation-review-red": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-review-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "....................FF..                                                 [100%]\n================================== FAILURES ===================================\n_______________ test_running_wrong_image_never_records_success ________________\n\nctl = <module 'cockpit_releasectl' from 'C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\deploy\\\\cockpit\\\\releasectl.py'>\ntmp_path = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-review-red/test_running_wrong_image_never0')\n\n    def test_running_wrong_image_never_records_success(ctl, tmp_path):\n        root = prepare(tmp_path, ctl)\n        release = ctl.parse_release(json.dumps(manifest()).encode(), \"a\" * 10)\n        docker = Docker(ctl, release)\n    \n        def wrong_running_image(command, **kwargs):\n            if command[:3] == (\"docker\", \"inspect\", \"--format\"):\n                return \"sha256:wrong-image\"\n            return docker(command, **kwargs)\n    \n>       with pytest.raises(ValueError, match=\"running image\"):\n             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nE       Failed: DID NOT RAISE <class 'ValueError'>\n\ndeploy\\cockpit\\test_releasectl.py:231: Failed\n__________ test_compatibility_hash_covers_actual_migration_directory __________\n\nctl = <module 'cockpit_releasectl' from 'C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\deploy\\\\cockpit\\\\releasectl.py'>\ntmp_path = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-review-red/test_compatibility_hash_covers0')\n\n    def test_compatibility_hash_covers_actual_migration_directory(ctl, tmp_path):\n        sys.modules[\"releasectl\"] = ctl\n        spec = importlib.util.spec_from_file_location(\"release_bundle\", HERE / \"release_bundle.py\")\n        module = importlib.util.module_from_spec(spec)\n        spec.loader.exec_module(module)\n        migration = tmp_path / \"litellm-proxy-extras/litellm_proxy_extras/migrations/test/migration.sql\"\n        migration.parent.mkdir(parents=True)\n        migration.write_text(\"CREATE TABLE one (id integer);\")\n>       before = module.compatibility_hash(tmp_path, \"e\" * 40)\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^\nE       AttributeError: module 'release_bundle' has no attribute 'compatibility_hash'\n\ndeploy\\cockpit\\test_releasectl.py:245: AttributeError\n=========================== short test summary info ===========================\nFAILED deploy/cockpit/test_releasectl.py::test_running_wrong_image_never_records_success\nFAILED deploy/cockpit/test_releasectl.py::test_compatibility_hash_covers_actual_migration_directory\n2 failed, 22 passed in 1.90s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 10.69
+  },
+  "lint-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.26
+  },
+  "lint-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.36
+  },
+  "lint-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.31
+  },
+  "lint-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.33
+  },
+  "lint-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "deploy/cockpit"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "I001 [*] Import block is un-sorted or un-formatted\n  --> deploy\\cockpit\\releasectl.py:2:1\n   |\n 1 |   #!/usr/bin/env python3\n 2 | / from __future__ import annotations\n 3 | |\n 4 | | import argparse\n 5 | | import hashlib\n 6 | | import json\n 7 | | import os\n 8 | | import re\n 9 | | import secrets\n10 | | import shutil\n11 | | import subprocess\n12 | | import sys\n13 | | import urllib.request\n14 | | from collections.abc import Callable, Mapping\n15 | | from dataclasses import asdict, dataclass\n16 | | from http.client import HTTPResponse\n17 | | from pathlib import Path\n18 | | from typing import Final, Protocol, cast  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary\n   | |________________________________________^\n19 |\n20 |   PACKAGE: Final = \"ghcr.io/vvv-345/litellm-cockpit\"\n   |\nhelp: Organize imports\n\nFound 1 error.\n[*] 1 fixable with the `--fix` option.\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 0.29
+  },
+  "missing-init-red": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py::test_deploy_requires_init_before_pulling_or_creating_journal",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-init-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "F                                                                        [100%]\n================================== FAILURES ===================================\n________ test_deploy_requires_init_before_pulling_or_creating_journal _________\n\nctl = <module 'cockpit_releasectl' from 'C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\deploy\\\\cockpit\\\\releasectl.py'>\ntmp_path = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-init-red/test_deploy_requires_init_befo0')\n\n    def test_deploy_requires_init_before_pulling_or_creating_journal(ctl, tmp_path):\n        release = ctl.parse_release(json.dumps(manifest()).encode(), \"a\" * 10)\n        docker = Docker(ctl, release)\n        with pytest.raises(ValueError, match=\"initialize\"):\n>           ctl.deploy(tmp_path, release, docker, lambda: None)\n\ndeploy\\cockpit\\test_releasectl.py:114: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\ndeploy\\cockpit\\releasectl.py:267: in deploy\n    shutil.copytree(root / \"cockpit-data\", snapshot / \"cockpit-data\")\n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nsrc = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-init-red/test_deploy_requires_init_befo0/cockpit-data')\ndst = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-aud...on-release-20261026-120748/tmp-init-red/test_deploy_requires_init_befo0/backups/026f7c75d3941844ba5ad200/cockpit-data')\nsymlinks = False, ignore = None\ncopy_function = <function copy2 at 0x0000021AAB8CEFC0>\nignore_dangling_symlinks = False, dirs_exist_ok = False\n\n    def copytree(src, dst, symlinks=False, ignore=None, copy_function=copy2,\n                 ignore_dangling_symlinks=False, dirs_exist_ok=False):\n        \"\"\"Recursively copy a directory tree and return the destination directory.\n    \n        If exception(s) occur, an Error is raised with a list of reasons.\n    \n        If the optional symlinks flag is true, symbolic links in the\n        source tree result in symbolic links in the destination tree; if\n        it is false, the contents of the files pointed to by symbolic\n        links are copied. If the file pointed to by the symlink doesn't\n        exist, an exception will be added in the list of errors raised in\n        an Error exception at the end of the copy process.\n    \n        You can set the optional ignore_dangling_symlinks flag to true if you\n        want to silence this exception. Notice that this has no effect on\n        platforms that don't support os.symlink.\n    \n        The optional ignore argument is a callable. If given, it\n        is called with the `src` parameter, which is the directory\n        being visited by copytree(), and `names` which is the list of\n        `src` contents, as returned by os.listdir():\n    \n            callable(src, names) -> ignored_names\n    \n        Since copytree() is called recursively, the callable will be\n        called once for each directory that is copied. It returns a\n        list of names relative to the `src` directory that should\n        not be copied.\n    \n        The optional copy_function argument is a callable that will be used\n        to copy each file. It will be called with the source path and the\n        destination path as arguments. By default, copy2() is used, but any\n        function that supports the same signature (like copy()) can be used.\n    \n        If dirs_exist_ok is false (the default) and `dst` already exists, a\n        `FileExistsError` is raised. If `dirs_exist_ok` is true, the copying\n        operation will continue if it encounters existing directories, and files\n        within the `dst` tree will be overwritten by corresponding files from the\n        `src` tree.\n        \"\"\"\n        sys.audit(\"shutil.copytree\", src, dst)\n>       with os.scandir(src) as itr:\n             ^^^^^^^^^^^^^^^\nE       FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\.superpowers\\\\sdd\\\\2026-10-23-cockpit-reuse-audit\\\\isolation-release-20261026-120748\\\\tmp-init-red\\\\test_deploy_requires_init_befo0\\\\cockpit-data'\n\n..\\..\\..\\..\\MiniConda3\\Lib\\shutil.py:598: FileNotFoundError\n=========================== short test summary info ===========================\nFAILED deploy/cockpit/test_releasectl.py::test_deploy_requires_init_before_pulling_or_creating_journal\n1 failed in 0.73s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 9.18
+  },
+  "native-config-regression": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-native"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": ".....................                                                    [100%]\n============================== warnings summary ===============================\nD:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314\n  D:\\Work2api\\litellm\\.venv\\Lib\\site-packages\\ddtrace\\internal\\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    self.loader.exec_module(module)\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n21 passed, 1 warning in 20.05s\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 45.4
+  },
+  "originals-check": {
+    "all_pristine_copies_unchanged": true,
+    "old_cli_compose_workflow_unchanged": true,
+    "manager_unchanged": true
+  },
+  "package-inventory": {
+    "command": [
+      "gh",
+      "api",
+      "users/VVV-345/packages?package_type=container&per_page=100"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "{\"message\":\"You need at least read:packages scope to list packages.\",\"documentation_url\":\"https://docs.github.com/rest/packages/packages#list-packages-for-a-user\",\"status\":\"403\"}",
+    "stderr": "gh: You need at least read:packages scope to list packages. (HTTP 403)\n",
+    "exit_status": 1,
+    "elapsed_seconds": 0.85
+  },
+  "patch-reconstruct": {
+    "base": "1a6902d443ae8209a80a5be8eb3c26ede0f06e16",
+    "commands": [
+      {
+        "command": [
+          "git",
+          "read-tree",
+          "1a6902d443ae8209a80a5be8eb3c26ede0f06e16"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "exit_status": 0
+      },
+      {
+        "command": [
+          "git",
+          "apply",
+          "--cached",
+          "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "exit_status": 0
+      }
+    ],
+    "blobs": [
+      {
+        "path": ".github/workflows/publish-cockpit-images.yml",
+        "blob": "438b0dc2217573ec62d4bb35f718c838e97b389a"
+      },
+      {
+        "path": "account-pool/account_pool/api.py",
+        "blob": "97398cfae4a8c5d7c7d9c6a01342fcac990d7439"
+      },
+      {
+        "path": "account-pool/account_pool/app.py",
+        "blob": "b1a2f4f697fd10c8c7142849ff520a24ff492911"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_admin.py",
+        "blob": "c2c9b75002d41578e80a888f8f4a278d81442f3c"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_failure.py",
+        "blob": "fab254b34651ea7e7333c5f0112fe38093830d2a"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_manifest.py",
+        "blob": "dfd77ae8a5d00c7ba61db8343514b9d8c90f0162"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_policy.py",
+        "blob": "3a1c38b63fd0661663e44d6a1641d42565cb68aa"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_preflight.py",
+        "blob": "ffd304292fc618aa6fdbf511e0af346b2d2b7917"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_receipt_adapter.py",
+        "blob": "653200866c2992ecbc27fee9ff4e7c8826352da1"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_runtime.py",
+        "blob": "6f77ddedecbd569d9141eb072f548c0b38e353bf"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_scope.py",
+        "blob": "cad545e6e8046b2f77f61a9586be2c59ba01cbb2"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_scope_api.py",
+        "blob": "753a1a76bdd7820f9b167e7588d39698c660927e"
+      },
+      {
+        "path": "account-pool/account_pool/config.py",
+        "blob": "0289429f1a70f83782b0729738e202a8ef740e6c"
+      },
+      {
+        "path": "account-pool/account_pool/shared/secrets.py",
+        "blob": "6b59fd0efd4d6403bc334942d5eadd6425313a1e"
+      },
+      {
+        "path": "account-pool/tests/account_pool/test_cockpit_scope.py",
+        "blob": "5e2be77749ad398b2f718996a2d6cab5328adc0d"
+      },
+      {
+        "path": "account-pool/tests/account_pool/test_contracts.py",
+        "blob": "a36f9a01d5ebd6f9352c9928efd334bd6c695cae"
+      },
+      {
+        "path": "deploy/cockpit/README.md",
+        "blob": "e39f659d11b9bab33debaed7c10a130e8829e609"
+      },
+      {
+        "path": "deploy/cockpit/compose.yaml",
+        "blob": "90fb1539a9537e8ab35dae0f1564219a34be5eb3"
+      },
+      {
+        "path": "deploy/cockpit/release_bundle.py",
+        "blob": "8c235e288d15a4d959cccb9860b948d1cc1f30d7"
+      },
+      {
+        "path": "deploy/cockpit/releasectl.py",
+        "blob": "e15485a9378bf04ef6ae054868807a49c257eb0a"
+      },
+      {
+        "path": "deploy/cockpit/test_releasectl.py",
+        "blob": "4e3cd10a6b7ad92c0a46333de96ad2bb1e9450d6"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md",
+        "blob": "380488dd240b2fab4821e1dcfba18c5848f071da"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md",
+        "blob": "c2af1df63539387b5c0b51a73dccfba5bc6904b5"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py",
+        "blob": "2022450b2f203a93cecb5fb6edc008b3eb4b13b1"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py",
+        "blob": "1dff449f028fb2d6a760ead1e4acf43fc830e6a8"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_failure.py",
+        "blob": "95c4a23371142afa58d892d17a539a82a1dab3a5"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_native.py",
+        "blob": "8cd15da54e93453cfd09689bc69f835253c21857"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py",
+        "blob": "1b661071cfd73b4e5cf084b680bec0ef3ef1197d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py",
+        "blob": "11daf899a658b5b1d236d0d0c36031bc08ffb283"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_policy.py",
+        "blob": "33fb0512ea349ad278e387bd6f2f37fad9c5bc07"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py",
+        "blob": "165019c5996ca0acf414d33bd1487e016c80f2ce"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_route.py",
+        "blob": "47f38a013e07dcb236d84fee83a72fe169930059"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_runtime.py",
+        "blob": "4dd5551b6490c4b57ee4d190fa9253098b071c16"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py",
+        "blob": "0d948c9250a941bd3c6754804e1f3083e552c74e"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py",
+        "blob": "5ba8818f5dee347ced1db3e8bb7be5a192bbd139"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_endpoints.py",
+        "blob": "e2c884ba85bcf872236f758f3eed9891e3495f7b"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_gateway.py",
+        "blob": "d39a2a3dd9c020cad4658effbeeb75640578c7a6"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_gateway_client.py",
+        "blob": "dd083ece51b900e95ce07670ab826b77b753212d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_integration.py",
+        "blob": "495dc94730f5560fe06107f67d1d92140d08334d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_management.py",
+        "blob": "48b8c98f62e1eec824a2a312a6cf9ba819706c9d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_management_models.py",
+        "blob": "3463ec3989dd512078d5500af10b04b4f15e4264"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_reconciler.py",
+        "blob": "4832ebe7b53d9316806476c56b9c974fb3ae702b"
+      },
+      {
+        "path": "litellm/proxy/proxy_server.py",
+        "blob": "212ddde00f9538f73da6fa9ddccd83a990e0179f"
+      },
+      {
+        "path": "litellm/proxy/route_llm_request.py",
+        "blob": "69b75122617d9324ecd56b8e7d6af9c2c1b79954"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py",
+        "blob": "a49d4258516501e9c9481f0c00084f4f848f391f"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py",
+        "blob": "7dfa27e3f35eebc56b95eef44d133473c926d77d"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py",
+        "blob": "04b26dfeba95ae9f54c850ab0ac4e6a10d5f32b0"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py",
+        "blob": "350d9c434ee4cb159e0dcf2dc670fa0ff70c68cb"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py",
+        "blob": "920441b733da0166d1fe1646528ed564d30f3691"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py",
+        "blob": "7304baa58c22ead21d40d64835887c7cb2b6499f"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py",
+        "blob": "fe1c8f043865037475faab5212f8bf9f3770e856"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py",
+        "blob": "7e76182e3cba9e4df605115610b19b4000adc2e4"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py",
+        "blob": "02bb6bf566772c1de1efbddc590d899748168ed0"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py",
+        "blob": "e284eab7ea956ce1df7c4abd37e033dc204106d9"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx",
+        "blob": "18380c3012af5d614f8f988bdf4275abe3daa4c2"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx",
+        "blob": "01cdf1e5af49b1d011dda0bf2eb7d5c204fb9ad6"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts",
+        "blob": "13f3be1ee0d7086a0c9d9bad749909bea4c1d979"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/api/NativeCockpitApi.ts",
+        "blob": "5d9578ef31caeb35eb1198e85888c04df06d38e7"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx",
+        "blob": "4a3847637452e476a190b3b5d56969f10e7f66be"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx",
+        "blob": "a17682d0742f84ad616e0a5f9a82a65221ad9c08"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx",
+        "blob": "0dc01596b412e18d88a2199d66384d01fe17058f"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.tsx",
+        "blob": "9c6864fb0355cd2d3b786ef7b4ef2db38cc6575e"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts",
+        "blob": "63fb338fdbe9463878cda6f9e3d8097b3c2e7f13"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/lib/http/schema.d.ts",
+        "blob": "0dd75f00d5f9264f7cedbeb2ce7b2c5faa1269b6"
+      }
+    ],
+    "count": 64,
+    "patch_sha256": "ed7fb00307c7c1db5d47a44a38e9bcb19ec024434decddf25fdf96ec8ca55d0d"
+  },
+  "reverse-check": {
+    "command": [
+      "git",
+      "apply",
+      "--check",
+      "-R",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.12
+  },
+  "runtime-update-red": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "pytest",
+      "--confcutdir=deploy/cockpit",
+      "-o",
+      "addopts=",
+      "deploy/cockpit/test_releasectl.py::test_reviewed_runtime_update_does_not_change_data_compatibility",
+      "-q",
+      "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-runtime-red"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "F                                                                        [100%]\n================================== FAILURES ===================================\n_______ test_reviewed_runtime_update_does_not_change_data_compatibility _______\n\nctl = <module 'cockpit_releasectl' from 'C:\\\\Users\\\\42117\\\\.codex\\\\worktrees\\\\cockpit-reuse-audit\\\\litellm\\\\deploy\\\\cockpit\\\\releasectl.py'>\ntmp_path = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-runtime-red/test_reviewed_runtime_update_d0')\n\n    def test_reviewed_runtime_update_does_not_change_data_compatibility(ctl, tmp_path):\n        root = prepare(tmp_path, ctl)\n        old = ctl.parse_release(json.dumps(manifest()).encode(), \"a\" * 10)\n        ctl.deploy(root, old, Docker(ctl, old), lambda: None)\n        new = ctl.parse_release(json.dumps({**manifest(\"b\" * 10), \"runtime\": \"f\" * 64}).encode(), \"b\" * 10)\n>       ctl.deploy(root, new, Docker(ctl, new), lambda: None)\n\ndeploy\\cockpit\\test_releasectl.py:148: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _\n\nroot = WindowsPath('C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/.superpowers/sdd/2026-10-23-cockpit-reuse-audit/isolation-release-20261026-120748/tmp-runtime-red/test_reviewed_runtime_update_d0')\nrelease = Release(format=1, channel='cockpit-test', version='bbbbbbbbbb', litellm_revision='bbbbbbbbbb00000000000000000000000000...11', cockpit='ghcr.io/vvv-345/litellm-cockpit@sha256:2222222222222222222222222222222222222222222222222222222222222222')\nrunner = <test_releasectl.Docker object at 0x0000021C5C302120>\nprobe = <function test_reviewed_runtime_update_does_not_change_data_compatibility.<locals>.<lambda> at 0x0000021C5C2F9E40>\n\n    def deploy(root: Path, release: Release, runner: Runner, probe: Callable[[], None]) -> None:\n        if not (root / \".env\").is_file() or not (root / \"cockpit-data/manifest.json\").is_file():\n            raise ValueError(\"initialize the isolated runtime with init before deploying\")\n        if (root / \"pending.json\").exists():\n            raise ValueError(\"unfinished operation; run recover first\")\n        previous: Final = read_release(root / \"current.json\") if (root / \"current.json\").exists() else None\n        if previous and previous.compatibility != release.compatibility:\n            raise ValueError(\"compatibility changed; a separately reviewed data migration is required\")\n        if previous and previous.runtime != release.runtime:\n>           raise ValueError(\"runtime bundle changed; review and install the new bundle first\")\nE           ValueError: runtime bundle changed; review and install the new bundle first\n\ndeploy\\cockpit\\releasectl.py:252: ValueError\n=========================== short test summary info ===========================\nFAILED deploy/cockpit/test_releasectl.py::test_reviewed_runtime_update_does_not_change_data_compatibility\n1 failed in 0.85s\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 10.0
+  },
+  "shell-build-5": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\build-5.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.07
+  },
+  "shell-prepare-1": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\prepare-1.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.1
+  },
+  "shell-prepare-2": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\prepare-2.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.08
+  },
+  "shell-prepare-3": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\prepare-3.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.06
+  },
+  "shell-publish-5": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\publish-5.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.08
+  },
+  "shell-publish-6": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\publish-6.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.07
+  },
+  "shell-smoke-3": {
+    "command": [
+      "C:/Program Files/Git/bin/bash.exe",
+      "-n",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\smoke-3.sh"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.07
+  },
+  "source-baseline": [
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md",
+      "sha256": "4ef9c95b632cbd23d7f1c5b3d3e2ff6cd4aa7cc06626865f8a6e84613ddb6b2c"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-25-managerless-cockpit-handoff.md",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\docs\\superpowers\\plans\\2026-10-25-managerless-cockpit-handoff.md",
+      "sha256": "7ecbf5639a1886e489e88a06eff5e653fca40520929a10b30fd0e9abe92d1207"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch",
+      "sha256": "5e3a1fe33c0471c38a2fb45bdb9738be850ca3ab6db594056601f3b8b51c362a"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\VERIFICATION.txt",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\VERIFICATION.txt",
+      "sha256": "37c650146175c24c197e0d84e753890d2ad3b5cf805c98925c20ea0b820b3971"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh",
+      "sha256": "3687e61a2f8b34bd6ef53bd869de0678cf8b5c63d781c330acf7974e8bb1e59c"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\releasectl.py",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\releasectl.py",
+      "sha256": "faa526b08a21a5a89821f6f7a176ce0dda933c4c0a1240691e09da78c4da33d1"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\deploy\\docker-compose.yml",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\deploy\\docker-compose.yml",
+      "sha256": "15c4e333dd5cc7a5e18a1318cacc154cc90ded7f8b0ad707beead46bacc2a6ff"
+    },
+    {
+      "source": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.github\\workflows\\publish-deployment-images.yml",
+      "copy": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\baseline\\.github\\workflows\\publish-deployment-images.yml",
+      "sha256": "4b86853fbb2270cfd443d1f2b429a509ee23aeb079cf84de11f7a5f56efee336"
+    }
+  ],
+  "source-strict": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "--config",
+      "ruff-strict.toml",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "TID251 `typing.cast` is banned: No unchecked casts: validate into a frozen dataclass/NamedTuple/ReadOnly TypedDict at the boundary (pydantic).\n  --> deploy\\cockpit\\releasectl.py:18:37\n   |\n16 | from http.client import HTTPResponse\n17 | from pathlib import Path\n18 | from typing import Final, Protocol, cast\n   |                                     ^^^^\n19 |\n20 | PACKAGE: Final = \"ghcr.io/vvv-345/litellm-cockpit\"\n   |\n\nTRY004 Prefer `TypeError` exception for invalid type\n  --> deploy\\cockpit\\releasectl.py:46:9\n   |\n44 |     value: Final = cast(object, json.loads(data))\n45 |     if not isinstance(value, dict):\n46 |         raise ValueError(\"expected JSON object\")\n   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n47 |     return cast(Mapping[str, object], value)\n   |\n\nPLW1510 `subprocess.run` without explicit `check` argument\n   --> deploy\\cockpit\\releasectl.py:150:25\n    |\n148 |         source: Final = stack.enter_context(stdin.open(\"rb\")) if stdin else None\n149 |         destination: Final = stack.enter_context(stdout.open(\"wb\")) if stdout else subprocess.PIPE\n150 |         result: Final = subprocess.run(command, stdin=source, stdout=destination, stderr=subprocess.PIPE, timeout=900)\n    |                         ^^^^^^^^^^^^^^\n151 |         if result.returncode:\n152 |             raise RuntimeError(\n    |\nhelp: Add explicit `check=False`\n\nBLE001 Do not catch blind exception: `Exception`\n   --> deploy\\cockpit\\releasectl.py:274:20\n    |\n272 |             try:\n273 |                 runner(compose(root, \"stop\", \"litellm\", \"cockpit\"))\n274 |             except Exception as stop_error:\n    |                    ^^^^^^^^^\n275 |                 sys.stderr.write(f\"STOP FAILED: {stop_error}; isolate test ingress and run recover\\n\")\n276 |         raise\n    |\n\nTRY300 Consider moving this statement to an `else` block\n   --> deploy\\cockpit\\releasectl.py:372:9\n    |\n370 |                 recover(root, run, probe_http)\n371 |                 sys.stdout.write(\"RECOVERED; inspect status and recheck test accounts\\n\")\n372 |         return 0\n    |         ^^^^^^^^\n373 |     except (OSError, ValueError, RuntimeError, EOFError, subprocess.TimeoutExpired) as error:\n374 |         sys.stderr.write(f\"ERROR: {error}\\n\")\n    |\n\nFound 5 errors.\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 0.26
+  },
+  "source-types": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "basedpyright",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.38
+  },
+  "strict-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "--config",
+      "ruff-strict.toml",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "RUF100 [*] Unused `noqa` directive (unused: `TID251`)\n  --> deploy\\cockpit\\releasectl.py:18:23\n   |\n16 | from http.client import HTTPResponse\n17 | from pathlib import Path\n18 | from typing import (  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary\n   |                       ^^^^^^^^^^^^^^\n19 |     Final,\n20 |     Protocol,\n   |\nhelp: Remove unused `noqa` directive\n15 | from dataclasses import asdict, dataclass\n16 | from http.client import HTTPResponse\n17 | from pathlib import Path\n   - from typing import (  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary\n18 + from typing import (  # stdlib-only host CLI validates decoded fields at the boundary\n19 |     Final,\n20 |     Protocol,\n21 |     cast,\n\nTID251 `typing.cast` is banned: No unchecked casts: validate into a frozen dataclass/NamedTuple/ReadOnly TypedDict at the boundary (pydantic).\n  --> deploy\\cockpit\\releasectl.py:21:5\n   |\n19 |     Final,\n20 |     Protocol,\n21 |     cast,\n   |     ^^^^\n22 | )\n   |\n\nFound 2 errors.\n[*] 1 fixable with the `--fix` option.\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 0.26
+  },
+  "strict-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "--config",
+      "ruff-strict.toml",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.25
+  },
+  "strict-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "--config",
+      "ruff-strict.toml",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.28
+  },
+  "strict-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "--config",
+      "ruff-strict.toml",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "All checks passed!\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.23
+  },
+  "strict-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "ruff",
+      "check",
+      "--config",
+      "ruff-strict.toml",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "I001 [*] Import block is un-sorted or un-formatted\n  --> deploy\\cockpit\\releasectl.py:2:1\n   |\n 1 |   #!/usr/bin/env python3\n 2 | / from __future__ import annotations\n 3 | |\n 4 | | import argparse\n 5 | | import hashlib\n 6 | | import json\n 7 | | import os\n 8 | | import re\n 9 | | import secrets\n10 | | import shutil\n11 | | import subprocess\n12 | | import sys\n13 | | import urllib.request\n14 | | from collections.abc import Callable, Mapping\n15 | | from dataclasses import asdict, dataclass\n16 | | from http.client import HTTPResponse\n17 | | from pathlib import Path\n18 | | from typing import Final, Protocol, cast  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary\n   | |________________________________________^\n19 |\n20 |   PACKAGE: Final = \"ghcr.io/vvv-345/litellm-cockpit\"\n   |\nhelp: Organize imports\n15 | from dataclasses import asdict, dataclass\n16 | from http.client import HTTPResponse\n17 | from pathlib import Path\n   - from typing import Final, Protocol, cast  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary\n18 + from typing import (  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary\n19 +     Final,\n20 +     Protocol,\n21 +     cast,\n22 + )\n23 | \n24 | PACKAGE: Final = \"ghcr.io/vvv-345/litellm-cockpit\"\n25 | RUNTIME: Final = Path(\"/opt/zlia-pool/litellm-cockpit-test/runtime\")\n\nFound 1 error.\n[*] 1 fixable with the `--fix` option.\n",
+    "stderr": "",
+    "exit_status": 1,
+    "elapsed_seconds": 0.33
+  },
+  "three-state": {
+    "BASELINE": "old CLI: 8092 HTTP client, exit0",
+    "MODIFIED": "new CLI: init/status/deploy/recover isolated controller, exit0",
+    "ROLLBACK": "old CLI restored byte-for-byte, same stdout/stderr as baseline, exit0",
+    "restored_sha256": "faa526b08a21a5a89821f6f7a176ce0dda933c4c0a1240691e09da78c4da33d1",
+    "original_sha256": "faa526b08a21a5a89821f6f7a176ce0dda933c4c0a1240691e09da78c4da33d1",
+    "modified_retained": true
+  },
+  "types-acceptance": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "basedpyright",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.44
+  },
+  "types-acceptance2": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "basedpyright",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.42
+  },
+  "types-acceptance3": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "basedpyright",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.44
+  },
+  "types-acceptance4": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "basedpyright",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.57
+  },
+  "types-final": {
+    "command": [
+      "D:/Work2api/litellm/.venv/Scripts/python.exe",
+      "-m",
+      "basedpyright",
+      "deploy/cockpit/releasectl.py",
+      "deploy/cockpit/release_bundle.py"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "0 errors, 0 warnings, 0 notes\n",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 1.54
+  },
+  "workflow-actionlint": {
+    "command": [
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\actionlint\\actionlint.exe",
+      "-shellcheck=",
+      "-pyflakes=",
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.github\\workflows\\publish-cockpit-images.yml"
+    ],
+    "cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+    "stdout": "",
+    "stderr": "",
+    "exit_status": 0,
+    "elapsed_seconds": 0.81
+  },
+  "controller_command": [
+    "D:/Work2api/litellm/.venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "--confcutdir=deploy/cockpit",
+    "-o",
+    "addopts=",
+    "deploy/cockpit/test_releasectl.py",
+    "-q",
+    "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\isolation-release-20261026-120748\\tmp-acceptance4"
+  ],
+  "controller_cwd": "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm",
+  "review": {
+    "owner": "primary only",
+    "branch": "codex/cockpit-reuse-plan",
+    "start_commit": "5ef90c477197b9f47a5ef64955bc2b014260cb41",
+    "changed_fields": [
+      "PACKAGE",
+      "RUNTIME",
+      "PROJECT",
+      "deploy",
+      "recover",
+      "ACCOUNT_POOL_BACKEND=cockpit",
+      "jobs.publish.needs"
+    ],
+    "not_executed": [
+      "push",
+      "GHCR publication",
+      "server deployment",
+      "real data recovery",
+      "real provider calls"
+    ],
+    "strict_exception": "TID251 only for standard-library CLI boundary cast; fields runtime-validated",
+    "source_hashes": {
+      ".github/workflows/publish-cockpit-images.yml": "916f6ab1d941fbe234924f602665c75b100a4b461116b88585b363c1f561f19c",
+      "deploy/cockpit/README.md": "0be873654782fda6164fcfb2e7205055dc7fdf56831b2cbfdadb2fa26bd118f8",
+      "deploy/cockpit/compose.yaml": "bd02d5ebe081df4a25d36e53ab9e320ecce4c7b5896d10e7ee9d41f0dececc88",
+      "deploy/cockpit/release_bundle.py": "2b396865f5ed3bdaa0e081009171c4f98c6cb836747e5be51351c1128a880504",
+      "deploy/cockpit/releasectl.py": "f48a3b66fa676abd20f8a4c132c343080f1de55febec1affbb92a19da1fde5ca",
+      "deploy/cockpit/test_releasectl.py": "cd233fbdd9784a6b741c163e994c7b728494c3c872048ef236f2dc61f512c2e0"
+    }
+  }
+}

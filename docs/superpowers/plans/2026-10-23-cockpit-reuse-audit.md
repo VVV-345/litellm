@@ -666,3 +666,29 @@ $gatewayTests = @(
 - `../cliproxy-adapter/providers.md`：9 类供应商专属策略的默认值、保存与执行 owner、unsupported 状态及未实测边界
 
 审计依据是源码和列明的测试，不是生产服务实测。发现固定快照之外的上游新版本时，先重新取证和对照，再决定是否更新结论
+
+
+## 2026-10-26 隔离镜像发布与部署器续作（本节覆盖历史派工安排）
+
+用户确认新分支单独使用 ghcr.io/vvv-345/litellm-cockpit 包，两组件标签 litellm-VERSION / cockpit-VERSION，保留旧生产 Packages。主代理自己编写，不调用 DS 或派子代理；沿用 codex/cockpit-reuse-plan，本地提交，不自动推送或部署
+
+固定原件：旧 deploy/releasectl.py、deploy/docker-compose.yml、publish-deployment-images.yml 完全不改。新增 deploy/cockpit/releasectl.py、compose.yaml、release_bundle.py、README.md、test_releasectl.py 和 .github/workflows/publish-cockpit-images.yml。新运行目录 /opt/zlia-pool/litellm-cockpit-test/runtime，不复用生产目录与 8092 发布器
+
+本轮计划及验收顺序：
+1. 新部署器及失败测试：错误包名、tag 代替 digest、兼容性变化、错误运行镜像必须拒绝；健康失败保留 pending 和备份，恢复校验数据后才完成
+2. 三服务 Compose：仅 LiteLLM、Cockpit、PostgreSQL；18400 回环访问；独立卷/网络/持久密钥；docker compose config 检查无 Manager、Docker socket、生产 external 资源
+3. 新分支 push/手动构建，两组件在 AMD64/ARM64 原生 runner 构建并启动隔离栈验收，然后发布配对 digest 清单和初装包；不覆盖旧标签，不改旧 Packages
+4. 定向回归、源码检查、三态回滚及 patch 重建后本地提交；真实 GH 构建和服务器验收另记，不以离线 runner 测试冒充 Docker 实测
+
+当前外部阻碍：GH Packages inventory 实测 403（缺 read:packages），Docker Linux daemon 未运行，Cockpit 固定 commit ec9989c009042a3f8770781926f6087000825ee9 在 GitHub 查询实测 422（未推送）。尚未线上整理 Packages、发布镜像或部署服务器。后续先明确授权推送两份源码及新分支测试镜像构建，再处理只读 GHCR 拉取权限，确认目标主机和资源后安装新隔离目录
+
+操作说明与页面访问、创建 Key、Responses 测试和恢复边界统一见 deploy/cockpit/README.md。DEPLOYED 只代表隔离栈及页面健康，不代表真实账号/计费/协议/恢复验收完成，也不能据此替代生产
+
+
+本轮本地验收结果：26 项部署器测试通过；原生配置/管理相关回归 21 passed、1 条依赖 warning；Actionlint、7 段 Bash 语法、Compose JSON 解析及隔离断言、初装 tar 包重开逐字节比对和 checksum、源码普通/strict Ruff、格式、basedpyright 均通过。严格检查仅对标准库主机 CLI 的 typing.cast 使用带原因的精确 TID251 例外，不添加运行时依赖；JSON 发布字段逐项验证
+
+BASELINE：原 CLI --help 显示固定 8092 和旧动作；MODIFIED：独立 CLI --help 显示 init/status/deploy/recover；ROLLBACK：独立副本经既有 ROLLBACK.sh 恢复，--help stdout/stderr 与 BASELINE 完全相同，均 exit 0，恢复 SHA-256 等于原件。原生产 CLI、Compose、发布 workflow 与 Manager 未改动。此三态只证明本地文件恢复，不证明服务器数据库回滚
+
+补充失败记录：Actionlint 初次错误下载后按官方 checksum 清单改为 Windows zip；Git Bash 恢复脚本首次缺 PATH 中 dirname/cp（exit127），补 Git usr/bin 后通过；初次 pytest 默认临时清理 WinError5，改为独立 basetemp 后无该错误；Docker Hub digest 查询连接超时（exit1），Docker info 证实 Linux daemon 管道不存在（exit1）。真实镜像构建、两架构容器 smoke、服务器 deploy/recover、线上 Packages 整理均未执行
+
+下一步只需明确授权推送两份源码并构建测试镜像，随后核对工作流输出的真实版本/digest；不能将本地 bundle 测试中的 fixture digest 当发布版本。获得目标服务器和隔离部署授权后，按 deploy/cockpit/README.md 安装，先保留旧生产，后做真实账号、计费及恢复验收

@@ -1,3 +1,238 @@
+diff --git a/.github/workflows/publish-cockpit-images.yml b/.github/workflows/publish-cockpit-images.yml
+new file mode 100644
+index 0000000000..438b0dc221
+--- /dev/null
++++ b/.github/workflows/publish-cockpit-images.yml
+@@ -0,0 +1,229 @@
++name: Publish isolated LiteLLM Cockpit images
++
++on:
++  push:
++    branches: [codex/cockpit-reuse-plan]
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++concurrency:
++  group: publish-cockpit-test
++  cancel-in-progress: false
++
++env:
++  IMAGE: ghcr.io/vvv-345/litellm-cockpit
++
++jobs:
++  prepare:
++    if: github.repository == 'VVV-345/litellm' && github.ref == 'refs/heads/codex/cockpit-reuse-plan'
++    runs-on: ubuntu-24.04
++    outputs:
++      version: ${{ steps.metadata.outputs.version }}
++      litellm_revision: ${{ steps.metadata.outputs.litellm_revision }}
++      cockpit_revision: ${{ steps.metadata.outputs.cockpit_revision }}
++      compatibility: ${{ steps.metadata.outputs.compatibility }}
++    steps:
++      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
++      - name: Controller tests
++        run: |
++          python3 -m pip install pytest==8.4.2 PyYAML==6.0.3
++          python3 -m pytest --confcutdir=deploy/cockpit -o addopts='' deploy/cockpit/test_releasectl.py -q
++      - id: metadata
++        run: python3 deploy/cockpit/release_bundle.py prepare
++      - name: Require fixed Cockpit source and an unused release identity
++        env:
++          GH_TOKEN: ${{ github.token }}
++          VERSION: ${{ steps.metadata.outputs.version }}
++          COCKPIT_REVISION: ${{ steps.metadata.outputs.cockpit_revision }}
++        run: |
++          set -euo pipefail
++          test "$(gh api "repos/VVV-345/cockpit-tools/commits/$COCKPIT_REVISION" --jq .sha)" = "$COCKPIT_REVISION"
++          python3 - <<'PY'
++          import os, urllib.request, urllib.error
++          for path in (f"releases/tags/cockpit-test-{os.environ['VERSION']}", f"git/ref/tags/cockpit-test-{os.environ['VERSION']}"):
++              req = urllib.request.Request("https://api.github.com/repos/VVV-345/litellm/" + path,
++                  headers={"Authorization": "Bearer " + os.environ["GH_TOKEN"]})
++              try:
++                  with urllib.request.urlopen(req, timeout=30):
++                      raise SystemExit("Release identity already exists; no overwrite allowed")
++              except urllib.error.HTTPError as exc:
++                  if exc.code != 404:
++                      raise
++          PY
++      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
++        with:
++          name: cockpit-build-metadata
++          path: build-metadata.json
++
++  build:
++    needs: prepare
++    permissions:
++      contents: read
++      packages: write
++    strategy:
++      fail-fast: false
++      matrix:
++        component: [litellm, cockpit]
++        include:
++          - arch: amd64
++            runner: ubuntu-24.04
++          - arch: arm64
++            runner: ubuntu-24.04-arm
++        arch: [amd64, arm64]
++    runs-on: ${{ matrix.runner }}
++    steps:
++      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
++        with:
++          ref: ${{ needs.prepare.outputs.litellm_revision }}
++      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
++        if: matrix.component == 'cockpit'
++        with:
++          repository: VVV-345/cockpit-tools
++          ref: ${{ needs.prepare.outputs.cockpit_revision }}
++          path: cockpit-source
++          persist-credentials: false
++      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
++      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
++        with:
++          registry: ghcr.io
++          username: ${{ github.actor }}
++          password: ${{ secrets.GITHUB_TOKEN }}
++      - id: build
++        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
++        with:
++          context: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy' || '.' }}
++          file: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy/Dockerfile' || './Dockerfile' }}
++          platforms: linux/${{ matrix.arch }}
++          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
++          labels: |
++            org.opencontainers.image.source=https://github.com/VVV-345/litellm
++            org.opencontainers.image.revision=${{ matrix.component == 'cockpit' && needs.prepare.outputs.cockpit_revision || needs.prepare.outputs.litellm_revision }}
++            ai.zlia.channel=cockpit-test
++            ai.zlia.component=${{ matrix.component }}
++            ai.zlia.release=${{ needs.prepare.outputs.version }}
++            ai.zlia.compatibility=${{ needs.prepare.outputs.compatibility }}
++      - name: Record digest
++        env:
++          DIGEST: ${{ steps.build.outputs.digest }}
++          COMPONENT: ${{ matrix.component }}
++          ARCH: ${{ matrix.arch }}
++        run: printf '%s\n' "$DIGEST" > "$COMPONENT-$ARCH.digest"
++      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1
++        with:
++          name: digest-${{ matrix.component }}-${{ matrix.arch }}
++          path: '*.digest'
++
++  smoke:
++    needs: [prepare, build]
++    permissions:
++      contents: read
++      packages: read
++    strategy:
++      fail-fast: false
++      matrix:
++        include:
++          - arch: amd64
++            runner: ubuntu-24.04
++          - arch: arm64
++            runner: ubuntu-24.04-arm
++    runs-on: ${{ matrix.runner }}
++    steps:
++      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
++        with:
++          ref: ${{ needs.prepare.outputs.litellm_revision }}
++      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
++        with:
++          pattern: digest-*
++          merge-multiple: true
++          path: digests
++      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
++        with:
++          registry: ghcr.io
++          username: ${{ github.actor }}
++          password: ${{ secrets.GITHUB_TOKEN }}
++      - name: Real isolated stack health, UI, and unauthenticated boundary
++        env:
++          ARCH: ${{ matrix.arch }}
++        run: |
++          set -euo pipefail
++          export TEST_RUNTIME="$RUNNER_TEMP/cockpit-runtime"
++          mkdir -p "$TEST_RUNTIME"
++          cp deploy/cockpit/compose.yaml "$TEST_RUNTIME/compose.yaml"
++          sudo env PYTHONPATH="$PWD/deploy/cockpit" TEST_RUNTIME="$TEST_RUNTIME" python3 - <<'PY'
++          import os
++          from pathlib import Path
++          from releasectl import initialize
++          initialize(Path(os.environ["TEST_RUNTIME"]))
++          PY
++          printf 'LITELLM_IMAGE=%s@%s\nCOCKPIT_IMAGE=%s@%s\n' "$IMAGE" "$(cat digests/litellm-$ARCH.digest)" "$IMAGE" "$(cat digests/cockpit-$ARCH.digest)" | sudo tee "$TEST_RUNTIME/images.env" >/dev/null
++          dc() { sudo env DOCKER_CONFIG="$HOME/.docker" docker compose -p litellm-cockpit-test --project-directory "$TEST_RUNTIME" --env-file "$TEST_RUNTIME/.env" --env-file "$TEST_RUNTIME/images.env" -f "$TEST_RUNTIME/compose.yaml" "$@"; }
++          trap 'dc down --volumes' EXIT
++          dc up -d --wait --wait-timeout 300
++          curl --fail --silent --show-error http://127.0.0.1:18400/health/readiness
++          curl --fail --silent --show-error --output /tmp/cockpit-ui.html http://127.0.0.1:18400/ui/
++          grep -qi '<html' /tmp/cockpit-ui.html
++          code="$(curl --silent --output /tmp/models.json --write-out '%{http_code}' http://127.0.0.1:18400/v1/models)"
++          test "$code" = 401
++          dc exec -T cockpit sh -c 'wget -q -O /dev/null http://127.0.0.1:8317/healthz'
++          if dc exec -T cockpit sh -c 'wget -q -O /dev/null http://127.0.0.1:8317/admin/v1/manifest'; then
++            echo 'Unauthenticated Cockpit admin unexpectedly succeeded' >&2
++            exit 1
++          fi
++
++  publish:
++    needs: [prepare, build, smoke]
++    runs-on: ubuntu-24.04
++    permissions:
++      contents: write
++      packages: write
++    steps:
++      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955
++        with:
++          ref: ${{ needs.prepare.outputs.litellm_revision }}
++      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
++        with:
++          pattern: digest-*
++          merge-multiple: true
++          path: digests
++      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
++        with:
++          name: cockpit-build-metadata
++      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
++      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef
++        with:
++          registry: ghcr.io
++          username: ${{ github.actor }}
++          password: ${{ secrets.GITHUB_TOKEN }}
++      - name: Pair both architectures without overwriting component tags
++        env:
++          VERSION: ${{ needs.prepare.outputs.version }}
++        run: |
++          set -euo pipefail
++          for component in litellm cockpit; do
++            tag="$IMAGE:$component-$VERSION"
++            if docker buildx imagetools inspect "$tag" > /tmp/existing 2>/tmp/inspect-error; then
++              echo "Tag already exists: $tag; no overwrite allowed" >&2
++              exit 1
++            fi
++            grep -Eqi 'not found|manifest unknown' /tmp/inspect-error || { cat /tmp/inspect-error >&2; exit 1; }
++          done
++          for component in litellm cockpit; do
++            tag="$IMAGE:$component-$VERSION"
++            docker buildx imagetools create -t "$tag" "$IMAGE@$(cat digests/$component-amd64.digest)" "$IMAGE@$(cat digests/$component-arm64.digest)"
++            digest="$(docker buildx imagetools inspect "$tag" --format '{{.Manifest.Digest}}')"
++            printf '%s_DIGEST=%s\n' "${component^^}" "$digest" >> "$GITHUB_ENV"
++          done
++      - name: Publish deployable test manifest and first-install bundle
++        env:
++          GH_TOKEN: ${{ github.token }}
++          VERSION: ${{ needs.prepare.outputs.version }}
++          REVISION: ${{ needs.prepare.outputs.litellm_revision }}
++        run: |
++          set -euo pipefail
++          python3 deploy/cockpit/release_bundle.py bundle
++          gh release create "cockpit-test-$VERSION" release.json runtime.tar.gz SHA256SUMS \
++            --target "$REVISION" --prerelease --latest=false \
++            --title "Cockpit isolated test $VERSION" \
++            --notes "Isolated LiteLLM + Cockpit pair. Production packages unchanged. Real account, billing and recovery acceptance still required."
 diff --git a/account-pool/account_pool/api.py b/account-pool/account_pool/api.py
 index e51bbcd02f..97398cfae4 100644
 --- a/account-pool/account_pool/api.py
@@ -1993,8 +2228,959 @@ index 05d062609a..a36f9a01d5 100644
              "created_at": now.isoformat().replace("+00:00", "Z"),
              "updated_at": now.isoformat().replace("+00:00", "Z"),
          },
+diff --git a/deploy/cockpit/README.md b/deploy/cockpit/README.md
+new file mode 100644
+index 0000000000..e39f659d11
+--- /dev/null
++++ b/deploy/cockpit/README.md
+@@ -0,0 +1,69 @@
++# LiteLLM + Cockpit 隔离发布
++
++此目录只部署测试栈，不调用旧发布器，不包含 Manager。旧生产目录 `/opt/zlia-pool/litellm-migration/runtime`、旧镜像包及生产密钥保持不变。不要把这里的文件覆盖到旧目录
++
++## 镜像与版本
++
++新包固定为 `ghcr.io/vvv-345/litellm-cockpit`。同一个 LiteLLM commit 前 10 位为版本号 `VERSION`，组件标签分别是 `litellm-VERSION` 和 `cockpit-VERSION`。两个组件各有 Linux AMD64、ARM64 镜像，部署使用 Release 清单中的 digest，不依赖可漂移的标签
++
++推送 `codex/cockpit-reuse-plan` 会触发独立工作流 **Publish isolated LiteLLM Cockpit images**，不会部署服务器。也支持手动选择该分支运行。工作流先检查固定 Cockpit commit，再构建四份架构镜像，在两个原生架构 runner 启动隔离栈检查健康、页面和未鉴权请求，最后配对发布 `cockpit-test-VERSION` 预发布 Release。它不会递增生产版本、设置 latest、运行生产清理任务或删除任何 Packages
++
++`release_bundle.py` 固定 Cockpit commit 为 `ec9989c009042a3f8770781926f6087000825ee9`。该 commit 必须先存在于 GitHub，禁止因找不到而换成 main。源代码推送、工作流触发均需用户明确授权。新 workflow 首次发布走分支 push 触发，不依赖手动运行按钮；GitHub 只有在默认分支存在 workflow_dispatch 定义时才显示该按钮，不能为此擅自改默认分支或触发旧生产工作流
++
++只有包含 `release.json`、`runtime.tar.gz`、`SHA256SUMS` 的完整测试 Release 才可部署。组件发布中断可能留下未配对标签，但不会生成可部署清单。禁止覆盖已有组件标签或 Release；这种失败需检查残留记录后使用新的源提交重发，不自动删除镜像强行重跑
++
++线上 Packages 需把新包关联到 `VVV-345/litellm`，授予该仓库 Actions 访问权。两个组件的 OCI source 都指向此仓库，各自 revision 指向对应源码提交。旧包不改名、不删历史版本，以免生产拉取和回滚失效。包默认可能是私有的，服务器需要只读 GHCR 凭据；不要为了访问方便自动改为公开
++
++## 首次安装
++
++先确认目标服务器身份、磁盘和内存余量、Docker Compose v2（支持 `--wait` 和多个 `--env-file`），以及回环端口 18400 未被占用。配置给三个服务的内存上限合计 6 GiB、CPU 上限合计 4 核，上限不是资源预留，同机测试仍可能影响生产。旧 Docker socket 管理服务若有 daemon 权限，同机隔离也不是安全沙箱
++
++从已核对的测试 Release 下载上述三个附件，核对来源和版本，在下载目录执行 `sha256sum -c SHA256SUMS`。这个校验防止文件损坏，不代替对 GitHub 发布者的信任。以下安装命令仅用于第一次空目录安装，不能拿新包覆盖已有 `.env`、数据或待恢复事务
++
++```bash
++sudo -n install -d -m 700 /opt/zlia-pool/litellm-cockpit-test/runtime
++sudo -n tar -xzf runtime.tar.gz -C /opt/zlia-pool/litellm-cockpit-test/runtime
++sudo -n sh -c 'cd /opt/zlia-pool/litellm-cockpit-test/runtime && python3 releasectl.py init'
++```
++
++`init` 生成独立 DB 密码、LiteLLM master key、网页密码、Cockpit 管理 token、签名 key 和 routing seed，保存到权限 0600 的 `.env`。Cockpit 数据为空，不会自动复制生产账号。保持这些密钥长期稳定，并将 `.env` 与数据备份保存在受控位置，不能提交 Git 或贴入聊天
++
++若新包私有，用有 `read:packages` 的凭据在执行部署的 root Docker 配置下交互登录 `ghcr.io`，可用 `sudo -n docker login ghcr.io -u GITHUB_USER`。不要把 token 写到命令参数、仓库或工作流日志。新栈不借用旧发布器的 Docker 登录目录
++
++## 一条命令部署
++
++将 `VERSION` 替换为**新测试 Release** 的 10 位提交号，不能直接使用旧生产示例中的 `a124c53814`
++
++```bash
++sudo -n sh -c 'cd /opt/zlia-pool/litellm-cockpit-test/runtime && python3 releasectl.py deploy VERSION'
++```
++
++看到正确测试路径、项目和版本后输入 `CONFIRM`。命令会读取固定仓库的测试清单，核对本地运行包 hash，拉取两份 digest 并核对 OCI 身份。更新时先停止测试写入，保存测试 PostgreSQL SQL 快照、Cockpit 全部数据和独立密钥，再启动新镜像，核对运行镜像 ID、Compose health、数据库 readiness 和 `/ui/`。全部通过才记录 current.json 并输出 DEPLOYED
++
++独立资源：Compose 项目 `litellm-cockpit-test`，卷 `litellm-cockpit-test_postgres_data`，网络 `litellm-cockpit-test_database/gateway`，宿主 Cockpit 目录 `runtime/cockpit-data`。没有固定 container_name、生产 external 卷或 Docker socket 挂载。数据库与 Cockpit 不发布宿主端口，只有 LiteLLM 绑定 `127.0.0.1:18400`
++
++更新必须通过保守兼容指纹门禁：包含 Prisma schema、真实 migrations 目录、原生 Cockpit/授权模块、Compose 和 Cockpit commit。不同指纹直接拒绝，不能通过手改清单绕过。指纹相同不证明所有业务逻辑兼容，仍需审阅变更和真实测试。发布器本身更新也需要单独审阅，不自动自更新
++
++```bash
++sudo -n sh -c 'cd /opt/zlia-pool/litellm-cockpit-test/runtime && python3 releasectl.py status'
++sudo -n sh -c 'cd /opt/zlia-pool/litellm-cockpit-test/runtime && python3 releasectl.py recover'
++```
++
++部署异常或中断时保留 pending.json，禁止叠加新部署。`recover` 也要求 CONFIRM：更新失败时校验备份，恢复旧数据与旧镜像；首次启动失败时重试同一候选，不删除数据库卷。恢复会倒退测试数据，停止所有外部测试请求后执行。恢复本身失败可以再次执行，不能删除 pending.json 冒充完成。备份、恢复前的失败数据目录不会自动清理，需人工检查磁盘空间和保留期
++
++## 页面、Key 与模型调用
++
++不必开放 18400 公网端口。通过已授权 SSH/JumpServer 隧道映射本机端口到服务器 `127.0.0.1:18400`，浏览器访问 `http://127.0.0.1:18400/ui/`。本机没有隧道时这个地址不会访问服务器。也可以单独配置测试域名和 HTTPS 反向代理到该端口，不能复用或改写生产域名；JumpServer 的“查看网页”取决于管理员是否配置 Web 应用入口，不会自动生成测试网址
++
++网页使用用户名 `admin` 和测试 `.env` 的 `UI_PASSWORD`，不是生产密码。先导入批准用于测试的 Cockpit 账号凭据，创建 LiteLLM 原生 Key 并设置账号/模型授权，按原生页面完成预检、签名回执、scope 发布、激活、Cockpit 重启及运行 revision 核对。只保存 staged 不代表模型已可调用。当前声明支持范围仍是原生 Key、单账号、明确模型范围、Responses
++
++在本机隧道已建立后，以测试虚拟 Key 调用，不能使用 Cockpit 管理 token 对外调用
++
++```bash
++curl http://127.0.0.1:18400/v1/responses \
++  -H "Authorization: Bearer $TEST_VIRTUAL_KEY" \
++  -H 'Content-Type: application/json' \
++  -d '{"model":"MODEL_FROM_AUTHORIZED_MODEL_LIST","input":"Reply with ok"}'
++```
++
++部署健康通过不代表真实模型验收。仍需单独完成授权/撤权、流式与中断、重试与续聊、费用对账、重启持久化、数据库与凭据恢复演练；这些结果通过并另获批准后才考虑替代生产
+diff --git a/deploy/cockpit/compose.yaml b/deploy/cockpit/compose.yaml
+new file mode 100644
+index 0000000000..90fb1539a9
+--- /dev/null
++++ b/deploy/cockpit/compose.yaml
+@@ -0,0 +1,86 @@
++name: litellm-cockpit-test
++
++services:
++  db:
++    image: postgres:16@sha256:c31077828b6a25f169fcd1bdf769af0e1c5cb8eb14a5729c8bc766842347580b
++    restart: unless-stopped
++    environment:
++      POSTGRES_DB: litellm
++      POSTGRES_USER: llmproxy
++      POSTGRES_PASSWORD: ${DB_PASSWORD:?run releasectl.py init}
++    volumes:
++      - postgres_data:/var/lib/postgresql/data
++    networks: [database]
++    healthcheck:
++      test: [CMD-SHELL, pg_isready -U llmproxy -d litellm]
++      interval: 5s
++      timeout: 5s
++      retries: 30
++    mem_limit: 1g
++    cpus: "1.0"
++    logging: &logging
++      driver: json-file
++      options:
++        max-size: 10m
++        max-file: "3"
++
++  cockpit:
++    image: ${COCKPIT_IMAGE:?use releasectl.py deploy VERSION}
++    restart: unless-stopped
++    environment:
++      COCKPIT_ADMIN_TOKEN: ${COCKPIT_ADMIN_TOKEN:?run releasectl.py init}
++    volumes:
++      - type: bind
++        source: ./cockpit-data
++        target: /data
++        bind:
++          create_host_path: false
++    networks: [gateway]
++    security_opt: [no-new-privileges:true]
++    cap_drop: [ALL]
++    mem_limit: 1g
++    cpus: "1.0"
++    pids_limit: 256
++    logging: *logging
++
++  litellm:
++    image: ${LITELLM_IMAGE:?use releasectl.py deploy VERSION}
++    restart: unless-stopped
++    ports:
++      - "127.0.0.1:18400:4000"
++    environment:
++      DATABASE_URL: postgresql://llmproxy:${DB_PASSWORD:?run releasectl.py init}@db:5432/litellm
++      STORE_MODEL_IN_DB: "True"
++      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?run releasectl.py init}
++      UI_USERNAME: admin
++      UI_PASSWORD: ${UI_PASSWORD:?run releasectl.py init}
++      ACCOUNT_POOL_BACKEND: cockpit
++      ACCOUNT_POOL_COCKPIT_ADMIN_URL: http://cockpit:8317
++      ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN: ${COCKPIT_ADMIN_TOKEN:?run releasectl.py init}
++      ACCOUNT_POOL_COCKPIT_DATA_URL: http://cockpit:8317
++      ACCOUNT_POOL_COCKPIT_RECEIPT_KEY: ${RECEIPT_KEY:?run releasectl.py init}
++      ACCOUNT_POOL_COCKPIT_ROUTING_SEED: ${ROUTING_SEED:?run releasectl.py init}
++    depends_on:
++      db:
++        condition: service_healthy
++      cockpit:
++        condition: service_healthy
++    networks: [database, gateway]
++    healthcheck:
++      test: [CMD, python3, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/readiness', timeout=10)"]
++      interval: 10s
++      timeout: 15s
++      retries: 30
++      start_period: 60s
++    mem_limit: 4g
++    cpus: "2.0"
++    pids_limit: 512
++    logging: *logging
++
++volumes:
++  postgres_data:
++
++networks:
++  database:
++    internal: true
++  gateway:
+diff --git a/deploy/cockpit/release_bundle.py b/deploy/cockpit/release_bundle.py
+new file mode 100644
+index 0000000000..8c235e288d
+--- /dev/null
++++ b/deploy/cockpit/release_bundle.py
+@@ -0,0 +1,77 @@
++from __future__ import annotations
++
++import hashlib
++import json
++import os
++import sys
++import tarfile
++from pathlib import Path
++from typing import Final
++
++from releasectl import PACKAGE, json_object, matched, parse_release, run, runtime_hash, save
++
++COCKPIT_REVISION: Final = "ec9989c009042a3f8770781926f6087000825ee9"
++ROOT: Final = Path(__file__).resolve().parents[2]
++
++
++def compatibility_hash(root: Path, cockpit_revision: str) -> str:
++    paths: Final = tuple(
++        sorted(
++            path
++            for path in (
++                *root.glob("schema.prisma"),
++                *root.glob("litellm-proxy-extras/litellm_proxy_extras/schema.prisma"),
++                *root.glob("litellm-proxy-extras/litellm_proxy_extras/migrations/**/*"),
++                *root.glob("litellm/proxy/management_endpoints/account_pool_cockpit*.py"),
++                *root.glob("litellm/proxy/management_endpoints/account_pool_native*.py"),
++                *root.glob("deploy/cockpit/compose.yaml"),
++            )
++            if path.is_file()
++        )
++    )
++    return hashlib.sha256(
++        cockpit_revision.encode()
++        + b"".join(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes() for path in paths)
++    ).hexdigest()
++
++
++def prepare() -> None:
++    revision: Final = matched(run(("git", "rev-parse", "HEAD")).strip(), "[0-9a-f]{40}")
++    metadata: Final = {
++        "format": 1,
++        "channel": "cockpit-test",
++        "version": revision[:10],
++        "litellm_revision": revision,
++        "cockpit_revision": COCKPIT_REVISION,
++        "compatibility": compatibility_hash(ROOT, COCKPIT_REVISION),
++        "runtime": runtime_hash(ROOT / "deploy/cockpit"),
++    }
++    save(Path("build-metadata.json"), metadata)
++    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
++        for key, value in metadata.items():
++            print(f"{key}={value}", file=output)
++
++
++def bundle() -> None:
++    metadata: Final = json_object(Path("build-metadata.json").read_bytes())
++    manifest: Final = {
++        **metadata,
++        "litellm": PACKAGE + "@" + matched(os.environ["LITELLM_DIGEST"], r"sha256:[0-9a-f]{64}"),
++        "cockpit": PACKAGE + "@" + matched(os.environ["COCKPIT_DIGEST"], r"sha256:[0-9a-f]{64}"),
++    }
++    parse_release(json.dumps(manifest).encode(), matched(metadata["version"], "[0-9a-f]{10}"))
++    save(Path("release.json"), manifest)
++    with tarfile.open("runtime.tar.gz", "w:gz") as archive:
++        for name in ("releasectl.py", "compose.yaml", "README.md"):
++            archive.add(ROOT / "deploy/cockpit" / name, arcname=name)
++    Path("SHA256SUMS").write_text(
++        "".join(
++            f"{hashlib.sha256(Path(name).read_bytes()).hexdigest()}  {name}\n"
++            for name in ("runtime.tar.gz", "release.json")
++        ),
++        encoding="utf-8",
++    )
++
++
++if __name__ == "__main__":
++    {"prepare": prepare, "bundle": bundle}[sys.argv[1]]()
+diff --git a/deploy/cockpit/releasectl.py b/deploy/cockpit/releasectl.py
+new file mode 100644
+index 0000000000..e15485a937
+--- /dev/null
++++ b/deploy/cockpit/releasectl.py
+@@ -0,0 +1,386 @@
++#!/usr/bin/env python3
++from __future__ import annotations
++
++import argparse
++import hashlib
++import json
++import os
++import re
++import secrets
++import shutil
++import subprocess
++import sys
++import urllib.request
++from collections.abc import Callable, Mapping
++from dataclasses import asdict, dataclass
++from http.client import HTTPResponse
++from pathlib import Path
++from typing import (
++    Final,
++    Protocol,
++    cast,  # noqa: TID251  # stdlib-only host CLI validates decoded fields at the boundary
++)
++
++PACKAGE: Final = "ghcr.io/vvv-345/litellm-cockpit"
++RUNTIME: Final = Path("/opt/zlia-pool/litellm-cockpit-test/runtime")
++PROJECT: Final = "litellm-cockpit-test"
++BUNDLE_FILES: Final = ("releasectl.py", "compose.yaml")
++
++
++@dataclass(frozen=True, slots=True)
++class Release:
++    format: int
++    channel: str
++    version: str
++    litellm_revision: str
++    cockpit_revision: str
++    compatibility: str
++    runtime: str
++    litellm: str
++    cockpit: str
++
++
++class Runner(Protocol):
++    def __call__(self, command: tuple[str, ...], *, stdin: Path | None = None, stdout: Path | None = None) -> str: ...
++
++
++def json_object(data: bytes) -> Mapping[str, object]:
++    value: Final = cast(object, json.loads(data))
++    if not isinstance(value, dict):
++        raise TypeError("expected JSON object")
++    return cast(Mapping[str, object], value)
++
++
++def matched(value: object, pattern: str) -> str:
++    if not isinstance(value, str) or not re.fullmatch(pattern, value):
++        raise ValueError("invalid release field")
++    return value
++
++
++def parse_release(data: bytes, version: str) -> Release:
++    value: Final = json_object(data)
++    if value.get("format") != 1 or value.get("channel") != "cockpit-test" or value.get("version") != version:
++        raise ValueError("wrong release format, channel or version")
++    revision: Final = matched(value.get("litellm_revision"), "[0-9a-f]{40}")
++    if revision[:10] != matched(version, "[0-9a-f]{10}"):
++        raise ValueError("release revision mismatch")
++    return Release(
++        1,
++        "cockpit-test",
++        version,
++        revision,
++        matched(value.get("cockpit_revision"), "[0-9a-f]{40}"),
++        matched(value.get("compatibility"), "[0-9a-f]{64}"),
++        matched(value.get("runtime"), "[0-9a-f]{64}"),
++        matched(value.get("litellm"), re.escape(PACKAGE) + r"@sha256:[0-9a-f]{64}"),
++        matched(value.get("cockpit"), re.escape(PACKAGE) + r"@sha256:[0-9a-f]{64}"),
++    )
++
++
++def read_release(path: Path) -> Release:
++    data: Final = path.read_bytes()
++    return parse_release(data, matched(json_object(data).get("version"), "[0-9a-f]{10}"))
++
++
++def atomic(path: Path, data: bytes) -> None:
++    temporary: Final = path.with_name(path.name + ".tmp")
++    with temporary.open("wb") as stream:
++        os.chmod(temporary, 0o600)
++        stream.write(data)
++        stream.flush()
++        os.fsync(stream.fileno())
++    os.replace(temporary, path)
++    if os.name == "posix":
++        descriptor: Final = os.open(path.parent, os.O_RDONLY)
++        try:
++            os.fsync(descriptor)
++        finally:
++            os.close(descriptor)
++
++
++def save(path: Path, value: object) -> None:
++    atomic(path, (json.dumps(value, indent=2, sort_keys=True) + "\n").encode())
++
++
++def runtime_hash(root: Path) -> str:
++    return hashlib.sha256(
++        b"".join(name.encode() + b"\0" + (root / name).read_bytes() for name in BUNDLE_FILES)
++    ).hexdigest()
++
++
++def check_root(root: Path) -> None:
++    if root.resolve() != RUNTIME:
++        raise ValueError(f"only isolated runtime {RUNTIME} is allowed")
++    if os.name != "posix" or os.geteuid() != 0:
++        raise ValueError("run on Linux with sudo; production runtime is never supported")
++
++
++def own_data(path: Path) -> None:
++    if os.name == "posix" and os.geteuid() == 0:
++        for entry in (path, *path.rglob("*")):
++            if entry.is_symlink():
++                raise ValueError("symlinks are not supported in credential snapshots")
++            os.chown(entry, 10001, 10001)
++
++
++def initialize(root: Path) -> None:
++    if any((root / name).exists() for name in (".env", "cockpit-data", "current.json", "pending.json")):
++        raise ValueError("runtime already initialized; never overwrite existing secrets")
++    root.mkdir(parents=True, exist_ok=True, mode=0o700)
++    os.chmod(root, 0o700)
++    values: Final = {
++        "DB_PASSWORD": secrets.token_hex(32),
++        "LITELLM_MASTER_KEY": "sk-" + secrets.token_hex(32),
++        "UI_PASSWORD": secrets.token_hex(32),
++        "COCKPIT_ADMIN_TOKEN": secrets.token_hex(32),
++        "RECEIPT_KEY": secrets.token_hex(32),
++        "ROUTING_SEED": secrets.token_hex(32),
++    }
++    atomic(root / ".env", "".join(f"{key}={value}\n" for key, value in values.items()).encode())
++    data: Final = root / "cockpit-data"
++    data.mkdir(mode=0o700)
++    (data / "auth").mkdir(mode=0o700)
++    atomic(data / "config.yaml", b"host: 0.0.0.0\nport: 8317\nauth-dir: /data/auth\nusage-statistics-enabled: true\n")
++    save(data / "manifest.json", {"locale": "en", "apiKeys": [], "accounts": [], "modelIds": []})
++    own_data(data)
++
++
++def run(command: tuple[str, ...], *, stdin: Path | None = None, stdout: Path | None = None) -> str:
++    from contextlib import ExitStack
++
++    with ExitStack() as stack:
++        source: Final = stack.enter_context(stdin.open("rb")) if stdin else None
++        destination: Final = stack.enter_context(stdout.open("wb")) if stdout else subprocess.PIPE
++        result: Final = subprocess.run(
++            command, stdin=source, stdout=destination, stderr=subprocess.PIPE, timeout=900, check=False
++        )
++        if result.returncode:
++            raise RuntimeError(
++                f"command exited {result.returncode}: {' '.join(command)}\n"
++                + result.stderr.decode("utf-8", errors="replace")
++            )
++        return result.stdout.decode("utf-8") if result.stdout else ""
++
++
++def compose(root: Path, *args: str) -> tuple[str, ...]:
++    return (
++        "docker",
++        "compose",
++        "--project-name",
++        PROJECT,
++        "--project-directory",
++        str(root),
++        "--env-file",
++        str(root / ".env"),
++        "--env-file",
++        str(root / "images.env"),
++        "-f",
++        str(root / "compose.yaml"),
++        *args,
++    )
++
++
++def images(root: Path, release: Release) -> None:
++    atomic(root / "images.env", f"LITELLM_IMAGE={release.litellm}\nCOCKPIT_IMAGE={release.cockpit}\n".encode())
++
++
++def image_labels(release: Release, component: str) -> Mapping[str, str]:
++    return {
++        "org.opencontainers.image.revision": release.litellm_revision
++        if component == "litellm"
++        else release.cockpit_revision,
++        "ai.zlia.channel": "cockpit-test",
++        "ai.zlia.component": component,
++        "ai.zlia.release": release.version,
++        "ai.zlia.compatibility": release.compatibility,
++    }
++
++
++def pull_pair(release: Release, runner: Runner) -> None:
++    for component, reference in (("litellm", release.litellm), ("cockpit", release.cockpit)):
++        pull_image(release, component, reference, runner)
++
++
++def pull_image(release: Release, component: str, reference: str, runner: Runner) -> None:
++    runner(("docker", "pull", reference))
++    labels: Final = json_object(
++        runner(("docker", "image", "inspect", reference, "--format", "{{json .Config.Labels}}")).encode()
++    )
++    if any(labels.get(key) != value for key, value in image_labels(release, component).items()):
++        raise ValueError(f"{component} image labels do not match release")
++
++
++def verify_running(root: Path, release: Release, runner: Runner) -> None:
++    for component, reference in (("litellm", release.litellm), ("cockpit", release.cockpit)):
++        verify_component(root, component, reference, runner)
++
++
++def verify_component(root: Path, component: str, reference: str, runner: Runner) -> None:
++    container: Final = runner(compose(root, "ps", "-q", component)).strip()
++    if not container or "\n" in container:
++        raise ValueError(f"expected one running {component} container")
++    actual: Final = runner(("docker", "inspect", "--format", "{{.Image}}", container)).strip()
++    expected: Final = runner(("docker", "image", "inspect", reference, "--format", "{{.Id}}")).strip()
++    if actual != expected or not actual:
++        raise ValueError(f"{component} running image differs from verified digest")
++
++
++def tree_hashes(root: Path) -> Mapping[str, str]:
++    if any(path.is_symlink() for path in root.rglob("*")):
++        raise ValueError("symlinks are not supported in snapshots")
++    return {
++        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
++        for path in sorted(root.rglob("*"))
++        if path.is_file() and path != root / "checksums.json"
++    }
++
++
++def complete(root: Path, release: Release) -> None:
++    save(root / "current.json", asdict(release))
++    os.replace(root / "pending.json", root / "last-operation.json")
++
++
++def deploy(root: Path, release: Release, runner: Runner, probe: Callable[[], None]) -> None:
++    if not (root / ".env").is_file() or not (root / "cockpit-data/manifest.json").is_file():
++        raise ValueError("initialize the isolated runtime with init before deploying")
++    if (root / "pending.json").exists():
++        raise ValueError("unfinished operation; run recover first")
++    previous: Final = read_release(root / "current.json") if (root / "current.json").exists() else None
++    if previous and previous.compatibility != release.compatibility:
++        raise ValueError("compatibility changed; a separately reviewed data migration is required")
++    pull_pair(release, runner)
++    operation: Final = secrets.token_hex(12)
++    snapshot: Final = root / "backups" / operation
++    snapshot.mkdir(parents=True, mode=0o700)
++    save(snapshot / "candidate.json", asdict(release))
++    if previous:
++        save(snapshot / "previous.json", asdict(previous))
++    save(root / "pending.json", {"operation": operation, "stage": "prepared"})
++    try:
++        if previous:
++            images(root, previous)
++            runner(compose(root, "stop", "litellm", "cockpit"))
++            runner(
++                compose(root, "exec", "-T", "db", "pg_dump", "-U", "llmproxy", "--no-owner", "litellm"),
++                stdout=snapshot / "database.sql",
++            )
++        shutil.copytree(root / "cockpit-data", snapshot / "cockpit-data")
++        shutil.copy2(root / ".env", snapshot / ".env")
++        save(snapshot / "checksums.json", tree_hashes(snapshot))
++        save(root / "pending.json", {"operation": operation, "stage": "switching"})
++        images(root, release)
++        runner(compose(root, "up", "-d", "--wait", "--wait-timeout", "300"))
++        verify_running(root, release, runner)
++        probe()
++        complete(root, release)
++    except BaseException:
++        if (root / "images.env").exists():
++            try:
++                runner(compose(root, "stop", "litellm", "cockpit"))
++            except (OSError, RuntimeError, subprocess.TimeoutExpired) as stop_error:
++                sys.stderr.write(f"STOP FAILED: {stop_error}; isolate test ingress and run recover\n")
++        raise
++
++
++def recover(root: Path, runner: Runner, probe: Callable[[], None]) -> None:
++    pending: Final = json_object((root / "pending.json").read_bytes())
++    operation: Final = matched(pending.get("operation"), "[0-9a-f]{24}")
++    snapshot: Final = root / "backups" / operation
++    candidate: Final = read_release(snapshot / "candidate.json")
++    previous: Final = read_release(snapshot / "previous.json") if (snapshot / "previous.json").exists() else None
++    target: Final = previous or candidate
++    pull_pair(target, runner)
++    if pending.get("stage") not in ("prepared", "switching"):
++        raise ValueError("unknown recovery stage")
++    if pending.get("stage") == "switching" and previous:
++        if tree_hashes(snapshot) != json_object((snapshot / "checksums.json").read_bytes()):
++            raise ValueError("snapshot checksum mismatch; refusing data restore")
++        images(root, candidate)
++        runner(compose(root, "stop", "litellm", "cockpit"))
++        runner(compose(root, "rm", "-f", "litellm", "cockpit"))
++        runner(compose(root, "up", "-d", "--wait", "db"))
++        runner(compose(root, "exec", "-T", "db", "dropdb", "-U", "llmproxy", "--if-exists", "--force", "litellm"))
++        runner(compose(root, "exec", "-T", "db", "createdb", "-U", "llmproxy", "litellm"))
++        runner(
++            compose(root, "exec", "-T", "db", "psql", "-U", "llmproxy", "-d", "litellm", "-v", "ON_ERROR_STOP=1"),
++            stdin=snapshot / "database.sql",
++        )
++        if (root / "cockpit-data").exists():
++            os.replace(root / "cockpit-data", root / ("failed-data-" + secrets.token_hex(12)))
++        shutil.copytree(snapshot / "cockpit-data", root / "cockpit-data")
++        own_data(root / "cockpit-data")
++        atomic(root / ".env", (snapshot / ".env").read_bytes())
++    images(root, target)
++    try:
++        runner(compose(root, "up", "-d", "--wait", "--wait-timeout", "300"))
++        verify_running(root, target, runner)
++        probe()
++        complete(root, target)
++    except BaseException:
++        runner(compose(root, "stop", "litellm", "cockpit"))
++        raise
++
++
++def probe_http() -> None:
++    for path in ("/health/readiness", "/ui/"):
++        with cast(HTTPResponse, urllib.request.urlopen("http://127.0.0.1:18400" + path, timeout=20)) as response:
++            if response.status != 200:
++                raise ValueError(f"HTTP probe failed: {path}")
++
++
++def fetch_release(version: str) -> Release:
++    matched(version, "[0-9a-f]{10}")
++    url: Final = f"https://github.com/VVV-345/litellm/releases/download/cockpit-test-{version}/release.json"
++    with cast(HTTPResponse, urllib.request.urlopen(url, timeout=30)) as response:
++        return parse_release(response.read(65537), version)
++
++
++def main() -> int:
++    parser: Final = argparse.ArgumentParser(
++        description="Isolated LiteLLM + Cockpit deployer; never calls production 8092"
++    )
++    parser.add_argument("action", choices=("init", "status", "deploy", "recover"))
++    parser.add_argument("version", nargs="?", help="deploy: LiteLLM commit first 10 lowercase hex characters")
++    args: Final = cast(Mapping[str, object], vars(parser.parse_args()))
++    action: Final = matched(args.get("action"), "init|status|deploy|recover")
++    root: Final = Path(__file__).resolve().parent
++    try:
++        check_root(root)
++        import fcntl
++
++        with (root / ".release.lock").open("a") as lock:
++            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
++            if action == "init":
++                initialize(root)
++                sys.stdout.write("Initialized isolated secrets in .env (0600); UI username: admin\n")
++            elif action == "status":
++                for name in ("current.json", "pending.json"):
++                    sys.stdout.write(f"{name}: " + ((root / name).read_text() if (root / name).exists() else "none\n"))
++            elif action == "deploy":
++                release: Final = fetch_release(matched(args.get("version"), "[0-9a-f]{10}"))
++                if runtime_hash(root) != release.runtime:
++                    raise ValueError("runtime bundle checksum mismatch; install reviewed matching runtime.tar.gz")
++                sys.stdout.write(f"Target: {RUNTIME} / {PROJECT} / {release.version}; production unchanged\n")
++                if input("Type CONFIRM to stop test writes, snapshot and deploy: ") != "CONFIRM":
++                    raise ValueError("cancelled")
++                deploy(root, release, run, probe_http)
++                sys.stdout.write(
++                    f"DEPLOYED {release.version}; http://127.0.0.1:18400/ui/; provider acceptance still required\n"
++                )
++            else:
++                if (
++                    input("Type CONFIRM to restore the interrupted test deployment (test data may be rewound): ")
++                    != "CONFIRM"
++                ):
++                    raise ValueError("cancelled")
++                recover(root, run, probe_http)
++                sys.stdout.write("RECOVERED; inspect status and recheck test accounts\n")
++    except (OSError, ValueError, TypeError, RuntimeError, EOFError, subprocess.TimeoutExpired) as error:
++        sys.stderr.write(f"ERROR: {error}\n")
++        return 1
++    else:
++        return 0
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff --git a/deploy/cockpit/test_releasectl.py b/deploy/cockpit/test_releasectl.py
+new file mode 100644
+index 0000000000..4e3cd10a6b
+--- /dev/null
++++ b/deploy/cockpit/test_releasectl.py
+@@ -0,0 +1,303 @@
++import importlib.util
++import json
++import shutil
++import sys
++from pathlib import Path
++
++import pytest
++
++HERE = Path(__file__).parent
++
++
++@pytest.fixture
++def ctl():
++    path = HERE / "releasectl.py"
++    assert path.exists(), "isolated release controller has not been implemented"
++    spec = importlib.util.spec_from_file_location("cockpit_releasectl", path)
++    module = importlib.util.module_from_spec(spec)
++    sys.modules[spec.name] = module
++    spec.loader.exec_module(module)
++    return module
++
++
++def manifest(version="a" * 10):
++    return {
++        "format": 1,
++        "channel": "cockpit-test",
++        "version": version,
++        "litellm_revision": version + "0" * 30,
++        "cockpit_revision": "e" * 40,
++        "compatibility": "c" * 64,
++        "runtime": "d" * 64,
++        "litellm": "ghcr.io/vvv-345/litellm-cockpit@sha256:" + "1" * 64,
++        "cockpit": "ghcr.io/vvv-345/litellm-cockpit@sha256:" + "2" * 64,
++    }
++
++
++class Docker:
++    def __init__(self, ctl, release, fail=""):
++        self.ctl = ctl
++        self.release = release
++        self.fail = fail
++        self.commands = []
++
++    def __call__(self, command, *, stdin=None, stdout=None):
++        self.commands.append(command)
++        if self.fail and self.fail in " ".join(command):
++            raise RuntimeError("injected Docker failure")
++        if stdout:
++            stdout.write_bytes(b"-- private test snapshot\n")
++        if command[:3] == ("docker", "image", "inspect"):
++            if command[-1] == "{{.Id}}":
++                return "sha256:fixture-image"
++            component = "litellm" if command[3] == self.release.litellm else "cockpit"
++            return json.dumps(self.ctl.image_labels(self.release, component))
++        if command[:3] == ("docker", "inspect", "--format"):
++            return "sha256:fixture-image"
++        if "ps" in command:
++            return "fixture-container"
++        return ""
++
++
++def prepare(tmp_path, ctl):
++    ctl.initialize(tmp_path)
++    shutil.copyfile(HERE / "compose.yaml", tmp_path / "compose.yaml")
++    return tmp_path
++
++
++def test_manifest_is_a_pair_of_digests_not_mutable_tags(ctl):
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    assert release.version == "a" * 10
++    assert release.litellm != release.cockpit
++
++
++@pytest.mark.parametrize(
++    "field,value",
++    [
++        ("format", 2),
++        ("channel", "production"),
++        ("version", "../bad"),
++        ("litellm", "ghcr.io/vvv-345/litellm:latest"),
++        ("cockpit", "ghcr.io/vvv-345/litellm-cockpit:cockpit-aaaaaaaaaa"),
++        ("cockpit_revision", "main"),
++        ("compatibility", ""),
++        ("runtime", ""),
++        ("litellm_revision", "b" * 40),
++    ],
++)
++def test_reject_wrong_package_channel_identity_and_mutable_refs(ctl, field, value):
++    with pytest.raises(ValueError):
++        ctl.parse_release(json.dumps({**manifest(), field: value}).encode(), "a" * 10)
++
++
++def test_initialization_creates_persistent_independent_secrets_and_empty_manifest(ctl, tmp_path):
++    ctl.initialize(tmp_path)
++    before = (tmp_path / ".env").read_bytes()
++    secrets = [line.split("=", 1)[1] for line in before.decode().splitlines() if "=" in line]
++    assert len(secrets) == len(set(secrets))
++    assert len(secrets) == 6
++    assert json.loads((tmp_path / "cockpit-data/manifest.json").read_text())["apiKeys"] == []
++    with pytest.raises(ValueError):
++        ctl.initialize(tmp_path)
++    assert (tmp_path / ".env").read_bytes() == before
++
++
++def test_cli_refuses_original_production_directory(ctl):
++    with pytest.raises(ValueError, match="isolated runtime"):
++        ctl.check_root(Path("/opt/zlia-pool/litellm-migration/runtime"))
++
++
++def test_deploy_requires_init_before_pulling_or_creating_journal(ctl, tmp_path):
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    docker = Docker(ctl, release)
++    with pytest.raises(ValueError, match="initialize"):
++        ctl.deploy(tmp_path, release, docker, lambda: None)
++    assert docker.commands == []
++    assert not (tmp_path / "pending.json").exists()
++
++
++def test_first_deploy_records_success_only_after_health_probe(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    docker = Docker(ctl, release)
++    probes = []
++    ctl.deploy(root, release, docker, lambda: probes.append("healthy"))
++    assert probes == ["healthy"]
++    assert json.loads((root / "current.json").read_text())["version"] == release.version
++    assert not (root / "pending.json").exists()
++    assert not any("8092" in part for cmd in docker.commands for part in cmd)
++    assert any("--wait" in cmd for cmd in docker.commands)
++    assert all("litellm-migration" not in " ".join(cmd) for cmd in docker.commands)
++
++
++def test_different_compatibility_stops_before_any_docker_action(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    (root / "current.json").write_text(json.dumps(manifest()))
++    release = ctl.parse_release(json.dumps({**manifest("b" * 10), "compatibility": "f" * 64}).encode(), "b" * 10)
++    docker = Docker(ctl, release)
++    with pytest.raises(ValueError, match="compatibility"):
++        ctl.deploy(root, release, docker, lambda: None)
++    assert docker.commands == []
++
++
++def test_reviewed_runtime_update_does_not_change_data_compatibility(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    old = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    ctl.deploy(root, old, Docker(ctl, old), lambda: None)
++    new = ctl.parse_release(json.dumps({**manifest("b" * 10), "runtime": "f" * 64}).encode(), "b" * 10)
++    ctl.deploy(root, new, Docker(ctl, new), lambda: None)
++    assert json.loads((root / "current.json").read_text())["version"] == new.version
++
++
++def test_wrong_image_identity_stops_before_mutating_runtime(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    commands = []
++
++    def wrong_image(command, **kwargs):
++        commands.append(command)
++        return "{}"
++
++    with pytest.raises(ValueError, match="image labels"):
++        ctl.deploy(root, release, wrong_image, lambda: None)
++    assert not (root / "pending.json").exists()
++    assert not any("stop" in cmd for cmd in commands)
++
++
++def test_failed_update_retains_snapshot_and_recover_restores_data_and_pair(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    old = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    ctl.deploy(root, old, Docker(ctl, old), lambda: None)
++    old_manifest = (root / "cockpit-data/manifest.json").read_bytes()
++    new = ctl.parse_release(json.dumps(manifest("b" * 10)).encode(), "b" * 10)
++    docker = Docker(ctl, new)
++
++    def unhealthy():
++        (root / "cockpit-data/manifest.json").write_text('{"changed":true}')
++        raise RuntimeError("injected health failure")
++
++    with pytest.raises(RuntimeError, match="injected health"):
++        ctl.deploy(root, new, docker, unhealthy)
++    assert (root / "pending.json").exists()
++    assert json.loads((root / "current.json").read_text())["version"] == old.version
++    assert any("pg_dump" in cmd for cmd in docker.commands)
++    assert docker.commands[-1][-3:] == ("stop", "litellm", "cockpit")
++    recovery = Docker(ctl, old)
++    ctl.recover(root, recovery, lambda: None)
++    assert not (root / "pending.json").exists()
++    assert (root / "cockpit-data/manifest.json").read_bytes() == old_manifest
++    assert old.litellm in (root / "images.env").read_text()
++    assert any("psql" in cmd for cmd in recovery.commands)
++    assert any("dropdb" in cmd for cmd in recovery.commands)
++
++
++def test_first_deploy_failure_is_recoverable_without_deleting_volume(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    with pytest.raises(RuntimeError):
++        ctl.deploy(root, release, Docker(ctl, release, "--wait"), lambda: None)
++    docker = Docker(ctl, release)
++    ctl.recover(root, docker, lambda: None)
++    assert not (root / "pending.json").exists()
++    assert json.loads((root / "current.json").read_text())["version"] == release.version
++    assert not any("--volumes" in cmd or "-v" in cmd for cmd in docker.commands)
++
++
++def test_pending_operation_prevents_new_deploy(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    (root / "pending.json").write_text("{}")
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    docker = Docker(ctl, release)
++    with pytest.raises(ValueError, match="recover"):
++        ctl.deploy(root, release, docker, lambda: None)
++    assert docker.commands == []
++
++
++def test_recovery_rejects_corrupt_backup_before_stopping_services(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    old = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    ctl.deploy(root, old, Docker(ctl, old), lambda: None)
++    new = ctl.parse_release(json.dumps(manifest("b" * 10)).encode(), "b" * 10)
++    with pytest.raises(RuntimeError):
++        ctl.deploy(root, new, Docker(ctl, new, "--wait"), lambda: None)
++    backup = next((root / "backups").glob("*/database.sql"))
++    backup.write_bytes(b"corrupt")
++    docker = Docker(ctl, old)
++    with pytest.raises(ValueError, match="checksum"):
++        ctl.recover(root, docker, lambda: None)
++    assert not any("stop" in cmd or "dropdb" in cmd for cmd in docker.commands)
++    assert (root / "pending.json").exists()
++
++
++def test_partial_backup_recovery_does_not_restore_incomplete_sql(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    old = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    ctl.deploy(root, old, Docker(ctl, old), lambda: None)
++    new = ctl.parse_release(json.dumps(manifest("b" * 10)).encode(), "b" * 10)
++    with pytest.raises(RuntimeError):
++        ctl.deploy(root, new, Docker(ctl, new, "pg_dump"), lambda: None)
++    assert json.loads((root / "pending.json").read_text())["stage"] == "prepared"
++    docker = Docker(ctl, old)
++    ctl.recover(root, docker, lambda: None)
++    assert not any("dropdb" in cmd for cmd in docker.commands)
++    assert not (root / "pending.json").exists()
++
++
++def test_running_wrong_image_never_records_success(ctl, tmp_path):
++    root = prepare(tmp_path, ctl)
++    release = ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10)
++    docker = Docker(ctl, release)
++
++    def wrong_running_image(command, **kwargs):
++        if command[:3] == ("docker", "inspect", "--format"):
++            return "sha256:wrong-image"
++        return docker(command, **kwargs)
++
++    with pytest.raises(ValueError, match="running image"):
++        ctl.deploy(root, release, wrong_running_image, lambda: None)
++    assert not (root / "current.json").exists()
++    assert (root / "pending.json").exists()
++
++
++def test_compatibility_hash_covers_actual_migration_directory(ctl, tmp_path):
++    sys.modules["releasectl"] = ctl
++    spec = importlib.util.spec_from_file_location("release_bundle", HERE / "release_bundle.py")
++    module = importlib.util.module_from_spec(spec)
++    spec.loader.exec_module(module)
++    migration = tmp_path / "litellm-proxy-extras/litellm_proxy_extras/migrations/test/migration.sql"
++    migration.parent.mkdir(parents=True)
++    migration.write_text("CREATE TABLE one (id integer);")
++    before = module.compatibility_hash(tmp_path, "e" * 40)
++    migration.write_text("CREATE TABLE two (id integer);")
++    assert module.compatibility_hash(tmp_path, "e" * 40) != before
++
++
++def test_compose_has_only_isolated_services():
++    path = HERE / "compose.yaml"
++    assert path.exists(), "isolated Compose has not been implemented"
++    import yaml
++
++    doc = yaml.safe_load(path.read_text())
++    assert set(doc["services"]) == {"db", "litellm", "cockpit"}
++    assert doc["name"] == "litellm-cockpit-test"
++    assert doc["services"]["litellm"]["ports"] == ["127.0.0.1:18400:4000"]
++    assert doc["services"]["litellm"]["environment"]["ACCOUNT_POOL_BACKEND"] == "cockpit"
++    assert not doc["services"]["db"].get("ports")
++    assert not doc["services"]["cockpit"].get("ports")
++    assert "container_name" not in path.read_text()
++    assert "docker.sock" not in path.read_text()
++    assert "external:" not in path.read_text()
++
++
++def test_workflow_separates_publication_and_uses_native_architecture_gates():
++    path = HERE.parents[1] / ".github/workflows/publish-cockpit-images.yml"
++    assert path.exists(), "isolated publishing workflow has not been implemented"
++    import yaml
++
++    doc = yaml.safe_load(path.read_text())
++    assert doc["jobs"]["publish"]["needs"] == ["prepare", "build", "smoke"]
++    assert "ubuntu-24.04-arm" in path.read_text()
++    assert "ghcr.io/vvv-345/litellm-cockpit" in path.read_text()
++    assert "codex/cockpit-reuse-plan" in path.read_text()
++    assert "delete-package" not in path.read_text()
++    assert ":latest" not in path.read_text()
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281..9fcc96e90c 100644
+index 58d8051281..380488dd24 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 @@ -1,5 +1,116 @@
@@ -2253,12 +3439,42 @@ index 58d8051281..9fcc96e90c 100644
  ### 替换阶段 E：行为兼容与差异验收
  
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
+@@ -439,3 +666,29 @@ $gatewayTests = @(
+ - `../cliproxy-adapter/providers.md`：9 类供应商专属策略的默认值、保存与执行 owner、unsupported 状态及未实测边界
+ 
+ 审计依据是源码和列明的测试，不是生产服务实测。发现固定快照之外的上游新版本时，先重新取证和对照，再决定是否更新结论
++
++
++## 2026-10-26 隔离镜像发布与部署器续作（本节覆盖历史派工安排）
++
++用户确认新分支单独使用 ghcr.io/vvv-345/litellm-cockpit 包，两组件标签 litellm-VERSION / cockpit-VERSION，保留旧生产 Packages。主代理自己编写，不调用 DS 或派子代理；沿用 codex/cockpit-reuse-plan，本地提交，不自动推送或部署
++
++固定原件：旧 deploy/releasectl.py、deploy/docker-compose.yml、publish-deployment-images.yml 完全不改。新增 deploy/cockpit/releasectl.py、compose.yaml、release_bundle.py、README.md、test_releasectl.py 和 .github/workflows/publish-cockpit-images.yml。新运行目录 /opt/zlia-pool/litellm-cockpit-test/runtime，不复用生产目录与 8092 发布器
++
++本轮计划及验收顺序：
++1. 新部署器及失败测试：错误包名、tag 代替 digest、兼容性变化、错误运行镜像必须拒绝；健康失败保留 pending 和备份，恢复校验数据后才完成
++2. 三服务 Compose：仅 LiteLLM、Cockpit、PostgreSQL；18400 回环访问；独立卷/网络/持久密钥；docker compose config 检查无 Manager、Docker socket、生产 external 资源
++3. 新分支 push/手动构建，两组件在 AMD64/ARM64 原生 runner 构建并启动隔离栈验收，然后发布配对 digest 清单和初装包；不覆盖旧标签，不改旧 Packages
++4. 定向回归、源码检查、三态回滚及 patch 重建后本地提交；真实 GH 构建和服务器验收另记，不以离线 runner 测试冒充 Docker 实测
++
++当前外部阻碍：GH Packages inventory 实测 403（缺 read:packages），Docker Linux daemon 未运行，Cockpit 固定 commit ec9989c009042a3f8770781926f6087000825ee9 在 GitHub 查询实测 422（未推送）。尚未线上整理 Packages、发布镜像或部署服务器。后续先明确授权推送两份源码及新分支测试镜像构建，再处理只读 GHCR 拉取权限，确认目标主机和资源后安装新隔离目录
++
++操作说明与页面访问、创建 Key、Responses 测试和恢复边界统一见 deploy/cockpit/README.md。DEPLOYED 只代表隔离栈及页面健康，不代表真实账号/计费/协议/恢复验收完成，也不能据此替代生产
++
++
++本轮本地验收结果：26 项部署器测试通过；原生配置/管理相关回归 21 passed、1 条依赖 warning；Actionlint、7 段 Bash 语法、Compose JSON 解析及隔离断言、初装 tar 包重开逐字节比对和 checksum、源码普通/strict Ruff、格式、basedpyright 均通过。严格检查仅对标准库主机 CLI 的 typing.cast 使用带原因的精确 TID251 例外，不添加运行时依赖；JSON 发布字段逐项验证
++
++BASELINE：原 CLI --help 显示固定 8092 和旧动作；MODIFIED：独立 CLI --help 显示 init/status/deploy/recover；ROLLBACK：独立副本经既有 ROLLBACK.sh 恢复，--help stdout/stderr 与 BASELINE 完全相同，均 exit 0，恢复 SHA-256 等于原件。原生产 CLI、Compose、发布 workflow 与 Manager 未改动。此三态只证明本地文件恢复，不证明服务器数据库回滚
++
++补充失败记录：Actionlint 初次错误下载后按官方 checksum 清单改为 Windows zip；Git Bash 恢复脚本首次缺 PATH 中 dirname/cp（exit127），补 Git usr/bin 后通过；初次 pytest 默认临时清理 WinError5，改为独立 basetemp 后无该错误；Docker Hub digest 查询连接超时（exit1），Docker info 证实 Linux daemon 管道不存在（exit1）。真实镜像构建、两架构容器 smoke、服务器 deploy/recover、线上 Packages 整理均未执行
++
++下一步只需明确授权推送两份源码并构建测试镜像，随后核对工作流输出的真实版本/digest；不能将本地 bundle 测试中的 fixture digest 当发布版本。获得目标服务器和隔离部署授权后，按 deploy/cockpit/README.md 安装，先保留旧生产，后做真实账号、计费及恢复验收
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000..78436bc63c
+index 0000000000..c2af1df635
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,285 @@
+@@ -0,0 +1,311 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
 +
 +## 2026-10-26 当前检查点：完成 1 / 2 / 3 的本地代码与离线闭环
@@ -2544,6 +3760,32 @@ index 0000000000..78436bc63c
 +本单元未注册 HTTP 路由，未修改 `_default_lookup`、默认值、镜像或旧 Manager。阶段 1 整体尚未完成。下一步先拆清 trusted subject / receipt / scope 的值契约和进程内原生权限读取边界，再让 DS 写对应失败测试与最小实现；不要把旧 preflight 的 Manager repository/domain 依赖照搬为新运行态依赖。之后仍须接线、证明 Manager 零调用、验证真实计费/换卡/续聊与 UI，并通过 Linux ARM64 镜像和服务器隔离测试。历史离线 wheel 缺 maturin 的失败仍保留，本轮未重复构建或声称打包通过
 +
 +完整命令、stdout/stderr、退出码、hash 与审查记录：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-services-verification.json`
++
++
++## 2026-10-26 隔离镜像发布与部署器续作（本节覆盖历史派工安排）
++
++用户确认新分支单独使用 ghcr.io/vvv-345/litellm-cockpit 包，两组件标签 litellm-VERSION / cockpit-VERSION，保留旧生产 Packages。主代理自己编写，不调用 DS 或派子代理；沿用 codex/cockpit-reuse-plan，本地提交，不自动推送或部署
++
++固定原件：旧 deploy/releasectl.py、deploy/docker-compose.yml、publish-deployment-images.yml 完全不改。新增 deploy/cockpit/releasectl.py、compose.yaml、release_bundle.py、README.md、test_releasectl.py 和 .github/workflows/publish-cockpit-images.yml。新运行目录 /opt/zlia-pool/litellm-cockpit-test/runtime，不复用生产目录与 8092 发布器
++
++本轮计划及验收顺序：
++1. 新部署器及失败测试：错误包名、tag 代替 digest、兼容性变化、错误运行镜像必须拒绝；健康失败保留 pending 和备份，恢复校验数据后才完成
++2. 三服务 Compose：仅 LiteLLM、Cockpit、PostgreSQL；18400 回环访问；独立卷/网络/持久密钥；docker compose config 检查无 Manager、Docker socket、生产 external 资源
++3. 新分支 push/手动构建，两组件在 AMD64/ARM64 原生 runner 构建并启动隔离栈验收，然后发布配对 digest 清单和初装包；不覆盖旧标签，不改旧 Packages
++4. 定向回归、源码检查、三态回滚及 patch 重建后本地提交；真实 GH 构建和服务器验收另记，不以离线 runner 测试冒充 Docker 实测
++
++当前外部阻碍：GH Packages inventory 实测 403（缺 read:packages），Docker Linux daemon 未运行，Cockpit 固定 commit ec9989c009042a3f8770781926f6087000825ee9 在 GitHub 查询实测 422（未推送）。尚未线上整理 Packages、发布镜像或部署服务器。后续先明确授权推送两份源码及新分支测试镜像构建，再处理只读 GHCR 拉取权限，确认目标主机和资源后安装新隔离目录
++
++操作说明与页面访问、创建 Key、Responses 测试和恢复边界统一见 deploy/cockpit/README.md。DEPLOYED 只代表隔离栈及页面健康，不代表真实账号/计费/协议/恢复验收完成，也不能据此替代生产
++
++
++本轮本地验收结果：26 项部署器测试通过；原生配置/管理相关回归 21 passed、1 条依赖 warning；Actionlint、7 段 Bash 语法、Compose JSON 解析及隔离断言、初装 tar 包重开逐字节比对和 checksum、源码普通/strict Ruff、格式、basedpyright 均通过。严格检查仅对标准库主机 CLI 的 typing.cast 使用带原因的精确 TID251 例外，不添加运行时依赖；JSON 发布字段逐项验证
++
++BASELINE：原 CLI --help 显示固定 8092 和旧动作；MODIFIED：独立 CLI --help 显示 init/status/deploy/recover；ROLLBACK：独立副本经既有 ROLLBACK.sh 恢复，--help stdout/stderr 与 BASELINE 完全相同，均 exit 0，恢复 SHA-256 等于原件。原生产 CLI、Compose、发布 workflow 与 Manager 未改动。此三态只证明本地文件恢复，不证明服务器数据库回滚
++
++补充失败记录：Actionlint 初次错误下载后按官方 checksum 清单改为 Windows zip；Git Bash 恢复脚本首次缺 PATH 中 dirname/cp（exit127），补 Git usr/bin 后通过；初次 pytest 默认临时清理 WinError5，改为独立 basetemp 后无该错误；Docker Hub digest 查询连接超时（exit1），Docker info 证实 Linux daemon 管道不存在（exit1）。真实镜像构建、两架构容器 smoke、服务器 deploy/recover、线上 Packages 整理均未执行
++
++下一步只需明确授权推送两份源码并构建测试镜像，随后核对工作流输出的真实版本/digest；不能将本地 bundle 测试中的 fixture digest 当发布版本。获得目标服务器和隔离部署授权后，按 deploy/cockpit/README.md 安装，先保留旧生产，后做真实账号、计费及恢复验收
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py b/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py
 new file mode 100644
 index 0000000000..2022450b2f
