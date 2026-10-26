@@ -32,7 +32,7 @@ jobs:
       - name: Controller tests
         run: |
           python3 -m pip install pytest==8.4.2 PyYAML==6.0.3
-          python3 -m pytest --confcutdir=deploy/cockpit -o addopts='' deploy/cockpit/test_releasectl.py deploy/cockpit/test_release_version.py -q
+          python3 -m pytest --confcutdir=deploy/cockpit -o addopts='' deploy/cockpit/test_releasectl.py deploy/cockpit/test_release_version.py deploy/cockpit/test_image_tags.py -q
       - id: release
         name: Resolve the next cockpit release version
         shell: bash
@@ -255,6 +255,10 @@ jobs:
             --target "$REVISION" --prerelease --latest=false \
             --title "Cockpit isolated test $VERSION ($RELEASE_VERSION)" \
             --notes "Release $RELEASE_VERSION. Isolated LiteLLM + Cockpit pair. Production packages unchanged. Real account, billing and recovery acceptance still required."
+      - name: Publish immutable semantic image aliases
+        env:
+          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+        run: python3 deploy/cockpit/image_tags.py
 
   tag-version:
     name: Record the successful cockpit release version

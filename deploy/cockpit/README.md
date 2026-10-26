@@ -10,9 +10,17 @@
 
 发布版本是一条独立记录，从 `deploy/cockpit/VERSION` 开始：首个成功构建是 `v1.0`，之后每次成功构建默认递增补丁位（`v1.0.1`、`v1.0.2`），由工作流在发布成功后创建不可变版本标签。版本标签统一使用 `cockpit-v` 前缀（`cockpit-v1.0.1`），只统计这类标签，仓库里旧产品线的 `v1.x` 标签不参与计算。构建失败不创建标签，重跑同一提交沿用已分配版本。要在下一次发布显式换系列（如 `v1.1`、`v2.0`），只修改 `deploy/cockpit/VERSION`，不改代码。版本标签只用于发布记录，部署仍使用 10 位提交号
 
+GHCR 页面上的版本标签在同一个新包中分别显示为 `litellm-v1.0`、`cockpit-v1.0`，下一次成功发布显示 `litellm-v1.0.1`、`cockpit-v1.0.1`。标签指向已经通过双架构构建和 smoke 检查的同一对 digest，不重新构建镜像。工作流先发布固定提交号镜像和 Release，再发布并回读两个语义版本标签，最后创建 `cockpit-v...` Git 成功记录。任一步失败都不会记录新的成功版本
+
+默认递增的是补丁位，不是把字符串末尾数字直接加一：`v1.1` 的下一次默认发布为 `v1.1.1`，`v2.0` 后为 `v2.0.1`。用户指定 `1.2` 或 `1.3` 时，将 VERSION 文件分别写为 `v1.2` 或 `v1.3`，随后恢复默认补丁递增。指定的新系列必须高于已成功版本；低于或等于历史版本不会覆盖历史标签，VERSION 文件不应每次自动改写
+
+版本分为四层：用户版本 `v1.0.1`，Git 成功标签 `cockpit-v1.0.1`，GHCR 组件标签 `litellm-v1.0.1` / `cockpit-v1.0.1`，部署 Release `cockpit-test-提交前10位`。不要创建裸 Git 标签 `v1.0.1`，它会与旧产品线混在一起。新包地址为 <https://github.com/users/VVV-345/packages/container/package/litellm-cockpit>，仓库的 Releases 页面并不等于 GHCR Packages 页面。交给其他 AI 时使用 [AI_HANDOFF.md](AI_HANDOFF.md)
+
 `release_bundle.py` 固定 Cockpit commit 为 `ec9989c009042a3f8770781926f6087000825ee9`。该 commit 必须先存在于 GitHub，禁止因找不到而换成 main。源代码推送、工作流触发均需用户明确授权。新 workflow 首次发布走分支 push 触发，不依赖手动运行按钮；GitHub 只有在默认分支存在 workflow_dispatch 定义时才显示该按钮，不能为此擅自改默认分支或触发旧生产工作流
 
 只有包含 `release.json`、`runtime.tar.gz`、`SHA256SUMS` 的完整测试 Release 才可部署。组件发布中断可能留下未配对标签，但不会生成可部署清单。禁止覆盖已有组件标签或 Release；这种失败需检查残留记录后使用新的源提交重发，不自动删除镜像强行重跑
+
+如果 Release 已存在而语义标签或最终 Git 记录失败，不要直接用新提交抢占同一版本。先核对原运行的 build、smoke、Release 附件及两个 digest，继续原版本的标签收尾。`image_tags.py` 从当前目录的 `release.json` 读取固定镜像对，使用环境变量 `RELEASE_VERSION`，已存在且 digest 相同的标签可安全重试；不同 digest、权限错误或网络错误会停止。拿到写包授权后，可在核验过的 release.json 所在目录执行 `RELEASE_VERSION=v1.0.1 python3 /绝对源码路径/deploy/cockpit/image_tags.py`，成功回读两份 digest 后才允许补原提交的 Git 成功标签。已经完成的整条工作流不需要重跑，也不允许覆盖 Release。所有发布者必须使用同一串行工作流，不允许另一个 AI 同时写相同版本
 
 线上 Packages 需把新包关联到 `VVV-345/litellm`，授予该仓库 Actions 访问权。两个组件的 OCI source 都指向此仓库，各自 revision 指向对应源码提交。旧包不改名、不删历史版本，以免生产拉取和回滚失效。包默认可能是私有的，服务器需要只读 GHCR 凭据；不要为了访问方便自动改为公开
 
