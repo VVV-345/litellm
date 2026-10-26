@@ -187,6 +187,19 @@ async def validate_key_account_scope(
         scope: Final = CardScope.model_validate(supplied)
     except ValueError:
         raise HTTPException(400, "Invalid account ID") from None
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
+        native_cockpit_enabled,
+        native_cockpit_services,
+    )
+
+    if native_cockpit_enabled():
+        try:
+            accounts: Final = await native_cockpit_services().accounts()
+        except Exception:  # noqa: BLE001  # Do not expose Cockpit credentials from a failed account lookup.
+            raise HTTPException(503, "Account validation is unavailable") from None
+        if not any(account.account_id == scope.card_id and account.credential_present for account in accounts):
+            raise HTTPException(400, "Account credential is not available")
+        return
     try:
         async with http_client() as client:
             response: Final = await client.get(
@@ -400,6 +413,10 @@ def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
 
 
 async def resolve_card_key(key: str, request: Request | None) -> CardScope:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+    if native_cockpit_enabled():
+        raise HTTPException(401, "Create a native virtual key for Cockpit")
     import httpx
 
     from litellm.proxy.management_endpoints.account_pool_gateway import http_client, manager_control
@@ -418,6 +435,10 @@ async def resolve_card_key(key: str, request: Request | None) -> CardScope:
 
 
 async def register_card_key(key: str, request: Request | None = None, status: CardKeyStatus | None = None) -> None:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+    if native_cockpit_enabled():
+        raise HTTPException(401, "Create a native virtual key for Cockpit")
     from litellm.proxy.management_endpoints import key_management_endpoints
     from litellm.proxy.proxy_server import prisma_client
 

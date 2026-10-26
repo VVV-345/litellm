@@ -2263,3 +2263,981 @@ PATCH_RECONSTRUCT:
   ]
 }
 DETAILS: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\docs\superpowers\plans\2026-10-23-cockpit-reuse-audit.evidence\native-scope-verification.json
+
+
+=== 2026-10-26 NATIVE WORKFLOW 1 / 2 / 3 ===
+Start HEAD 5bbe77234d7ee20cf73db436b31318fb118868fd. User approved Cockpit credential custody, LiteLLM native authorization, independent persisted secrets. Primary only, local only.
+
+LABEL: baseline
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\test_native_legacy_contract.py", "account-pool/tests/account_pool/test_cockpit_admin.py", "account-pool/tests/account_pool/test_cockpit_policy.py", "account-pool/tests/account_pool/test_cockpit_runtime.py", "account-pool/tests/account_pool/test_cockpit_preflight.py", "account-pool/tests/account_pool/test_cockpit_credential_receipts.py", "account-pool/tests/account_pool/test_cockpit_scope.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py", "account-pool/tests/account_pool/test_cockpit_receipt_adapter.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_receipts.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\baseline-tmp"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+........................................................................ [ 12%]
+........................................................................ [ 24%]
+........................................................................ [ 36%]
+........................................................................ [ 49%]
+........................................................................ [ 61%]
+........................................................................ [ 73%]
+........................................................................ [ 86%]
+........................................................................ [ 98%]
+..........                                                               [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+586 passed, 1 warning in 197.15s (0:03:17)
+
+STDERR:
+
+
+LABEL: receipt-red
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py", "-q", "-x", "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/native-workflow-20261026-103309/red-tmp"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 1
+STDOUT:
+F
+================================== FAILURES ===================================
+_ test_changed_observation_invalidates_receipt[manifest_revision-"sha256-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"] _
+
+field = 'manifest_revision'
+value = '"sha256-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"'
+
+    @pytest.mark.parametrize("field,value", [("source_version", 2), ("source_content_digest", "f" * 64), ("manifest_revision", '"sha256-' + "f" * 64 + '"')])
+    def test_changed_observation_invalidates_receipt(field, value):
+>       signed = asyncio.run(service(Observations()).issue(SUBJECT))
+                             ^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_credential_service.py:154: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_credential_service.py:56: in service
+    module = importlib.import_module(MODULE)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+..\..\..\..\MiniConda3\Lib\importlib\__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+name = 'litellm.proxy.management_endpoints.account_pool_cockpit_credential_service'
+import_ = <function _gcd_import at 0x000001B689DD80E0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'litellm.proxy.management_endpoints.account_pool_cockpit_credential_service'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+---------------------------- Captured stdout setup ----------------------------
+[conftest] Module setup complete (worker: master)
+-------------------------- Captured stdout teardown ---------------------------
+[conftest] Module teardown complete (worker: master)
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py::test_changed_observation_invalidates_receipt[manifest_revision-"sha256-ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 1 warning in 10.40s
+
+STDERR:
+
+
+LABEL: receipt-green
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py", "-q", "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/native-workflow-20261026-103309/green-tmp"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+........................................................................ [ 90%]
+........                                                                 [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+80 passed, 1 warning in 41.15s
+
+STDERR:
+
+
+LABEL: runtime-view-red
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py", "-q", "-k", "ui_cannot", "--basetemp=.superpowers/sdd/2026-10-23-cockpit-reuse-audit/native-workflow-20261026-103309/runtime-view-red-tmp"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 1
+STDOUT:
+F                                                                        [100%]
+================================== FAILURES ===================================
+___________ test_ui_cannot_claim_active_after_credential_is_removed ___________
+
+    def test_ui_cannot_claim_active_after_credential_is_removed():
+        cockpit, services, http, app = setup()
+        try:
+            with TestClient(app) as client:
+                issued = client.post(PREFIX + "/credential-receipts", json={"key_hash": SUBJECT}).json()
+                client.post(PREFIX + "/scope", json={"subject_hash": SUBJECT, "receipt": issued["receipt"], "revision": cockpit.revision})
+                client.post(PREFIX + "/scope/activate", json={"subject_hash": SUBJECT, "revision": cockpit.revision})
+                cockpit.active = cockpit.revision
+                cockpit.credential_present = False
+                status = client.get(PREFIX + "/scope/" + SUBJECT)
+>               assert status.json()["runtime_state"] != "active"
+E               AssertionError: assert 'active' != 'active'
+
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_native.py:313: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[conftest] Module setup complete (worker: master)
+-------------------------- Captured stdout teardown ---------------------------
+[conftest] Module teardown complete (worker: master)
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py::test_ui_cannot_claim_active_after_credential_is_removed
+1 failed, 9 deselected, 1 warning in 11.50s
+
+STDERR:
+
+
+LABEL: nested-alias-red
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py", "-q", "-k", "nested_case_aliases"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 1
+STDOUT:
+FFF                                                                      [100%]
+================================== FAILURES ===================================
+_ test_native_observation_rejects_nested_case_aliases[accountModelRules-EXCLUDEDMODELS-value0] _
+
+section = 'accountModelRules', alias = 'EXCLUDEDMODELS'
+value = {'accountId': '00000000-0000-0000-0000-000000000001', 'excludedModels': []}
+
+    @pytest.mark.parametrize("section,alias,value", [
+        ("accountModelRules", "EXCLUDEDMODELS", {"accountId": str(UUID(int=1)), "excludedModels": []}),
+        ("modelAliases", "SOURCEMODEL", {"sourceModel": "fixture-model", "alias": "alias"}),
+        ("apiKeys", "ACCOUNTIDS", {"id": "unrelated", "enabled": False}),
+    ])
+    def test_native_observation_rejects_nested_case_aliases(section, alias, value):
+        data = manifest()
+        data[section] = [{**value, alias: ["fixture-model"]}]
+>       assert asyncio.run(issue(data)) == CredentialReceiptRejection("target_auth_unsupported")
+E       assert NativeCredentialReceipt(status='native_scope_verified', ready_to_migrate=False, payload=NativeCredentialReceiptPayload... target_file_size=123, manifest_revision='"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'))) == CredentialReceiptRejection(code='target_auth_unsupported', status='rejected')
+E        +  where NativeCredentialReceipt(status='native_scope_verified', ready_to_migrate=False, payload=NativeCredentialReceiptPayload... target_file_size=123, manifest_revision='"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'))) = <function run at 0x000002A7A5EEDD00>(<coroutine object issue at 0x000002A7D6E55080>)
+E        +    where <function run at 0x000002A7A5EEDD00> = asyncio.run
+E        +    and   <coroutine object issue at 0x000002A7D6E55080> = issue({'accountModelRules': [{'EXCLUDEDMODELS': ['fixture-model'], 'accountId': '00000000-0000-0000-0000-000000000001', 'exc...d': 'fixture.json', 'authKind': 'oauth', 'id': '00000000-0000-0000-0000-000000000001'}], 'modelIds': ['fixture-model']})
+E        +  and   CredentialReceiptRejection(code='target_auth_unsupported', status='rejected') = CredentialReceiptRejection('target_auth_unsupported')
+
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_native_observation.py:121: AssertionError
+---------------------------- Captured stdout setup ----------------------------
+[conftest] Module setup complete (worker: master)
+_ test_native_observation_rejects_nested_case_aliases[apiKeys-ACCOUNTIDS-value2] _
+
+section = 'apiKeys', alias = 'ACCOUNTIDS'
+value = {'enabled': False, 'id': 'unrelated'}
+
+    @pytest.mark.parametrize("section,alias,value", [
+        ("accountModelRules", "EXCLUDEDMODELS", {"accountId": str(UUID(int=1)), "excludedModels": []}),
+        ("modelAliases", "SOURCEMODEL", {"sourceModel": "fixture-model", "alias": "alias"}),
+        ("apiKeys", "ACCOUNTIDS", {"id": "unrelated", "enabled": False}),
+    ])
+    def test_native_observation_rejects_nested_case_aliases(section, alias, value):
+        data = manifest()
+        data[section] = [{**value, alias: ["fixture-model"]}]
+>       assert asyncio.run(issue(data)) == CredentialReceiptRejection("target_auth_unsupported")
+E       assert NativeCredentialReceipt(status='native_scope_verified', ready_to_migrate=False, payload=NativeCredentialReceiptPayload... target_file_size=123, manifest_revision='"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'))) == CredentialReceiptRejection(code='target_auth_unsupported', status='rejected')
+E        +  where NativeCredentialReceipt(status='native_scope_verified', ready_to_migrate=False, payload=NativeCredentialReceiptPayload... target_file_size=123, manifest_revision='"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'))) = <function run at 0x000002A7A5EEDD00>(<coroutine object issue at 0x000002A7D6E56340>)
+E        +    where <function run at 0x000002A7A5EEDD00> = asyncio.run
+E        +    and   <coroutine object issue at 0x000002A7D6E56340> = issue({'accounts': [{'authId': 'fixture.json', 'authKind': 'oauth', 'id': '00000000-0000-0000-0000-000000000001'}], 'apiKeys': [{'ACCOUNTIDS': ['fixture-model'], 'enabled': False, 'id': 'unrelated'}], 'modelIds': ['fixture-model']})
+E        +  and   CredentialReceiptRejection(code='target_auth_unsupported', status='rejected') = CredentialReceiptRejection('target_auth_unsupported')
+
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_native_observation.py:121: AssertionError
+_ test_native_observation_rejects_nested_case_aliases[modelAliases-SOURCEMODEL-value1] _
+
+section = 'modelAliases', alias = 'SOURCEMODEL'
+value = {'alias': 'alias', 'sourceModel': 'fixture-model'}
+
+    @pytest.mark.parametrize("section,alias,value", [
+        ("accountModelRules", "EXCLUDEDMODELS", {"accountId": str(UUID(int=1)), "excludedModels": []}),
+        ("modelAliases", "SOURCEMODEL", {"sourceModel": "fixture-model", "alias": "alias"}),
+        ("apiKeys", "ACCOUNTIDS", {"id": "unrelated", "enabled": False}),
+    ])
+    def test_native_observation_rejects_nested_case_aliases(section, alias, value):
+        data = manifest()
+        data[section] = [{**value, alias: ["fixture-model"]}]
+>       assert asyncio.run(issue(data)) == CredentialReceiptRejection("target_auth_unsupported")
+E       assert NativeCredentialReceipt(status='native_scope_verified', ready_to_migrate=False, payload=NativeCredentialReceiptPayload... target_file_size=123, manifest_revision='"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'))) == CredentialReceiptRejection(code='target_auth_unsupported', status='rejected')
+E        +  where NativeCredentialReceipt(status='native_scope_verified', ready_to_migrate=False, payload=NativeCredentialReceiptPayload... target_file_size=123, manifest_revision='"sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"'))) = <function run at 0x000002A7A5EEDD00>(<coroutine object issue at 0x000002A7D6E56200>)
+E        +    where <function run at 0x000002A7A5EEDD00> = asyncio.run
+E        +    and   <coroutine object issue at 0x000002A7D6E56200> = issue({'accounts': [{'authId': 'fixture.json', 'authKind': 'oauth', 'id': '00000000-0000-0000-0000-000000000001'}], 'modelAl... [{'SOURCEMODEL': ['fixture-model'], 'alias': 'alias', 'sourceModel': 'fixture-model'}], 'modelIds': ['fixture-model']})
+E        +  and   CredentialReceiptRejection(code='target_auth_unsupported', status='rejected') = CredentialReceiptRejection('target_auth_unsupported')
+
+tests\test_litellm\proxy\management_endpoints\test_account_pool_cockpit_native_observation.py:121: AssertionError
+-------------------------- Captured stdout teardown ---------------------------
+[conftest] Module teardown complete (worker: master)
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py::test_native_observation_rejects_nested_case_aliases[accountModelRules-EXCLUDEDMODELS-value0]
+FAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py::test_native_observation_rejects_nested_case_aliases[apiKeys-ACCOUNTIDS-value2]
+FAILED tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py::test_native_observation_rejects_nested_case_aliases[modelAliases-SOURCEMODEL-value1]
+3 failed, 8 deselected, 1 warning in 12.93s
+
+STDERR:
+Exception ignored in atexit callback: <function cleanup_numbered_dir at 0x000002A7A3FC9080>
+Traceback (most recent call last):
+  File "D:\Work2api\litellm\.venv\Lib\site-packages\_pytest\pathlib.py", line 374, in cleanup_numbered_dir
+    cleanup_dead_symlinks(root)
+  File "D:\Work2api\litellm\.venv\Lib\site-packages\_pytest\pathlib.py", line 359, in cleanup_dead_symlinks
+    if not left_dir.resolve().exists():
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\42117\MiniConda3\Lib\pathlib.py", line 860, in exists
+    self.stat(follow_symlinks=follow_symlinks)
+  File "C:\Users\42117\MiniConda3\Lib\pathlib.py", line 840, in stat
+    return os.stat(self, follow_symlinks=follow_symlinks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [WinError 5] �ܾ����ʡ�: 'C:\\Users\\42117\\AppData\\Local\\Temp\\pytest-of-42117\\pytest-current'
+
+
+LABEL: backend-acceptance
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\managerless-20261025\\test_native_legacy_contract.py", "account-pool/tests/account_pool/test_cockpit_admin.py", "account-pool/tests/account_pool/test_cockpit_policy.py", "account-pool/tests/account_pool/test_cockpit_runtime.py", "account-pool/tests/account_pool/test_cockpit_preflight.py", "account-pool/tests/account_pool/test_cockpit_credential_receipts.py", "account-pool/tests/account_pool/test_cockpit_scope.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject.py", "account-pool/tests/account_pool/test_cockpit_receipt_adapter.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_receipts.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py", "-q", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py", "tests/test_litellm/proxy/test_route_llm_request.py", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\acceptance-tmp"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+........................................................................ [ 10%]
+........................................................................ [ 20%]
+........................................................................ [ 30%]
+........................................................................ [ 40%]
+........................................................................ [ 50%]
+........................................................................ [ 60%]
+........................................................................ [ 70%]
+........................................................................ [ 80%]
+........................................................................ [ 91%]
+................................................................         [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+tests/test_litellm/proxy/test_route_llm_request.py::test_route_request_no_model_required_with_router_settings_and_no_router
+  C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\tests\test_litellm\proxy\test_route_llm_request.py:385: RuntimeWarning: coroutine 'AsyncMockMixin._execute_mock_call' was never awaited
+    await route_request(data, None, "gpt-3.5-turbo", "acompletion")
+  Enable tracemalloc to get traceback where the object was allocated.
+  See https://docs.pytest.org/en/stable/how-to/capture-warnings.html#resource-warnings for more info.
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+712 passed, 2 warnings in 487.86s (0:08:07)
+
+STDERR:
+
+
+LABEL: legacy-wiring-regression
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "pytest", "tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_reconciler.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py", "tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py", "-q", "--basetemp=C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\legacy-wiring-tmp"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+........................................................................ [ 15%]
+........................................................................ [ 30%]
+........................................................................ [ 46%]
+........................................................................ [ 61%]
+........................................................................ [ 76%]
+........................................................................ [ 92%]
+.....................................                                    [100%]
+============================== warnings summary ===============================
+D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314
+  D:\Work2api\litellm\.venv\Lib\site-packages\ddtrace\internal\module.py:314: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    self.loader.exec_module(module)
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py::test_explicit_output_cap_is_included_in_token_reservation
+  D:\Work2api\litellm\.venv\Lib\site-packages\pydantic\_internal\_generate_schema.py:1480: UserWarning: Items 'mode', 'ttl' on TypedDict class 'PromptCacheOptions' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_gateway.py::test_explicit_output_cap_is_included_in_token_reservation
+  D:\Work2api\litellm\.venv\Lib\site-packages\pydantic\_internal\_generate_schema.py:1480: UserWarning: Item 'prompt_cache_options' on TypedDict class 'ResponsesAPIOptionalRequestParams' is using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py: 75 warnings
+  D:\Work2api\litellm\.venv\Lib\site-packages\pydantic\_internal\_generate_schema.py:1480: UserWarning: Items 'supports_prompt_cache_breakpoint', 'supports_legacy_thinking', 'thinking_always_on', 'reasoning_effort_levels', 'default_reasoning_effort', 'input_cost_per_token_ultrafast', 'cache_creation_input_token_cost_ultrafast', 'cache_read_input_token_cost_ultrafast', 'output_cost_per_token_ultrafast', 'regional_endpoint_uplift_multiplier', 'output_cost_per_second_480p', 'output_cost_per_second_4k', 'google_maps_grounding_cost_per_query' on TypedDict class 'ModelInfo' are using the `ReadOnly` qualifier. Pydantic will not protect items from any mutation on dictionary instances.
+    warnings.warn(
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+  C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\litellm\litellm_core_utils\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_computed_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.
+    attribute: Final[_AttributeView] = {"value": getattr(source, name)}
+
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-False-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-default]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py::test_real_router_http_request_enters_pool_before_upstream[stream_usage-True-strict]
+  C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\litellm\litellm_core_utils\model_response_utils.py:18: PydanticDeprecatedSince211: Accessing the 'model_fields' attribute on the instance is deprecated. Instead, you should access this attribute from the model class. Deprecated in Pydantic V2.11 to be removed in V3.0.
+    attribute: Final[_AttributeView] = {"value": getattr(source, name)}
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+469 passed, 94 warnings in 359.41s (0:05:59)
+
+STDERR:
+
+
+LABEL: source-lint-acceptance
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py", "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py", "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+All checks passed!
+
+STDERR:
+
+
+LABEL: source-strict-acceptance
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "check", "--config", "ruff-strict.toml", "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py", "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py", "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+All checks passed!
+
+STDERR:
+
+
+LABEL: source-types-acceptance
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "basedpyright", "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py", "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py", "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+0 errors, 0 warnings, 0 notes
+
+STDERR:
+
+
+LABEL: source-format-acceptance
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "-m", "ruff", "format", "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py", "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py", "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py", "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+6 files left unchanged
+
+STDERR:
+
+
+LABEL: ui-tests-final2
+COMMAND: ["node", "ui/litellm-dashboard/node_modules/vitest/vitest.mjs", "run", "--root", "ui/litellm-dashboard", "--project", "integration", "src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx", "src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx", "account-pool/page.integration.test.tsx"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+
+ RUN  v4.1.11 C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/ui/litellm-dashboard
+
+
+ Test Files  3 passed (3)
+      Tests  27 passed (27)
+   Start at  11:23:15
+   Duration  9.00s (transform 10.04s, setup 2.46s, import 6.97s, tests 7.77s, environment 4.25s)
+
+
+STDERR:
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+
+LABEL: ui-eslint-clean
+COMMAND: ["node", "node_modules/eslint/bin/eslint.js", "src\\app\\(dashboard)\\account-pool\\page.integration.test.tsx", "src\\app\\(dashboard)\\account-pool\\page.tsx", "src\\features\\account-pool\\api\\AccountPoolManagementApi.ts", "src\\features\\account-pool\\api\\NativeCockpitApi.ts", "src\\features\\account-pool\\components\\dashboard\\AccountPoolCockpitPolicyPanel.integration.test.tsx", "src\\features\\account-pool\\components\\dashboard\\AccountPoolCockpitPolicyPanel.tsx", "src\\features\\account-pool\\components\\dashboard\\AccountPoolNativeCockpitPanel.integration.test.tsx", "src\\features\\account-pool\\components\\dashboard\\AccountPoolNativeCockpitPanel.tsx", "src\\features\\account-pool\\hooks\\accountPoolQueryKeys.ts"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\ui\litellm-dashboard
+EXIT: 0
+STDOUT:
+
+C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\ui\litellm-dashboard\src\app\(dashboard)\account-pool\page.tsx
+  146:1   warning  Function 'LegacyAccountPoolPage' has a complexity of 53. Maximum allowed is 20                      complexity
+  189:39  warning  Object literal with 5 properties passed inline as an argument; assign it to a named variable first  local/no-large-inline-object-arg
+
+C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\ui\litellm-dashboard\src\features\account-pool\components\dashboard\AccountPoolCockpitPolicyPanel.tsx
+  51:1  warning  Function 'CockpitPolicyEditor' has a complexity of 29. Maximum allowed is 20  complexity
+
+✖ 3 problems (0 errors, 3 warnings)
+
+
+STDERR:
+
+
+LABEL: next-build-final
+COMMAND: ["node", "node_modules/next/dist/bin/next", "build", "--webpack"]
+CWD: D:\Work2api\litellm\.superpowers\sdd\cockpit-native-workflow-20261026-103309\ui\litellm-dashboard
+EXIT: 0
+STDOUT:
+▲ Next.js 16.3.8 (webpack)
+✓ Running next.config.mjs took 43ms
+- Experiments (use with caution):
+  ⨯ useTypeScriptCli
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 114s
+  Running TypeScript ...
+  Finished TypeScript in 47s ...
+  Collecting page data using 15 workers ...
+  Generating static pages using 15 workers (0/54) ...
+  Generating static pages using 15 workers (13/54) 
+  Generating static pages using 15 workers (26/54) 
+  Generating static pages using 15 workers (40/54) 
+✓ Generating static pages using 15 workers (54/54) in 1266ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /access-groups
+├ ○ /account-pool
+├ ○ /admin-panel
+├ ○ /agents
+├ ○ /api-keys
+├ ○ /api-reference
+├ ○ /budgets
+├ ○ /caching
+├ ○ /chat
+├ ○ /chat/api-keys
+├ ○ /chat/credentials
+├ ○ /chat/integrations
+├ ○ /chat/logs
+├ ○ /chat/usage
+├ ○ /connect
+├ ○ /cost-optimization
+├ ○ /cost-tracking
+├ ○ /feedback
+├ ○ /guardrails
+├ ○ /guardrails-monitor
+├ ○ /logging-and-alerts
+├ ○ /login
+├ ○ /logs
+├ ○ /mcp-servers
+├ ○ /mcp/oauth/callback
+├ ○ /memory
+├ ○ /model_hub
+├ ○ /model_hub_table
+├ ○ /model-hub-table
+├ ○ /models-and-endpoints
+├ ○ /old-usage
+├ ○ /onboarding
+├ ○ /organizations
+├ ○ /playground
+├ ○ /policies
+├ ○ /policy-center
+├ ○ /projects
+├ ○ /prompts
+├ ○ /router-settings
+├ ○ /search-tools
+├ ○ /skills
+├ ○ /tag-management
+├ ○ /teams
+├ ○ /tool-policies
+├ ○ /transform-request
+├ ○ /ui-theme
+├ ○ /usage
+├ ○ /users
+├ ○ /vector-stores
+└ ○ /workflows
+
+
+○  (Static)  prerendered as static content
+
+
+STDERR:
+
+
+LABEL: openapi-final
+COMMAND: ["node", "ui/litellm-dashboard/scripts/gen-api-types.mjs"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+✨ openapi-typescript 7.13.0
+🚀 C:\Users\42117\AppData\Local\Temp\litellm-openapi-QW1Hjn\openapi.json → C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm\ui\litellm-dashboard\src\lib\http\schema.d.ts [1.2s]
+
+STDERR:
+
+
+LABEL: isolated-native
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\isolated-native.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+native receipt/publish/runtime/revoke workflow passed; Manager imports=0; MockTransport only
+
+STDERR:
+D:\Work2api\litellm\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+
+
+LABEL: scope-baseline
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\native-scope-contract-smoke.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\baseline\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+{"calls": ["GET", "GET", "PUT", "GET", "GET", "PUT", "GET", "GET", "GET", "PUT", "GET", "PUT", "GET", "GET", "PUT", "GET", "PUT"], "failures": [{"code": "revision_conflict", "put_attempts": 1, "status": 409}, {"code": "write_outcome_unknown", "put_attempts": 1, "status": 503}], "remaining_keys": 1, "runtime_activation": "restart_required_or_unverified", "stale_receipt_writes": 0, "states": ["absent", "staged", "staged", "active", "active", "blocked", "staged", "absent", "absent"], "subject_reads": 3, "unknown_fields_preserved": true}
+
+STDERR:
+
+
+LABEL: scope-modified
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\native-scope-contract-smoke.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+{"calls": ["GET", "GET", "PUT", "GET", "GET", "PUT", "GET", "GET", "GET", "PUT", "GET", "PUT", "GET", "GET", "PUT", "GET", "PUT"], "failures": [{"code": "revision_conflict", "put_attempts": 1, "status": 409}, {"code": "write_outcome_unknown", "put_attempts": 1, "status": 503}], "remaining_keys": 1, "runtime_activation": "restart_required_or_unverified", "stale_receipt_writes": 0, "states": ["absent", "staged", "staged", "active", "active", "blocked", "staged", "absent", "absent"], "subject_reads": 3, "unknown_fields_preserved": true}
+
+STDERR:
+
+
+LABEL: scope-restore
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "--restore-file", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\rollback-scope.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\baseline\\litellm\\proxy\\management_endpoints\\account_pool_cockpit_scope_service.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+
+LABEL: scope-rollback
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\native-scope-contract-smoke.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\rollback-scope.py"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+{"calls": ["GET", "GET", "PUT", "GET", "GET", "PUT", "GET", "GET", "GET", "PUT", "GET", "PUT", "GET", "GET", "PUT", "GET", "PUT"], "failures": [{"code": "revision_conflict", "put_attempts": 1, "status": 409}, {"code": "write_outcome_unknown", "put_attempts": 1, "status": 503}], "remaining_keys": 1, "runtime_activation": "restart_required_or_unverified", "stale_receipt_writes": 0, "states": ["absent", "staged", "staged", "active", "active", "blocked", "staged", "absent", "absent"], "subject_reads": 3, "unknown_fields_preserved": true}
+
+STDERR:
+
+
+LABEL: document-baseline
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\baseline\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+
+LABEL: document-modified
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+
+LABEL: document-restore
+COMMAND: ["C:/Program Files/Git/bin/bash.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\ROLLBACK.sh", "--restore-file", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\rollback-plan.md", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\baseline\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.md"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+
+LABEL: document-rollback
+COMMAND: ["D:/Work2api/litellm/.venv/Scripts/python.exe", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\task-1-plan_contract.py", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\.superpowers\\sdd\\2026-10-23-cockpit-reuse-audit\\native-workflow-20261026-103309\\rollback-plan.md"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+missing=0 forbidden=0
+
+STDERR:
+
+
+LABEL: source-diff-check-final
+COMMAND: ["git", "diff", "--check", "--", ".", ":(exclude)docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+
+LABEL: reverse-patch-check-final
+COMMAND: ["git", "apply", "--check", "-R", "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"]
+CWD: C:\Users\42117\.codex\worktrees\cockpit-reuse-audit\litellm
+EXIT: 0
+STDOUT:
+
+STDERR:
+
+
+Full literal failed-check outputs (including tsc=2, legacy Python whole-file type failures=1, harness command errors) remain in native-workflow-verification.json; no suppression or deletion was used to claim a green full check.
+{
+  "three_state": {
+    "same_stdout": true,
+    "all_exit": 0,
+    "original_sha256": "7180dd2df74ea48d31b22a01ddf8f8debe29b9e138aa33a10a5bc82d582ced86",
+    "restored_sha256": "7180dd2df74ea48d31b22a01ddf8f8debe29b9e138aa33a10a5bc82d582ced86",
+    "modified_sha256": "602c26fec58d2444b0594f1de43e1f3661028ebe6e465f98df512cc6a7cd5a2a",
+    "modified_preserved": true
+  },
+  "patch": {
+    "base": "1a6902d443ae8209a80a5be8eb3c26ede0f06e16",
+    "commands": [
+      {
+        "command": [
+          "git",
+          "read-tree",
+          "1a6902d443ae8209a80a5be8eb3c26ede0f06e16"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "exit_status": 0
+      },
+      {
+        "command": [
+          "git",
+          "apply",
+          "--cached",
+          "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\docs\\superpowers\\plans\\2026-10-23-cockpit-reuse-audit.evidence\\DIFF_FILE.patch"
+        ],
+        "stdout": "",
+        "stderr": "",
+        "exit_status": 0
+      }
+    ],
+    "reconstructed": [
+      {
+        "path": "account-pool/account_pool/api.py",
+        "blob": "97398cfae4a8c5d7c7d9c6a01342fcac990d7439"
+      },
+      {
+        "path": "account-pool/account_pool/app.py",
+        "blob": "b1a2f4f697fd10c8c7142849ff520a24ff492911"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_admin.py",
+        "blob": "c2c9b75002d41578e80a888f8f4a278d81442f3c"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_failure.py",
+        "blob": "fab254b34651ea7e7333c5f0112fe38093830d2a"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_manifest.py",
+        "blob": "dfd77ae8a5d00c7ba61db8343514b9d8c90f0162"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_policy.py",
+        "blob": "3a1c38b63fd0661663e44d6a1641d42565cb68aa"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_preflight.py",
+        "blob": "ffd304292fc618aa6fdbf511e0af346b2d2b7917"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_receipt_adapter.py",
+        "blob": "653200866c2992ecbc27fee9ff4e7c8826352da1"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_runtime.py",
+        "blob": "6f77ddedecbd569d9141eb072f548c0b38e353bf"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_scope.py",
+        "blob": "cad545e6e8046b2f77f61a9586be2c59ba01cbb2"
+      },
+      {
+        "path": "account-pool/account_pool/cockpit_scope_api.py",
+        "blob": "753a1a76bdd7820f9b167e7588d39698c660927e"
+      },
+      {
+        "path": "account-pool/account_pool/config.py",
+        "blob": "0289429f1a70f83782b0729738e202a8ef740e6c"
+      },
+      {
+        "path": "account-pool/account_pool/shared/secrets.py",
+        "blob": "6b59fd0efd4d6403bc334942d5eadd6425313a1e"
+      },
+      {
+        "path": "account-pool/tests/account_pool/test_cockpit_scope.py",
+        "blob": "5e2be77749ad398b2f718996a2d6cab5328adc0d"
+      },
+      {
+        "path": "account-pool/tests/account_pool/test_contracts.py",
+        "blob": "a36f9a01d5ebd6f9352c9928efd334bd6c695cae"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md",
+        "blob": "9fcc96e90c95e0069633c84e4974c93b1d8448e0"
+      },
+      {
+        "path": "docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md",
+        "blob": "78436bc63ccd6b56460b6fe418f31af75f6a09e6"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py",
+        "blob": "2022450b2f203a93cecb5fb6edc008b3eb4b13b1"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py",
+        "blob": "1dff449f028fb2d6a760ead1e4acf43fc830e6a8"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_failure.py",
+        "blob": "95c4a23371142afa58d892d17a539a82a1dab3a5"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_native.py",
+        "blob": "8cd15da54e93453cfd09689bc69f835253c21857"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py",
+        "blob": "1b661071cfd73b4e5cf084b680bec0ef3ef1197d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py",
+        "blob": "11daf899a658b5b1d236d0d0c36031bc08ffb283"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_policy.py",
+        "blob": "33fb0512ea349ad278e387bd6f2f37fad9c5bc07"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py",
+        "blob": "165019c5996ca0acf414d33bd1487e016c80f2ce"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_route.py",
+        "blob": "47f38a013e07dcb236d84fee83a72fe169930059"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_runtime.py",
+        "blob": "4dd5551b6490c4b57ee4d190fa9253098b071c16"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py",
+        "blob": "0d948c9250a941bd3c6754804e1f3083e552c74e"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py",
+        "blob": "5ba8818f5dee347ced1db3e8bb7be5a192bbd139"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_endpoints.py",
+        "blob": "e2c884ba85bcf872236f758f3eed9891e3495f7b"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_gateway.py",
+        "blob": "d39a2a3dd9c020cad4658effbeeb75640578c7a6"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_gateway_client.py",
+        "blob": "dd083ece51b900e95ce07670ab826b77b753212d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_integration.py",
+        "blob": "495dc94730f5560fe06107f67d1d92140d08334d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_management.py",
+        "blob": "48b8c98f62e1eec824a2a312a6cf9ba819706c9d"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_management_models.py",
+        "blob": "3463ec3989dd512078d5500af10b04b4f15e4264"
+      },
+      {
+        "path": "litellm/proxy/management_endpoints/account_pool_reconciler.py",
+        "blob": "4832ebe7b53d9316806476c56b9c974fb3ae702b"
+      },
+      {
+        "path": "litellm/proxy/proxy_server.py",
+        "blob": "212ddde00f9538f73da6fa9ddccd83a990e0179f"
+      },
+      {
+        "path": "litellm/proxy/route_llm_request.py",
+        "blob": "69b75122617d9324ecd56b8e7d6af9c2c1b79954"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py",
+        "blob": "a49d4258516501e9c9481f0c00084f4f848f391f"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py",
+        "blob": "7dfa27e3f35eebc56b95eef44d133473c926d77d"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py",
+        "blob": "04b26dfeba95ae9f54c850ab0ac4e6a10d5f32b0"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py",
+        "blob": "350d9c434ee4cb159e0dcf2dc670fa0ff70c68cb"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py",
+        "blob": "920441b733da0166d1fe1646528ed564d30f3691"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py",
+        "blob": "7304baa58c22ead21d40d64835887c7cb2b6499f"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py",
+        "blob": "fe1c8f043865037475faab5212f8bf9f3770e856"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py",
+        "blob": "7e76182e3cba9e4df605115610b19b4000adc2e4"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py",
+        "blob": "02bb6bf566772c1de1efbddc590d899748168ed0"
+      },
+      {
+        "path": "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py",
+        "blob": "e284eab7ea956ce1df7c4abd37e033dc204106d9"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx",
+        "blob": "18380c3012af5d614f8f988bdf4275abe3daa4c2"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx",
+        "blob": "01cdf1e5af49b1d011dda0bf2eb7d5c204fb9ad6"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts",
+        "blob": "13f3be1ee0d7086a0c9d9bad749909bea4c1d979"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/api/NativeCockpitApi.ts",
+        "blob": "5d9578ef31caeb35eb1198e85888c04df06d38e7"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx",
+        "blob": "4a3847637452e476a190b3b5d56969f10e7f66be"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx",
+        "blob": "a17682d0742f84ad616e0a5f9a82a65221ad9c08"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx",
+        "blob": "0dc01596b412e18d88a2199d66384d01fe17058f"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.tsx",
+        "blob": "9c6864fb0355cd2d3b786ef7b4ef2db38cc6575e"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts",
+        "blob": "63fb338fdbe9463878cda6f9e3d8097b3c2e7f13"
+      },
+      {
+        "path": "ui/litellm-dashboard/src/lib/http/schema.d.ts",
+        "blob": "0dd75f00d5f9264f7cedbeb2ce7b2c5faa1269b6"
+      }
+    ],
+    "count": 58,
+    "patch_sha256": "5e3a1fe33c0471c38a2fb45bdb9738be850ca3ab6db594056601f3b8b51c362a"
+  },
+  "originals": {
+    "baseline_count": 22,
+    "all_baseline_hashes_unchanged": true,
+    "manager_files": {
+      "C:\\Users\\42117\\.codex\\worktrees\\cockpit-reuse-audit\\litellm\\account-pool\\account_pool\\cockpit_credential_receipts.py": "c1a16239efedb93c41e95daa37315c2bee495c020031c7a3aafa19c418da665f"
+    },
+    "manager_diff_empty": true
+  },
+  "review": {
+    "owner": "primary; no DS or subagents",
+    "changed_symbols": [
+      "ACCOUNT_POOL_BACKEND",
+      "CockpitCredentialReceiptService",
+      "NativeCredentialObservation",
+      "NativeCockpitServices",
+      "CockpitRouteResolver._default_lookup",
+      "AccountPoolBackendBoundary",
+      "NativeScopeStatus.runtime_state"
+    ],
+    "limits": [
+      "no real Cockpit runtime restart",
+      "no production/DB/provider validation",
+      "no migration/image build/push/deployment",
+      "complete tsc and legacy Python whole-file types not green"
+    ],
+    "source_hashes": {
+      "account-pool/account_pool/api.py": "b0b7461f55f630b7b1a019d248915509cc42a120589a75acef802ef537e5e59b",
+      "account-pool/account_pool/app.py": "d6b265c0a84f2cbbc3bdbaf7682e604a26c7097ecfe836407a6aa6544e2eebc0",
+      "account-pool/account_pool/cockpit_admin.py": "fa2aea841a46d37b37e833855c2c2b1b0b7cc1c79c11cd1473045a2295b3145a",
+      "account-pool/account_pool/cockpit_failure.py": "e7d67f7941e59422c3a0815bd832a1932d91c15dcf67a72e490523eeffb37ed9",
+      "account-pool/account_pool/cockpit_manifest.py": "10d5b815b95a97ea11738453b350e6b1b8e7c85e1fb30bc5a750440610f41ba2",
+      "account-pool/account_pool/cockpit_policy.py": "951076b4907fc4766a4f532c58282e0a81e3ac5789cd6f31b89f3714a48b52b7",
+      "account-pool/account_pool/cockpit_preflight.py": "bb691f057228c05c8b7858f2fc2ff2b55cbb624a91f2219a35228f797bf82fa3",
+      "account-pool/account_pool/cockpit_receipt_adapter.py": "013888c07f3ab3bda013c0d6c9c48a516bd5258971404b5b000b03e2bf3e5f24",
+      "account-pool/account_pool/cockpit_runtime.py": "42841a49a67af2dc6374dfc3ff024485c3f45886b2444e14b435fcbd4d3a06a4",
+      "account-pool/account_pool/cockpit_scope.py": "b225af95752d8e20364fc6f69e860ef6d21bca520f6ac42f13d1a6e541de12f5",
+      "account-pool/account_pool/cockpit_scope_api.py": "7c6451aab38f1f90371dda2e12e62c600ea98e01a70291181329c301d8e5ecdf",
+      "account-pool/account_pool/config.py": "d3c3e044ae7caa7e7c2835d55d284a5b045d58b71ed4016910b2091fe2994412",
+      "account-pool/account_pool/shared/secrets.py": "78e81705c938c6d78878443fcc24a168980a2a2ea5933dda2789dbbf0c172aca",
+      "account-pool/tests/account_pool/test_cockpit_scope.py": "e55b40c0c629ba11d4d32b8189bb9494931a32dc39c6e686152ddf34b455324e",
+      "account-pool/tests/account_pool/test_contracts.py": "71463138d48c63241c1a16ca77af6468783bdf7a53b6e3ba66da0184f118de8c",
+      "docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md": "4ef9c95b632cbd23d7f1c5b3d3e2ff6cd4aa7cc06626865f8a6e84613ddb6b2c",
+      "docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md": "7ecbf5639a1886e489e88a06eff5e653fca40520929a10b30fd0e9abe92d1207",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_admin.py": "b094eed198ad9c53d5cc000f02170b69e7e7ad5fa6e9088870e4d147e4bebc1c",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py": "45fd8deed8dcd824f525327661a6842ee564bc0600a97da33e190e1480032f06",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_failure.py": "ebb4f3deefdbdebc6c6f6536e46bfb70b1ceb6e992beec4bb15aee831bb07104",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_native.py": "2fa76762b3dd168f4f8f67ea88f397fec53012382dfbc47d9507f3109cff00f9",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py": "0c36eb911e7ba23d05032ff2d3a6a15d786ae37ecba89ae3b6999e480b17e25f",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py": "771092205f05463b0484eafd65ccee20a7f0af2c1d385a344a375d7c063ee52c",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_policy.py": "37a2ed69d44677dd463b8a17a138a236bf6f5e2aa4e9210f9844daa237503043",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py": "9bfbec5af2c3cd4f39aed83cedd60095f78a500cd298d1d2a895aad149a7437a",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_route.py": "fa22488c3d3ac3e9d847b0dbda77bb44e3ab161ab8b6035d9aaf5378c59b9575",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_runtime.py": "9b8c4a4c250ea2b314ba76e5411a4d293ed836190e3a624c069e4c7215c64f9f",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py": "602c26fec58d2444b0594f1de43e1f3661028ebe6e465f98df512cc6a7cd5a2a",
+      "litellm/proxy/management_endpoints/account_pool_cockpit_subject_reader.py": "3f542c9baa6aaa05d3a1c011a831a25131b66057dff12dcc3bd08f689710ce20",
+      "litellm/proxy/management_endpoints/account_pool_endpoints.py": "bb987ba3b8803daee28dc649ed0be590398881c6c01ad3c61352ddd6ebffe861",
+      "litellm/proxy/management_endpoints/account_pool_gateway.py": "0f7d4294d1afd5e8c2b6eadc8457b03ae2a6de91379ccbd118ae5fddf98afcd3",
+      "litellm/proxy/management_endpoints/account_pool_gateway_client.py": "3f182744d6c69799817e83a328d43be21c873b33f5fb52d0cee9e6d1d4e6309a",
+      "litellm/proxy/management_endpoints/account_pool_integration.py": "55d3f454b317ce0c60e44f72419baa344b5ad2b66cd65d5efcc8258e5f81db03",
+      "litellm/proxy/management_endpoints/account_pool_management.py": "655c45e97b6298eb5fcf06ccaa8439bab1eec3f4891665ff474d15b640ea70c0",
+      "litellm/proxy/management_endpoints/account_pool_management_models.py": "d7f3a893a7d993d0f220026765eee4b1f47f496bae0662287185ee6bd7b63706",
+      "litellm/proxy/management_endpoints/account_pool_reconciler.py": "0eab3757a6176a73c076376c33f9d731979a788274b77193c7ddfbb07d7f9592",
+      "litellm/proxy/proxy_server.py": "bf671e817445f332e86c42280e7617dee2cae5461d35ffbddde3562c9996826c",
+      "litellm/proxy/route_llm_request.py": "533402ea89a6b27cc5bb18d653a51b1a50c77c75a595788430ccc4ba0247ee63",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_admin.py": "9c8fa41d26764790780814f61375d192017c1956080f07a794e340382af8eeb7",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py": "9ddecfe0f08583ba4e4016e2a611557281fe5f8411e439dfdc2468adab111397",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py": "f3739a30e9ab9e432a30eaffc30e438cb6da2050515beae3f46b6bebca0305bb",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py": "2cd6e3ad4220821a8577e83f011825311dccea67ea33c5294174f253077a8d13",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py": "c35f36b4a4400a51ff5de1e1ec32516e3049c5b5f53b9cd21def80be6cceb7b0",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_route.py": "218dae0ac4a5d79eb3a171bd47ef3f6814a5f53f78315659c2b5349bca7f6de2",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_runtime.py": "419984fe091b954df68ac2e47fe7881b16fd36f1cf8fd277bf669b3870fa7c21",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope.py": "952064ab5af6f8a23dfa1641058fd7591619abb3177873c99c066b698a1ac270",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_scope_service.py": "a67fc6cd41a5e5d82283119ba630f6d9f1c9c2d06b3b3bca4d27f85eeae85b8c",
+      "tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_subject_reader.py": "cb308bf8ce06b4c657e0f19086f2c8c554c35f90634925ea8a416221564fe9a8",
+      "ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx": "b987e0919e847b7277aee4fe1f4f2655e637e6ebb8925ee3b5806876b3a93de7",
+      "ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx": "2ca2c8e8dd062894c8c810e15d2e58e82d13830bb10f5af7812d835bf2525dec",
+      "ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts": "3be19bda59b3185b700701bbddb0482da0b8cd67c59c2a25a75ceeed87039d41",
+      "ui/litellm-dashboard/src/features/account-pool/api/NativeCockpitApi.ts": "0954b431bff8b03ae02b585b016692563bc09468c50b31ccedd1b7e9c711c791",
+      "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx": "507fdf0e40394dc586f4fb822f55edddcf20eb2eef80f656a9262eddc1a9c383",
+      "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx": "f448d1113754a3f7dd4f30691aa0cff62dce08205cf53a871839366762f001b7",
+      "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx": "4f22e4af18884819f4ffdb307c72b93e80b77af002bd05a739d2f7be98c28fab",
+      "ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.tsx": "0124922931cc28bac06f7e993ac900047d90b99f6a4c4d9f5cb2eaf34aaad397",
+      "ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts": "9ad5ad8e57d016788408d7d81f7511c259dacd3edcfdf4926583af18e0d2e375",
+      "ui/litellm-dashboard/src/lib/http/schema.d.ts": "93485a0a390501ebafe233a899cb61abe0c2844f5830d5b521aae2cd6763377c"
+    },
+    "browser": "fixture-only FastAPI/MockTransport + real frontend; final revoked; fixture ports confirmed closed"
+  }
+}

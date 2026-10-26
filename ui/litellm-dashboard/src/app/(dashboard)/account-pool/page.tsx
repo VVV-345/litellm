@@ -45,6 +45,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
+import { AccountPoolBackendBoundary } from "@/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -89,7 +90,11 @@ import {
 } from "@/features/account-pool/utils/accountPoolSelectors";
 import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccountPoolMutations";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
-import { useProxyGatewayQuery, useProxyGatewayDelays, useProxyISPQuery } from "@/features/account-pool/hooks/useProxyGateways";
+import {
+  useProxyGatewayQuery,
+  useProxyGatewayDelays,
+  useProxyISPQuery,
+} from "@/features/account-pool/hooks/useProxyGateways";
 
 const AccountPoolModelTestDialog = dynamic(
   () =>
@@ -128,6 +133,17 @@ const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
 ];
 
 export default function AccountPoolPage() {
+  const { accessToken, userRole, isViewOnly } = useAuthorized();
+  if (!canManageAccountPool(userRole, isViewOnly)) return <AdminOnlyNotice pageTitle="Account Pool" />;
+  if (!accessToken) return <ModuleLoading />;
+  return (
+    <AccountPoolBackendBoundary accessToken={accessToken}>
+      <LegacyAccountPoolPage />
+    </AccountPoolBackendBoundary>
+  );
+}
+
+function LegacyAccountPoolPage() {
   const { t } = useTranslation();
   const { accessToken, userRole, isViewOnly } = useAuthorized();
   const router = useRouter();
@@ -273,8 +289,10 @@ export default function AccountPoolPage() {
   const renderCard = useCallback(
     (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => {
       const policyView = policiesByCard.get(environment.id);
-      const profileId = environment.proxy_mode === "default_gateway"
-        ? proxySettingsQuery.data?.values.default_proxy_profile_id : environment.proxy_profile_id;
+      const profileId =
+        environment.proxy_mode === "default_gateway"
+          ? proxySettingsQuery.data?.values.default_proxy_profile_id
+          : environment.proxy_profile_id;
       const gateway = profileId ? gatewaysByProfile.get(profileId) : undefined;
       return (
         <AccountPoolCard
@@ -298,7 +316,18 @@ export default function AccountPoolPage() {
         />
       );
     },
-    [busy, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
+    [
+      busy,
+      gatewaysByProfile,
+      gatewayDelaysQuery.data,
+      proxyISPsQuery.data,
+      proxySettingsQuery.data,
+      handleAuthorize,
+      handleEnabledChange,
+      handleManageKey,
+      handleViewLogs,
+      policiesByCard,
+    ],
   );
   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
 

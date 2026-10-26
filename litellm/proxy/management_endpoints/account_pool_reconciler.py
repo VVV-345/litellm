@@ -336,6 +336,10 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
 
 
 async def reconcile_configured_account_pool() -> bool:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+    if native_cockpit_enabled():
+        return False
     token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN")
     if token is None or len(token) < 32:
         return False
@@ -351,6 +355,10 @@ async def reconcile_configured_account_pool() -> bool:
 
 
 def start_reconciliation_loop() -> asyncio.Task[None] | None:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+    if native_cockpit_enabled():
+        return None
     token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN")
     if token is None or len(token) < 32:
         return None

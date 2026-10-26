@@ -1994,12 +1994,64 @@ index 05d062609a..a36f9a01d5 100644
              "updated_at": now.isoformat().replace("+00:00", "Z"),
          },
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281..8976f3beec 100644
+index 58d8051281..9fcc96e90c 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-@@ -1,5 +1,64 @@
+@@ -1,5 +1,116 @@
  # Cockpit 整体后台替换：LiteLLM 项目对照与执行计划
  
++## 2026-10-26 当前检查点：完成 1 / 2 / 3 的本地代码与离线闭环
++
++本节为当前状态，优先于后面的历史检查点。用户已确认：**Cockpit 管真实凭据，LiteLLM 主库管用户/Key 授权；旧 Manager 只作一次性迁移来源，不参与新环境日常请求。** 本轮起点 `5bbe77234d7ee20cf73db436b31318fb118868fd`，主代理直接实现，沿用已批准的 `codex/cockpit-reuse-plan` worktree；不调用 DS、不推送、不部署、不重启真实服务。
++
++| 用户要求 | 已完成的代码与本地验证 | 尚不能据此宣称 |
++| --- | --- | --- |
++| 1. 可信回执与凭据归属 | `CockpitCredentialReceiptService` 独立 HMAC 密钥，300 秒期限，主体/当前原生权限/凭据文件 etag、大小/manifest revision 绑定；两次一致观测与发布前重验；原生 purpose/status 与旧迁移回执分离 | 真实供应商登录、额度健康、生产凭据迁移及秘密存储备份已验收 |
++| 2. 去 Manager 的原生接线 | `ACCOUNT_POOL_BACKEND=cockpit` 直连原生服务；注册管理 API、绑定账号校验、`_default_lookup`、`/models` 与现有 Responses 请求接线；停用旧协调/转发/管理调用；原生 active 不使用 5 秒缓存 | 整个产品已完全替代，或真实 PostgreSQL 计费和所有协议已验证 |
++| 3. 页面管理流程 | 原有号池页先读取明确 backend，再挂载原生面板；账号/凭据存在状态、预检、签发、重验、默认停用发布、启停/撤销、运行 revision 确认；复用现有策略面板 | 创建账号、导入 OAuth、旧 Key 批量迁移等所有旧页面功能已复刻 |
++
++### 明确配置与秘密生命周期
++
++默认仍为 `ACCOUNT_POOL_BACKEND=manager`，避免本地代码一提交就改变旧部署。新隔离环境显式使用 `cockpit`；错误枚举或缺配置失败关闭，不回退 Manager。以下配置由部署者在受控 secret store / 只读挂载的私有环境文件中持久保存，代码不自动生成、不写入仓库或浏览器：
++
++- `ACCOUNT_POOL_COCKPIT_ADMIN_URL`：固定内部管理 origin；只允许管理网/回环访问，不对公网暴露。
++- `ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN`：Cockpit 管理鉴权秘密。
++- `ACCOUNT_POOL_COCKPIT_DATA_URL`：固定内部数据面 origin。
++- `ACCOUNT_POOL_COCKPIT_RECEIPT_KEY`：独立回执 HMAC 密钥。
++- `ACCOUNT_POOL_COCKPIT_ROUTING_SEED`：稳定的主体路由令牌派生种子。
++- 三个秘密至少 32 字符且互不相同；实际部署使用独立高熵随机值，不复用 Manager token。所有 LiteLLM worker 使用相同受控版本；变更通过进程重启加载，不热变更环境。
++- `ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED=true` 才允许已绑定原生 Key 请求；未开开关时绑定请求 503，不悄悄走旧路由。
++
++备份/恢复需分别覆盖主库授权、Cockpit 凭据与 manifest、上述秘密及对应镜像 digest。回执密钥轮换让在途回执失效，须重新预检/签发；不因此自动撤销已发布 scope。routing seed 改变会使旧投影令牌不匹配，须在隔离环境按停用/撤销、重新发布、重启 Cockpit、确认版本顺序处理，不能静默轮换后宣称旧 Key 连续可用。管理 token 轮换要协调两端。真实 secret-store 重启持久化、备份恢复演练本轮未做。
++
++### 现有页面如何操作
++
++1. 在隔离 Cockpit 中先导入凭据并配置账号/模型；界面“凭据文件存在”不表示提供商登录、可用额度或归属已由供应商证明。
++2. 用现有原生 Key 管理 API，由代理管理员配置 `metadata.account_pool_card_id=ACCOUNT_UUID`，不带旧 `account_pool_binding_id`，明确 `models` 及实际用户/团队授权上界；新模式账号校验读 Cockpit。当前原生号池面板只操作已经绑定好的 Key，不提供新 OAuth 导入或替代整套创建 Key 页面。
++3. 打开号池页面，输入原生 Key 的 64 位哈希（不是原始秘密）；选择主体，依次预检、签发、重验、发布停用投影。
++4. 启用投影后仍是“运行态待确认”。管理员在**隔离环境**执行 Cockpit 重启，再点“读取并确认运行版本”；仅投影 active 且当前凭据/权限一致、persisted/active revision 一致时确认。
++5. 先测声明支持的原生 Key、单账号、明确模型范围、Responses 窄路径。停用/撤销后 LiteLLM 立即拒绝后续该主体请求；已在途请求和直接绕过 LiteLLM 的内部流量不属于撤权实时性承诺。Cockpit 管理/数据端必须保持内网边界。
++6. 同页策略与 scope 共用 manifest CAS；scope 改变后需重新读取策略，旧 revision 的写入会冲突并停止。页面不自动重试写入、不在浏览器存回执、不提供真实服务重启按钮。
++
++### 本轮实际证据
++
++- 初始后端基线 586 passed / 1 warning；最终相关回归 **712 passed / 2 warnings**。包括真实回环 HTTP `/v1/responses` 一次调用、输出 `fixture-ok` 和 input/output usage 各 1；管理观测为 MockTransport、权限为合成 fixture，不能当真实供应商/主库。
++- 旧接线补充回归：`469 passed, 94 warnings in 359.41s (0:05:59)`；各套件按独立范围记录，不把不同轮次相加。
++- 独立进程禁止导入 `account_pool` 后，原生回执/发布/版本/撤销工作流通过，Manager imports=0。旧 Manager 源文件无本轮改动。
++- 新六个核心源码普通 Ruff、strict Ruff、格式、basedpyright 通过；已改接线源码 Ruff 通过。包含旧 `proxy_server.py` / `account_pool_endpoints.py` 的全文件 basedpyright 未全绿（本轮扩展检查 3427 errors）；已修正本轮新增的 ASGI path 类型诊断，旧文件问题未做无关重构。只检查五个接线模块时仍有 36 条旧区域诊断。基线副本检查另有跨模块 ProxyConfig 身份差异，不能将数量差当作类型质量提升，亦不能宣称全仓 Python 类型通过。
++- 前端 3 个关联文件 **27 passed**；ESLint **0 errors / 3 旧组件 warnings**。从当前 FastAPI 重新生成 `schema.d.ts`，第二次生成 hash 不变。
++- 同盘一次性 UI 副本 **Next.js 16.3.8 Webpack 生产构建通过**（最终 stderr 空）；完整 `tsc` 仍 exit 2、**1083 条测试文件诊断**，未见生产源码诊断。未删测试、未放宽配置；未运行 Vitest 类型项目、全仓 make check、Turbopack/Linux 镜像。
++- 浏览器真实点击了预检→签发→重验→发布→启用→确认模拟运行版本→停用→撤销。后端为本机合成 fixture，确认 runtime 是 fixture 专用状态改变，不是真实 Cockpit 重启；初次 harness 代理配置错误修正后才完成流程。截图及 DOM 记录见证据。
++- 新增测试捕获并修复：凭据移除后不能仍显示 active；manifest 模型规则/别名/API Key 字段大小写别名不能绕过观测。保留所有红灯和命令错误记录。
++
++BASELINE / MODIFIED / ROLLBACK 同输入 scope 状态依次 `absent → staged → staged → active → active → blocked → staged → absent → absent`；stale receipt 写 0 次，CAS 409 和写结果未知 503 均只 PUT 1 次，无关 Key/字段保留。三态均 exit 0、stderr 空，恢复副本 hash 等于本轮原件，修改后源码保留。文档三态合同另验 `missing=0 forbidden=0`。这是**本地文件回滚**，不是服务器、数据库或镜像回退证明。
++
++### 还差什么 / 下一步
++
++本轮 1 / 2 / 3 的上述本地范围完成，**不能替代生产**。接下来先准备独立测试部署材料与能力差异矩阵，再单独确认服务器参数/发布权限：独立 Compose 身份、端口、网络、数据卷、数据库、秘密和资源限额；GitHub Actions 构建、GHCR 只存独立测试镜像，固定 SHA/digest/platform，不覆盖旧项目标签。之后隔离实测真实 Cockpit 启动/重启、主库授权与撤权、多 worker、持久化/恢复、模型发现、用量入账；换卡、429/冷却、亲和性、流式/续聊/工具等逐项标明支持范围。一次性迁移工具及原 Key 保留/换发仍未完成。上述未验收前保持原生产不动。
++
++固定四角色继续复用，不另开计划：本计划、同名 evidence 目录下的 `DIFF_FILE.patch` / `VERIFICATION.txt` / `ROLLBACK.sh`。本轮详细命令与结果：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-workflow-verification.json`。后续 AI 先读本节和 checkpoint 的当前字段，不执行后面的历史 DS 派工文字。
++
 +## 2026-10-26 最新检查点：原生 scope 编排完成本地单元验证
 +
 +本轮由主代理直接实现，没有调用 DS。起点 `fc615e807b9734943edcde27efea4eb46cd0ce6e`，继续已批准的 worktree，本地提交、不推送、不部署
@@ -2062,7 +2114,7 @@ index 58d8051281..8976f3beec 100644
  > 本次在独立分支 `codex/cockpit-reuse-plan` 执行，起点为本地 HEAD `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，包含 4 个尚未出现在 `origin/CLIProxyAPI分支` 的既有提交；原 `CLIProxyAPI分支` 引用不移动。每阶段单独验证并提交；此前已创建远端隔离分支；本轮按最新要求只写代码和本地提交，不推送、不构建镜像、不部署
  
  **目标：** 以 Cockpit 作为目标后台，评估并规划由 Cockpit 接管当前号池后台的整体迁移，逐项区分可直接替换、可复用、需适配、需重做和仍待确认的能力。当前额度耗尽换卡、重试和续聊行为是迁移验收基线，不是要求 LiteLLM 永久保留这些后台职责。
-@@ -12,6 +71,21 @@
+@@ -12,6 +123,21 @@
  
  **范围说明：** 源码对照和已归档的 129 项测试以固定 LiteLLM HEAD `f1289af7b3059b27e7d76a4ce37262658465a3b1` 为准。审查期间 `CLIProxyAPI分支` 已前进至 `a06aa136536fb1d2d55fbd8cfb1aa8fb9a1b2521`：提交 `24b49b9cb0` 固定并加入 managed identity sidecar 补丁，提交 `a06aa13653` 将 capability gate 接入 manager、API model 和 Dashboard。当前本地 HEAD 为 `086c0f391ad6be683ab9ea45cb15cc4222a25ce9`，只新增设置适配验证记录，没有后续运行时代码变化；见 `docs/superpowers/plans/2026-10-23-cockpit-settings-adaptation.validation.md`。第 0 阶段需按当前 HEAD 审阅并重跑相关门，不将旧 HEAD 测试结果当作当前结果。Cockpit 本地 checkout 也有未提交改动；本计划仅使用上述固定 Cockpit 快照，不把其本地凭据或配置当作证据
  
@@ -2084,7 +2136,7 @@ index 58d8051281..8976f3beec 100644
  ## 迁移约束
  
  - 在修改前记录当前 HEAD、未提交文件及现有失败；绝不覆盖他人的工作树修改
-@@ -148,7 +222,7 @@
+@@ -148,7 +274,7 @@
  
  - [x] D2.1 只读映射预检（不代表可迁移）：先写越权候选、空 scope、停用账号、供应商不匹配和策略枚举不支持的失败测试；输出缺失映射，不修改凭据或运行配置
  - [ ] D2.2 管理同步：扩展 `account-pool/account_pool/cockpit_admin.py` 与独立策略编排模块，接入 `management_api.py`；在 LiteLLM `account_pool_management.py` 和现有 `AccountPoolManagementApi.ts`、策略表单中复用管理入口。先验证双管理员版本冲突、不支持选项拒绝、部分写入补偿、保存后待生效，再实现最小读写闭环
@@ -2093,7 +2145,7 @@ index 58d8051281..8976f3beec 100644
  - [ ] D2.4 行为验收：用可控时钟验证重试 0/1 次、总预算、冷却与亲和性 TTL；用有序候选验证优先级、备用卡和禁用；用 stream/tool/image/history 失败用例验证硬边界。模拟 429 额度耗尽与普通限流分别断言，不只检验 JSON 字段是否保存
  - [ ] D2.5 UI 验收：在本地隔离测试中验证表单能力状态、显式保存、待生效提示、冲突刷新和错误回显；功能完成后再记录运行环境门槛。按用户要求，镜像和部署继续延期，代码测试可继续推进
  
-@@ -267,6 +341,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
+@@ -267,6 +393,107 @@ LiteLLM 只把服务端查得的单卡 UUID 和候选提交给内部 token 保
  
  本轮新增三文件定向回归 16 passed，Manager 受影响 8 文件回归 233 passed，LiteLLM 受影响 3 文件回归 250 passed，均为离线/MockTransport 测试并有一条 Starlette/httpx 弃用警告。新增源文件与测试严格类型检查 0 errors；Manager app/API 与原生跨协议类型检查仍含历史诊断，严格 Ruff 聚焦集合仍报告既有复杂度/异常处理/日期规则，不作为通过声明。更完整的命令、失败尝试与三态计划回滚结果见原四角色及 receipt-adapter 补充记录
  
@@ -2203,11 +2255,63 @@ index 58d8051281..8976f3beec 100644
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000..754d155f82
+index 0000000000..78436bc63c
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,233 @@
+@@ -0,0 +1,285 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
++
++## 2026-10-26 当前检查点：完成 1 / 2 / 3 的本地代码与离线闭环
++
++本节为当前状态，优先于后面的历史检查点。用户已确认：**Cockpit 管真实凭据，LiteLLM 主库管用户/Key 授权；旧 Manager 只作一次性迁移来源，不参与新环境日常请求。** 本轮起点 `5bbe77234d7ee20cf73db436b31318fb118868fd`，主代理直接实现，沿用已批准的 `codex/cockpit-reuse-plan` worktree；不调用 DS、不推送、不部署、不重启真实服务。
++
++| 用户要求 | 已完成的代码与本地验证 | 尚不能据此宣称 |
++| --- | --- | --- |
++| 1. 可信回执与凭据归属 | `CockpitCredentialReceiptService` 独立 HMAC 密钥，300 秒期限，主体/当前原生权限/凭据文件 etag、大小/manifest revision 绑定；两次一致观测与发布前重验；原生 purpose/status 与旧迁移回执分离 | 真实供应商登录、额度健康、生产凭据迁移及秘密存储备份已验收 |
++| 2. 去 Manager 的原生接线 | `ACCOUNT_POOL_BACKEND=cockpit` 直连原生服务；注册管理 API、绑定账号校验、`_default_lookup`、`/models` 与现有 Responses 请求接线；停用旧协调/转发/管理调用；原生 active 不使用 5 秒缓存 | 整个产品已完全替代，或真实 PostgreSQL 计费和所有协议已验证 |
++| 3. 页面管理流程 | 原有号池页先读取明确 backend，再挂载原生面板；账号/凭据存在状态、预检、签发、重验、默认停用发布、启停/撤销、运行 revision 确认；复用现有策略面板 | 创建账号、导入 OAuth、旧 Key 批量迁移等所有旧页面功能已复刻 |
++
++### 明确配置与秘密生命周期
++
++默认仍为 `ACCOUNT_POOL_BACKEND=manager`，避免本地代码一提交就改变旧部署。新隔离环境显式使用 `cockpit`；错误枚举或缺配置失败关闭，不回退 Manager。以下配置由部署者在受控 secret store / 只读挂载的私有环境文件中持久保存，代码不自动生成、不写入仓库或浏览器：
++
++- `ACCOUNT_POOL_COCKPIT_ADMIN_URL`：固定内部管理 origin；只允许管理网/回环访问，不对公网暴露。
++- `ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN`：Cockpit 管理鉴权秘密。
++- `ACCOUNT_POOL_COCKPIT_DATA_URL`：固定内部数据面 origin。
++- `ACCOUNT_POOL_COCKPIT_RECEIPT_KEY`：独立回执 HMAC 密钥。
++- `ACCOUNT_POOL_COCKPIT_ROUTING_SEED`：稳定的主体路由令牌派生种子。
++- 三个秘密至少 32 字符且互不相同；实际部署使用独立高熵随机值，不复用 Manager token。所有 LiteLLM worker 使用相同受控版本；变更通过进程重启加载，不热变更环境。
++- `ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED=true` 才允许已绑定原生 Key 请求；未开开关时绑定请求 503，不悄悄走旧路由。
++
++备份/恢复需分别覆盖主库授权、Cockpit 凭据与 manifest、上述秘密及对应镜像 digest。回执密钥轮换让在途回执失效，须重新预检/签发；不因此自动撤销已发布 scope。routing seed 改变会使旧投影令牌不匹配，须在隔离环境按停用/撤销、重新发布、重启 Cockpit、确认版本顺序处理，不能静默轮换后宣称旧 Key 连续可用。管理 token 轮换要协调两端。真实 secret-store 重启持久化、备份恢复演练本轮未做。
++
++### 现有页面如何操作
++
++1. 在隔离 Cockpit 中先导入凭据并配置账号/模型；界面“凭据文件存在”不表示提供商登录、可用额度或归属已由供应商证明。
++2. 用现有原生 Key 管理 API，由代理管理员配置 `metadata.account_pool_card_id=ACCOUNT_UUID`，不带旧 `account_pool_binding_id`，明确 `models` 及实际用户/团队授权上界；新模式账号校验读 Cockpit。当前原生号池面板只操作已经绑定好的 Key，不提供新 OAuth 导入或替代整套创建 Key 页面。
++3. 打开号池页面，输入原生 Key 的 64 位哈希（不是原始秘密）；选择主体，依次预检、签发、重验、发布停用投影。
++4. 启用投影后仍是“运行态待确认”。管理员在**隔离环境**执行 Cockpit 重启，再点“读取并确认运行版本”；仅投影 active 且当前凭据/权限一致、persisted/active revision 一致时确认。
++5. 先测声明支持的原生 Key、单账号、明确模型范围、Responses 窄路径。停用/撤销后 LiteLLM 立即拒绝后续该主体请求；已在途请求和直接绕过 LiteLLM 的内部流量不属于撤权实时性承诺。Cockpit 管理/数据端必须保持内网边界。
++6. 同页策略与 scope 共用 manifest CAS；scope 改变后需重新读取策略，旧 revision 的写入会冲突并停止。页面不自动重试写入、不在浏览器存回执、不提供真实服务重启按钮。
++
++### 本轮实际证据
++
++- 初始后端基线 586 passed / 1 warning；最终相关回归 **712 passed / 2 warnings**。包括真实回环 HTTP `/v1/responses` 一次调用、输出 `fixture-ok` 和 input/output usage 各 1；管理观测为 MockTransport、权限为合成 fixture，不能当真实供应商/主库。
++- 旧接线补充回归：`469 passed, 94 warnings in 359.41s (0:05:59)`；各套件按独立范围记录，不把不同轮次相加。
++- 独立进程禁止导入 `account_pool` 后，原生回执/发布/版本/撤销工作流通过，Manager imports=0。旧 Manager 源文件无本轮改动。
++- 新六个核心源码普通 Ruff、strict Ruff、格式、basedpyright 通过；已改接线源码 Ruff 通过。包含旧 `proxy_server.py` / `account_pool_endpoints.py` 的全文件 basedpyright 未全绿（本轮扩展检查 3427 errors）；已修正本轮新增的 ASGI path 类型诊断，旧文件问题未做无关重构。只检查五个接线模块时仍有 36 条旧区域诊断。基线副本检查另有跨模块 ProxyConfig 身份差异，不能将数量差当作类型质量提升，亦不能宣称全仓 Python 类型通过。
++- 前端 3 个关联文件 **27 passed**；ESLint **0 errors / 3 旧组件 warnings**。从当前 FastAPI 重新生成 `schema.d.ts`，第二次生成 hash 不变。
++- 同盘一次性 UI 副本 **Next.js 16.3.8 Webpack 生产构建通过**（最终 stderr 空）；完整 `tsc` 仍 exit 2、**1083 条测试文件诊断**，未见生产源码诊断。未删测试、未放宽配置；未运行 Vitest 类型项目、全仓 make check、Turbopack/Linux 镜像。
++- 浏览器真实点击了预检→签发→重验→发布→启用→确认模拟运行版本→停用→撤销。后端为本机合成 fixture，确认 runtime 是 fixture 专用状态改变，不是真实 Cockpit 重启；初次 harness 代理配置错误修正后才完成流程。截图及 DOM 记录见证据。
++- 新增测试捕获并修复：凭据移除后不能仍显示 active；manifest 模型规则/别名/API Key 字段大小写别名不能绕过观测。保留所有红灯和命令错误记录。
++
++BASELINE / MODIFIED / ROLLBACK 同输入 scope 状态依次 `absent → staged → staged → active → active → blocked → staged → absent → absent`；stale receipt 写 0 次，CAS 409 和写结果未知 503 均只 PUT 1 次，无关 Key/字段保留。三态均 exit 0、stderr 空，恢复副本 hash 等于本轮原件，修改后源码保留。文档三态合同另验 `missing=0 forbidden=0`。这是**本地文件回滚**，不是服务器、数据库或镜像回退证明。
++
++### 还差什么 / 下一步
++
++本轮 1 / 2 / 3 的上述本地范围完成，**不能替代生产**。接下来先准备独立测试部署材料与能力差异矩阵，再单独确认服务器参数/发布权限：独立 Compose 身份、端口、网络、数据卷、数据库、秘密和资源限额；GitHub Actions 构建、GHCR 只存独立测试镜像，固定 SHA/digest/platform，不覆盖旧项目标签。之后隔离实测真实 Cockpit 启动/重启、主库授权与撤权、多 worker、持久化/恢复、模型发现、用量入账；换卡、429/冷却、亲和性、流式/续聊/工具等逐项标明支持范围。一次性迁移工具及原 Key 保留/换发仍未完成。上述未验收前保持原生产不动。
++
++固定四角色继续复用，不另开计划：本计划、同名 evidence 目录下的 `DIFF_FILE.patch` / `VERIFICATION.txt` / `ROLLBACK.sh`。本轮详细命令与结果：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-workflow-verification.json`。后续 AI 先读本节和 checkpoint 的当前字段，不执行后面的历史 DS 派工文字。
 +
 +## 2026-10-26 最新检查点：原生 scope 编排完成本地单元验证
 +
@@ -2801,6 +2905,137 @@ index 0000000000..2022450b2f
 +        credential_count=len(files),
 +        persisted_manifest_revision=manifest.revision,
 +    )
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py b/litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py
+new file mode 100644
+index 0000000000..1dff449f02
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_credential_service.py
+@@ -0,0 +1,125 @@
++from __future__ import annotations
++
++import hashlib
++import hmac
++import json
++import re
++from collections.abc import Callable
++from typing import Annotated, Final, Protocol
++
++from pydantic import Field, SecretStr, TypeAdapter, ValidationError
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialBindings,
++    CredentialReceipt,
++    CredentialReceiptPayload,
++    CredentialReceiptRejection,
++    NativeCredentialBindings,
++    NativeCredentialReceipt,
++    NativeCredentialReceiptPayload,
++)
++
++Receipt = CredentialReceipt | NativeCredentialReceipt
++Bindings = CredentialBindings | NativeCredentialBindings
++_RECEIPT: Final[TypeAdapter[Receipt]] = TypeAdapter(Annotated[Receipt, Field(discriminator="status")])
++_HASH: Final = re.compile(r"^[0-9a-f]{64}$")
++_LIFETIME: Final = 300
++
++
++class CredentialObservationReader(Protocol):
++    """Trusted server observations only, never browser-supplied bindings."""
++
++    async def read(self, subject_hash: str) -> Bindings | CredentialReceiptRejection: ...
++
++
++def _canonical(payload: CredentialReceiptPayload | NativeCredentialReceiptPayload) -> bytes:
++    return json.dumps(payload.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode()
++
++
++class CockpitCredentialReceiptService:
++    def __init__(
++        self,
++        observations: CredentialObservationReader | None,
++        signing_key: SecretStr,
++        clock: Callable[[], int],
++    ) -> None:
++        if len(signing_key.get_secret_value().encode()) < 32:
++            raise ValueError("Receipt signing key must contain at least 32 bytes")
++        self._observations: Final = observations
++        self._key: Final = signing_key
++        self._clock: Final = clock
++
++    def _now(self) -> int | None:
++        try:
++            value: Final = self._clock()
++        except Exception:  # noqa: BLE001  # A clock failure must not issue an unbounded receipt.
++            return None
++        return value if type(value) is int and value > 0 else None
++
++    def _signature(self, payload: CredentialReceiptPayload | NativeCredentialReceiptPayload) -> str:
++        return hmac.new(self._key.get_secret_value().encode(), _canonical(payload), hashlib.sha256).hexdigest()
++
++    async def issue(self, subject_hash: str) -> Receipt | CredentialReceiptRejection:
++        if _HASH.fullmatch(subject_hash) is None:
++            return CredentialReceiptRejection("invalid_subject")
++        issued_at: Final = self._now()
++        if issued_at is None:
++            return CredentialReceiptRejection("invalid_clock")
++        bindings: Final = await self._stable_observation(subject_hash)
++        if isinstance(bindings, CredentialReceiptRejection):
++            return bindings
++        finished_at: Final = self._now()
++        if finished_at is None or not issued_at <= finished_at < issued_at + _LIFETIME:
++            return CredentialReceiptRejection("receipt_time_invalid")
++        if isinstance(bindings, NativeCredentialBindings):
++            payload: Final = NativeCredentialReceiptPayload(
++                issued_at=issued_at, expires_at=issued_at + _LIFETIME, bindings=bindings
++            )
++            return NativeCredentialReceipt(payload=payload, signature=self._signature(payload))
++        legacy: Final = CredentialReceiptPayload(
++            issued_at=issued_at, expires_at=issued_at + _LIFETIME, bindings=bindings
++        )
++        return CredentialReceipt(payload=legacy, signature=self._signature(legacy))
++
++    async def revalidate(self, subject_hash: str, encoded: str) -> Receipt | CredentialReceiptRejection:
++        if _HASH.fullmatch(subject_hash) is None:
++            return CredentialReceiptRejection("invalid_subject")
++        if len(encoded) > 16384:
++            return CredentialReceiptRejection("invalid_receipt")
++        try:
++            receipt: Final = _RECEIPT.validate_json(encoded)
++        except ValidationError:
++            return CredentialReceiptRejection("invalid_receipt")
++        if (
++            not hmac.compare_digest(self._signature(receipt.payload), receipt.signature)
++            or receipt.payload.bindings.scope.subject_hash != subject_hash
++        ):
++            return CredentialReceiptRejection("invalid_receipt")
++        now: Final = self._now()
++        if now is None or not receipt.payload.issued_at <= now < receipt.payload.expires_at:
++            return CredentialReceiptRejection("receipt_time_invalid")
++        bindings: Final = await self._stable_observation(subject_hash)
++        if isinstance(bindings, CredentialReceiptRejection):
++            return bindings
++        if bindings != receipt.payload.bindings:
++            return CredentialReceiptRejection("stale_receipt")
++        finished_at: Final = self._now()
++        if finished_at is None or not receipt.payload.issued_at <= finished_at < receipt.payload.expires_at:
++            return CredentialReceiptRejection("receipt_time_invalid")
++        return receipt
++
++    async def _stable_observation(self, subject_hash: str) -> Bindings | CredentialReceiptRejection:
++        if self._observations is None:
++            return CredentialReceiptRejection("read_unavailable")
++        try:
++            first: Final = await self._observations.read(subject_hash)
++            if isinstance(first, CredentialReceiptRejection):
++                return first
++            if first.scope.subject_hash != subject_hash or first.scope.card_id != first.target_account_id:
++                return CredentialReceiptRejection("subject_unverified")
++            second: Final = await self._observations.read(subject_hash)
++            if isinstance(second, CredentialReceiptRejection):
++                return second
++            return first if first == second else CredentialReceiptRejection("state_changed")
++        except Exception:  # noqa: BLE001  # Observers can return errors containing credentials; expose only a fixed code.
++            return CredentialReceiptRejection("read_unavailable")
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_failure.py b/litellm/proxy/management_endpoints/account_pool_cockpit_failure.py
 new file mode 100644
 index 0000000000..95c4a23371
@@ -2838,6 +3073,576 @@ index 0000000000..95c4a23371
 +
 +READ_FAILURE_STATUS: Final = 502
 +UNAVAILABLE_STATUS: Final = 503
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_native.py b/litellm/proxy/management_endpoints/account_pool_cockpit_native.py
+new file mode 100644
+index 0000000000..8cd15da54e
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_native.py
+@@ -0,0 +1,212 @@
++from __future__ import annotations
++
++import os
++import time
++from collections.abc import Callable
++from functools import lru_cache, partial
++from typing import Final, Literal
++from uuid import UUID
++
++import httpx
++from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
++from typing_extensions import Self
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitAdminConfig,
++    CockpitFailure,
++    validate_http_origin,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_credential_service import CockpitCredentialReceiptService
++from litellm.proxy.management_endpoints.account_pool_cockpit_native_observation import NativeCredentialObservation
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialReceiptRejection,
++    NativeCredentialBindings,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_runtime import (
++    CockpitPolicyRuntime,
++    RuntimeFailure,
++    read_cockpit_runtime,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_scope_service import (
++    CockpitScopeManifest,
++    CockpitScopeService,
++    CockpitSubjectRouteState,
++    CockpitSubjectScopeView,
++    ScopeFailure,
++    SubjectReader,
++    subject_routing_token,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader import NativeTrustedSubjectReader
++
++
++def native_cockpit_enabled() -> bool:
++    backend: Final = os.getenv("ACCOUNT_POOL_BACKEND", "manager")
++    if backend not in ("manager", "cockpit"):
++        raise ValueError("ACCOUNT_POOL_BACKEND must be manager or cockpit")
++    return backend == "cockpit"
++
++
++class NativeCockpitError(Exception):
++    def __init__(self, status: int = 503, code: str = "unavailable") -> None:
++        self.status: Final = status
++        self.code: Final = code
++        super().__init__(code)
++
++
++class NativeCockpitConfig(BaseModel):
++    model_config = ConfigDict(frozen=True, hide_input_in_errors=True)
++
++    admin_url: str = Field(repr=False)
++    admin_token: SecretStr = Field(min_length=32)
++    data_url: str = Field(repr=False)
++    receipt_key: SecretStr = Field(min_length=32)
++    routing_seed: SecretStr = Field(min_length=32)
++
++    @field_validator("admin_url", "data_url")
++    @classmethod
++    def valid_url(cls, value: str) -> str:
++        return validate_http_origin(value)
++
++    @model_validator(mode="after")
++    def independent_secrets(self) -> Self:
++        CockpitAdminConfig(url=self.admin_url, token=self.admin_token)
++        if len({secret.get_secret_value() for secret in (self.admin_token, self.receipt_key, self.routing_seed)}) != 3:
++            raise ValueError("Admin token, receipt key and routing seed must be independent")
++        return self
++
++    @classmethod
++    def from_environment(cls) -> NativeCockpitConfig:
++        try:
++            return cls(
++                admin_url=os.environ["ACCOUNT_POOL_COCKPIT_ADMIN_URL"],
++                admin_token=SecretStr(os.environ["ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN"]),
++                data_url=os.environ["ACCOUNT_POOL_COCKPIT_DATA_URL"],
++                receipt_key=SecretStr(os.environ["ACCOUNT_POOL_COCKPIT_RECEIPT_KEY"]),
++                routing_seed=SecretStr(os.environ["ACCOUNT_POOL_COCKPIT_ROUTING_SEED"]),
++            )
++        except (KeyError, ValueError):
++            raise NativeCockpitError(503, "native_configuration_invalid") from None
++
++
++class NativeCockpitAccountView(BaseModel):
++    account_id: UUID
++    credential_present: bool
++
++
++class NativeScopeStatus(BaseModel):
++    scope: CockpitSubjectScopeView
++    runtime: CockpitPolicyRuntime | None
++    runtime_state: Literal["active", "pending", "unavailable"]
++
++
++def _observation_matches(
++    observation: NativeCredentialBindings | CredentialReceiptRejection,
++    scope: CockpitSubjectScopeView | CockpitSubjectRouteState,
++) -> bool:
++    return (
++        isinstance(observation, NativeCredentialBindings)
++        and observation.manifest_revision == scope.persisted_manifest_revision
++        and observation.scope.subject_hash == scope.subject_hash
++        and scope.account_ids == (str(observation.target_account_id),)
++        and frozenset(observation.scope.models) == frozenset(scope.models)
++    )
++
++
++class NativeCockpitServices:
++    def __init__(
++        self,
++        config: NativeCockpitConfig,
++        *,
++        http: httpx.AsyncClient | None = None,
++        subjects: SubjectReader | None = None,
++        clock: Callable[[], int] = lambda: int(time.time()),
++    ) -> None:
++        self._owns_http: Final = http is None
++        self._http: Final = (
++            http if http is not None else httpx.AsyncClient(timeout=10, trust_env=False, follow_redirects=False)
++        )
++        self.target: Final = CockpitAdminClient(
++            CockpitAdminConfig(url=config.admin_url, token=config.admin_token), self._http
++        )
++        self.subjects: Final = subjects if subjects is not None else NativeTrustedSubjectReader()
++        self.observations: Final = NativeCredentialObservation(self.subjects, self.target)
++        self.receipts: Final = CockpitCredentialReceiptService(self.observations, config.receipt_key, clock)
++        self.scope: Final = CockpitScopeService(
++            self.receipts,
++            self.target,
++            partial(subject_routing_token, config.routing_seed),
++            config.data_url,
++            self.subjects,
++        )
++
++    async def close(self) -> None:
++        if self._owns_http:
++            await self._http.aclose()
++
++    async def accounts(self) -> tuple[NativeCockpitAccountView, ...]:
++        snapshot: Final = await self.target.read_manifest()
++        files: Final = await self.target.list_auth_files()
++        if isinstance(snapshot, CockpitFailure) or isinstance(files, CockpitFailure):
++            raise NativeCockpitError()
++        manifest: Final = CockpitScopeManifest.model_validate(snapshot.data)
++        return tuple(
++            NativeCockpitAccountView(
++                account_id=UUID(account.id),
++                credential_present=any(item.id == account.authId and item.size > 0 for item in files),
++            )
++            for account in manifest.accounts or ()
++        )
++
++    async def view(self, subject_hash: str) -> NativeScopeStatus:
++        scope: Final = await self.scope.read(subject_hash)
++        if isinstance(scope, ScopeFailure):
++            raise NativeCockpitError(scope.status, scope.code)
++        observation: Final = await self.observations.read(subject_hash) if scope.state == "active" else None
++        current: Final = (
++            scope.model_copy(update={"state": "blocked"})
++            if observation is not None and not _observation_matches(observation, scope)
++            else scope
++        )
++        runtime: Final = await read_cockpit_runtime(self.target)
++        if isinstance(runtime, RuntimeFailure):
++            return NativeScopeStatus(scope=current, runtime=None, runtime_state="unavailable")
++        live: Final = (
++            current.state == "active"
++            and runtime.active_revision == runtime.persisted_revision == scope.persisted_manifest_revision
++        )
++        return NativeScopeStatus(scope=current, runtime=runtime, runtime_state="active" if live else "pending")
++
++    async def route_state(self, subject_hash: str) -> CockpitSubjectRouteState:
++        state: Final = await self.scope.route_state(subject_hash)
++        if isinstance(state, ScopeFailure):
++            raise NativeCockpitError(state.status, state.code)
++        if state.state != "active":
++            return state
++        observation: Final = await self.observations.read(subject_hash)
++        runtime: Final = await read_cockpit_runtime(self.target)
++        if (
++            not _observation_matches(observation, state)
++            or isinstance(runtime, RuntimeFailure)
++            or runtime.active_revision != state.persisted_manifest_revision
++            or runtime.persisted_revision != state.persisted_manifest_revision
++        ):
++            return state.model_copy(update={"state": "blocked", "api_key": None, "origin": None})
++        return state
++
++
++@lru_cache(maxsize=1)
++def _configured_services() -> NativeCockpitServices:
++    return NativeCockpitServices(NativeCockpitConfig.from_environment())
++
++
++def native_cockpit_services() -> NativeCockpitServices:
++    if not native_cockpit_enabled():
++        raise NativeCockpitError(503, "native_backend_disabled")
++    return _configured_services()
++
++
++async def close_native_cockpit_services() -> None:
++    if _configured_services.cache_info().currsize:
++        await _configured_services().close()
++        _configured_services.cache_clear()
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py b/litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py
+new file mode 100644
+index 0000000000..1b661071cf
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_native_api.py
+@@ -0,0 +1,240 @@
++from __future__ import annotations
++
++from collections.abc import Callable, Coroutine
++from typing import Annotated, Final, Literal
++
++from fastapi import APIRouter, Depends, HTTPException, Request, Response
++from fastapi.exceptions import RequestValidationError
++from fastapi.responses import JSONResponse
++from fastapi.routing import APIRoute
++from pydantic import BaseModel, ConfigDict, Field
++
++from litellm.proxy._types import UserAPIKeyAuth
++from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
++from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
++from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++    NativeCockpitAccountView,
++    NativeCockpitError,
++    NativeCockpitServices,
++    NativeScopeStatus,
++    native_cockpit_enabled,
++    native_cockpit_services,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_policy import (
++    CockpitPolicyUpdate,
++    CockpitPolicyView,
++    PolicyFailure,
++    read_cockpit_policy,
++    save_cockpit_policy,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialReceiptRejection,
++    NativeCredentialReceipt,
++    ReceiptRejectionCode,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_runtime import (
++    CockpitPolicyApply,
++    CockpitPolicyRuntime,
++    RuntimeFailure,
++    apply_cockpit_policy,
++    read_cockpit_runtime,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_scope_service import (
++    CockpitScopeActivationRequest,
++    CockpitScopePublishRequest,
++    CockpitScopeRevokeRequest,
++    ScopeFailure,
++)
++
++
++class NativeSubjectRequest(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++    key_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
++
++
++class NativeReceiptRequest(NativeSubjectRequest):
++    receipt: str = Field(min_length=1, max_length=16384, repr=False)
++
++
++class NativeReceiptResponse(BaseModel):
++    key_hash: str
++    status: Literal["native_scope_verified", "rejected"]
++    receipt: str | None = Field(default=None, repr=False)
++    code: ReceiptRejectionCode | None = None
++    ready_to_migrate: Literal[False] = False
++
++
++class NativePreflightResponse(BaseModel):
++    key_hash: str
++    status: Literal["eligible", "blocked"]
++    code: ReceiptRejectionCode | None = None
++    revision: str | None = None
++    models: tuple[str, ...] = ()
++
++
++class NativeBackendResponse(BaseModel):
++    backend: Literal["manager", "cockpit"]
++
++
++class _NativeRoute(APIRoute):
++    def get_route_handler(self) -> Callable[[Request], Coroutine[object, object, Response]]:
++        original: Final = super().get_route_handler()
++
++        async def handle(request: Request) -> Response:
++            try:
++                response: Final = await original(request)
++            except RequestValidationError:
++                return JSONResponse(
++                    {"detail": "invalid_native_request"}, status_code=422, headers={"Cache-Control": "no-store"}
++                )
++            except NativeCockpitError as error:
++                return JSONResponse(
++                    {"detail": error.code}, status_code=error.status, headers={"Cache-Control": "no-store"}
++                )
++            except HTTPException as error:
++                return JSONResponse(
++                    {"detail": "native_access_denied"},
++                    status_code=error.status_code,
++                    headers={"Cache-Control": "no-store"},
++                )
++            except Exception:  # noqa: BLE001  # Never return credential-bearing driver or transport errors to the browser.
++                return JSONResponse({"detail": "unavailable"}, status_code=503, headers={"Cache-Control": "no-store"})
++            response.headers["Cache-Control"] = "no-store"
++            return response
++
++        return handle
++
++
++def authorize(user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)]) -> None:
++    if not is_proxy_admin(user):
++        raise HTTPException(403, "Proxy admin required")
++
++
++class _NativeHandlers:
++    def __init__(self, provider: Callable[[], NativeCockpitServices]) -> None:
++        self._provider: Final = provider
++
++    async def configuration(self) -> NativeBackendResponse:
++        return NativeBackendResponse(backend="cockpit" if native_cockpit_enabled() else "manager")
++
++    async def accounts(self) -> tuple[NativeCockpitAccountView, ...]:
++        return await self._provider().accounts()
++
++    async def preflight(self, request: NativeSubjectRequest) -> NativePreflightResponse:
++        observed: Final = await self._provider().observations.read(request.key_hash)
++        if isinstance(observed, CredentialReceiptRejection):
++            return NativePreflightResponse(key_hash=request.key_hash, status="blocked", code=observed.code)
++        return NativePreflightResponse(
++            key_hash=request.key_hash,
++            status="eligible",
++            revision=observed.manifest_revision,
++            models=observed.scope.models,
++        )
++
++    def receipt_response(
++        self, key_hash: str, receipt: NativeCredentialReceipt | CredentialReceiptRejection
++    ) -> NativeReceiptResponse:
++        if isinstance(receipt, CredentialReceiptRejection):
++            return NativeReceiptResponse(key_hash=key_hash, status="rejected", code=receipt.code)
++        return NativeReceiptResponse(
++            key_hash=key_hash, status="native_scope_verified", receipt=receipt.model_dump_json()
++        )
++
++    async def issue(self, request: NativeSubjectRequest) -> NativeReceiptResponse:
++        receipt: Final = await self._provider().receipts.issue(request.key_hash)
++        return self.receipt_response(
++            request.key_hash,
++            receipt
++            if isinstance(receipt, (NativeCredentialReceipt, CredentialReceiptRejection))
++            else CredentialReceiptRejection("invalid_receipt"),
++        )
++
++    async def revalidate(self, request: NativeReceiptRequest) -> NativeReceiptResponse:
++        receipt: Final = await self._provider().receipts.revalidate(request.key_hash, request.receipt)
++        return self.receipt_response(
++            request.key_hash,
++            receipt
++            if isinstance(receipt, (NativeCredentialReceipt, CredentialReceiptRejection))
++            else CredentialReceiptRejection("invalid_receipt"),
++        )
++
++    async def view(self, subject_hash: Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]) -> NativeScopeStatus:
++        return await self._provider().view(subject_hash)
++
++    async def publish(self, request: CockpitScopePublishRequest) -> NativeScopeStatus:
++        services: Final = self._provider()
++        result: Final = await services.scope.publish(request)
++        if isinstance(result, ScopeFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return await services.view(request.subject_hash)
++
++    async def revoke(self, request: CockpitScopeRevokeRequest) -> NativeScopeStatus:
++        services: Final = self._provider()
++        result: Final = await services.scope.revoke(request)
++        if isinstance(result, ScopeFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return await services.view(request.subject_hash)
++
++    async def activate(self, request: CockpitScopeActivationRequest) -> NativeScopeStatus:
++        services: Final = self._provider()
++        result: Final = await services.scope.activate(request)
++        if isinstance(result, ScopeFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return await services.view(request.subject_hash)
++
++    async def deactivate(self, request: CockpitScopeActivationRequest) -> NativeScopeStatus:
++        services: Final = self._provider()
++        result: Final = await services.scope.deactivate(request)
++        if isinstance(result, ScopeFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return await services.view(request.subject_hash)
++
++    async def policy(self) -> CockpitPolicyView:
++        result: Final = await read_cockpit_policy(self._provider().target)
++        if isinstance(result, PolicyFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return result
++
++    async def save_policy(self, request: CockpitPolicyUpdate) -> CockpitPolicyView:
++        result: Final = await save_cockpit_policy(self._provider().target, request)
++        if isinstance(result, PolicyFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return result
++
++    async def runtime(self) -> CockpitPolicyRuntime:
++        result: Final = await read_cockpit_runtime(self._provider().target)
++        if isinstance(result, RuntimeFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return result
++
++    async def apply_policy(self, request: CockpitPolicyApply) -> CockpitPolicyRuntime:
++        result: Final = await apply_cockpit_policy(self._provider().target, request)
++        if isinstance(result, RuntimeFailure):
++            raise NativeCockpitError(result.status, result.code)
++        return result
++
++
++def create_native_cockpit_router(provider: Callable[[], NativeCockpitServices] = native_cockpit_services) -> APIRouter:
++    handlers: Final = _NativeHandlers(provider)
++    router: Final = APIRouter(
++        prefix="/account_pool/cockpit/native",
++        tags=["Account Pool"],
++        route_class=_NativeRoute,
++        dependencies=[Depends(authorize)],
++    )
++
++    router.add_api_route("/policy/runtime", handlers.runtime, methods=["GET"])
++    router.add_api_route("/policy/apply", handlers.apply_policy, methods=["POST"])
++    router.add_api_route("/configuration", handlers.configuration, methods=["GET"])
++    router.add_api_route("/accounts", handlers.accounts, methods=["GET"])
++    router.add_api_route("/preflight", handlers.preflight, methods=["POST"])
++    router.add_api_route("/credential-receipts", handlers.issue, methods=["POST"])
++    router.add_api_route("/credential-receipts/revalidate", handlers.revalidate, methods=["POST"])
++    router.add_api_route("/scope/{subject_hash}", handlers.view, methods=["GET"])
++    router.add_api_route("/scope", handlers.publish, methods=["POST"])
++    router.add_api_route("/scope", handlers.revoke, methods=["DELETE"])
++    router.add_api_route("/scope/activate", handlers.activate, methods=["POST"])
++    router.add_api_route("/scope/deactivate", handlers.deactivate, methods=["POST"])
++    router.add_api_route("/policy", handlers.policy, methods=["GET"])
++    router.add_api_route("/policy", handlers.save_policy, methods=["PUT"])
++    return router
+diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py b/litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py
+new file mode 100644
+index 0000000000..11daf899a6
+--- /dev/null
++++ b/litellm/proxy/management_endpoints/account_pool_cockpit_native_observation.py
+@@ -0,0 +1,100 @@
++from __future__ import annotations
++
++from typing import Final
++
++from pydantic import JsonValue
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import (
++    CockpitAdminClient,
++    CockpitFailure,
++    valid_cockpit_auth_name,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialReceiptRejection,
++    NativeCredentialBindings,
++)
++from litellm.proxy.management_endpoints.account_pool_cockpit_scope_service import (
++    CockpitScopeManifest,
++    SubjectReader,
++    scope_models_visible,
++)
++
++
++def _alias(name: str) -> str:
++    return name.strip().casefold().removesuffix(".json")
++
++
++def _canonical_fields(data: dict[str, JsonValue], fields: tuple[str, ...]) -> bool:
++    return not any(key.casefold() == field.casefold() and key != field for key in data for field in fields)
++
++
++def _canonical(data: dict[str, JsonValue]) -> bool:
++    fields: Final = ("accounts", "apiKeys", "modelIds", "excludedModels", "accountModelRules", "modelAliases")
++    if not _canonical_fields(data, fields):
++        return False
++    sections: Final = (
++        ("accounts", ("id", "authId", "authKind", "accessTokenOnly", "upstreamApiKey")),
++        ("apiKeys", ("id", "label", "key", "enabled", "accountIds", "allowedModels")),
++        ("accountModelRules", ("accountId", "excludedModels")),
++        ("modelAliases", ("sourceModel", "alias")),
++    )
++    return all(
++        _canonical_fields(item, names)
++        for section, names in sections
++        for entries in (data.get(section),)
++        if isinstance(entries, list)
++        for item in entries
++        if isinstance(item, dict)
++    )
++
++
++class NativeCredentialObservation:
++    def __init__(self, subjects: SubjectReader, target: CockpitAdminClient) -> None:
++        self._subjects: Final = subjects
++        self._target: Final = target
++
++    async def read(self, subject_hash: str) -> NativeCredentialBindings | CredentialReceiptRejection:
++        scope: Final = await self._subjects.read(subject_hash)
++        if scope is None or scope.subject_hash != subject_hash:
++            return CredentialReceiptRejection("subject_unverified")
++        snapshot: Final = await self._target.read_manifest()
++        if isinstance(snapshot, CockpitFailure):
++            return CredentialReceiptRejection("read_unavailable")
++        if not _canonical(snapshot.data):
++            return CredentialReceiptRejection("target_auth_unsupported")
++        manifest: Final = CockpitScopeManifest.model_validate(snapshot.data)
++        accounts: Final = manifest.accounts or ()
++        matches: Final = tuple(account for account in accounts if account.id.strip().lower() == str(scope.card_id))
++        if not matches:
++            return CredentialReceiptRejection("target_account_missing")
++        if len(matches) != 1:
++            return CredentialReceiptRejection("target_account_collision")
++        account: Final = matches[0]
++        if (
++            account.id != str(scope.card_id)
++            or not valid_cockpit_auth_name(account.authId)
++            or account.authKind not in ("", "oauth")
++            or account.accessTokenOnly
++            or account.upstreamApiKey.strip()
++        ):
++            return CredentialReceiptRejection("target_auth_unsupported")
++        if sum(_alias(item.authId) == _alias(account.authId) for item in accounts) != 1:
++            return CredentialReceiptRejection("target_credential_collision")
++        if not scope_models_visible(manifest, scope):
++            return CredentialReceiptRejection("subject_unverified")
++        files: Final = await self._target.list_auth_files()
++        if isinstance(files, CockpitFailure):
++            return CredentialReceiptRejection("read_unavailable")
++        if sum(_alias(item.id) == _alias(account.authId) for item in files) > 1:
++            return CredentialReceiptRejection("target_credential_collision")
++        matched: Final = tuple(item for item in files if item.id == account.authId and item.size > 0)
++        if len(matched) != 1:
++            return CredentialReceiptRejection("target_credential_missing")
++        return NativeCredentialBindings(
++            scope=scope,
++            target_account_id=scope.card_id,
++            target_auth_id=account.authId,
++            target_file_revision=matched[0].etag,
++            target_file_size=matched[0].size,
++            manifest_revision=snapshot.revision,
++        )
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_policy.py b/litellm/proxy/management_endpoints/account_pool_cockpit_policy.py
 new file mode 100644
 index 0000000000..33fb0512ea
@@ -3084,10 +3889,10 @@ index 0000000000..33fb0512ea
 +    )
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py b/litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py
 new file mode 100644
-index 0000000000..f059615893
+index 0000000000..165019c599
 --- /dev/null
 +++ b/litellm/proxy/management_endpoints/account_pool_cockpit_receipt_contracts.py
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,123 @@
 +"""Native receipt values only; a constructed DTO is not a verified receipt."""
 +
 +from __future__ import annotations
@@ -3146,6 +3951,42 @@ index 0000000000..f059615893
 +    signature: Digest = Field(repr=False)
 +
 +
++class NativeCredentialBindings(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    scope: TrustedCredentialScope
++    target_account_id: UUID
++    target_auth_id: str = Field(repr=False)
++    target_file_revision: str = Field(pattern=_ETAG)
++    target_file_size: int = Field(gt=0)
++    manifest_revision: str = Field(pattern=_ETAG)
++
++
++class NativeCredentialReceiptPayload(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    version: Literal[1] = 1
++    purpose: Literal["litellm-cockpit-native-scope"] = "litellm-cockpit-native-scope"
++    issued_at: int = Field(gt=0, strict=True)
++    expires_at: int = Field(gt=0, strict=True)
++    bindings: NativeCredentialBindings
++
++    @model_validator(mode="after")
++    def bounded_lifetime(self) -> Self:
++        if self.expires_at - self.issued_at != _LIFETIME:
++            raise ValueError("Invalid receipt lifetime")
++        return self
++
++
++class NativeCredentialReceipt(BaseModel):
++    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
++
++    status: Literal["native_scope_verified"] = "native_scope_verified"
++    ready_to_migrate: Literal[False] = False
++    payload: NativeCredentialReceiptPayload
++    signature: Digest = Field(repr=False)
++
++
 +ReceiptRejectionCode = Literal[
 +    "invalid_subject",
 +    "subject_unverified",
@@ -3177,10 +4018,10 @@ index 0000000000..f059615893
 +    status: Literal["rejected"] = "rejected"
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_route.py b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
 new file mode 100644
-index 0000000000..af1cdb49da
+index 0000000000..47f38a013e
 --- /dev/null
 +++ b/litellm/proxy/management_endpoints/account_pool_cockpit_route.py
-@@ -0,0 +1,337 @@
+@@ -0,0 +1,367 @@
 +"""按已发布 Cockpit 主体范围选择唯一请求 owner；默认关闭且不重试或回放。"""
 +
 +from __future__ import annotations
@@ -3403,6 +4244,10 @@ index 0000000000..af1cdb49da
 +        self._entries = MappingProxyType({})
 +
 +    async def decision(self, subject_hash: str) -> RouteDecision:
++        from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++        if self._lookup is None and native_cockpit_enabled():
++            return await self._default_lookup(subject_hash)
 +        now = self._clock()
 +        cached = self._entries.get(subject_hash)
 +        if cached is not None and cached.expires > now:
@@ -3425,6 +4270,17 @@ index 0000000000..af1cdb49da
 +
 +    @staticmethod
 +    async def _default_lookup(subject_hash: str) -> RouteDecision:
++        from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++            native_cockpit_enabled,
++            native_cockpit_services,
++        )
++
++        if native_cockpit_enabled():
++            try:
++                state: Final = await native_cockpit_services().route_state(subject_hash)
++                return _decision(state.model_dump_json().encode(), subject_hash)
++            except Exception:  # noqa: BLE001  # Native failures must not fall back to Manager or leak credentials.
++                raise CockpitRouteUnavailable from None
 +        token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
 +        base_url: Final = os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091")
 +        return await ManagerRouteLookup(base_url, token).read(subject_hash)
@@ -3441,10 +4297,21 @@ index 0000000000..af1cdb49da
 +    *,
 +    resolver: CockpitRouteResolver | None = None,
 +) -> CockpitRoute | None:
-+    if not routing_enabled() or identity is None or identity.card_id is None:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++    native: Final = native_cockpit_enabled()
++    if identity is None or identity.card_id is None:
++        return None
++    if not routing_enabled():
++        if native:
++            raise HTTPException(503, "cockpit_routing_disabled")
 +        return None
 +    if not isinstance(token, str) or _HASH.fullmatch(token) is None:
++        if native:
++            raise HTTPException(401, "native_subject_required")
 +        return None
++    if native and (identity.binding_id is not None or identity.key_hash != token):
++        raise HTTPException(403, "native_subject_required")
 +    try:
 +        request: Final = _DATA.validate_python(data)
 +    except ValidationError:
@@ -3455,10 +4322,14 @@ index 0000000000..af1cdb49da
 +    except CockpitRouteUnavailable:
 +        raise HTTPException(503, "cockpit_route_unavailable") from None
 +    if decision.state in {"absent", "staged"}:
++        if native:
++            raise HTTPException(503, "cockpit_scope_not_active")
 +        return None
 +    if decision.state == "blocked" or decision.route is None:
 +        raise HTTPException(503, "cockpit_route_blocked")
 +    route: Final = decision.route
++    if native and route.account_ids != (str(identity.card_id),):
++        raise HTTPException(403, "account_outside_cockpit_scope")
 +    model: Final = request.get("model")
 +    if not isinstance(model, str) or not any(model.casefold() == allowed.casefold() for allowed in route.models):
 +        raise HTTPException(403, "model_outside_cockpit_scope")
@@ -3617,10 +4488,10 @@ index 0000000000..4dd5551b64
 +    return _runtime_result(await client.apply_policy(request.revision), applying=True)
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py b/litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py
 new file mode 100644
-index 0000000000..e57cb7d527
+index 0000000000..0d948c9250
 --- /dev/null
 +++ b/litellm/proxy/management_endpoints/account_pool_cockpit_scope_service.py
-@@ -0,0 +1,706 @@
+@@ -0,0 +1,718 @@
 +"""管理 Cockpit 授权投影；依赖原生主体读取和可信回执，不重启或切流。"""
 +
 +from __future__ import annotations
@@ -3653,6 +4524,8 @@ index 0000000000..e57cb7d527
 +    CredentialBindings,
 +    CredentialReceipt,
 +    CredentialReceiptRejection,
++    NativeCredentialBindings,
++    NativeCredentialReceipt,
 +    TrustedCredentialScope,
 +)
 +
@@ -3805,7 +4678,9 @@ index 0000000000..e57cb7d527
 +class ReceiptRevalidator(Protocol):
 +    """Only return a receipt after signature, subject and live-state revalidation."""
 +
-+    async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection: ...
++    async def revalidate(
++        self, subject_hash: str, encoded: str
++    ) -> CredentialReceipt | NativeCredentialReceipt | CredentialReceiptRejection: ...
 +
 +
 +class SubjectReader(Protocol):
@@ -3902,6 +4777,14 @@ index 0000000000..e57cb7d527
 +    return all(_visible(model, manifest, card) for card in cards for model in models)
 +
 +
++def scope_models_visible(manifest: CockpitScopeManifest, scope: TrustedCredentialScope) -> bool:
++    return (
++        scope.model_scope == "restricted"
++        and bool(scope.models)
++        and all(_visible(model, manifest, scope.card_id) for model in scope.models)
++    )
++
++
 +def _manifest_problem(manifest: CockpitScopeManifest, extra: dict[str, JsonValue] | None = None) -> bool:
 +    account_ids: Final = tuple(account.id.strip() for account in manifest.accounts or ())
 +    known_accounts: Final = frozenset(account_ids)
@@ -3946,7 +4829,7 @@ index 0000000000..e57cb7d527
 +
 +def _prepared_publication(
 +    request: CockpitScopePublishRequest,
-+    bindings: CredentialBindings,
++    bindings: CredentialBindings | NativeCredentialBindings,
 +    snapshot: ManifestSnapshot,
 +    manifest: CockpitScopeManifest,
 +    token: str,
@@ -4404,6 +5287,131 @@ index 0000000000..5ba8818f5d
 +            )
 +        except ValidationError:
 +            return None
+diff --git a/litellm/proxy/management_endpoints/account_pool_endpoints.py b/litellm/proxy/management_endpoints/account_pool_endpoints.py
+index a04ada4be9..e2c884ba85 100644
+--- a/litellm/proxy/management_endpoints/account_pool_endpoints.py
++++ b/litellm/proxy/management_endpoints/account_pool_endpoints.py
+@@ -634,6 +634,7 @@ async def _manager_request(
+     body: bytes | None = None,
+     idempotency_key: str | None = None,
+ ) -> httpx.Response:
++    _require_manager_backend()
+     client: Final = client_factory()
+     try:
+         return await client.request(method, path, body, idempotency_key)
+@@ -656,6 +657,7 @@ async def _manager_request_multipart(
+     content_type: str | None,
+     idempotency_key: str | None = None,
+ ) -> httpx.Response:
++    _require_manager_backend()
+     client: Final = client_factory()
+     try:
+         return await client.request_multipart(path, fields, filename, content, content_type, idempotency_key)
+@@ -663,7 +665,15 @@ async def _manager_request_multipart(
+         await client.close()
+ 
+ 
++def _require_manager_backend() -> None:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++    if native_cockpit_enabled():
++        raise HTTPException(503, "Legacy Manager API is disabled in Cockpit mode")
++
++
+ def _default_client() -> AccountPoolManagerClient:
++    _require_manager_backend()
+     return AccountPoolManagerClient(
+         base_url=os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091"),
+         token=os.getenv("ACCOUNT_POOL_MANAGER_TOKEN"),
+diff --git a/litellm/proxy/management_endpoints/account_pool_gateway.py b/litellm/proxy/management_endpoints/account_pool_gateway.py
+index 36cd3819a3..d39a2a3dd9 100644
+--- a/litellm/proxy/management_endpoints/account_pool_gateway.py
++++ b/litellm/proxy/management_endpoints/account_pool_gateway.py
+@@ -167,6 +167,23 @@ class AccountPoolGatewayMiddleware:
+         state.setdefault("account_pool_signature_lineage", self.signature_lineage)
+ 
+     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
++        from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++        if native_cockpit_enabled():
++            native_reset: Final = pool_identity.set(None)
++            try:
++                if cast(str, scope.get("path", "")).startswith(INTERNAL_PREFIX):
++                    if scope["type"] == "websocket":
++                        await send({"type": "websocket.close", "code": 1008})
++                    else:
++                        await JSONResponse({"detail": "legacy_forwarding_disabled"}, status_code=503)(
++                            scope, receive, send
++                        )
++                else:
++                    await self.app(scope, receive, send)
++            finally:
++                pool_identity.reset(native_reset)
++            return
+         self._attach_signature_lineage(scope)
+         ingress_started: Final = time.perf_counter()
+         reset: Final = pool_identity.set(None)
+diff --git a/litellm/proxy/management_endpoints/account_pool_gateway_client.py b/litellm/proxy/management_endpoints/account_pool_gateway_client.py
+index b072b40357..dd083ece51 100644
+--- a/litellm/proxy/management_endpoints/account_pool_gateway_client.py
++++ b/litellm/proxy/management_endpoints/account_pool_gateway_client.py
+@@ -38,6 +38,10 @@ class ManagerControl:
+         self.token: Final = token
+ 
+     async def call(self, path: str, body: BaseModel) -> httpx.Response:
++        from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++        if native_cockpit_enabled():
++            raise ControlError(503)
+         response: Final = await self.client.post(
+             f"{self.base_url}/api/internal/gateway/{path}",
+             content=body.model_dump_json().encode(),
+diff --git a/litellm/proxy/management_endpoints/account_pool_integration.py b/litellm/proxy/management_endpoints/account_pool_integration.py
+index 18b972a8df..495dc94730 100644
+--- a/litellm/proxy/management_endpoints/account_pool_integration.py
++++ b/litellm/proxy/management_endpoints/account_pool_integration.py
+@@ -187,6 +187,19 @@ async def validate_key_account_scope(
+         scope: Final = CardScope.model_validate(supplied)
+     except ValueError:
+         raise HTTPException(400, "Invalid account ID") from None
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++        native_cockpit_enabled,
++        native_cockpit_services,
++    )
++
++    if native_cockpit_enabled():
++        try:
++            accounts: Final = await native_cockpit_services().accounts()
++        except Exception:  # noqa: BLE001  # Do not expose Cockpit credentials from a failed account lookup.
++            raise HTTPException(503, "Account validation is unavailable") from None
++        if not any(account.account_id == scope.card_id and account.credential_present for account in accounts):
++            raise HTTPException(400, "Account credential is not available")
++        return
+     try:
+         async with http_client() as client:
+             response: Final = await client.get(
+@@ -400,6 +413,10 @@ def bind_identity(request: Request, auth: UserAPIKeyAuth) -> None:
+ 
+ 
+ async def resolve_card_key(key: str, request: Request | None) -> CardScope:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++    if native_cockpit_enabled():
++        raise HTTPException(401, "Create a native virtual key for Cockpit")
+     import httpx
+ 
+     from litellm.proxy.management_endpoints.account_pool_gateway import http_client, manager_control
+@@ -418,6 +435,10 @@ async def resolve_card_key(key: str, request: Request | None) -> CardScope:
+ 
+ 
+ async def register_card_key(key: str, request: Request | None = None, status: CardKeyStatus | None = None) -> None:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++    if native_cockpit_enabled():
++        raise HTTPException(401, "Create a native virtual key for Cockpit")
+     from litellm.proxy.management_endpoints import key_management_endpoints
+     from litellm.proxy.proxy_server import prisma_client
+ 
 diff --git a/litellm/proxy/management_endpoints/account_pool_management.py b/litellm/proxy/management_endpoints/account_pool_management.py
 index 3732404dc4..48b8c98f62 100644
 --- a/litellm/proxy/management_endpoints/account_pool_management.py
@@ -4761,6 +5769,96 @@ index cc74e7b108..3463ec3989 100644
      auth_file_template: AuthFileTemplate | None = None
      default_proxy_profile_id: str | None = Field(default=None, max_length=120)
      max_attempts: int = Field(default=3, ge=1, le=5)
+diff --git a/litellm/proxy/management_endpoints/account_pool_reconciler.py b/litellm/proxy/management_endpoints/account_pool_reconciler.py
+index d04105678b..4832ebe7b5 100644
+--- a/litellm/proxy/management_endpoints/account_pool_reconciler.py
++++ b/litellm/proxy/management_endpoints/account_pool_reconciler.py
+@@ -336,6 +336,10 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
+ 
+ 
+ async def reconcile_configured_account_pool() -> bool:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++    if native_cockpit_enabled():
++        return False
+     token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN")
+     if token is None or len(token) < 32:
+         return False
+@@ -351,6 +355,10 @@ async def reconcile_configured_account_pool() -> bool:
+ 
+ 
+ def start_reconciliation_loop() -> asyncio.Task[None] | None:
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
++
++    if native_cockpit_enabled():
++        return None
+     token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN")
+     if token is None or len(token) < 32:
+         return None
+diff --git a/litellm/proxy/proxy_server.py b/litellm/proxy/proxy_server.py
+index 9f6c53e9d6..212ddde00f 100644
+--- a/litellm/proxy/proxy_server.py
++++ b/litellm/proxy/proxy_server.py
+@@ -1311,6 +1311,14 @@ async def proxy_startup_event(app: FastAPI) -> AsyncGenerator[None, None]:
+ 
+     account_pool_reconciliation_task: Final = start_account_pool_reconciliation_loop()
+ 
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++        native_cockpit_enabled,
++        native_cockpit_services,
++    )
++
++    if native_cockpit_enabled():
++        native_cockpit_services()
++
+     # End of startup event
+     yield
+ 
+@@ -1321,6 +1329,10 @@ async def proxy_startup_event(app: FastAPI) -> AsyncGenerator[None, None]:
+     GracefulShutdownManager.start_shutdown()
+     await GracefulShutdownManager.wait_for_drain()
+ 
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import close_native_cockpit_services
++
++    await close_native_cockpit_services()
++
+     # Shutdown event - close shared aiohttp session
+     if shared_aiohttp_session is not None:
+         try:
+@@ -10218,6 +10230,23 @@ async def model_list(
+ 
+     pool_caller: Final = pool_identity.get()
+     if pool_caller is not None and pool_caller.card_id is not None:
++        from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++            native_cockpit_enabled,
++            native_cockpit_services,
++        )
++
++        if native_cockpit_enabled():
++            native_state: Final = await native_cockpit_services().route_state(pool_caller.key_hash)
++            if native_state.state != "active" or native_state.account_ids != (str(pool_caller.card_id),):
++                raise HTTPException(503, "cockpit_scope_not_active")
++            return {
++                "object": "list",
++                "data": [
++                    {"id": model, "object": "model", "created": 0, "owned_by": "cockpit"}
++                    for model in native_state.models
++                    if model not in hidden_names
++                ],
++            }
+         available: Final = await get_available_models_for_user(
+             user_api_key_dict=user_api_key_dict,
+             llm_router=llm_router,
+@@ -18056,6 +18085,9 @@ app.include_router(model_management_router)
+ app.include_router(model_access_group_management_router)
+ app.include_router(auto_router_management_router)
+ app.include_router(account_pool_router)
++from litellm.proxy.management_endpoints.account_pool_cockpit_native_api import create_native_cockpit_router
++
++app.include_router(create_native_cockpit_router())
+ app.include_router(request_log_router)
+ app.include_router(runtime_configuration_router)
+ app.include_router(tag_management_router)
 diff --git a/litellm/proxy/route_llm_request.py b/litellm/proxy/route_llm_request.py
 index 68d72d0311..69b7512261 100644
 --- a/litellm/proxy/route_llm_request.py
@@ -5023,6 +6121,764 @@ index 0000000000..a49d425851
 +    )
 +    assert completed.returncode == 0, completed.stderr
 +    assert completed.stdout.strip() == "ACCOUNT_POOL_ISOLATED_IMPORT_OK"
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py
+new file mode 100644
+index 0000000000..7dfa27e3f3
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_credential_service.py
+@@ -0,0 +1,208 @@
++from __future__ import annotations
++
++import asyncio
++import importlib
++import json
++from collections.abc import Callable
++from uuid import UUID
++
++import pytest
++from pydantic import SecretStr
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import (
++    CredentialBindings,
++    CredentialReceipt,
++    CredentialReceiptRejection,
++    TrustedCredentialScope,
++)
++
++MODULE = "litellm.proxy.management_endpoints.account_pool_cockpit_credential_service"
++SUBJECT = "a" * 64
++KEY = SecretStr("OFFLINE-RECEIPT-SIGNING-KEY-ONLY-32")
++REVISION = '"sha256-' + "b" * 64 + '"'
++
++
++def bindings() -> CredentialBindings:
++    return CredentialBindings(
++        scope=TrustedCredentialScope(
++            subject_hash=SUBJECT, card_id=UUID(int=1), model_scope="restricted", models=("fixture-model",)
++        ),
++        source_version=1,
++        source_file="fixture.json",
++        source_state_digest="c" * 64,
++        source_fingerprint_digest="d" * 64,
++        source_content_digest="e" * 64,
++        source_size=123,
++        target_account_id=UUID(int=1),
++        target_auth_id="fixture.json",
++        target_file_revision=REVISION,
++        manifest_revision=REVISION,
++    )
++
++
++class Observations:
++    def __init__(self, values: tuple[CredentialBindings | CredentialReceiptRejection | Exception, ...] | None = None):
++        self.values = iter(values or (bindings(),))
++        self.last: CredentialBindings | CredentialReceiptRejection | Exception = bindings()
++        self.calls: list[str] = []
++
++    async def read(self, subject_hash: str) -> CredentialBindings | CredentialReceiptRejection:
++        self.calls.append(subject_hash)
++        self.last = next(self.values, self.last)
++        if isinstance(self.last, Exception):
++            raise self.last
++        return self.last
++
++
++def service(observations: Observations | None = None, clock: Callable[[], int] = lambda: 1000, key: SecretStr = KEY):
++    module = importlib.import_module(MODULE)
++    return module.CockpitCredentialReceiptService(observations, key, clock)
++
++
++def test_native_receipt_module_exists():
++    assert importlib.util.find_spec(MODULE) is not None
++
++
++def test_signed_receipt_requires_two_equal_observations_and_rechecks_each_use():
++    observations = Observations()
++    core = service(observations)
++    receipt = asyncio.run(core.issue(SUBJECT))
++    assert isinstance(receipt, CredentialReceipt)
++    assert (receipt.payload.issued_at, receipt.payload.expires_at) == (1000, 1300)
++    assert receipt.ready_to_migrate is False
++    assert observations.calls == [SUBJECT, SUBJECT]
++    assert asyncio.run(core.revalidate(SUBJECT, receipt.model_dump_json())) == receipt
++    assert observations.calls == [SUBJECT] * 4
++    assert KEY.get_secret_value() not in receipt.model_dump_json()
++
++
++@pytest.mark.parametrize("subject", ["", "a" * 63, "A" * 64, "a" * 64 + "\n", "not-a-hash"])
++def test_invalid_subject_never_observes(subject: str):
++    observations = Observations()
++    core = service(observations)
++    assert asyncio.run(core.issue(subject)) == CredentialReceiptRejection("invalid_subject")
++    assert observations.calls == []
++
++
++def test_missing_trusted_observer_keeps_issuance_closed():
++    assert asyncio.run(service().issue(SUBJECT)) == CredentialReceiptRejection("read_unavailable")
++
++
++@pytest.mark.parametrize("change", ["signature", "subject", "model", "purpose", "version", "lifetime"])
++def test_tampered_receipt_is_rejected_before_reading_live_state(change: str):
++    signed = asyncio.run(service(Observations()).issue(SUBJECT))
++    assert isinstance(signed, CredentialReceipt)
++    data = json.loads(signed.model_dump_json())
++    if change == "signature":
++        data["signature"] = "0" * 64
++    elif change == "subject":
++        data["payload"]["bindings"]["scope"]["subject_hash"] = "f" * 64
++    elif change == "model":
++        data["payload"]["bindings"]["scope"]["models"] = ["another-model"]
++    elif change == "purpose":
++        data["payload"]["purpose"] = "authorization"
++    elif change == "version":
++        data["payload"]["version"] = 2
++    else:
++        data["payload"]["expires_at"] = 1400
++    observations = Observations()
++    result = asyncio.run(service(observations).revalidate(SUBJECT, json.dumps(data)))
++    assert result == CredentialReceiptRejection("invalid_receipt")
++    assert observations.calls == []
++
++
++def test_key_rotation_and_cross_subject_use_reject_existing_receipts():
++    signed = asyncio.run(service(Observations()).issue(SUBJECT))
++    assert isinstance(signed, CredentialReceipt)
++    assert asyncio.run(
++        service(Observations(), key=SecretStr("ROTATED-KEY-ONLY-32-CHARACTERS-LONG")).revalidate(
++            SUBJECT, signed.model_dump_json()
++        )
++    ) == CredentialReceiptRejection("invalid_receipt")
++    assert asyncio.run(
++        service(Observations()).revalidate("f" * 64, signed.model_dump_json())
++    ) == CredentialReceiptRejection("invalid_receipt")
++
++
++@pytest.mark.parametrize("now", [999, 1300, True, 1000.5, float("nan")])
++def test_time_window_uses_strict_integer_clock(now):
++    signed = asyncio.run(service(Observations()).issue(SUBJECT))
++    assert isinstance(signed, CredentialReceipt)
++    observed = Observations()
++    assert asyncio.run(
++        service(observed, lambda: now).revalidate(SUBJECT, signed.model_dump_json())
++    ) == CredentialReceiptRejection("receipt_time_invalid")
++    assert observed.calls == []
++
++
++@pytest.mark.parametrize("now", [0, -1, True, 1000.5])
++def test_invalid_issue_clock_is_rejected_before_observation(now):
++    observed = Observations()
++    assert asyncio.run(service(observed, lambda: now).issue(SUBJECT)) == CredentialReceiptRejection("invalid_clock")
++    assert observed.calls == []
++
++
++def test_clock_failure_is_sanitized():
++    def unavailable():
++        raise RuntimeError("SECRET-CLOCK-ERROR")
++
++    result = asyncio.run(service(Observations(), unavailable).issue(SUBJECT))
++    assert result == CredentialReceiptRejection("invalid_clock")
++    assert "SECRET" not in repr(result)
++
++
++def test_expiry_during_observation_is_rejected():
++    clocks = iter((1000, 1300))
++    assert asyncio.run(service(Observations(), lambda: next(clocks)).issue(SUBJECT)) == CredentialReceiptRejection(
++        "receipt_time_invalid"
++    )
++    signed = asyncio.run(service(Observations()).issue(SUBJECT))
++    assert isinstance(signed, CredentialReceipt)
++    clocks = iter((1299, 1300))
++    assert asyncio.run(
++        service(Observations(), lambda: next(clocks)).revalidate(SUBJECT, signed.model_dump_json())
++    ) == CredentialReceiptRejection("receipt_time_invalid")
++
++
++@pytest.mark.parametrize(
++    "field,value",
++    [("source_version", 2), ("source_content_digest", "f" * 64), ("manifest_revision", '"sha256-' + "f" * 64 + '"')],
++)
++def test_changed_observation_invalidates_receipt(field, value):
++    signed = asyncio.run(service(Observations()).issue(SUBJECT))
++    assert isinstance(signed, CredentialReceipt)
++    changed = bindings().model_copy(update={field: value})
++    assert asyncio.run(
++        service(Observations((changed,))).revalidate(SUBJECT, signed.model_dump_json())
++    ) == CredentialReceiptRejection("stale_receipt")
++    assert asyncio.run(service(Observations((bindings(), changed))).issue(SUBJECT)) == CredentialReceiptRejection(
++        "state_changed"
++    )
++
++
++@pytest.mark.parametrize(
++    "observation,code",
++    [
++        (CredentialReceiptRejection("subject_unverified"), "subject_unverified"),
++        (RuntimeError("SECRET-UPSTREAM-ERROR"), "read_unavailable"),
++    ],
++)
++def test_failed_trusted_observation_never_issues(observation, code):
++    assert asyncio.run(service(Observations((observation,))).issue(SUBJECT)) == CredentialReceiptRejection(code)
++
++
++def test_observation_cannot_bind_another_subject_or_account():
++    wrong_subject = bindings().model_copy(
++        update={"scope": bindings().scope.model_copy(update={"subject_hash": "f" * 64})}
++    )
++    wrong_account = bindings().model_copy(update={"target_account_id": UUID(int=2)})
++    for value in (wrong_subject, wrong_account):
++        assert asyncio.run(service(Observations((value,))).issue(SUBJECT)) == CredentialReceiptRejection(
++            "subject_unverified"
++        )
++
++
++def test_empty_or_short_signing_key_is_not_accepted():
++    for value in ("", "short"):
++        with pytest.raises(ValueError, match="signing key"):
++            service(Observations(), key=SecretStr(value))
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py
+new file mode 100644
+index 0000000000..04b26dfeba
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native.py
+@@ -0,0 +1,408 @@
++import asyncio
++import hashlib
++import json
++from uuid import UUID
++
++import httpx
++import pytest
++from fastapi import FastAPI
++from fastapi.testclient import TestClient
++from pydantic import SecretStr
++
++from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
++from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader import TrustedCredentialScope
++
++SUBJECT = "a" * 64
++CARD = UUID(int=1)
++PREFIX = "/account_pool/cockpit/native"
++SECRET = "COCKPIT-ADMIN-SECRET-32-CHARACTERS-LONG"
++
++
++class Cockpit:
++    def __init__(self):
++        self.data = {
++            "accounts": [{"id": str(CARD), "authId": "fixture.json", "authKind": "oauth"}],
++            "modelIds": ["fixture-model"],
++            "apiKeys": [],
++        }
++        self.revision = '"sha256-' + "b" * 64 + '"'
++        self.active = self.revision
++        self.revoked = False
++        self.credential_present = True
++        self.calls = []
++
++    async def read(self, subject_hash):
++        if self.revoked:
++            return None
++        return TrustedCredentialScope(
++            subject_hash=subject_hash, card_id=CARD, model_scope="restricted", models=("fixture-model",)
++        )
++
++    def handle(self, request):
++        assert request.url.host == "cockpit.test", "Manager or legacy fallback must not be called"
++        self.calls.append((request.method, request.url.path))
++        if request.url.path == "/admin/v1/auth-files":
++            if not self.credential_present:
++                return httpx.Response(200, json={"files": []})
++            return httpx.Response(
++                200, json={"files": [{"id": "fixture.json", "etag": '"sha256-' + "c" * 64 + '"', "size": 123}]}
++            )
++        if request.url.path == "/admin/v1/policy-runtime":
++            return httpx.Response(
++                200,
++                json={
++                    "persistedRevision": self.revision,
++                    "activeRevision": self.active,
++                    "applySupported": self.active == self.revision,
++                    "blockedReason": None if self.active == self.revision else "non_policy_change",
++                },
++            )
++        assert request.url.path == "/admin/v1/manifest"
++        if request.method == "PUT":
++            if request.headers["If-Match"] != self.revision:
++                return httpx.Response(412)
++            self.data = json.loads(request.content)
++            self.revision = '"sha256-' + hashlib.sha256(request.content).hexdigest() + '"'
++            return httpx.Response(
++                202, json={"status": "persisted", "restartRequired": True}, headers={"ETag": self.revision}
++            )
++        assert request.method == "GET"
++        return httpx.Response(200, json=self.data, headers={"ETag": self.revision})
++
++
++def setup(user=LitellmUserRoles.PROXY_ADMIN, data_url="http://cockpit.test"):
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++        NativeCockpitConfig,
++        NativeCockpitServices,
++    )
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native_api import create_native_cockpit_router
++
++    cockpit = Cockpit()
++    http = httpx.AsyncClient(transport=httpx.MockTransport(cockpit.handle))
++    config = NativeCockpitConfig(
++        admin_url="http://cockpit.test",
++        admin_token=SecretStr(SECRET),
++        data_url=data_url,
++        receipt_key=SecretStr("RECEIPT-KEY-32-CHARACTERS-FIXTURE-ONLY"),
++        routing_seed=SecretStr("ROUTING-SEED-32-CHARACTERS-FIXTURE-ONLY"),
++    )
++    services = NativeCockpitServices(config, http=http, subjects=cockpit, clock=lambda: 1000)
++    app = FastAPI()
++    app.include_router(create_native_cockpit_router(lambda: services))
++    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=user)
++    return cockpit, services, http, app
++
++
++def test_native_admin_workflow_does_not_use_manager_or_expose_secrets():
++    cockpit, services, http, app = setup()
++    try:
++        with TestClient(app) as client:
++            accounts = client.get(PREFIX + "/accounts")
++            assert accounts.status_code == 200 and accounts.json()[0]["account_id"] == str(CARD)
++            preflight = client.post(PREFIX + "/preflight", json={"key_hash": SUBJECT})
++            assert preflight.status_code == 200 and preflight.json()["status"] == "eligible"
++            issued = client.post(PREFIX + "/credential-receipts", json={"key_hash": SUBJECT})
++            assert issued.status_code == 200 and issued.json()["status"] == "native_scope_verified"
++            receipt = issued.json()["receipt"]
++            verified = client.post(
++                PREFIX + "/credential-receipts/revalidate", json={"key_hash": SUBJECT, "receipt": receipt}
++            )
++            assert verified.status_code == 200 and verified.json()["status"] == "native_scope_verified"
++            published = client.post(
++                PREFIX + "/scope", json={"subject_hash": SUBJECT, "receipt": receipt, "revision": cockpit.revision}
++            )
++            assert published.status_code == 200 and published.json()["scope"]["state"] == "staged"
++            activated = client.post(
++                PREFIX + "/scope/activate", json={"subject_hash": SUBJECT, "revision": cockpit.revision}
++            )
++            assert activated.status_code == 200 and activated.json()["runtime_state"] == "pending"
++            assert asyncio.run(services.route_state(SUBJECT)).state == "blocked"
++            cockpit.active = cockpit.revision
++            confirmed = client.get(PREFIX + "/scope/" + SUBJECT)
++            assert confirmed.json()["runtime_state"] == "active"
++            assert asyncio.run(services.route_state(SUBJECT)).state == "active"
++            cockpit.revoked = True
++            blocked = client.get(PREFIX + "/scope/" + SUBJECT)
++            assert blocked.json()["scope"]["state"] == "blocked"
++            assert asyncio.run(services.route_state(SUBJECT)).api_key is None
++            deleted = client.request(
++                "DELETE", PREFIX + "/scope", json={"subject_hash": SUBJECT, "revision": cockpit.revision}
++            )
++            assert deleted.status_code == 200 and deleted.json()["scope"]["state"] == "absent"
++            for response in (accounts, preflight, issued, verified, published, activated, confirmed, blocked, deleted):
++                assert response.headers["cache-control"] == "no-store"
++                assert SECRET not in response.text and '"api_key"' not in response.text
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_native_admin_permission_is_checked_before_any_observation():
++    cockpit, _, http, app = setup(LitellmUserRoles.INTERNAL_USER)
++    try:
++        with TestClient(app) as client:
++            for method, path, body in [
++                ("GET", "/accounts", None),
++                ("POST", "/preflight", {"key_hash": SUBJECT}),
++                ("POST", "/credential-receipts", {"key_hash": SUBJECT}),
++                ("GET", "/scope/" + SUBJECT, None),
++            ]:
++                assert client.request(method, PREFIX + path, json=body).status_code == 403
++            assert cockpit.calls == []
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_native_policy_runtime_uses_cockpit_directly():
++    cockpit, _, http, app = setup()
++    try:
++        with TestClient(app) as client:
++            policy = client.get(PREFIX + "/policy")
++            runtime = client.get(PREFIX + "/policy/runtime")
++            assert policy.status_code == runtime.status_code == 200
++            assert policy.json()["revision"] == runtime.json()["active_revision"] == cockpit.revision
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_invalid_receipt_and_stale_revision_do_not_write():
++    cockpit, _, http, app = setup()
++    try:
++        with TestClient(app) as client:
++            invalid = client.post(
++                PREFIX + "/scope",
++                json={"subject_hash": SUBJECT, "receipt": "SECRET-INVALID-RECEIPT", "revision": cockpit.revision},
++            )
++            assert invalid.status_code == 422 and "SECRET" not in invalid.text
++            issued = client.post(PREFIX + "/credential-receipts", json={"key_hash": SUBJECT}).json()
++            bad = client.post(
++                PREFIX + "/scope",
++                json={"subject_hash": SUBJECT, "receipt": issued["receipt"], "revision": '"sha256-' + "f" * 64 + '"'},
++            )
++            assert bad.status_code == 409
++            assert not any(method == "PUT" for method, _ in cockpit.calls)
++            invalid = client.post(PREFIX + "/credential-receipts", json={"key_hash": "SECRET-RAW-KEY"})
++            assert invalid.status_code == 422 and "SECRET" not in invalid.text
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_new_mode_fails_closed_for_absent_scope_and_disables_legacy_background_work(monkeypatch):
++    from fastapi import HTTPException
++
++    from litellm.proxy.management_endpoints.account_pool_cockpit_route import (
++        CockpitRouteResolver,
++        RouteDecision,
++        cockpit_route_for_request,
++    )
++    from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity
++    from litellm.proxy.management_endpoints.account_pool_reconciler import (
++        reconcile_configured_account_pool,
++        start_reconciliation_loop,
++    )
++
++    monkeypatch.setenv("ACCOUNT_POOL_BACKEND", "cockpit")
++    monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "FORBIDDEN-MANAGER-TOKEN-32-CHARACTERS")
++
++    async def absent(_):
++        return RouteDecision("absent")
++
++    identity = PoolIdentity(key_hash=SUBJECT, request_id=UUID(int=3), card_id=CARD)
++    with pytest.raises(HTTPException) as error:
++        asyncio.run(
++            cockpit_route_for_request(
++                identity,
++                SUBJECT,
++                {"model": "fixture-model"},
++                "aresponses",
++                resolver=CockpitRouteResolver(lookup=absent),
++            )
++        )
++    assert error.value.status_code == 503
++    assert asyncio.run(reconcile_configured_account_pool()) is False
++    assert start_reconciliation_loop() is None
++
++
++def test_default_native_lookup_reads_current_permissions_without_active_cache(monkeypatch):
++    from litellm.proxy.management_endpoints import account_pool_cockpit_native as native
++    from litellm.proxy.management_endpoints.account_pool_cockpit_route import CockpitRouteResolver
++    from litellm.proxy.management_endpoints.account_pool_cockpit_scope_service import (
++        CockpitScopeActivationRequest,
++        CockpitScopePublishRequest,
++    )
++
++    cockpit, services, http, _ = setup()
++    monkeypatch.setenv("ACCOUNT_POOL_BACKEND", "cockpit")
++    monkeypatch.setattr(native, "native_cockpit_services", lambda: services)
++
++    async def check():
++        receipt = await services.receipts.issue(SUBJECT)
++        await services.scope.publish(
++            CockpitScopePublishRequest(
++                subject_hash=SUBJECT, receipt=receipt.model_dump_json(), revision=cockpit.revision
++            )
++        )
++        await services.scope.activate(CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=cockpit.revision))
++        cockpit.active = cockpit.revision
++        resolver = CockpitRouteResolver()
++        assert (await resolver.decision(SUBJECT)).state == "active"
++        cockpit.revoked = True
++        assert (await resolver.decision(SUBJECT)).state == "blocked"
++
++    try:
++        asyncio.run(check())
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_native_mode_disables_legacy_transport_before_client_creation(monkeypatch):
++    from litellm.proxy.management_endpoints.account_pool_endpoints import create_account_pool_router
++
++    monkeypatch.setenv("ACCOUNT_POOL_BACKEND", "cockpit")
++    calls = []
++
++    def forbidden():
++        calls.append("manager")
++        raise AssertionError("Manager client must not be created")
++
++    app = FastAPI()
++    app.include_router(create_account_pool_router(forbidden))
++    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
++    with TestClient(app) as client:
++        assert client.get("/account_pool/environments").status_code == 503
++        assert client.get("/account_pool/cockpit/policy").status_code == 503
++    assert calls == []
++
++
++def test_native_configuration_does_not_reuse_keys_or_fall_back_to_manager(monkeypatch):
++    from pydantic import ValidationError
++
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
++        NativeCockpitConfig,
++        NativeCockpitError,
++        native_cockpit_enabled,
++    )
++
++    monkeypatch.setenv("ACCOUNT_POOL_BACKEND", "mistyped")
++    with pytest.raises(ValueError):
++        native_cockpit_enabled()
++    monkeypatch.delenv("ACCOUNT_POOL_COCKPIT_RECEIPT_KEY", raising=False)
++    with pytest.raises(NativeCockpitError):
++        NativeCockpitConfig.from_environment()
++    with pytest.raises(ValidationError):
++        NativeCockpitConfig(
++            admin_url="http://cockpit.test",
++            data_url="http://cockpit.test",
++            admin_token=SecretStr(SECRET),
++            receipt_key=SecretStr(SECRET),
++            routing_seed=SecretStr(SECRET),
++        )
++
++
++def test_ui_cannot_claim_active_after_credential_is_removed():
++    cockpit, services, http, app = setup()
++    try:
++        with TestClient(app) as client:
++            issued = client.post(PREFIX + "/credential-receipts", json={"key_hash": SUBJECT}).json()
++            client.post(
++                PREFIX + "/scope",
++                json={"subject_hash": SUBJECT, "receipt": issued["receipt"], "revision": cockpit.revision},
++            )
++            client.post(PREFIX + "/scope/activate", json={"subject_hash": SUBJECT, "revision": cockpit.revision})
++            cockpit.active = cockpit.revision
++            cockpit.credential_present = False
++            status = client.get(PREFIX + "/scope/" + SUBJECT)
++            assert status.json()["runtime_state"] != "active"
++            assert status.json()["scope"]["state"] == "blocked"
++            assert asyncio.run(services.route_state(SUBJECT)).api_key is None
++    finally:
++        asyncio.run(http.aclose())
++
++
++def test_native_request_reaches_local_cockpit_once_without_manager(monkeypatch):
++    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
++    from threading import Thread
++    from litellm.proxy.management_endpoints import account_pool_cockpit_native as native
++    from litellm.proxy.management_endpoints.account_pool_cockpit_scope_service import (
++        CockpitScopeActivationRequest,
++        CockpitScopePublishRequest,
++    )
++    from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
++    from litellm.proxy.route_llm_request import _route_request_single_attempt
++
++    requests = []
++
++    class Handler(BaseHTTPRequestHandler):
++        def log_message(self, *args):
++            pass
++
++        def do_POST(self):
++            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
++            requests.append((self.path, body))
++            content = json.dumps(
++                {
++                    "id": "resp_fixture",
++                    "object": "response",
++                    "created_at": 1000,
++                    "status": "completed",
++                    "model": "fixture-model",
++                    "output": [
++                        {
++                            "id": "msg_fixture",
++                            "type": "message",
++                            "status": "completed",
++                            "role": "assistant",
++                            "content": [{"type": "output_text", "text": "fixture-ok", "annotations": []}],
++                        }
++                    ],
++                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
++                }
++            ).encode()
++            self.send_response(200)
++            self.send_header("Content-Type", "application/json")
++            self.send_header("Content-Length", str(len(content)))
++            self.end_headers()
++            self.wfile.write(content)
++
++    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
++        thread = Thread(target=server.serve_forever, daemon=True)
++        thread.start()
++        cockpit, services, http, _ = setup(data_url=f"http://127.0.0.1:{server.server_port}")
++        monkeypatch.setenv("ACCOUNT_POOL_BACKEND", "cockpit")
++        monkeypatch.setenv("ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED", "true")
++        monkeypatch.setattr(native, "native_cockpit_services", lambda: services)
++
++        async def run():
++            receipt = await services.receipts.issue(SUBJECT)
++            await services.scope.publish(
++                CockpitScopePublishRequest(
++                    subject_hash=SUBJECT, receipt=receipt.model_dump_json(), revision=cockpit.revision
++                )
++            )
++            await services.scope.activate(
++                CockpitScopeActivationRequest(subject_hash=SUBJECT, revision=cockpit.revision)
++            )
++            cockpit.active = cockpit.revision
++            reset = pool_identity.set(PoolIdentity(key_hash=SUBJECT, request_id=UUID(int=3), card_id=CARD))
++            try:
++                result = await _route_request_single_attempt(
++                    {"model": "fixture-model", "input": "offline fixture", "num_retries": 3},
++                    None,
++                    None,
++                    "aresponses",
++                    UserAPIKeyAuth(token=SUBJECT),
++                )
++                assert result.output[0].content[0].text == "fixture-ok"
++                assert result.usage.input_tokens == result.usage.output_tokens == 1
++            finally:
++                pool_identity.reset(reset)
++
++        try:
++            asyncio.run(run())
++        finally:
++            asyncio.run(http.aclose())
++            server.shutdown()
++            thread.join()
++    assert len(requests) == 1 and requests[0][0] == "/v1/responses"
++    assert requests[0][1]["input"] == "offline fixture"
+diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py
+new file mode 100644
+index 0000000000..350d9c434e
+--- /dev/null
++++ b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_native_observation.py
+@@ -0,0 +1,124 @@
++import asyncio
++import importlib
++import json
++from uuid import UUID
++
++import httpx
++import pytest
++from pydantic import SecretStr
++
++from litellm.proxy.management_endpoints.account_pool_cockpit_admin import CockpitAdminClient, CockpitAdminConfig
++from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts import CredentialReceiptRejection
++from litellm.proxy.management_endpoints.account_pool_cockpit_subject_reader import TrustedCredentialScope
++
++SUBJECT = "a" * 64
++REVISION = '"sha256-' + "b" * 64 + '"'
++
++
++class Subjects:
++    def __init__(self, revoked=False):
++        self.revoked = revoked
++
++    async def read(self, subject_hash):
++        if self.revoked:
++            return None
++        return TrustedCredentialScope(
++            subject_hash=subject_hash, card_id=UUID(int=1), model_scope="restricted", models=("fixture-model",)
++        )
++
++
++def manifest():
++    return {
++        "accounts": [{"id": str(UUID(int=1)), "authId": "fixture.json", "authKind": "oauth"}],
++        "modelIds": ["fixture-model"],
++    }
++
++
++async def issue(data=None, files=None, revoked=False, status=200):
++    from litellm.proxy.management_endpoints.account_pool_cockpit_credential_service import (
++        CockpitCredentialReceiptService,
++    )
++    from litellm.proxy.management_endpoints.account_pool_cockpit_native_observation import NativeCredentialObservation
++
++    def handle(request):
++        assert request.url.host == "cockpit.test"
++        assert request.method == "GET"
++        if request.url.path == "/admin/v1/manifest":
++            return httpx.Response(status, json=manifest() if data is None else data, headers={"ETag": REVISION})
++        assert request.url.path == "/admin/v1/auth-files"
++        return httpx.Response(
++            200, json={"files": files if files is not None else [{"id": "fixture.json", "etag": REVISION, "size": 123}]}
++        )
++
++    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
++        target = CockpitAdminClient(
++            CockpitAdminConfig(url="http://cockpit.test", token=SecretStr("ADMIN-TOKEN-ONLY-32-CHARACTERS-LONG")), http
++        )
++        observations = NativeCredentialObservation(Subjects(revoked), target)
++        return await CockpitCredentialReceiptService(
++            observations, SecretStr("RECEIPT-KEY-ONLY-32-CHARACTERS-LONG"), lambda: 1000
++        ).issue(SUBJECT)
++
++
++def test_native_observation_issues_distinct_scope_receipt_without_legacy_source_fields():
++    receipt = asyncio.run(issue())
++    contracts = importlib.import_module("litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts")
++    assert isinstance(receipt, contracts.NativeCredentialReceipt)
++    data = json.loads(receipt.model_dump_json())
++    assert data["status"] == "native_scope_verified"
++    assert data["payload"]["purpose"] == "litellm-cockpit-native-scope"
++    assert not any(field.startswith("source_") for field in data["payload"]["bindings"])
++    assert data["payload"]["bindings"]["target_account_id"] == str(UUID(int=1))
++    assert data["payload"]["bindings"]["target_file_revision"] == REVISION
++    assert data["ready_to_migrate"] is False
++
++
++@pytest.mark.parametrize(
++    "change,code",
++    [
++        ("missing", "target_account_missing"),
++        ("duplicate", "target_account_collision"),
++        ("auth_alias", "target_credential_collision"),
++        ("api_key", "target_auth_unsupported"),
++        ("case_alias", "target_auth_unsupported"),
++        ("model", "subject_unverified"),
++    ],
++)
++def test_native_observation_rejects_ambiguous_or_incompatible_target(change, code):
++    data = manifest()
++    if change == "missing":
++        data["accounts"] = []
++    elif change == "duplicate":
++        data["accounts"] *= 2
++    elif change == "auth_alias":
++        data["accounts"].append({"id": str(UUID(int=2)), "authId": "fixture", "authKind": "oauth"})
++    elif change == "api_key":
++        data["accounts"][0]["upstreamApiKey"] = "SECRET"
++    elif change == "case_alias":
++        data["accounts"][0]["AUTHKIND"] = "apikey"
++    else:
++        data["modelIds"] = []
++    assert asyncio.run(issue(data)) == CredentialReceiptRejection(code)
++
++
++def test_missing_revoked_and_unavailable_observations_fail_closed():
++    assert asyncio.run(issue(revoked=True)) == CredentialReceiptRejection("subject_unverified")
++    assert asyncio.run(issue(files=[])) == CredentialReceiptRejection("target_credential_missing")
++    assert asyncio.run(issue(status=503)) == CredentialReceiptRejection("read_unavailable")
++    assert asyncio.run(
++        issue(files=[{"id": "fixture.json", "etag": REVISION, "size": 0}])
++    ) == CredentialReceiptRejection("target_credential_missing")
++
++
++@pytest.mark.parametrize(
++    "section,alias,value",
++    [
++        ("accountModelRules", "EXCLUDEDMODELS", {"accountId": str(UUID(int=1)), "excludedModels": []}),
++        ("modelAliases", "SOURCEMODEL", {"sourceModel": "fixture-model", "alias": "alias"}),
++        ("apiKeys", "ACCOUNTIDS", {"id": "unrelated", "enabled": False}),
++    ],
++)
++def test_native_observation_rejects_nested_case_aliases(section, alias, value):
++    data = manifest()
++    data[section] = [{**value, alias: ["fixture-model"]}]
++    assert asyncio.run(issue(data)) == CredentialReceiptRejection("target_auth_unsupported")
 diff --git a/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py b/tests/test_litellm/proxy/management_endpoints/test_account_pool_cockpit_policy.py
 new file mode 100644
 index 0000000000..920441b733
@@ -7332,8 +9188,845 @@ index 0000000000..e284eab7ea
 +
 +    with pytest.raises(asyncio.CancelledError):
 +        await _reader(reader_module, inspect_subject).read(KEY)
+diff --git a/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx b/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx
+index b232e26380..18380c3012 100644
+--- a/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx
++++ b/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.integration.test.tsx
+@@ -19,6 +19,10 @@ vi.mock("next/navigation", () => ({
+ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
+   default: () => ({ accessToken: "token", userRole: "Admin", isViewOnly: false }),
+ }));
++vi.mock("@/features/account-pool/api/NativeCockpitApi", async (original) => ({
++  ...(await original<typeof import("@/features/account-pool/api/NativeCockpitApi")>()),
++  getNativeBackend: async () => ({ backend: "manager" as const }),
++}));
+ vi.mock("@/features/account-pool/api/AccountPoolApi", async (original) => ({
+   ...(await original<typeof import("@/features/account-pool/api/AccountPoolApi")>()),
+   listAccountPoolEnvironments: (...args: unknown[]) => listAccounts(...args),
+@@ -128,7 +132,7 @@ describe("account card local configuration", () => {
+   it("does not load card data on a tab that does not consume it, then loads it on return", async () => {
+     searchState.value = "tab=upstream-sync";
+     const { rerender } = renderPage();
+-    expect(screen.getByRole("tab", { name: "上游更新" })).toHaveAttribute("aria-selected", "true");
++    expect(await screen.findByRole("tab", { name: "上游更新" })).toHaveAttribute("aria-selected", "true");
+     expect(listAccounts).not.toHaveBeenCalled();
+     searchState.value = "tab=dashboard";
+     rerender(
+@@ -143,7 +147,7 @@ describe("account card local configuration", () => {
+   it("opens runtime configuration from the card and saves without navigation", async () => {
+     const user = userEvent.setup();
+     renderPage();
+-    const tabs = screen.getAllByRole("tab");
++    const tabs = await screen.findAllByRole("tab");
+     const onboardingIndex = tabs.findIndex((tab) => tab.textContent === "自动化上号");
+     expect(onboardingIndex).toBe(4);
+     expect(tabs[onboardingIndex - 1]).toHaveTextContent(/认证文件|Credentials/i);
+diff --git a/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx b/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx
+index 6921c0cdad..01cdf1e5af 100644
+--- a/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx
++++ b/ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx
+@@ -45,6 +45,7 @@ import { useRouter, useSearchParams } from "next/navigation";
+ 
+ import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
+ import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
++import { AccountPoolBackendBoundary } from "@/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel";
+ import {
+   AlertDialog,
+   AlertDialogAction,
+@@ -89,7 +90,11 @@ import {
+ } from "@/features/account-pool/utils/accountPoolSelectors";
+ import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccountPoolMutations";
+ import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
+-import { useProxyGatewayQuery, useProxyGatewayDelays, useProxyISPQuery } from "@/features/account-pool/hooks/useProxyGateways";
++import {
++  useProxyGatewayQuery,
++  useProxyGatewayDelays,
++  useProxyISPQuery,
++} from "@/features/account-pool/hooks/useProxyGateways";
+ 
+ const AccountPoolModelTestDialog = dynamic(
+   () =>
+@@ -128,6 +133,17 @@ const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
+ ];
+ 
+ export default function AccountPoolPage() {
++  const { accessToken, userRole, isViewOnly } = useAuthorized();
++  if (!canManageAccountPool(userRole, isViewOnly)) return <AdminOnlyNotice pageTitle="Account Pool" />;
++  if (!accessToken) return <ModuleLoading />;
++  return (
++    <AccountPoolBackendBoundary accessToken={accessToken}>
++      <LegacyAccountPoolPage />
++    </AccountPoolBackendBoundary>
++  );
++}
++
++function LegacyAccountPoolPage() {
+   const { t } = useTranslation();
+   const { accessToken, userRole, isViewOnly } = useAuthorized();
+   const router = useRouter();
+@@ -273,8 +289,10 @@ export default function AccountPoolPage() {
+   const renderCard = useCallback(
+     (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => {
+       const policyView = policiesByCard.get(environment.id);
+-      const profileId = environment.proxy_mode === "default_gateway"
+-        ? proxySettingsQuery.data?.values.default_proxy_profile_id : environment.proxy_profile_id;
++      const profileId =
++        environment.proxy_mode === "default_gateway"
++          ? proxySettingsQuery.data?.values.default_proxy_profile_id
++          : environment.proxy_profile_id;
+       const gateway = profileId ? gatewaysByProfile.get(profileId) : undefined;
+       return (
+         <AccountPoolCard
+@@ -298,7 +316,18 @@ export default function AccountPoolPage() {
+         />
+       );
+     },
+-    [busy, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
++    [
++      busy,
++      gatewaysByProfile,
++      gatewayDelaysQuery.data,
++      proxyISPsQuery.data,
++      proxySettingsQuery.data,
++      handleAuthorize,
++      handleEnabledChange,
++      handleManageKey,
++      handleViewLogs,
++      policiesByCard,
++    ],
+   );
+   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
+ 
+diff --git a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
+index 7bf7470019..13f3be1ee0 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
++++ b/ui/litellm-dashboard/src/features/account-pool/api/AccountPoolManagementApi.ts
+@@ -118,13 +118,16 @@ const readCockpitPolicyResponse = (response: unknown): CockpitPolicyView => {
+   return result.data;
+ };
+ 
+-export const getAccountPoolCockpitPolicy = async (accessToken: string) =>
++const cockpitPolicyPath = (native: boolean) =>
++  native ? "/account_pool/cockpit/native/policy" : "/account_pool/cockpit/policy";
++
++export const getAccountPoolCockpitPolicy = async (accessToken: string, native = false) =>
+   readCockpitPolicyResponse(
+-    await apiClient.get<unknown>("/account_pool/cockpit/policy", { accessToken, cache: "no-store" }),
++    await apiClient.get<unknown>(cockpitPolicyPath(native), { accessToken, cache: "no-store" }),
+   );
+ 
+-export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate) =>
+-  readCockpitPolicyResponse(await apiClient.put<unknown>("/account_pool/cockpit/policy", { accessToken, body }));
++export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate, native = false) =>
++  readCockpitPolicyResponse(await apiClient.put<unknown>(cockpitPolicyPath(native), { accessToken, body }));
+ 
+ const cockpitPolicyRuntimeShape = {
+   persisted_revision: z.string().regex(/^"sha256-[a-f0-9]{64}"$/),
+@@ -143,9 +146,12 @@ const cockpitPolicyRuntimeResponse: z.ZodType<CockpitPolicyRuntime> = z
+       (data.active_revision === null) === (data.blocked_reason === "runtime_unavailable"),
+   );
+ 
+-export const getAccountPoolCockpitPolicyRuntime = async (accessToken: string): Promise<CockpitPolicyRuntime> => {
++export const getAccountPoolCockpitPolicyRuntime = async (
++  accessToken: string,
++  native = false,
++): Promise<CockpitPolicyRuntime> => {
+   const result = cockpitPolicyRuntimeResponse.safeParse(
+-    await apiClient.get<unknown>("/account_pool/cockpit/policy/runtime", { accessToken, cache: "no-store" }),
++    await apiClient.get<unknown>(cockpitPolicyPath(native) + "/runtime", { accessToken, cache: "no-store" }),
+   );
+   if (!result.success) throw new Error("运行状态响应无效，必须重新检查");
+   return result.data;
+@@ -154,9 +160,10 @@ export const getAccountPoolCockpitPolicyRuntime = async (accessToken: string): P
+ export const applyAccountPoolCockpitPolicy = async (
+   accessToken: string,
+   body: CockpitPolicyApply,
++  native = false,
+ ): Promise<CockpitPolicyRuntime> => {
+   const result = cockpitPolicyRuntimeResponse.safeParse(
+-    await apiClient.post<unknown>("/account_pool/cockpit/policy/apply", { accessToken, body }),
++    await apiClient.post<unknown>(cockpitPolicyPath(native) + "/apply", { accessToken, body }),
+   );
+   if (!result.success) throw new Error("应用结果未确认，必须重新检查运行状态并核对保存版本");
+   const confirmed =
+diff --git a/ui/litellm-dashboard/src/features/account-pool/api/NativeCockpitApi.ts b/ui/litellm-dashboard/src/features/account-pool/api/NativeCockpitApi.ts
+new file mode 100644
+index 0000000000..5d9578ef31
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/api/NativeCockpitApi.ts
+@@ -0,0 +1,116 @@
++import { z } from "zod";
++import { apiClient } from "@/components/networking";
++import type { components } from "@/lib/http/schema";
++
++const root = "/account_pool/cockpit/native";
++const digest = z.string().regex(/^[0-9a-f]{64}$/);
++const revision = z.string().regex(/^"sha256-[0-9a-f]{64}"$/);
++export type NativeScopeStatus = components["schemas"]["NativeScopeStatus"];
++export type NativePreflight = Pick<
++  components["schemas"]["NativePreflightResponse"],
++  "key_hash" | "status" | "revision" | "models"
++>;
++export type NativeReceipt = Pick<components["schemas"]["NativeReceiptResponse"], "key_hash" | "status" | "receipt">;
++
++const scopeFields = {
++  subject_hash: digest,
++  state: z.enum(["absent", "staged", "active", "blocked"]),
++  account_ids: z.array(z.string()),
++  model_scope: z.enum(["none", "restricted"]),
++  models: z.array(z.string()),
++  persisted_manifest_revision: revision.nullable(),
++  runtime_activation: z.literal("restart_required_or_unverified"),
++  ready_to_migrate: z.literal(false),
++};
++const runtimeFields = {
++  persisted_revision: revision,
++  active_revision: revision.nullable(),
++  apply_supported: z.boolean(),
++  blocked_reason: z.enum(["non_policy_change", "unsupported_policy", "runtime_unavailable"]).nullable(),
++};
++const scopeStatus: z.ZodType<NativeScopeStatus> = z
++  .object({
++    scope: z.object(scopeFields),
++    runtime: z.object(runtimeFields).nullable(),
++    runtime_state: z.enum(["active", "pending", "unavailable"]),
++  })
++  .refine((value) => {
++    if (value.runtime_state !== "active") return true;
++    if (value.scope.state !== "active" || value.runtime === null) return false;
++    const confirmed =
++      value.runtime.active_revision === value.runtime.persisted_revision &&
++      value.runtime.active_revision === value.scope.persisted_manifest_revision;
++    return confirmed;
++  });
++const preflightFields = {
++  key_hash: digest,
++  status: z.enum(["eligible", "blocked"]),
++  revision: revision.nullable(),
++  models: z.array(z.string()),
++};
++
++const receiptShape: z.ZodType<NativeReceipt> = z
++  .object({
++    key_hash: digest,
++    status: z.enum(["native_scope_verified", "rejected"]),
++    receipt: z.string().max(16384).nullable(),
++  })
++  .refine((value) => (value.status === "native_scope_verified") === (value.receipt !== null));
++
++function sameSubject<T>(value: T, actual: string, expected: string): T {
++  if (actual !== expected) throw new Error("返回主体不一致，请重新读取");
++  return value;
++}
++
++export const getNativeBackend = async (accessToken: string) =>
++  z
++    .object({ backend: z.enum(["manager", "cockpit"]) })
++    .parse(await apiClient.get<unknown>(root + "/configuration", { accessToken, cache: "no-store" }));
++
++export const getNativeCockpitAccounts = async (accessToken: string) =>
++  z
++    .array(
++      z.object({
++        account_id: z.string().uuid(),
++        credential_present: z.boolean(),
++      }),
++    )
++    .parse(await apiClient.get<unknown>(root + "/accounts", { accessToken, cache: "no-store" }));
++
++export async function preflightNativeCockpit(accessToken: string, key_hash: string): Promise<NativePreflight> {
++  const value = z
++    .object(preflightFields)
++    .parse(await apiClient.post<unknown>(root + "/preflight", { accessToken, body: { key_hash } }));
++  return sameSubject(value, value.key_hash, key_hash);
++}
++
++export async function nativeReceipt(accessToken: string, key_hash: string, receipt?: string): Promise<NativeReceipt> {
++  const value = receiptShape.parse(
++    await apiClient.post<unknown>(root + "/credential-receipts" + (receipt ? "/revalidate" : ""), {
++      accessToken,
++      body: receipt ? { key_hash, receipt } : { key_hash },
++    }),
++  );
++  return sameSubject(value, value.key_hash, key_hash);
++}
++
++export async function readNativeScope(accessToken: string, subject: string): Promise<NativeScopeStatus> {
++  const value = scopeStatus.parse(
++    await apiClient.get<unknown>(root + "/scope/" + digest.parse(subject), { accessToken, cache: "no-store" }),
++  );
++  return sameSubject(value, value.scope.subject_hash, subject);
++}
++
++export async function changeNativeScope(
++  accessToken: string,
++  action: "publish" | "activate" | "deactivate" | "revoke",
++  body: components["schemas"]["CockpitScopeRevokeRequest"] & { receipt?: string },
++): Promise<NativeScopeStatus> {
++  const path = root + "/scope" + (action === "activate" || action === "deactivate" ? "/" + action : "");
++  const response =
++    action === "revoke"
++      ? await apiClient.delete<unknown>(path, { accessToken, body })
++      : await apiClient.post<unknown>(path, { accessToken, body });
++  const value = scopeStatus.parse(response);
++  return sameSubject(value, value.scope.subject_hash, body.subject_hash);
++}
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
+index 114fdf90d9..4a38476374 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.integration.test.tsx
+@@ -40,7 +40,7 @@ beforeEach(async () => {
+ });
+ afterEach(() => vi.unstubAllGlobals());
+ 
+-function mountPanel(respond: (init?: RequestInit, path?: string) => Response | Promise<Response>) {
++function mountPanel(respond: (init?: RequestInit, path?: string) => Response | Promise<Response>, native = false) {
+   const requests: { method: string; body: unknown }[] = [];
+   const paths: string[] = [];
+   const tokens: (string | null)[] = [];
+@@ -48,7 +48,8 @@ function mountPanel(respond: (init?: RequestInit, path?: string) => Response | P
+     "fetch",
+     vi.fn<typeof fetch>(async (input, init) => {
+       const path = new URL(String(input), "http://localhost").pathname;
+-      if (!path.startsWith("/account_pool/cockpit/policy")) throw new Error(`Unexpected request: ${path}`);
++      if (!path.startsWith(native ? "/account_pool/cockpit/native/policy" : "/account_pool/cockpit/policy"))
++        throw new Error(`Unexpected request: ${path}`);
+       requests.push({ method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
+       paths.push(path);
+       tokens.push(new Headers(init?.headers).get("Authorization"));
+@@ -58,7 +59,7 @@ function mountPanel(respond: (init?: RequestInit, path?: string) => Response | P
+   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+   const rendered = render(
+     <QueryClientProvider client={client}>
+-      <AccountPoolCockpitPolicyPanel accessToken="admin-token" />
++      <AccountPoolCockpitPolicyPanel accessToken="admin-token" native={native} />
+     </QueryClientProvider>,
+   );
+   return {
+@@ -69,12 +70,18 @@ function mountPanel(respond: (init?: RequestInit, path?: string) => Response | P
+     changeToken: (accessToken: string) =>
+       rendered.rerender(
+         <QueryClientProvider client={client}>
+-          <AccountPoolCockpitPolicyPanel accessToken={accessToken} />
++          <AccountPoolCockpitPolicyPanel accessToken={accessToken} native={native} />
+         </QueryClientProvider>,
+       ),
+   };
+ }
+ 
++it("uses the native policy endpoint instead of Manager in native mode", async () => {
++  const { paths } = mountPanel(() => Response.json(initialPolicy), true);
++  await screen.findByRole("combobox", { name: "选择策略" });
++  expect(paths).toEqual(["/account_pool/cockpit/native/policy"]);
++});
++
+ it("sends edited global fields and the original revision only on explicit save, without claiming activation", async () => {
+   const { requests, client } = mountPanel((init) =>
+     Response.json(
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
+index 1237d8d1d5..a17682d074 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolCockpitPolicyPanel.tsx
+@@ -38,16 +38,24 @@ const blockedReasons: Record<NonNullable<CockpitPolicyView["blocked_reason"]>, s
+   unsupported_account_or_rule: "账号类型、已有规则或账号数量不受支持，已禁用编辑",
+ };
+ 
+-export function AccountPoolCockpitPolicyPanel({ accessToken }: { accessToken: string }) {
+-  return <CockpitPolicyEditor key={accessToken} accessToken={accessToken} />;
++export function AccountPoolCockpitPolicyPanel({
++  accessToken,
++  native = false,
++}: {
++  accessToken: string;
++  native?: boolean;
++}) {
++  return <CockpitPolicyEditor key={accessToken + String(native)} accessToken={accessToken} native={native} />;
+ }
+ 
+-function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
++function CockpitPolicyEditor({ accessToken, native }: { accessToken: string; native: boolean }) {
+   const client = useQueryClient();
+-  const queryKey = accountPoolQueryKeys.cockpitPolicy(accessToken);
++  const queryKey = native
++    ? accountPoolQueryKeys.nativeCockpitPolicy(accessToken)
++    : accountPoolQueryKeys.cockpitPolicy(accessToken);
+   const queryOptions = {
+     queryKey,
+-    queryFn: () => getAccountPoolCockpitPolicy(accessToken),
++    queryFn: () => getAccountPoolCockpitPolicy(accessToken, native),
+     retry: false,
+     refetchOnWindowFocus: false,
+     refetchOnReconnect: false,
+@@ -59,7 +67,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+   const apply = useMutation({
+     mutationFn: (body: CockpitPolicyApply) => {
+       setRuntime(null);
+-      return applyAccountPoolCockpitPolicy(accessToken, body);
++      return applyAccountPoolCockpitPolicy(accessToken, body, native);
+     },
+     retry: false,
+     onSuccess: (result) => setRuntime(result),
+@@ -67,7 +75,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+   const save = useMutation({
+     mutationFn: (body: CockpitPolicyUpdate) => {
+       setRuntime(null);
+-      return saveAccountPoolCockpitPolicy(accessToken, body);
++      return saveAccountPoolCockpitPolicy(accessToken, body, native);
+     },
+     retry: false,
+     onSuccess: (data) => {
+@@ -78,7 +86,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+   const reload = useMutation({
+     mutationFn: () => {
+       setRuntime(null);
+-      return getAccountPoolCockpitPolicy(accessToken);
++      return getAccountPoolCockpitPolicy(accessToken, native);
+     },
+     retry: false,
+     onSuccess: (data) => {
+@@ -90,8 +98,8 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+   const checkRuntime = useMutation({
+     mutationFn: async () => {
+       setRuntime(null);
+-      const policy = await getAccountPoolCockpitPolicy(accessToken);
+-      const observation = await getAccountPoolCockpitPolicyRuntime(accessToken);
++      const policy = await getAccountPoolCockpitPolicy(accessToken, native);
++      const observation = await getAccountPoolCockpitPolicyRuntime(accessToken, native);
+       if (observation.persisted_revision !== policy.revision) {
+         throw new Error("保存版本与运行状态不一致，请重新检查");
+       }
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx
+new file mode 100644
+index 0000000000..0dc01596b4
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.integration.test.tsx
+@@ -0,0 +1,163 @@
++import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
++import { fireEvent, render, screen } from "@testing-library/react";
++import userEvent from "@testing-library/user-event";
++import { afterEach, beforeEach, expect, it, vi } from "vitest";
++import i18n from "@/i18n";
++import { AccountPoolBackendBoundary } from "./AccountPoolNativeCockpitPanel";
++
++const subject = "a".repeat(64);
++const revision = '"sha256-' + "b".repeat(64) + '"';
++const prefix = "/account_pool/cockpit/native";
++beforeEach(async () => {
++  await i18n.changeLanguage("zh-CN");
++});
++afterEach(() => vi.unstubAllGlobals());
++
++function mount(conflict = false) {
++  let state = "absent";
++  const calls: { path: string; method: string; body: unknown }[] = [];
++  const view = () => ({
++    scope: {
++      subject_hash: subject,
++      state,
++      account_ids: [],
++      models: ["fixture-model"],
++      model_scope: "restricted",
++      persisted_manifest_revision: revision,
++      runtime_activation: "restart_required_or_unverified",
++      ready_to_migrate: false,
++    },
++    runtime: {
++      persisted_revision: revision,
++      active_revision: '"sha256-' + "c".repeat(64) + '"',
++      apply_supported: false,
++      blocked_reason: "non_policy_change",
++    },
++    runtime_state: "pending",
++  });
++  vi.stubGlobal(
++    "fetch",
++    vi.fn<typeof fetch>(async (input, init) => {
++      const path = new URL(String(input), "http://localhost").pathname;
++      const method = init?.method ?? "GET";
++      const body = init?.body ? JSON.parse(String(init.body)) : null;
++      calls.push({ path, method, body });
++      if (!path.startsWith(prefix)) throw new Error("Manager API must not be called");
++      if (path.endsWith("/configuration")) return Response.json({ backend: "cockpit" });
++      if (path.endsWith("/accounts"))
++        return Response.json([{ account_id: "00000000-0000-0000-0000-000000000001", credential_present: true }]);
++      if (path.endsWith("/policy")) {
++        const policy = {
++          revision,
++          routing_strategy: "auto",
++          custom_rules: [],
++          account_ids: [],
++          editable: true,
++          blocked_reason: null,
++          scope: "codex_pool_global",
++          runtime_activation: "restart_required_or_unverified",
++          supported_strategies: ["auto"],
++          unsupported_fields: [],
++        };
++        return Response.json(policy);
++      }
++      if (path.endsWith("/preflight")) {
++        const preflight = {
++          key_hash: subject,
++          status: "eligible",
++          code: null,
++          revision,
++          models: ["fixture-model"],
++        };
++        return Response.json(preflight);
++      }
++      if (path.includes("/credential-receipts")) {
++        const receipt = {
++          key_hash: subject,
++          status: "native_scope_verified",
++          receipt: "SIGNED-FIXTURE",
++          code: null,
++          ready_to_migrate: false,
++        };
++        return Response.json(receipt);
++      }
++      if (method === "POST" && path.endsWith("/scope")) {
++        if (conflict) return Response.json({ detail: "revision_conflict" }, { status: 409 });
++        state = "staged";
++      }
++      if (path.endsWith("/activate")) state = "active";
++      if (path.endsWith("/deactivate")) state = "staged";
++      if (method === "DELETE") state = "absent";
++      return Response.json(view());
++    }),
++  );
++  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
++  render(
++    <QueryClientProvider client={queryClient}>
++      <AccountPoolBackendBoundary accessToken="admin-token">
++        <p>旧 Manager 页面</p>
++      </AccountPoolBackendBoundary>
++    </QueryClientProvider>,
++  );
++  return calls;
++}
++
++async function prepare() {
++  const user = userEvent.setup();
++  fireEvent.change(await screen.findByLabelText("原生 Key 哈希"), { target: { value: subject } });
++  await user.click(screen.getByRole("button", { name: "选择主体" }));
++  await user.click(await screen.findByRole("button", { name: "预检权限与凭据" }));
++  await screen.findByText("预检通过");
++  await user.click(screen.getByRole("button", { name: "签发回执" }));
++  await screen.findByText("回执已签发，尚未重验");
++  await user.click(screen.getByRole("button", { name: "重新验证回执" }));
++  await screen.findByText("回执重验通过");
++  return user;
++}
++
++it("runs the native workflow without mounting Manager UI or claiming an unconfirmed revision is active", async () => {
++  const calls = mount();
++  const user = await prepare();
++  expect(screen.queryByText("旧 Manager 页面")).not.toBeInTheDocument();
++  await user.click(screen.getByRole("button", { name: "发布停用投影" }));
++  await screen.findByText("投影：已发布，停用");
++  expect(calls.find((call) => call.method === "POST" && call.path.endsWith("/scope"))?.body).toEqual({
++    subject_hash: subject,
++    receipt: "SIGNED-FIXTURE",
++    revision,
++  });
++  await user.click(screen.getByRole("button", { name: "启用投影" }));
++  await screen.findByText("投影：已启用");
++  expect(screen.getByText("运行态：待确认，不能视为已生效")).toBeInTheDocument();
++  await user.click(screen.getByRole("button", { name: "停用投影" }));
++  await screen.findByText("投影：已发布，停用");
++  await user.click(screen.getByRole("button", { name: "撤销投影" }));
++  await screen.findByText("投影：未发布");
++  expect(calls.filter((call) => call.method === "DELETE")).toHaveLength(1);
++  expect(screen.queryByText("SIGNED-FIXTURE")).not.toBeInTheDocument();
++});
++
++it("does not retry conflict writes and requires a fresh receipt after failure", async () => {
++  const calls = mount(true);
++  const user = await prepare();
++  await user.click(screen.getByRole("button", { name: "发布停用投影" }));
++  await screen.findByRole("alert");
++  expect(calls.filter((call) => call.method === "POST" && call.path.endsWith("/scope"))).toHaveLength(1);
++  expect(screen.getByRole("button", { name: "发布停用投影" })).toBeDisabled();
++});
++
++it("never falls back to Manager when backend configuration cannot be read", async () => {
++  vi.stubGlobal(
++    "fetch",
++    vi.fn<typeof fetch>(async () => Response.json({ detail: "unavailable" }, { status: 503 })),
++  );
++  render(
++    <QueryClientProvider client={new QueryClient()}>
++      <AccountPoolBackendBoundary accessToken="admin-token">
++        <p>旧 Manager 页面</p>
++      </AccountPoolBackendBoundary>
++    </QueryClientProvider>,
++  );
++  await screen.findByRole("alert");
++  expect(screen.queryByText("旧 Manager 页面")).not.toBeInTheDocument();
++});
+diff --git a/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.tsx b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.tsx
+new file mode 100644
+index 0000000000..9c6864fb03
+--- /dev/null
++++ b/ui/litellm-dashboard/src/features/account-pool/components/dashboard/AccountPoolNativeCockpitPanel.tsx
+@@ -0,0 +1,240 @@
++"use client";
++
++import { useMutation, useQuery } from "@tanstack/react-query";
++import { useState, type ReactNode } from "react";
++import { Button } from "@/components/ui/button";
++import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
++import { AccountPoolCockpitPolicyPanel } from "./AccountPoolCockpitPolicyPanel";
++import {
++  changeNativeScope,
++  getNativeBackend,
++  getNativeCockpitAccounts,
++  nativeReceipt,
++  preflightNativeCockpit,
++  readNativeScope,
++  type NativePreflight,
++  type NativeScopeStatus,
++} from "../../api/NativeCockpitApi";
++
++export function AccountPoolBackendBoundary({ accessToken, children }: { accessToken: string; children: ReactNode }) {
++  const backendOptions = {
++    queryKey: accountPoolQueryKeys.cockpitBackend(accessToken),
++    queryFn: () => getNativeBackend(accessToken),
++    retry: false,
++    refetchOnWindowFocus: false,
++  };
++  const backend = useQuery(backendOptions);
++  if (backend.isPending)
++    return (
++      <p role="status" className="p-6">
++        正在读取号池后端…
++      </p>
++    );
++  if (backend.isError)
++    return (
++      <div className="p-6">
++        <p role="alert">号池后端读取失败，未尝试切回 Manager</p>
++        <Button onClick={() => void backend.refetch()}>重新读取</Button>
++      </div>
++    );
++  return backend.data.backend === "cockpit" ? (
++    <AccountPoolNativeCockpitPanel key={accessToken} accessToken={accessToken} />
++  ) : (
++    children
++  );
++}
++
++export function AccountPoolNativeCockpitPanel({ accessToken }: { accessToken: string }) {
++  const accountsOptions = {
++    queryKey: accountPoolQueryKeys.nativeCockpitAccounts(accessToken),
++    queryFn: () => getNativeCockpitAccounts(accessToken),
++    retry: false,
++    refetchOnWindowFocus: false,
++  };
++  const accounts = useQuery(accountsOptions);
++  const [input, setInput] = useState("");
++  const [subject, setSubject] = useState("");
++  return (
++    <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
++      <header>
++        <h1 className="text-2xl font-semibold">LiteLLM + Cockpit 原生管理</h1>
++        <p className="mt-2 text-sm text-muted-foreground">
++          凭据由 Cockpit 管理，用户与 Key 权限由 LiteLLM 主库核验；此流程不调用 Manager
++        </p>
++      </header>
++      <Card>
++        <CardHeader>
++          <CardTitle>账号与凭据状态</CardTitle>
++          <CardDescription>此处只确认凭据文件存在，不代表提供商登录或额度已验证</CardDescription>
++        </CardHeader>
++        <CardContent>
++          {accounts.isPending && <p role="status">正在读取账号…</p>}
++          {accounts.isError && <p role="alert">账号读取失败，请检查原生 Cockpit 配置</p>}
++          {accounts.data?.length === 0 && <p>尚无账号，请先在 Cockpit 导入凭据并配置账号</p>}
++          <ul className="space-y-2">
++            {accounts.data?.map((account) => (
++              <li key={account.account_id} className="flex flex-wrap justify-between gap-2 border-b py-2">
++                <span className="break-all">{account.account_id}</span>
++                <span>{account.credential_present ? "凭据文件存在" : "凭据文件缺失"}</span>
++              </li>
++            ))}
++          </ul>
++        </CardContent>
++      </Card>
++      <Card>
++        <CardHeader>
++          <CardTitle>主体授权流程</CardTitle>
++          <CardDescription>
++            使用已由管理员绑定账号和明确模型范围的原生 Key。输入 64 位哈希，不要输入原始 API Key
++          </CardDescription>
++        </CardHeader>
++        <CardContent className="space-y-4">
++          <Label htmlFor="native-subject">原生 Key 哈希</Label>
++          <div className="flex flex-wrap gap-2">
++            <Input
++              id="native-subject"
++              value={input}
++              onChange={(event) => {
++                setInput(event.target.value);
++                setSubject("");
++              }}
++              className="min-w-0 flex-1"
++              autoComplete="off"
++              spellCheck={false}
++            />
++            <Button disabled={!/^[0-9a-f]{64}$/.test(input)} onClick={() => setSubject(input)}>
++              选择主体
++            </Button>
++          </div>
++          {subject && <NativeSubjectWorkflow key={subject} accessToken={accessToken} subject={subject} />}
++        </CardContent>
++      </Card>
++      <AccountPoolCockpitPolicyPanel accessToken={accessToken} native />
++    </main>
++  );
++}
++
++type Action = "refresh" | "preflight" | "issue" | "revalidate" | "publish" | "activate" | "deactivate" | "revoke";
++const states = { absent: "未发布", staged: "已发布，停用", active: "已启用", blocked: "已阻断" } as const;
++const runtimeStates = {
++  active: "运行态：已核对当前版本",
++  unavailable: "运行态：不可用",
++  pending: "运行态：待确认，不能视为已生效",
++} as const;
++
++function NativeScopeView({ view }: { view: NativeScopeStatus }) {
++  return (
++    <div className="space-y-2">
++      <p>投影：{states[view.scope.state]}</p>
++      <p>{runtimeStates[view.runtime_state]}</p>
++      <p className="break-all text-xs">已保存版本：{view.scope.persisted_manifest_revision ?? "未知"}</p>
++      <p className="break-all text-xs">运行版本：{view.runtime?.active_revision ?? "未知"}</p>
++      <p className="text-sm">模型范围：{view.scope.models.join("、") || "无"}</p>
++    </div>
++  );
++}
++
++function NativeSubjectWorkflow({ accessToken, subject }: { accessToken: string; subject: string }) {
++  const [view, setView] = useState<NativeScopeStatus | null>(null);
++  const [preflight, setPreflight] = useState<NativePreflight | null>(null);
++  const [receipt, setReceipt] = useState<string | null>(null);
++  const [verified, setVerified] = useState(false);
++  const operation = useMutation({
++    retry: false,
++    mutationFn: async (action: Action) => {
++      if (action === "preflight") {
++        setReceipt(null);
++        setVerified(false);
++        const result = await preflightNativeCockpit(accessToken, subject);
++        setPreflight(result);
++        if (result.status !== "eligible") throw new Error("预检未通过，请检查主体权限和 Cockpit 凭据");
++      } else if (action === "issue" || action === "revalidate") {
++        const result = await nativeReceipt(
++          accessToken,
++          subject,
++          action === "revalidate" && receipt ? receipt : undefined,
++        );
++        if (result.status !== "native_scope_verified" || !result.receipt) throw new Error("回执校验未通过，请重新预检");
++        setReceipt(result.receipt);
++        setVerified(action === "revalidate");
++      } else if (action !== "refresh") {
++        const revision = view?.scope.persisted_manifest_revision;
++        if (!revision) throw new Error("请先读取当前版本");
++        const result = await changeNativeScope(accessToken, action, {
++          subject_hash: subject,
++          revision,
++          ...(action === "publish" && receipt ? { receipt } : {}),
++        });
++        setReceipt(null);
++        setVerified(false);
++        setPreflight(null);
++        setView(result);
++        return;
++      }
++      setView(await readNativeScope(accessToken, subject));
++    },
++    onError: () => {
++      setReceipt(null);
++      setVerified(false);
++      setPreflight(null);
++      setView(null);
++    },
++  });
++  const pending = operation.isPending;
++  const run = (action: Action) => operation.mutate(action);
++  return (
++    <section className="space-y-4 border-t pt-4">
++      <div className="flex flex-wrap gap-2">
++        <Button disabled={pending} onClick={() => run("preflight")}>
++          预检权限与凭据
++        </Button>
++        <Button variant="outline" disabled={pending || preflight?.status !== "eligible"} onClick={() => run("issue")}>
++          签发回执
++        </Button>
++        <Button variant="outline" disabled={pending || !receipt} onClick={() => run("revalidate")}>
++          重新验证回执
++        </Button>
++        <Button disabled={pending || !verified || !view} onClick={() => run("publish")}>
++          发布停用投影
++        </Button>
++      </div>
++      {preflight?.status === "eligible" && <p>预检通过</p>}
++      {receipt && <p>{verified ? "回执重验通过" : "回执已签发，尚未重验"}</p>}
++      {operation.isError && (
++        <p role="alert" className="text-destructive">
++          操作失败或结果无法确认，请重新读取并预检。不会自动重试写入
++        </p>
++      )}
++      {pending && <p role="status">正在核验并执行…</p>}
++      {view && <NativeScopeView view={view} />}
++      <div className="flex flex-wrap gap-2">
++        <Button variant="outline" disabled={pending} onClick={() => run("refresh")}>
++          读取并确认运行版本
++        </Button>
++        <Button variant="outline" disabled={pending || view?.scope.state !== "staged"} onClick={() => run("activate")}>
++          启用投影
++        </Button>
++        <Button
++          variant="outline"
++          disabled={pending || !view || !["active", "blocked"].includes(view.scope.state)}
++          onClick={() => run("deactivate")}
++        >
++          停用投影
++        </Button>
++        <Button
++          variant="destructive"
++          disabled={pending || !view || view.scope.state === "absent"}
++          onClick={() => run("revoke")}
++        >
++          撤销投影
++        </Button>
++      </div>
++      <p className="text-sm text-muted-foreground">
++        scope 变更需由管理员在隔离环境重启 Cockpit 后再核对运行版本。这里不自动重启；版本不一致时原生请求会被阻断
++      </p>
++    </section>
++  );
++}
+diff --git a/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts b/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts
+index 69f977a5c6..63fb338fdb 100644
+--- a/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts
++++ b/ui/litellm-dashboard/src/features/account-pool/hooks/accountPoolQueryKeys.ts
+@@ -3,6 +3,10 @@
+ const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
+ 
+ export const accountPoolQueryKeys = {
++  cockpitBackend: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "cockpit-backend", accessToken] as const,
++  nativeCockpitAccounts: (accessToken: string) =>
++    [...ACCOUNT_POOL_ROOT, "native-cockpit-accounts", accessToken] as const,
++  nativeCockpitPolicy: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "native-cockpit-policy", accessToken] as const,
+   all: ACCOUNT_POOL_ROOT,
+   feedbackRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback", accessToken] as const,
+   feedback: (accessToken: string, filter: { status: string; q: string; limit: number; offset: number }) =>
 diff --git a/ui/litellm-dashboard/src/lib/http/schema.d.ts b/ui/litellm-dashboard/src/lib/http/schema.d.ts
-index 0ea2e8cbc6..0c93575647 100644
+index 0ea2e8cbc6..0dd75f00d5 100644
 --- a/ui/litellm-dashboard/src/lib/http/schema.d.ts
 +++ b/ui/litellm-dashboard/src/lib/http/schema.d.ts
 @@ -4,41 +4,6 @@
@@ -7378,7 +10071,7 @@ index 0ea2e8cbc6..0c93575647 100644
      "/": {
          parameters: {
              query?: never;
-@@ -839,6 +804,57 @@ export interface paths {
+@@ -839,6 +804,263 @@ export interface paths {
          patch?: never;
          trace?: never;
      };
@@ -7433,10 +10126,216 @@ index 0ea2e8cbc6..0c93575647 100644
 +        patch?: never;
 +        trace?: never;
 +    };
++    "/account_pool/cockpit/native/accounts": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Accounts */
++        get: operations["accounts_account_pool_cockpit_native_accounts_get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/configuration": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Configuration */
++        get: operations["configuration_account_pool_cockpit_native_configuration_get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/credential-receipts": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Issue */
++        post: operations["issue_account_pool_cockpit_native_credential_receipts_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/credential-receipts/revalidate": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Revalidate */
++        post: operations["revalidate_account_pool_cockpit_native_credential_receipts_revalidate_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/policy": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Policy */
++        get: operations["policy_account_pool_cockpit_native_policy_get"];
++        /** Save Policy */
++        put: operations["save_policy_account_pool_cockpit_native_policy_put"];
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/policy/apply": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Apply Policy */
++        post: operations["apply_policy_account_pool_cockpit_native_policy_apply_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/policy/runtime": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** Runtime */
++        get: operations["runtime_account_pool_cockpit_native_policy_runtime_get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/preflight": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Preflight */
++        post: operations["preflight_account_pool_cockpit_native_preflight_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/scope": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Publish */
++        post: operations["publish_account_pool_cockpit_native_scope_post"];
++        /** Revoke */
++        delete: operations["revoke_account_pool_cockpit_native_scope_delete"];
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/scope/activate": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Activate */
++        post: operations["activate_account_pool_cockpit_native_scope_activate_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/scope/deactivate": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        get?: never;
++        put?: never;
++        /** Deactivate */
++        post: operations["deactivate_account_pool_cockpit_native_scope_deactivate_post"];
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
++    "/account_pool/cockpit/native/scope/{subject_hash}": {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        /** View */
++        get: operations["view_account_pool_cockpit_native_scope__subject_hash__get"];
++        put?: never;
++        post?: never;
++        delete?: never;
++        options?: never;
++        head?: never;
++        patch?: never;
++        trace?: never;
++    };
      "/account_pool/cockpit/policy": {
          parameters: {
              query?: never;
-@@ -857,6 +873,40 @@ export interface paths {
+@@ -857,6 +1079,40 @@ export interface paths {
          patch?: never;
          trace?: never;
      };
@@ -7477,7 +10376,7 @@ index 0ea2e8cbc6..0c93575647 100644
      "/account_pool/cockpit/preflight": {
          parameters: {
              query?: never;
-@@ -874,6 +924,75 @@ export interface paths {
+@@ -874,6 +1130,75 @@ export interface paths {
          patch?: never;
          trace?: never;
      };
@@ -7553,7 +10452,7 @@ index 0ea2e8cbc6..0c93575647 100644
      "/account_pool/cockpit/status": {
          parameters: {
              query?: never;
-@@ -1480,6 +1599,23 @@ export interface paths {
+@@ -1480,6 +1805,23 @@ export interface paths {
          patch?: never;
          trace?: never;
      };
@@ -7577,7 +10476,7 @@ index 0ea2e8cbc6..0c93575647 100644
      "/account_pool/oauth-browser-sessions/": {
          parameters: {
              query?: never;
-@@ -24362,44 +24498,10 @@ export interface paths {
+@@ -24362,44 +24704,10 @@ export interface paths {
          patch?: never;
          trace?: never;
      };
@@ -7622,7 +10521,7 @@ index 0ea2e8cbc6..0c93575647 100644
          /**
           * APIKeySecurityScheme
           * @description Defines a security scheme using an API key.
-@@ -28819,6 +28921,100 @@ export interface components {
+@@ -28819,6 +29127,100 @@ export interface components {
               */
              target_account_id: string;
          };
@@ -7723,7 +10622,7 @@ index 0ea2e8cbc6..0c93575647 100644
          /** CockpitPolicyUpdate */
          CockpitPolicyUpdate: {
              /** Custom Rules */
-@@ -28976,6 +29172,29 @@ export interface components {
+@@ -28976,6 +29378,29 @@ export interface components {
               */
              weight: number;
          };
@@ -7753,7 +10652,7 @@ index 0ea2e8cbc6..0c93575647 100644
          /** CockpitStatus */
          CockpitStatus: {
              /** Account Count */
-@@ -28994,6 +29213,39 @@ export interface components {
+@@ -28994,6 +29419,39 @@ export interface components {
               */
              runtime_activation: "restart_required_or_unverified";
          };
@@ -7793,10 +10692,28 @@ index 0ea2e8cbc6..0c93575647 100644
          /** CodexPolicy */
          CodexPolicy: {
              /**
-@@ -36329,6 +36581,32 @@ export interface components {
+@@ -36329,6 +36787,111 @@ export interface components {
               */
              type: "mutualTLS";
          };
++        /** NativeBackendResponse */
++        NativeBackendResponse: {
++            /**
++             * Backend
++             * @enum {string}
++             */
++            backend: "manager" | "cockpit";
++        };
++        /** NativeCockpitAccountView */
++        NativeCockpitAccountView: {
++            /**
++             * Account Id
++             * Format: uuid
++             */
++            account_id: string;
++            /** Credential Present */
++            credential_present: boolean;
++        };
 +        /** NativeModelScope */
 +        NativeModelScope: {
 +            /**
@@ -7806,6 +10723,67 @@ index 0ea2e8cbc6..0c93575647 100644
 +            kind: "unrestricted" | "restricted";
 +            /** Models */
 +            models: string[];
++        };
++        /** NativePreflightResponse */
++        NativePreflightResponse: {
++            /** Code */
++            code?: ("invalid_subject" | "subject_unverified" | "invalid_clock" | "read_unavailable" | "state_changed" | "source_missing" | "source_unavailable" | "source_credential_missing" | "source_auth_unsupported" | "source_identity_mismatch" | "source_ownership_unverified" | "source_credential_collision" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_credential_collision" | "target_auth_unsupported" | "target_content_mismatch" | "invalid_receipt" | "receipt_time_invalid" | "stale_receipt") | null;
++            /** Key Hash */
++            key_hash: string;
++            /**
++             * Models
++             * @default []
++             */
++            models: string[];
++            /** Revision */
++            revision?: string | null;
++            /**
++             * Status
++             * @enum {string}
++             */
++            status: "eligible" | "blocked";
++        };
++        /** NativeReceiptRequest */
++        NativeReceiptRequest: {
++            /** Key Hash */
++            key_hash: string;
++            /** Receipt */
++            receipt: string;
++        };
++        /** NativeReceiptResponse */
++        NativeReceiptResponse: {
++            /** Code */
++            code?: ("invalid_subject" | "subject_unverified" | "invalid_clock" | "read_unavailable" | "state_changed" | "source_missing" | "source_unavailable" | "source_credential_missing" | "source_auth_unsupported" | "source_identity_mismatch" | "source_ownership_unverified" | "source_credential_collision" | "target_account_missing" | "target_account_collision" | "target_credential_missing" | "target_credential_collision" | "target_auth_unsupported" | "target_content_mismatch" | "invalid_receipt" | "receipt_time_invalid" | "stale_receipt") | null;
++            /** Key Hash */
++            key_hash: string;
++            /**
++             * Ready To Migrate
++             * @default false
++             * @constant
++             */
++            ready_to_migrate: false;
++            /** Receipt */
++            receipt?: string | null;
++            /**
++             * Status
++             * @enum {string}
++             */
++            status: "native_scope_verified" | "rejected";
++        };
++        /** NativeScopeStatus */
++        NativeScopeStatus: {
++            runtime: components["schemas"]["CockpitPolicyRuntime"] | null;
++            /**
++             * Runtime State
++             * @enum {string}
++             */
++            runtime_state: "active" | "pending" | "unavailable";
++            scope: components["schemas"]["CockpitSubjectScopeView"];
++        };
++        /** NativeSubjectRequest */
++        NativeSubjectRequest: {
++            /** Key Hash */
++            key_hash: string;
 +        };
 +        /** NativeSubjectResult */
 +        NativeSubjectResult: {
@@ -7826,7 +10804,7 @@ index 0ea2e8cbc6..0c93575647 100644
          /** NetworkSettingsProfile */
          NetworkSettingsProfile: {
              /**
-@@ -45226,50 +45504,6 @@ export interface components {
+@@ -45226,50 +45789,6 @@ export interface components {
          } & {
              [key: string]: unknown;
          };
@@ -7877,11 +10855,160 @@ index 0ea2e8cbc6..0c93575647 100644
      };
      responses: never;
      parameters: never;
-@@ -45279,60 +45513,6 @@ export interface components {
+@@ -45279,7 +45798,7 @@ export interface components {
  }
  export type $defs = Record<string, never>;
  export interface operations {
 -    get_cockpit_runtime_account_pool_cockpit_policy_runtime_get: {
++    home__get: {
+         parameters: {
+             query?: never;
+             header?: never;
+@@ -45294,23 +45813,19 @@ export interface operations {
+                     [name: string]: unknown;
+                 };
+                 content: {
+-                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                    "application/json": unknown;
+                 };
+             };
+         };
+     };
+-    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
++    jwks_json__well_known_jwks_json_get: {
+         parameters: {
+             query?: never;
+             header?: never;
+             path?: never;
+             cookie?: never;
+         };
+-        requestBody: {
+-            content: {
+-                "application/json": components["schemas"]["CockpitPolicyApply"];
+-            };
+-        };
++        requestBody?: never;
+         responses: {
+             /** @description Successful Response */
+             200: {
+@@ -45318,22 +45833,12 @@ export interface operations {
+                     [name: string]: unknown;
+                 };
+                 content: {
+-                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+-                };
+-            };
+-            /** @description Validation Error */
+-            422: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["HTTPValidationError"];
++                    "application/json": unknown;
+                 };
+             };
+         };
+     };
+-
+-    home__get: {
++    native_client_auth_discovery__well_known_litellm_cli_auth_get: {
+         parameters: {
+             query?: never;
+             header?: never;
+@@ -45353,7 +45858,7 @@ export interface operations {
+             };
+         };
+     };
+-    jwks_json__well_known_jwks_json_get: {
++    get_ui_config__well_known_litellm_ui_config_get: {
+         parameters: {
+             query?: never;
+             header?: never;
+@@ -45368,14 +45873,16 @@ export interface operations {
+                     [name: string]: unknown;
+                 };
+                 content: {
+-                    "application/json": unknown;
++                    "application/json": components["schemas"]["UiDiscoveryEndpoints"];
+                 };
+             };
+         };
+     };
+-    native_client_auth_discovery__well_known_litellm_cli_auth_get: {
++    oauth_authorization_server_mcp__well_known_oauth_authorization_server_get: {
+         parameters: {
+-            query?: never;
++            query?: {
++                mcp_server_name?: string | null;
++            };
+             header?: never;
+             path?: never;
+             cookie?: never;
+@@ -45391,9 +45898,18 @@ export interface operations {
+                     "application/json": unknown;
+                 };
+             };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
+         };
+     };
+-    get_ui_config__well_known_litellm_ui_config_get: {
++    oauth_authorization_server_aggregate__well_known_oauth_authorization_server_mcp_get: {
+         parameters: {
+             query?: never;
+             header?: never;
+@@ -45408,69 +45924,18 @@ export interface operations {
+                     [name: string]: unknown;
+                 };
+                 content: {
+-                    "application/json": components["schemas"]["UiDiscoveryEndpoints"];
++                    "application/json": unknown;
+                 };
+             };
+         };
+     };
+-    oauth_authorization_server_mcp__well_known_oauth_authorization_server_get: {
++    oauth_authorization_server_mcp_standard__well_known_oauth_authorization_server_mcp__mcp_server_name__get: {
+         parameters: {
+-            query?: {
+-                mcp_server_name?: string | null;
+-            };
++            query?: never;
+             header?: never;
+-            path?: never;
+-            cookie?: never;
+-        };
+-        requestBody?: never;
+-        responses: {
+-            /** @description Successful Response */
+-            200: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": unknown;
+-                };
+-            };
+-            /** @description Validation Error */
+-            422: {
+-                headers: {
+-                    [name: string]: unknown;
+-                };
+-                content: {
+-                    "application/json": components["schemas"]["HTTPValidationError"];
+-                };
+-            };
+-        };
+-    };
+-    oauth_authorization_server_aggregate__well_known_oauth_authorization_server_mcp_get: {
 -        parameters: {
 -            query?: never;
 -            header?: never;
@@ -7896,49 +11023,25 @@ index 0ea2e8cbc6..0c93575647 100644
 -                    [name: string]: unknown;
 -                };
 -                content: {
--                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
+-                    "application/json": unknown;
 -                };
 -            };
 -        };
 -    };
--    post_cockpit_apply_account_pool_cockpit_policy_apply_post: {
+-    oauth_authorization_server_mcp_standard__well_known_oauth_authorization_server_mcp__mcp_server_name__get: {
 -        parameters: {
 -            query?: never;
 -            header?: never;
--            path?: never;
--            cookie?: never;
--        };
--        requestBody: {
--            content: {
--                "application/json": components["schemas"]["CockpitPolicyApply"];
+-            path: {
+-                mcp_server_name: string;
 -            };
--        };
--        responses: {
--            /** @description Successful Response */
--            200: {
--                headers: {
--                    [name: string]: unknown;
--                };
--                content: {
--                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
--                };
--            };
--            /** @description Validation Error */
--            422: {
--                headers: {
--                    [name: string]: unknown;
--                };
--                content: {
--                    "application/json": components["schemas"]["HTTPValidationError"];
--                };
--            };
--        };
--    };
--
-     home__get: {
-         parameters: {
-             query?: never;
-@@ -46271,6 +46451,105 @@ export interface operations {
++            path: {
++                mcp_server_name: string;
++            };
+             cookie?: never;
+         };
+         requestBody?: never;
+@@ -46271,6 +46736,513 @@ export interface operations {
              };
          };
      };
@@ -8041,10 +11144,418 @@ index 0ea2e8cbc6..0c93575647 100644
 +            };
 +        };
 +    };
++    accounts_account_pool_cockpit_native_accounts_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeCockpitAccountView"][];
++                };
++            };
++        };
++    };
++    configuration_account_pool_cockpit_native_configuration_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeBackendResponse"];
++                };
++            };
++        };
++    };
++    issue_account_pool_cockpit_native_credential_receipts_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["NativeSubjectRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeReceiptResponse"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    revalidate_account_pool_cockpit_native_credential_receipts_revalidate_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["NativeReceiptRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeReceiptResponse"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    policy_account_pool_cockpit_native_policy_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyView"];
++                };
++            };
++        };
++    };
++    save_policy_account_pool_cockpit_native_policy_put: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitPolicyUpdate"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyView"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    apply_policy_account_pool_cockpit_native_policy_apply_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitPolicyApply"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    runtime_account_pool_cockpit_native_policy_runtime_get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["CockpitPolicyRuntime"];
++                };
++            };
++        };
++    };
++    preflight_account_pool_cockpit_native_preflight_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["NativeSubjectRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativePreflightResponse"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    publish_account_pool_cockpit_native_scope_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopePublishRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeScopeStatus"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    revoke_account_pool_cockpit_native_scope_delete: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopeRevokeRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeScopeStatus"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    activate_account_pool_cockpit_native_scope_activate_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopeActivationRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeScopeStatus"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    deactivate_account_pool_cockpit_native_scope_deactivate_post: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path?: never;
++            cookie?: never;
++        };
++        requestBody: {
++            content: {
++                "application/json": components["schemas"]["CockpitScopeActivationRequest"];
++            };
++        };
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeScopeStatus"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
++    view_account_pool_cockpit_native_scope__subject_hash__get: {
++        parameters: {
++            query?: never;
++            header?: never;
++            path: {
++                subject_hash: string;
++            };
++            cookie?: never;
++        };
++        requestBody?: never;
++        responses: {
++            /** @description Successful Response */
++            200: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["NativeScopeStatus"];
++                };
++            };
++            /** @description Validation Error */
++            422: {
++                headers: {
++                    [name: string]: unknown;
++                };
++                content: {
++                    "application/json": components["schemas"]["HTTPValidationError"];
++                };
++            };
++        };
++    };
      get_cockpit_policy_account_pool_cockpit_policy_get: {
          parameters: {
              query?: never;
-@@ -46324,6 +46603,59 @@ export interface operations {
+@@ -46324,6 +47296,59 @@ export interface operations {
              };
          };
      };
@@ -8104,7 +11615,7 @@ index 0ea2e8cbc6..0c93575647 100644
      check_cockpit_mapping_account_pool_cockpit_preflight_post: {
          parameters: {
              query?: never;
-@@ -46357,6 +46689,169 @@ export interface operations {
+@@ -46357,6 +47382,169 @@ export interface operations {
              };
          };
      };
@@ -8274,7 +11785,7 @@ index 0ea2e8cbc6..0c93575647 100644
      get_cockpit_status_account_pool_cockpit_status_get: {
          parameters: {
              query?: never;
-@@ -47837,6 +48332,41 @@ export interface operations {
+@@ -47837,6 +49025,41 @@ export interface operations {
              };
          };
      };
@@ -8316,7 +11827,7 @@ index 0ea2e8cbc6..0c93575647 100644
      websocket_browser_websocket: {
          parameters: {
              query?: never;
-@@ -78375,37 +78905,4 @@ export interface operations {
+@@ -78375,37 +79598,4 @@ export interface operations {
              };
          };
      };

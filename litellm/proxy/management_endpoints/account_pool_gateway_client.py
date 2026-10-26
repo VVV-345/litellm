@@ -38,6 +38,10 @@ class ManagerControl:
         self.token: Final = token
 
     async def call(self, path: str, body: BaseModel) -> httpx.Response:
+        from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+        if native_cockpit_enabled():
+            raise ControlError(503)
         response: Final = await self.client.post(
             f"{self.base_url}/api/internal/gateway/{path}",
             content=body.model_dump_json().encode(),

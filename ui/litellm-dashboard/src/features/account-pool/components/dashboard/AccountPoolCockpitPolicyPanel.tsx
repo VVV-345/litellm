@@ -38,16 +38,24 @@ const blockedReasons: Record<NonNullable<CockpitPolicyView["blocked_reason"]>, s
   unsupported_account_or_rule: "账号类型、已有规则或账号数量不受支持，已禁用编辑",
 };
 
-export function AccountPoolCockpitPolicyPanel({ accessToken }: { accessToken: string }) {
-  return <CockpitPolicyEditor key={accessToken} accessToken={accessToken} />;
+export function AccountPoolCockpitPolicyPanel({
+  accessToken,
+  native = false,
+}: {
+  accessToken: string;
+  native?: boolean;
+}) {
+  return <CockpitPolicyEditor key={accessToken + String(native)} accessToken={accessToken} native={native} />;
 }
 
-function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
+function CockpitPolicyEditor({ accessToken, native }: { accessToken: string; native: boolean }) {
   const client = useQueryClient();
-  const queryKey = accountPoolQueryKeys.cockpitPolicy(accessToken);
+  const queryKey = native
+    ? accountPoolQueryKeys.nativeCockpitPolicy(accessToken)
+    : accountPoolQueryKeys.cockpitPolicy(accessToken);
   const queryOptions = {
     queryKey,
-    queryFn: () => getAccountPoolCockpitPolicy(accessToken),
+    queryFn: () => getAccountPoolCockpitPolicy(accessToken, native),
     retry: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
@@ -59,7 +67,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
   const apply = useMutation({
     mutationFn: (body: CockpitPolicyApply) => {
       setRuntime(null);
-      return applyAccountPoolCockpitPolicy(accessToken, body);
+      return applyAccountPoolCockpitPolicy(accessToken, body, native);
     },
     retry: false,
     onSuccess: (result) => setRuntime(result),
@@ -67,7 +75,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
   const save = useMutation({
     mutationFn: (body: CockpitPolicyUpdate) => {
       setRuntime(null);
-      return saveAccountPoolCockpitPolicy(accessToken, body);
+      return saveAccountPoolCockpitPolicy(accessToken, body, native);
     },
     retry: false,
     onSuccess: (data) => {
@@ -78,7 +86,7 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
   const reload = useMutation({
     mutationFn: () => {
       setRuntime(null);
-      return getAccountPoolCockpitPolicy(accessToken);
+      return getAccountPoolCockpitPolicy(accessToken, native);
     },
     retry: false,
     onSuccess: (data) => {
@@ -90,8 +98,8 @@ function CockpitPolicyEditor({ accessToken }: { accessToken: string }) {
   const checkRuntime = useMutation({
     mutationFn: async () => {
       setRuntime(null);
-      const policy = await getAccountPoolCockpitPolicy(accessToken);
-      const observation = await getAccountPoolCockpitPolicyRuntime(accessToken);
+      const policy = await getAccountPoolCockpitPolicy(accessToken, native);
+      const observation = await getAccountPoolCockpitPolicyRuntime(accessToken, native);
       if (observation.persisted_revision !== policy.revision) {
         throw new Error("保存版本与运行状态不一致，请重新检查");
       }

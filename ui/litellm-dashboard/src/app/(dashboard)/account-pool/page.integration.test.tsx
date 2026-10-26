@@ -19,6 +19,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
   default: () => ({ accessToken: "token", userRole: "Admin", isViewOnly: false }),
 }));
+vi.mock("@/features/account-pool/api/NativeCockpitApi", async (original) => ({
+  ...(await original<typeof import("@/features/account-pool/api/NativeCockpitApi")>()),
+  getNativeBackend: async () => ({ backend: "manager" as const }),
+}));
 vi.mock("@/features/account-pool/api/AccountPoolApi", async (original) => ({
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolApi")>()),
   listAccountPoolEnvironments: (...args: unknown[]) => listAccounts(...args),
@@ -128,7 +132,7 @@ describe("account card local configuration", () => {
   it("does not load card data on a tab that does not consume it, then loads it on return", async () => {
     searchState.value = "tab=upstream-sync";
     const { rerender } = renderPage();
-    expect(screen.getByRole("tab", { name: "上游更新" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("tab", { name: "上游更新" })).toHaveAttribute("aria-selected", "true");
     expect(listAccounts).not.toHaveBeenCalled();
     searchState.value = "tab=dashboard";
     rerender(
@@ -143,7 +147,7 @@ describe("account card local configuration", () => {
   it("opens runtime configuration from the card and saves without navigation", async () => {
     const user = userEvent.setup();
     renderPage();
-    const tabs = screen.getAllByRole("tab");
+    const tabs = await screen.findAllByRole("tab");
     const onboardingIndex = tabs.findIndex((tab) => tab.textContent === "自动化上号");
     expect(onboardingIndex).toBe(4);
     expect(tabs[onboardingIndex - 1]).toHaveTextContent(/认证文件|Credentials/i);

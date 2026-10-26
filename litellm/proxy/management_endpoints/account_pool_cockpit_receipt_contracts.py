@@ -56,6 +56,42 @@ class CredentialReceipt(BaseModel):
     signature: Digest = Field(repr=False)
 
 
+class NativeCredentialBindings(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    scope: TrustedCredentialScope
+    target_account_id: UUID
+    target_auth_id: str = Field(repr=False)
+    target_file_revision: str = Field(pattern=_ETAG)
+    target_file_size: int = Field(gt=0)
+    manifest_revision: str = Field(pattern=_ETAG)
+
+
+class NativeCredentialReceiptPayload(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    version: Literal[1] = 1
+    purpose: Literal["litellm-cockpit-native-scope"] = "litellm-cockpit-native-scope"
+    issued_at: int = Field(gt=0, strict=True)
+    expires_at: int = Field(gt=0, strict=True)
+    bindings: NativeCredentialBindings
+
+    @model_validator(mode="after")
+    def bounded_lifetime(self) -> Self:
+        if self.expires_at - self.issued_at != _LIFETIME:
+            raise ValueError("Invalid receipt lifetime")
+        return self
+
+
+class NativeCredentialReceipt(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", hide_input_in_errors=True)
+
+    status: Literal["native_scope_verified"] = "native_scope_verified"
+    ready_to_migrate: Literal[False] = False
+    payload: NativeCredentialReceiptPayload
+    signature: Digest = Field(repr=False)
+
+
 ReceiptRejectionCode = Literal[
     "invalid_subject",
     "subject_unverified",

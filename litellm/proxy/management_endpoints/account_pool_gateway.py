@@ -167,6 +167,23 @@ class AccountPoolGatewayMiddleware:
         state.setdefault("account_pool_signature_lineage", self.signature_lineage)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+        if native_cockpit_enabled():
+            native_reset: Final = pool_identity.set(None)
+            try:
+                if cast(str, scope.get("path", "")).startswith(INTERNAL_PREFIX):
+                    if scope["type"] == "websocket":
+                        await send({"type": "websocket.close", "code": 1008})
+                    else:
+                        await JSONResponse({"detail": "legacy_forwarding_disabled"}, status_code=503)(
+                            scope, receive, send
+                        )
+                else:
+                    await self.app(scope, receive, send)
+            finally:
+                pool_identity.reset(native_reset)
+            return
         self._attach_signature_lineage(scope)
         ingress_started: Final = time.perf_counter()
         reset: Final = pool_identity.set(None)

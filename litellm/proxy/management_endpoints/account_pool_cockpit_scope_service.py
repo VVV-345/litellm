@@ -30,6 +30,8 @@ from litellm.proxy.management_endpoints.account_pool_cockpit_receipt_contracts i
     CredentialBindings,
     CredentialReceipt,
     CredentialReceiptRejection,
+    NativeCredentialBindings,
+    NativeCredentialReceipt,
     TrustedCredentialScope,
 )
 
@@ -182,7 +184,9 @@ class ScopeFailure:
 class ReceiptRevalidator(Protocol):
     """Only return a receipt after signature, subject and live-state revalidation."""
 
-    async def revalidate(self, subject_hash: str, encoded: str) -> CredentialReceipt | CredentialReceiptRejection: ...
+    async def revalidate(
+        self, subject_hash: str, encoded: str
+    ) -> CredentialReceipt | NativeCredentialReceipt | CredentialReceiptRejection: ...
 
 
 class SubjectReader(Protocol):
@@ -279,6 +283,14 @@ def _entry_authorized(
     return all(_visible(model, manifest, card) for card in cards for model in models)
 
 
+def scope_models_visible(manifest: CockpitScopeManifest, scope: TrustedCredentialScope) -> bool:
+    return (
+        scope.model_scope == "restricted"
+        and bool(scope.models)
+        and all(_visible(model, manifest, scope.card_id) for model in scope.models)
+    )
+
+
 def _manifest_problem(manifest: CockpitScopeManifest, extra: dict[str, JsonValue] | None = None) -> bool:
     account_ids: Final = tuple(account.id.strip() for account in manifest.accounts or ())
     known_accounts: Final = frozenset(account_ids)
@@ -323,7 +335,7 @@ class _Publication:
 
 def _prepared_publication(
     request: CockpitScopePublishRequest,
-    bindings: CredentialBindings,
+    bindings: CredentialBindings | NativeCredentialBindings,
     snapshot: ManifestSnapshot,
     manifest: CockpitScopeManifest,
     token: str,

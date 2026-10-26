@@ -3,6 +3,10 @@
 const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
 
 export const accountPoolQueryKeys = {
+  cockpitBackend: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "cockpit-backend", accessToken] as const,
+  nativeCockpitAccounts: (accessToken: string) =>
+    [...ACCOUNT_POOL_ROOT, "native-cockpit-accounts", accessToken] as const,
+  nativeCockpitPolicy: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "native-cockpit-policy", accessToken] as const,
   all: ACCOUNT_POOL_ROOT,
   feedbackRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback", accessToken] as const,
   feedback: (accessToken: string, filter: { status: string; q: string; limit: number; offset: number }) =>

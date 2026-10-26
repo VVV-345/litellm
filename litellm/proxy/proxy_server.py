@@ -1311,6 +1311,14 @@ async def proxy_startup_event(app: FastAPI) -> AsyncGenerator[None, None]:
 
     account_pool_reconciliation_task: Final = start_account_pool_reconciliation_loop()
 
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
+        native_cockpit_enabled,
+        native_cockpit_services,
+    )
+
+    if native_cockpit_enabled():
+        native_cockpit_services()
+
     # End of startup event
     yield
 
@@ -1320,6 +1328,10 @@ async def proxy_startup_event(app: FastAPI) -> AsyncGenerator[None, None]:
     # so SIGTERM (rolling update, scale-down, liveness kill) doesn't drop them.
     GracefulShutdownManager.start_shutdown()
     await GracefulShutdownManager.wait_for_drain()
+
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import close_native_cockpit_services
+
+    await close_native_cockpit_services()
 
     # Shutdown event - close shared aiohttp session
     if shared_aiohttp_session is not None:
@@ -10218,6 +10230,23 @@ async def model_list(
 
     pool_caller: Final = pool_identity.get()
     if pool_caller is not None and pool_caller.card_id is not None:
+        from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
+            native_cockpit_enabled,
+            native_cockpit_services,
+        )
+
+        if native_cockpit_enabled():
+            native_state: Final = await native_cockpit_services().route_state(pool_caller.key_hash)
+            if native_state.state != "active" or native_state.account_ids != (str(pool_caller.card_id),):
+                raise HTTPException(503, "cockpit_scope_not_active")
+            return {
+                "object": "list",
+                "data": [
+                    {"id": model, "object": "model", "created": 0, "owned_by": "cockpit"}
+                    for model in native_state.models
+                    if model not in hidden_names
+                ],
+            }
         available: Final = await get_available_models_for_user(
             user_api_key_dict=user_api_key_dict,
             llm_router=llm_router,
@@ -18056,6 +18085,9 @@ app.include_router(model_management_router)
 app.include_router(model_access_group_management_router)
 app.include_router(auto_router_management_router)
 app.include_router(account_pool_router)
+from litellm.proxy.management_endpoints.account_pool_cockpit_native_api import create_native_cockpit_router
+
+app.include_router(create_native_cockpit_router())
 app.include_router(request_log_router)
 app.include_router(runtime_configuration_router)
 app.include_router(tag_management_router)

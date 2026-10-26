@@ -220,6 +220,10 @@ class CockpitRouteResolver:
         self._entries = MappingProxyType({})
 
     async def decision(self, subject_hash: str) -> RouteDecision:
+        from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+        if self._lookup is None and native_cockpit_enabled():
+            return await self._default_lookup(subject_hash)
         now = self._clock()
         cached = self._entries.get(subject_hash)
         if cached is not None and cached.expires > now:
@@ -242,6 +246,17 @@ class CockpitRouteResolver:
 
     @staticmethod
     async def _default_lookup(subject_hash: str) -> RouteDecision:
+        from litellm.proxy.management_endpoints.account_pool_cockpit_native import (
+            native_cockpit_enabled,
+            native_cockpit_services,
+        )
+
+        if native_cockpit_enabled():
+            try:
+                state: Final = await native_cockpit_services().route_state(subject_hash)
+                return _decision(state.model_dump_json().encode(), subject_hash)
+            except Exception:  # noqa: BLE001  # Native failures must not fall back to Manager or leak credentials.
+                raise CockpitRouteUnavailable from None
         token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
         base_url: Final = os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091")
         return await ManagerRouteLookup(base_url, token).read(subject_hash)
@@ -258,10 +273,21 @@ async def cockpit_route_for_request(
     *,
     resolver: CockpitRouteResolver | None = None,
 ) -> CockpitRoute | None:
-    if not routing_enabled() or identity is None or identity.card_id is None:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+    native: Final = native_cockpit_enabled()
+    if identity is None or identity.card_id is None:
+        return None
+    if not routing_enabled():
+        if native:
+            raise HTTPException(503, "cockpit_routing_disabled")
         return None
     if not isinstance(token, str) or _HASH.fullmatch(token) is None:
+        if native:
+            raise HTTPException(401, "native_subject_required")
         return None
+    if native and (identity.binding_id is not None or identity.key_hash != token):
+        raise HTTPException(403, "native_subject_required")
     try:
         request: Final = _DATA.validate_python(data)
     except ValidationError:
@@ -272,10 +298,14 @@ async def cockpit_route_for_request(
     except CockpitRouteUnavailable:
         raise HTTPException(503, "cockpit_route_unavailable") from None
     if decision.state in {"absent", "staged"}:
+        if native:
+            raise HTTPException(503, "cockpit_scope_not_active")
         return None
     if decision.state == "blocked" or decision.route is None:
         raise HTTPException(503, "cockpit_route_blocked")
     route: Final = decision.route
+    if native and route.account_ids != (str(identity.card_id),):
+        raise HTTPException(403, "account_outside_cockpit_scope")
     model: Final = request.get("model")
     if not isinstance(model, str) or not any(model.casefold() == allowed.casefold() for allowed in route.models):
         raise HTTPException(403, "model_outside_cockpit_scope")

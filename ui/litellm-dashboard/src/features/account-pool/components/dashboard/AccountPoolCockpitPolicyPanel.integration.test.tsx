@@ -40,7 +40,7 @@ beforeEach(async () => {
 });
 afterEach(() => vi.unstubAllGlobals());
 
-function mountPanel(respond: (init?: RequestInit, path?: string) => Response | Promise<Response>) {
+function mountPanel(respond: (init?: RequestInit, path?: string) => Response | Promise<Response>, native = false) {
   const requests: { method: string; body: unknown }[] = [];
   const paths: string[] = [];
   const tokens: (string | null)[] = [];
@@ -48,7 +48,8 @@ function mountPanel(respond: (init?: RequestInit, path?: string) => Response | P
     "fetch",
     vi.fn<typeof fetch>(async (input, init) => {
       const path = new URL(String(input), "http://localhost").pathname;
-      if (!path.startsWith("/account_pool/cockpit/policy")) throw new Error(`Unexpected request: ${path}`);
+      if (!path.startsWith(native ? "/account_pool/cockpit/native/policy" : "/account_pool/cockpit/policy"))
+        throw new Error(`Unexpected request: ${path}`);
       requests.push({ method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : null });
       paths.push(path);
       tokens.push(new Headers(init?.headers).get("Authorization"));
@@ -58,7 +59,7 @@ function mountPanel(respond: (init?: RequestInit, path?: string) => Response | P
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rendered = render(
     <QueryClientProvider client={client}>
-      <AccountPoolCockpitPolicyPanel accessToken="admin-token" />
+      <AccountPoolCockpitPolicyPanel accessToken="admin-token" native={native} />
     </QueryClientProvider>,
   );
   return {
@@ -69,11 +70,17 @@ function mountPanel(respond: (init?: RequestInit, path?: string) => Response | P
     changeToken: (accessToken: string) =>
       rendered.rerender(
         <QueryClientProvider client={client}>
-          <AccountPoolCockpitPolicyPanel accessToken={accessToken} />
+          <AccountPoolCockpitPolicyPanel accessToken={accessToken} native={native} />
         </QueryClientProvider>,
       ),
   };
 }
+
+it("uses the native policy endpoint instead of Manager in native mode", async () => {
+  const { paths } = mountPanel(() => Response.json(initialPolicy), true);
+  await screen.findByRole("combobox", { name: "选择策略" });
+  expect(paths).toEqual(["/account_pool/cockpit/native/policy"]);
+});
 
 it("sends edited global fields and the original revision only on explicit save, without claiming activation", async () => {
   const { requests, client } = mountPanel((init) =>

@@ -118,13 +118,16 @@ const readCockpitPolicyResponse = (response: unknown): CockpitPolicyView => {
   return result.data;
 };
 
-export const getAccountPoolCockpitPolicy = async (accessToken: string) =>
+const cockpitPolicyPath = (native: boolean) =>
+  native ? "/account_pool/cockpit/native/policy" : "/account_pool/cockpit/policy";
+
+export const getAccountPoolCockpitPolicy = async (accessToken: string, native = false) =>
   readCockpitPolicyResponse(
-    await apiClient.get<unknown>("/account_pool/cockpit/policy", { accessToken, cache: "no-store" }),
+    await apiClient.get<unknown>(cockpitPolicyPath(native), { accessToken, cache: "no-store" }),
   );
 
-export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate) =>
-  readCockpitPolicyResponse(await apiClient.put<unknown>("/account_pool/cockpit/policy", { accessToken, body }));
+export const saveAccountPoolCockpitPolicy = async (accessToken: string, body: CockpitPolicyUpdate, native = false) =>
+  readCockpitPolicyResponse(await apiClient.put<unknown>(cockpitPolicyPath(native), { accessToken, body }));
 
 const cockpitPolicyRuntimeShape = {
   persisted_revision: z.string().regex(/^"sha256-[a-f0-9]{64}"$/),
@@ -143,9 +146,12 @@ const cockpitPolicyRuntimeResponse: z.ZodType<CockpitPolicyRuntime> = z
       (data.active_revision === null) === (data.blocked_reason === "runtime_unavailable"),
   );
 
-export const getAccountPoolCockpitPolicyRuntime = async (accessToken: string): Promise<CockpitPolicyRuntime> => {
+export const getAccountPoolCockpitPolicyRuntime = async (
+  accessToken: string,
+  native = false,
+): Promise<CockpitPolicyRuntime> => {
   const result = cockpitPolicyRuntimeResponse.safeParse(
-    await apiClient.get<unknown>("/account_pool/cockpit/policy/runtime", { accessToken, cache: "no-store" }),
+    await apiClient.get<unknown>(cockpitPolicyPath(native) + "/runtime", { accessToken, cache: "no-store" }),
   );
   if (!result.success) throw new Error("运行状态响应无效，必须重新检查");
   return result.data;
@@ -154,9 +160,10 @@ export const getAccountPoolCockpitPolicyRuntime = async (accessToken: string): P
 export const applyAccountPoolCockpitPolicy = async (
   accessToken: string,
   body: CockpitPolicyApply,
+  native = false,
 ): Promise<CockpitPolicyRuntime> => {
   const result = cockpitPolicyRuntimeResponse.safeParse(
-    await apiClient.post<unknown>("/account_pool/cockpit/policy/apply", { accessToken, body }),
+    await apiClient.post<unknown>(cockpitPolicyPath(native) + "/apply", { accessToken, body }),
   );
   if (!result.success) throw new Error("应用结果未确认，必须重新检查运行状态并核对保存版本");
   const confirmed =

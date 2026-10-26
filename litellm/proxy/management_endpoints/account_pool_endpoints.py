@@ -634,6 +634,7 @@ async def _manager_request(
     body: bytes | None = None,
     idempotency_key: str | None = None,
 ) -> httpx.Response:
+    _require_manager_backend()
     client: Final = client_factory()
     try:
         return await client.request(method, path, body, idempotency_key)
@@ -656,6 +657,7 @@ async def _manager_request_multipart(
     content_type: str | None,
     idempotency_key: str | None = None,
 ) -> httpx.Response:
+    _require_manager_backend()
     client: Final = client_factory()
     try:
         return await client.request_multipart(path, fields, filename, content, content_type, idempotency_key)
@@ -663,7 +665,15 @@ async def _manager_request_multipart(
         await client.close()
 
 
+def _require_manager_backend() -> None:
+    from litellm.proxy.management_endpoints.account_pool_cockpit_native import native_cockpit_enabled
+
+    if native_cockpit_enabled():
+        raise HTTPException(503, "Legacy Manager API is disabled in Cockpit mode")
+
+
 def _default_client() -> AccountPoolManagerClient:
+    _require_manager_backend()
     return AccountPoolManagerClient(
         base_url=os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091"),
         token=os.getenv("ACCOUNT_POOL_MANAGER_TOKEN"),

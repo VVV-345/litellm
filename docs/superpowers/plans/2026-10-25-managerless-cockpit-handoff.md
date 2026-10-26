@@ -1,5 +1,57 @@
 # LiteLLM + Cockpit 去 Manager 分阶段实施计划
 
+## 2026-10-26 当前检查点：完成 1 / 2 / 3 的本地代码与离线闭环
+
+本节为当前状态，优先于后面的历史检查点。用户已确认：**Cockpit 管真实凭据，LiteLLM 主库管用户/Key 授权；旧 Manager 只作一次性迁移来源，不参与新环境日常请求。** 本轮起点 `5bbe77234d7ee20cf73db436b31318fb118868fd`，主代理直接实现，沿用已批准的 `codex/cockpit-reuse-plan` worktree；不调用 DS、不推送、不部署、不重启真实服务。
+
+| 用户要求 | 已完成的代码与本地验证 | 尚不能据此宣称 |
+| --- | --- | --- |
+| 1. 可信回执与凭据归属 | `CockpitCredentialReceiptService` 独立 HMAC 密钥，300 秒期限，主体/当前原生权限/凭据文件 etag、大小/manifest revision 绑定；两次一致观测与发布前重验；原生 purpose/status 与旧迁移回执分离 | 真实供应商登录、额度健康、生产凭据迁移及秘密存储备份已验收 |
+| 2. 去 Manager 的原生接线 | `ACCOUNT_POOL_BACKEND=cockpit` 直连原生服务；注册管理 API、绑定账号校验、`_default_lookup`、`/models` 与现有 Responses 请求接线；停用旧协调/转发/管理调用；原生 active 不使用 5 秒缓存 | 整个产品已完全替代，或真实 PostgreSQL 计费和所有协议已验证 |
+| 3. 页面管理流程 | 原有号池页先读取明确 backend，再挂载原生面板；账号/凭据存在状态、预检、签发、重验、默认停用发布、启停/撤销、运行 revision 确认；复用现有策略面板 | 创建账号、导入 OAuth、旧 Key 批量迁移等所有旧页面功能已复刻 |
+
+### 明确配置与秘密生命周期
+
+默认仍为 `ACCOUNT_POOL_BACKEND=manager`，避免本地代码一提交就改变旧部署。新隔离环境显式使用 `cockpit`；错误枚举或缺配置失败关闭，不回退 Manager。以下配置由部署者在受控 secret store / 只读挂载的私有环境文件中持久保存，代码不自动生成、不写入仓库或浏览器：
+
+- `ACCOUNT_POOL_COCKPIT_ADMIN_URL`：固定内部管理 origin；只允许管理网/回环访问，不对公网暴露。
+- `ACCOUNT_POOL_COCKPIT_ADMIN_TOKEN`：Cockpit 管理鉴权秘密。
+- `ACCOUNT_POOL_COCKPIT_DATA_URL`：固定内部数据面 origin。
+- `ACCOUNT_POOL_COCKPIT_RECEIPT_KEY`：独立回执 HMAC 密钥。
+- `ACCOUNT_POOL_COCKPIT_ROUTING_SEED`：稳定的主体路由令牌派生种子。
+- 三个秘密至少 32 字符且互不相同；实际部署使用独立高熵随机值，不复用 Manager token。所有 LiteLLM worker 使用相同受控版本；变更通过进程重启加载，不热变更环境。
+- `ACCOUNT_POOL_COCKPIT_ROUTING_ENABLED=true` 才允许已绑定原生 Key 请求；未开开关时绑定请求 503，不悄悄走旧路由。
+
+备份/恢复需分别覆盖主库授权、Cockpit 凭据与 manifest、上述秘密及对应镜像 digest。回执密钥轮换让在途回执失效，须重新预检/签发；不因此自动撤销已发布 scope。routing seed 改变会使旧投影令牌不匹配，须在隔离环境按停用/撤销、重新发布、重启 Cockpit、确认版本顺序处理，不能静默轮换后宣称旧 Key 连续可用。管理 token 轮换要协调两端。真实 secret-store 重启持久化、备份恢复演练本轮未做。
+
+### 现有页面如何操作
+
+1. 在隔离 Cockpit 中先导入凭据并配置账号/模型；界面“凭据文件存在”不表示提供商登录、可用额度或归属已由供应商证明。
+2. 用现有原生 Key 管理 API，由代理管理员配置 `metadata.account_pool_card_id=ACCOUNT_UUID`，不带旧 `account_pool_binding_id`，明确 `models` 及实际用户/团队授权上界；新模式账号校验读 Cockpit。当前原生号池面板只操作已经绑定好的 Key，不提供新 OAuth 导入或替代整套创建 Key 页面。
+3. 打开号池页面，输入原生 Key 的 64 位哈希（不是原始秘密）；选择主体，依次预检、签发、重验、发布停用投影。
+4. 启用投影后仍是“运行态待确认”。管理员在**隔离环境**执行 Cockpit 重启，再点“读取并确认运行版本”；仅投影 active 且当前凭据/权限一致、persisted/active revision 一致时确认。
+5. 先测声明支持的原生 Key、单账号、明确模型范围、Responses 窄路径。停用/撤销后 LiteLLM 立即拒绝后续该主体请求；已在途请求和直接绕过 LiteLLM 的内部流量不属于撤权实时性承诺。Cockpit 管理/数据端必须保持内网边界。
+6. 同页策略与 scope 共用 manifest CAS；scope 改变后需重新读取策略，旧 revision 的写入会冲突并停止。页面不自动重试写入、不在浏览器存回执、不提供真实服务重启按钮。
+
+### 本轮实际证据
+
+- 初始后端基线 586 passed / 1 warning；最终相关回归 **712 passed / 2 warnings**。包括真实回环 HTTP `/v1/responses` 一次调用、输出 `fixture-ok` 和 input/output usage 各 1；管理观测为 MockTransport、权限为合成 fixture，不能当真实供应商/主库。
+- 旧接线补充回归：`469 passed, 94 warnings in 359.41s (0:05:59)`；各套件按独立范围记录，不把不同轮次相加。
+- 独立进程禁止导入 `account_pool` 后，原生回执/发布/版本/撤销工作流通过，Manager imports=0。旧 Manager 源文件无本轮改动。
+- 新六个核心源码普通 Ruff、strict Ruff、格式、basedpyright 通过；已改接线源码 Ruff 通过。包含旧 `proxy_server.py` / `account_pool_endpoints.py` 的全文件 basedpyright 未全绿（本轮扩展检查 3427 errors）；已修正本轮新增的 ASGI path 类型诊断，旧文件问题未做无关重构。只检查五个接线模块时仍有 36 条旧区域诊断。基线副本检查另有跨模块 ProxyConfig 身份差异，不能将数量差当作类型质量提升，亦不能宣称全仓 Python 类型通过。
+- 前端 3 个关联文件 **27 passed**；ESLint **0 errors / 3 旧组件 warnings**。从当前 FastAPI 重新生成 `schema.d.ts`，第二次生成 hash 不变。
+- 同盘一次性 UI 副本 **Next.js 16.3.8 Webpack 生产构建通过**（最终 stderr 空）；完整 `tsc` 仍 exit 2、**1083 条测试文件诊断**，未见生产源码诊断。未删测试、未放宽配置；未运行 Vitest 类型项目、全仓 make check、Turbopack/Linux 镜像。
+- 浏览器真实点击了预检→签发→重验→发布→启用→确认模拟运行版本→停用→撤销。后端为本机合成 fixture，确认 runtime 是 fixture 专用状态改变，不是真实 Cockpit 重启；初次 harness 代理配置错误修正后才完成流程。截图及 DOM 记录见证据。
+- 新增测试捕获并修复：凭据移除后不能仍显示 active；manifest 模型规则/别名/API Key 字段大小写别名不能绕过观测。保留所有红灯和命令错误记录。
+
+BASELINE / MODIFIED / ROLLBACK 同输入 scope 状态依次 `absent → staged → staged → active → active → blocked → staged → absent → absent`；stale receipt 写 0 次，CAS 409 和写结果未知 503 均只 PUT 1 次，无关 Key/字段保留。三态均 exit 0、stderr 空，恢复副本 hash 等于本轮原件，修改后源码保留。文档三态合同另验 `missing=0 forbidden=0`。这是**本地文件回滚**，不是服务器、数据库或镜像回退证明。
+
+### 还差什么 / 下一步
+
+本轮 1 / 2 / 3 的上述本地范围完成，**不能替代生产**。接下来先准备独立测试部署材料与能力差异矩阵，再单独确认服务器参数/发布权限：独立 Compose 身份、端口、网络、数据卷、数据库、秘密和资源限额；GitHub Actions 构建、GHCR 只存独立测试镜像，固定 SHA/digest/platform，不覆盖旧项目标签。之后隔离实测真实 Cockpit 启动/重启、主库授权与撤权、多 worker、持久化/恢复、模型发现、用量入账；换卡、429/冷却、亲和性、流式/续聊/工具等逐项标明支持范围。一次性迁移工具及原 Key 保留/换发仍未完成。上述未验收前保持原生产不动。
+
+固定四角色继续复用，不另开计划：本计划、同名 evidence 目录下的 `DIFF_FILE.patch` / `VERIFICATION.txt` / `ROLLBACK.sh`。本轮详细命令与结果：`C:/Users/42117/.codex/worktrees/cockpit-reuse-audit/litellm/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.evidence/native-workflow-verification.json`。后续 AI 先读本节和 checkpoint 的当前字段，不执行后面的历史 DS 派工文字。
+
 ## 2026-10-26 最新检查点：原生 scope 编排完成本地单元验证
 
 本轮由主代理直接实现，没有调用 DS。起点 `fc615e807b9734943edcde27efea4eb46cd0ce6e`，继续已批准的 worktree，本地提交、不推送、不部署
