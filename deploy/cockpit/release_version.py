@@ -1,4 +1,4 @@
-"""从成功构建的版本标签计算 cockpit 下一个发布版本，默认递增补丁位。"""
+"""从成功构建的 cockpit 版本标签计算下一个发布版本，默认递增补丁位。"""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Final, Protocol, cast
 
 _VERSION: Final = re.compile(r"v([0-9]+)\.([0-9]+)(?:\.([0-9]+))?")
+_TAG: Final = re.compile(r"cockpit-(v[0-9]+\.[0-9]+(?:\.[0-9]+)?)")
 
 
 class ReleaseArguments(Protocol):
@@ -24,24 +25,29 @@ def version_parts(version: str) -> tuple[int, int, int]:
     return int(match.group(1)), int(match.group(2)), int(match.group(3) or 0)
 
 
+def tagged_version(tag: str) -> str | None:
+    match: Final = _TAG.fullmatch(tag)
+    return None if match is None else match.group(1)
+
+
+def parsed_tags(tags: tuple[str, ...]) -> tuple[tuple[tuple[int, int, int], str], ...]:
+    return tuple((version_parts(version), version) for tag in tags if (version := tagged_version(tag)) is not None)
+
+
 def rendered(parts: tuple[int, int, int]) -> str:
     major, minor, patch = parts
     return f"v{major}.{minor}.{patch}"
 
 
-def parsed_versions(tags: tuple[str, ...]) -> tuple[tuple[tuple[int, int, int], str], ...]:
-    return tuple((version_parts(tag), tag) for tag in tags if _VERSION.fullmatch(tag))
-
-
 def next_version(version: str, tags: tuple[str, ...], head_tags: tuple[str, ...]) -> str:
     current: Final = version_parts(version)
-    tagged_head: Final = parsed_versions(head_tags)
+    tagged_head: Final = parsed_tags(head_tags)
     if tagged_head:
         return max(tagged_head)[1]
-    successful: Final = parsed_versions(tags)
+    successful: Final = parsed_tags(tags)
     if not successful:
         return version
-    latest: Final = max(parts for parts, _tag in successful)
+    latest: Final = max(parts for parts, _version in successful)
     if current > latest:
         return version
     latest = max(current, latest)

@@ -268,18 +268,18 @@ jobs:
           ref: ${{ needs.prepare.outputs.litellm_revision }}
       - name: Create the immutable version tag
         env:
-          RELEASE_VERSION: ${{ needs.prepare.outputs.release_version }}
+          RELEASE_TAG: cockpit-${{ needs.prepare.outputs.release_version }}
           REVISION: ${{ needs.prepare.outputs.litellm_revision }}
         run: |
           set -euo pipefail
-          existing="$(git ls-remote --tags origin "refs/tags/$RELEASE_VERSION" | awk '{print $1}')"
+          existing="$(git ls-remote --tags origin "refs/tags/$RELEASE_TAG" | awk '{print $1}')"
           if [ -n "$existing" ]; then
             if [ "$existing" != "$REVISION" ]; then
-              echo "Tag $RELEASE_VERSION already points to $existing, expected $REVISION" >&2
+              echo "Tag $RELEASE_TAG already points to $existing, expected $REVISION" >&2
               exit 1
             fi
-            echo "Tag $RELEASE_VERSION already records $REVISION"
+            echo "Tag $RELEASE_TAG already records $REVISION"
           else
-            git tag "$RELEASE_VERSION" "$REVISION"
-            git push origin "refs/tags/$RELEASE_VERSION"
+            git tag "$RELEASE_TAG" "$REVISION"
+            git push origin "refs/tags/$RELEASE_TAG"
           fi
