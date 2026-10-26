@@ -692,3 +692,22 @@ BASELINE：原 CLI --help 显示固定 8092 和旧动作；MODIFIED：独立 CLI
 补充失败记录：Actionlint 初次错误下载后按官方 checksum 清单改为 Windows zip；Git Bash 恢复脚本首次缺 PATH 中 dirname/cp（exit127），补 Git usr/bin 后通过；初次 pytest 默认临时清理 WinError5，改为独立 basetemp 后无该错误；Docker Hub digest 查询连接超时（exit1），Docker info 证实 Linux daemon 管道不存在（exit1）。真实镜像构建、两架构容器 smoke、服务器 deploy/recover、线上 Packages 整理均未执行
 
 下一步只需明确授权推送两份源码并构建测试镜像，随后核对工作流输出的真实版本/digest；不能将本地 bundle 测试中的 fixture digest 当发布版本。获得目标服务器和隔离部署授权后，按 deploy/cockpit/README.md 安装，先保留旧生产，后做真实账号、计费及恢复验收
+
+
+## 2026-10-26 已发布测试版本 bfeed2a20c（本节优先于前面的未推送状态）
+
+用户明确批准推送对应分支并发布测试镜像，未授权服务器部署。Cockpit ec9989c009042a3f8770781926f6087000825ee9 与 LiteLLM e8d49ba089 已推送，Cockpit 已有未提交 workflow 原样保留。首次 Actions 40270102706 的四份镜像构建成功，AMD64 smoke 通过，但 ARM64 Cockpit 无法启动，publish 被跳过，没有产生可部署旧版本
+
+根因由实际构建日志确认：平台 linux/arm64 的 RUN 命令却为 GOARCH=amd64。固定 Cockpit Dockerfile 的 ARG TARGETARCH=amd64 覆盖了目标架构。修复提交 bfeed2a20cd2b00b1758bab61104a7dcef8d8919 在新工作流显式传 TARGETOS=linux 和 TARGETARCH=${{ matrix.arch }}；smoke 失败先输出容器状态和日志再清理，不绕过健康门禁。新增两项测试先失败后通过，定向共 28 passed，Ruff/格式/Actionlint 通过，修复已推送
+
+重新构建 https://github.com/VVV-345/litellm/actions/runs/40271303629 全部 success：prepare、LiteLLM/Cockpit 的 AMD64/ARM64 四份镜像、两个原生架构真实隔离容器 smoke、publish。ARM64 构建日志实际为 GOARCH=arm64。测试 Release https://github.com/VVV-345/litellm/releases/tag/cockpit-test-bfeed2a20c 已发布（北京时间 2026-10-26 13:02），不是生产正式版本
+
+新包 ghcr.io/vvv-345/litellm-cockpit，标签 litellm-bfeed2a20c / cockpit-bfeed2a20c。清单配对 digest：
+- LiteLLM sha256:898dca5a0726533f8f82d936f28dddf2488d43a6f2c89ff105e5422602ac236a
+- Cockpit sha256:9308a3ba342fdc294cbfe2676acd36106dd2cc582739fedc7caac49e2b0138b8
+
+已下载并重新打开 release.json、runtime.tar.gz、SHA256SUMS，三附件均匹配 GitHub 资产 digest，两个内容文件匹配 SHA256SUMS，tar 内三文件逐字节匹配源码，runtime/compatibility 指纹与本地一致。没有更改包可见性、删除旧包或扩大本机 token 权限；本机 Packages 列表权限不足仍是独立限制，不影响 Actions 已完成的新包发布
+
+本轮复跑 CLI 三态全部 exit0、恢复 hash 与原 CLI 相同。另对实际修改 workflow 同一检查器输入验证：BASELINE 无 build-args 且失败不留容器日志；MODIFIED 显式目标架构且失败先留日志；ROLLBACK 独立副本恢复后与 BASELINE 输出和 hash 一致。配置三态不冒充真实运行；真实 ARM64 编译与 smoke 另有上述 Actions 证据
+
+下一步：获得目标服务器身份/资源/隔离部署授权，配置 root 使用的新包只读 GHCR 拉取凭据，下载并校验该 Release 初装包，在 /opt/zlia-pool/litellm-cockpit-test/runtime 首次 init 后执行 python3 releasectl.py deploy bfeed2a20c。不要使用旧生产目录，不要重跑已完成构建。CI smoke 只证明空数据库启动、页面、健康和未鉴权边界；真实账号、Key 授权、模型调用、计费、重启持久化、服务器备份恢复尚未验收，不能据此替代生产

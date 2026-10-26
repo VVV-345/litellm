@@ -1,9 +1,9 @@
 diff --git a/.github/workflows/publish-cockpit-images.yml b/.github/workflows/publish-cockpit-images.yml
 new file mode 100644
-index 0000000000..438b0dc221
+index 0000000000..9cd89f97d4
 --- /dev/null
 +++ b/.github/workflows/publish-cockpit-images.yml
-@@ -0,0 +1,229 @@
+@@ -0,0 +1,243 @@
 +name: Publish isolated LiteLLM Cockpit images
 +
 +on:
@@ -102,6 +102,9 @@ index 0000000000..438b0dc221
 +          context: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy' || '.' }}
 +          file: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy/Dockerfile' || './Dockerfile' }}
 +          platforms: linux/${{ matrix.arch }}
++          build-args: |
++            TARGETOS=linux
++            TARGETARCH=${{ matrix.arch }}
 +          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
 +          labels: |
 +            org.opencontainers.image.source=https://github.com/VVV-345/litellm
@@ -165,7 +168,18 @@ index 0000000000..438b0dc221
 +          PY
 +          printf 'LITELLM_IMAGE=%s@%s\nCOCKPIT_IMAGE=%s@%s\n' "$IMAGE" "$(cat digests/litellm-$ARCH.digest)" "$IMAGE" "$(cat digests/cockpit-$ARCH.digest)" | sudo tee "$TEST_RUNTIME/images.env" >/dev/null
 +          dc() { sudo env DOCKER_CONFIG="$HOME/.docker" docker compose -p litellm-cockpit-test --project-directory "$TEST_RUNTIME" --env-file "$TEST_RUNTIME/.env" --env-file "$TEST_RUNTIME/images.env" -f "$TEST_RUNTIME/compose.yaml" "$@"; }
-+          trap 'dc down --volumes' EXIT
++          cleanup() {
++            result=$?
++            trap - EXIT
++            set +e
++            if [ "$result" -ne 0 ]; then
++              dc ps -a
++              dc logs --no-color --tail 100
++            fi
++            dc down --volumes
++            exit "$result"
++          }
++          trap cleanup EXIT
 +          dc up -d --wait --wait-timeout 300
 +          curl --fail --silent --show-error http://127.0.0.1:18400/health/readiness
 +          curl --fail --silent --show-error --output /tmp/cockpit-ui.html http://127.0.0.1:18400/ui/
@@ -2872,10 +2886,10 @@ index 0000000000..e15485a937
 +    sys.exit(main())
 diff --git a/deploy/cockpit/test_releasectl.py b/deploy/cockpit/test_releasectl.py
 new file mode 100644
-index 0000000000..4e3cd10a6b
+index 0000000000..e538bfb825
 --- /dev/null
 +++ b/deploy/cockpit/test_releasectl.py
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,320 @@
 +import importlib.util
 +import json
 +import shutil
@@ -3179,8 +3193,25 @@ index 0000000000..4e3cd10a6b
 +    assert "codex/cockpit-reuse-plan" in path.read_text()
 +    assert "delete-package" not in path.read_text()
 +    assert ":latest" not in path.read_text()
++
++
++def test_workflow_overrides_cockpit_dockerfile_amd64_default():
++    import yaml
++
++    doc = yaml.safe_load((HERE.parents[1] / ".github/workflows/publish-cockpit-images.yml").read_text())
++    build = next(step for step in doc["jobs"]["build"]["steps"] if step.get("id") == "build")
++    assert build["with"].get("build-args", "").splitlines() == ["TARGETOS=linux", "TARGETARCH=${{ matrix.arch }}"]
++
++
++def test_failed_smoke_captures_container_logs_before_cleanup():
++    import yaml
++
++    doc = yaml.safe_load((HERE.parents[1] / ".github/workflows/publish-cockpit-images.yml").read_text())
++    smoke = next(step["run"] for step in doc["jobs"]["smoke"]["steps"] if "run" in step)
++    assert "dc logs --no-color --tail 100" in smoke
++    assert smoke.index("dc logs --no-color --tail 100") < smoke.index("dc down --volumes")
 diff --git a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
-index 58d8051281..380488dd24 100644
+index 58d8051281..e01447a3d4 100644
 --- a/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 +++ b/docs/superpowers/plans/2026-10-23-cockpit-reuse-audit.md
 @@ -1,5 +1,116 @@
@@ -3439,7 +3470,7 @@ index 58d8051281..380488dd24 100644
  ### 替换阶段 E：行为兼容与差异验收
  
  - [ ] 额度耗尽时仅在请求主体/卡片获授权范围内换卡；普通限流按明确策略处理，不误判为额度耗尽
-@@ -439,3 +666,29 @@ $gatewayTests = @(
+@@ -439,3 +666,48 @@ $gatewayTests = @(
  - `../cliproxy-adapter/providers.md`：9 类供应商专属策略的默认值、保存与执行 owner、unsupported 状态及未实测边界
  
  审计依据是源码和列明的测试，不是生产服务实测。发现固定快照之外的上游新版本时，先重新取证和对照，再决定是否更新结论
@@ -3469,12 +3500,31 @@ index 58d8051281..380488dd24 100644
 +补充失败记录：Actionlint 初次错误下载后按官方 checksum 清单改为 Windows zip；Git Bash 恢复脚本首次缺 PATH 中 dirname/cp（exit127），补 Git usr/bin 后通过；初次 pytest 默认临时清理 WinError5，改为独立 basetemp 后无该错误；Docker Hub digest 查询连接超时（exit1），Docker info 证实 Linux daemon 管道不存在（exit1）。真实镜像构建、两架构容器 smoke、服务器 deploy/recover、线上 Packages 整理均未执行
 +
 +下一步只需明确授权推送两份源码并构建测试镜像，随后核对工作流输出的真实版本/digest；不能将本地 bundle 测试中的 fixture digest 当发布版本。获得目标服务器和隔离部署授权后，按 deploy/cockpit/README.md 安装，先保留旧生产，后做真实账号、计费及恢复验收
++
++
++## 2026-10-26 已发布测试版本 bfeed2a20c（本节优先于前面的未推送状态）
++
++用户明确批准推送对应分支并发布测试镜像，未授权服务器部署。Cockpit ec9989c009042a3f8770781926f6087000825ee9 与 LiteLLM e8d49ba089 已推送，Cockpit 已有未提交 workflow 原样保留。首次 Actions 40270102706 的四份镜像构建成功，AMD64 smoke 通过，但 ARM64 Cockpit 无法启动，publish 被跳过，没有产生可部署旧版本
++
++根因由实际构建日志确认：平台 linux/arm64 的 RUN 命令却为 GOARCH=amd64。固定 Cockpit Dockerfile 的 ARG TARGETARCH=amd64 覆盖了目标架构。修复提交 bfeed2a20cd2b00b1758bab61104a7dcef8d8919 在新工作流显式传 TARGETOS=linux 和 TARGETARCH=${{ matrix.arch }}；smoke 失败先输出容器状态和日志再清理，不绕过健康门禁。新增两项测试先失败后通过，定向共 28 passed，Ruff/格式/Actionlint 通过，修复已推送
++
++重新构建 https://github.com/VVV-345/litellm/actions/runs/40271303629 全部 success：prepare、LiteLLM/Cockpit 的 AMD64/ARM64 四份镜像、两个原生架构真实隔离容器 smoke、publish。ARM64 构建日志实际为 GOARCH=arm64。测试 Release https://github.com/VVV-345/litellm/releases/tag/cockpit-test-bfeed2a20c 已发布（北京时间 2026-10-26 13:02），不是生产正式版本
++
++新包 ghcr.io/vvv-345/litellm-cockpit，标签 litellm-bfeed2a20c / cockpit-bfeed2a20c。清单配对 digest：
++- LiteLLM sha256:898dca5a0726533f8f82d936f28dddf2488d43a6f2c89ff105e5422602ac236a
++- Cockpit sha256:9308a3ba342fdc294cbfe2676acd36106dd2cc582739fedc7caac49e2b0138b8
++
++已下载并重新打开 release.json、runtime.tar.gz、SHA256SUMS，三附件均匹配 GitHub 资产 digest，两个内容文件匹配 SHA256SUMS，tar 内三文件逐字节匹配源码，runtime/compatibility 指纹与本地一致。没有更改包可见性、删除旧包或扩大本机 token 权限；本机 Packages 列表权限不足仍是独立限制，不影响 Actions 已完成的新包发布
++
++本轮复跑 CLI 三态全部 exit0、恢复 hash 与原 CLI 相同。另对实际修改 workflow 同一检查器输入验证：BASELINE 无 build-args 且失败不留容器日志；MODIFIED 显式目标架构且失败先留日志；ROLLBACK 独立副本恢复后与 BASELINE 输出和 hash 一致。配置三态不冒充真实运行；真实 ARM64 编译与 smoke 另有上述 Actions 证据
++
++下一步：获得目标服务器身份/资源/隔离部署授权，配置 root 使用的新包只读 GHCR 拉取凭据，下载并校验该 Release 初装包，在 /opt/zlia-pool/litellm-cockpit-test/runtime 首次 init 后执行 python3 releasectl.py deploy bfeed2a20c。不要使用旧生产目录，不要重跑已完成构建。CI smoke 只证明空数据库启动、页面、健康和未鉴权边界；真实账号、Key 授权、模型调用、计费、重启持久化、服务器备份恢复尚未验收，不能据此替代生产
 diff --git a/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
 new file mode 100644
-index 0000000000..c2af1df635
+index 0000000000..f3193ee469
 --- /dev/null
 +++ b/docs/superpowers/plans/2026-10-25-managerless-cockpit-handoff.md
-@@ -0,0 +1,311 @@
+@@ -0,0 +1,330 @@
 +# LiteLLM + Cockpit 去 Manager 分阶段实施计划
 +
 +## 2026-10-26 当前检查点：完成 1 / 2 / 3 的本地代码与离线闭环
@@ -3786,6 +3836,25 @@ index 0000000000..c2af1df635
 +补充失败记录：Actionlint 初次错误下载后按官方 checksum 清单改为 Windows zip；Git Bash 恢复脚本首次缺 PATH 中 dirname/cp（exit127），补 Git usr/bin 后通过；初次 pytest 默认临时清理 WinError5，改为独立 basetemp 后无该错误；Docker Hub digest 查询连接超时（exit1），Docker info 证实 Linux daemon 管道不存在（exit1）。真实镜像构建、两架构容器 smoke、服务器 deploy/recover、线上 Packages 整理均未执行
 +
 +下一步只需明确授权推送两份源码并构建测试镜像，随后核对工作流输出的真实版本/digest；不能将本地 bundle 测试中的 fixture digest 当发布版本。获得目标服务器和隔离部署授权后，按 deploy/cockpit/README.md 安装，先保留旧生产，后做真实账号、计费及恢复验收
++
++
++## 2026-10-26 已发布测试版本 bfeed2a20c（本节优先于前面的未推送状态）
++
++用户明确批准推送对应分支并发布测试镜像，未授权服务器部署。Cockpit ec9989c009042a3f8770781926f6087000825ee9 与 LiteLLM e8d49ba089 已推送，Cockpit 已有未提交 workflow 原样保留。首次 Actions 40270102706 的四份镜像构建成功，AMD64 smoke 通过，但 ARM64 Cockpit 无法启动，publish 被跳过，没有产生可部署旧版本
++
++根因由实际构建日志确认：平台 linux/arm64 的 RUN 命令却为 GOARCH=amd64。固定 Cockpit Dockerfile 的 ARG TARGETARCH=amd64 覆盖了目标架构。修复提交 bfeed2a20cd2b00b1758bab61104a7dcef8d8919 在新工作流显式传 TARGETOS=linux 和 TARGETARCH=${{ matrix.arch }}；smoke 失败先输出容器状态和日志再清理，不绕过健康门禁。新增两项测试先失败后通过，定向共 28 passed，Ruff/格式/Actionlint 通过，修复已推送
++
++重新构建 https://github.com/VVV-345/litellm/actions/runs/40271303629 全部 success：prepare、LiteLLM/Cockpit 的 AMD64/ARM64 四份镜像、两个原生架构真实隔离容器 smoke、publish。ARM64 构建日志实际为 GOARCH=arm64。测试 Release https://github.com/VVV-345/litellm/releases/tag/cockpit-test-bfeed2a20c 已发布（北京时间 2026-10-26 13:02），不是生产正式版本
++
++新包 ghcr.io/vvv-345/litellm-cockpit，标签 litellm-bfeed2a20c / cockpit-bfeed2a20c。清单配对 digest：
++- LiteLLM sha256:898dca5a0726533f8f82d936f28dddf2488d43a6f2c89ff105e5422602ac236a
++- Cockpit sha256:9308a3ba342fdc294cbfe2676acd36106dd2cc582739fedc7caac49e2b0138b8
++
++已下载并重新打开 release.json、runtime.tar.gz、SHA256SUMS，三附件均匹配 GitHub 资产 digest，两个内容文件匹配 SHA256SUMS，tar 内三文件逐字节匹配源码，runtime/compatibility 指纹与本地一致。没有更改包可见性、删除旧包或扩大本机 token 权限；本机 Packages 列表权限不足仍是独立限制，不影响 Actions 已完成的新包发布
++
++本轮复跑 CLI 三态全部 exit0、恢复 hash 与原 CLI 相同。另对实际修改 workflow 同一检查器输入验证：BASELINE 无 build-args 且失败不留容器日志；MODIFIED 显式目标架构且失败先留日志；ROLLBACK 独立副本恢复后与 BASELINE 输出和 hash 一致。配置三态不冒充真实运行；真实 ARM64 编译与 smoke 另有上述 Actions 证据
++
++下一步：获得目标服务器身份/资源/隔离部署授权，配置 root 使用的新包只读 GHCR 拉取凭据，下载并校验该 Release 初装包，在 /opt/zlia-pool/litellm-cockpit-test/runtime 首次 init 后执行 python3 releasectl.py deploy bfeed2a20c。不要使用旧生产目录，不要重跑已完成构建。CI smoke 只证明空数据库启动、页面、健康和未鉴权边界；真实账号、Key 授权、模型调用、计费、重启持久化、服务器备份恢复尚未验收，不能据此替代生产
 diff --git a/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py b/litellm/proxy/management_endpoints/account_pool_cockpit_admin.py
 new file mode 100644
 index 0000000000..2022450b2f
