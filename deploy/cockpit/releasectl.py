@@ -25,6 +25,7 @@ PACKAGE: Final = "ghcr.io/vvv-345/litellm-cockpit"
 RUNTIME: Final = Path("/opt/zlia-pool/litellm-cockpit-test/runtime")
 PROJECT: Final = "litellm-cockpit-test"
 BUNDLE_FILES: Final = ("releasectl.py", "compose.yaml")
+RELEASE_API: Final = "https://api.github.com/repos/VVV-345/litellm/releases"
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,11 +329,44 @@ def probe_http() -> None:
                 raise ValueError(f"HTTP probe failed: {path}")
 
 
+def github_bytes(url: str, accept: str) -> bytes:
+    request: Final = urllib.request.Request(url, headers={"Accept": accept})
+    try:
+        with cast(HTTPResponse, urllib.request.urlopen(request, timeout=30)) as response:
+            data: Final = response.read(65537)
+    except TimeoutError as error:
+        raise ValueError(f"GitHub API request timed out: {url}") from error
+    if len(data) > 65536:
+        raise ValueError("GitHub release response is too large")
+    return data
+
+
 def fetch_release(version: str) -> Release:
     matched(version, "[0-9a-f]{10}")
-    url: Final = f"https://github.com/VVV-345/litellm/releases/download/cockpit-test-{version}/release.json"
-    with cast(HTTPResponse, urllib.request.urlopen(url, timeout=30)) as response:
-        return parse_release(response.read(65537), version)
+    metadata: Final = json_object(
+        github_bytes(f"{RELEASE_API}/tags/cockpit-test-{version}", "application/vnd.github+json")
+    )
+    if metadata.get("tag_name") != f"cockpit-test-{version}" or metadata.get("draft") is not False:
+        raise ValueError("wrong GitHub release identity or unpublished draft")
+    assets: Final = metadata.get("assets")
+    if not isinstance(assets, list):
+        raise TypeError("GitHub release assets must be a list")
+    manifests: Final = tuple(
+        cast(Mapping[str, object], asset)
+        for asset in assets
+        if isinstance(asset, dict) and asset.get("name") == "release.json"
+    )
+    if len(manifests) != 1:
+        raise ValueError("expected exactly one release.json asset")
+    asset: Final = manifests[0]
+    asset_id: Final = asset.get("id")
+    if isinstance(asset_id, bool) or not isinstance(asset_id, int) or asset_id <= 0:
+        raise ValueError("invalid GitHub asset identity")
+    digest: Final = matched(asset.get("digest"), r"sha256:[0-9a-f]{64}")
+    data: Final = github_bytes(f"{RELEASE_API}/assets/{asset_id}", "application/octet-stream")
+    if "sha256:" + hashlib.sha256(data).hexdigest() != digest:
+        raise ValueError("release.json checksum mismatch")
+    return parse_release(data, version)
 
 
 def main() -> int:
@@ -357,11 +391,14 @@ def main() -> int:
                 for name in ("current.json", "pending.json"):
                     sys.stdout.write(f"{name}: " + ((root / name).read_text() if (root / name).exists() else "none\n"))
             elif action == "deploy":
+                sys.stdout.write("Fetching verified release manifest via GitHub API\n")
                 release: Final = fetch_release(matched(args.get("version"), "[0-9a-f]{10}"))
                 if runtime_hash(root) != release.runtime:
                     raise ValueError("runtime bundle checksum mismatch; install reviewed matching runtime.tar.gz")
-                sys.stdout.write(f"Target: {RUNTIME} / {PROJECT} / {release.version}; production unchanged\n")
-                if input("Type CONFIRM to stop test writes, snapshot and deploy: ") != "CONFIRM":
+                sys.stdout.write(
+                    f"Target: {RUNTIME} / {PROJECT} / {release.version}; target services will be updated\n"
+                )
+                if input("Type CONFIRM to stop service writes, snapshot and deploy: ") != "CONFIRM":
                     raise ValueError("cancelled")
                 deploy(root, release, run, probe_http)
                 sys.stdout.write(

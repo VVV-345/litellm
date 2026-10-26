@@ -1,6 +1,10 @@
+import hashlib
 import importlib.util
+import io
 import json
+import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -318,3 +322,108 @@ def test_failed_smoke_captures_container_logs_before_cleanup():
     smoke = next(step["run"] for step in doc["jobs"]["smoke"]["steps"] if "run" in step)
     assert "dc logs --no-color --tail 100" in smoke
     assert smoke.index("dc logs --no-color --tail 100") < smoke.index("dc down --volumes")
+
+
+def release_asset_metadata(payload):
+    return {
+        "tag_name": "cockpit-test-aaaaaaaaaa",
+        "draft": False,
+        "assets": [{"id": 42, "name": "release.json", "digest": "sha256:" + hashlib.sha256(payload).hexdigest()}],
+    }
+
+
+def mock_release_api(monkeypatch, ctl, metadata, payload):
+    def urlopen(request, timeout):
+        url = request if isinstance(request, str) else request.full_url
+        assert timeout == 30
+        if url.startswith("https://github.com/"):
+            raise TimeoutError("The read operation timed out")
+        if url == "https://api.github.com/repos/VVV-345/litellm/releases/tags/cockpit-test-aaaaaaaaaa":
+            return io.BytesIO(json.dumps(metadata).encode())
+        assert url == "https://api.github.com/repos/VVV-345/litellm/releases/assets/42"
+        assert request.get_header("Accept") == "application/octet-stream"
+        return io.BytesIO(payload)
+
+    monkeypatch.setattr(ctl.urllib.request, "urlopen", urlopen)
+
+
+def test_fetch_release_uses_api_when_web_download_times_out(ctl, monkeypatch):
+    payload = json.dumps(manifest()).encode()
+    metadata = release_asset_metadata(payload)
+    metadata["assets"][0]["url"] = "https://untrusted.invalid/release.json"
+    mock_release_api(monkeypatch, ctl, metadata, payload)
+    release = ctl.fetch_release("a" * 10)
+    assert release.version == "a" * 10
+    assert release.litellm == manifest()["litellm"]
+
+
+@pytest.mark.parametrize("field,value", [("tag_name", "cockpit-test-bbbbbbbbbb"), ("draft", True), ("assets", [])])
+def test_fetch_release_rejects_wrong_release_metadata(ctl, monkeypatch, field, value):
+    payload = json.dumps(manifest()).encode()
+    mock_release_api(monkeypatch, ctl, {**release_asset_metadata(payload), field: value}, payload)
+    with pytest.raises(ValueError):
+        ctl.fetch_release("a" * 10)
+
+
+@pytest.mark.parametrize(
+    "field,value", [("digest", None), ("digest", "sha256:" + "0" * 64), ("id", "42"), ("id", True)]
+)
+def test_fetch_release_rejects_unverified_asset(ctl, monkeypatch, field, value):
+    payload = json.dumps(manifest()).encode()
+    metadata = release_asset_metadata(payload)
+    metadata["assets"][0][field] = value
+    mock_release_api(monkeypatch, ctl, metadata, payload)
+    with pytest.raises(ValueError):
+        ctl.fetch_release("a" * 10)
+
+
+def test_fetch_release_rejects_duplicate_manifest_assets(ctl, monkeypatch):
+    payload = json.dumps(manifest()).encode()
+    metadata = release_asset_metadata(payload)
+    metadata["assets"] *= 2
+    mock_release_api(monkeypatch, ctl, metadata, payload)
+    with pytest.raises(ValueError):
+        ctl.fetch_release("a" * 10)
+
+
+def test_fetch_release_rejects_oversized_asset(ctl, monkeypatch):
+    payload = json.dumps(manifest()).encode() + b" " * 65536
+    mock_release_api(monkeypatch, ctl, release_asset_metadata(payload), payload)
+    with pytest.raises(ValueError, match="too large"):
+        ctl.fetch_release("a" * 10)
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker Compose is required to render the runtime config")
+@pytest.mark.parametrize("username,expected", [("", "admin"), ("aiadmin", "aiadmin")])
+def test_compose_renders_configured_username_without_editing_template(ctl, tmp_path, username, expected):
+    root = prepare(tmp_path, ctl)
+    ctl.images(root, ctl.parse_release(json.dumps(manifest()).encode(), "a" * 10))
+    before = (root / "compose.yaml").read_bytes()
+    with (root / ".env").open("a") as stream:
+        stream.write(f"UI_USERNAME={username}\n")
+    command = ctl.compose(root, "config", "--format", "json")
+    result = subprocess.run(
+        command, capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k != "UI_USERNAME"}
+    )
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["services"]["litellm"]["environment"]["UI_USERNAME"] == expected
+    assert (root / "compose.yaml").read_bytes() == before
+
+
+def test_username_template_change_preserves_only_reviewed_data_compatibility(ctl, tmp_path):
+    sys.modules["releasectl"] = ctl
+    spec = importlib.util.spec_from_file_location("release_bundle", HERE / "release_bundle.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    path = tmp_path / "deploy/cockpit/compose.yaml"
+    path.parent.mkdir(parents=True)
+    old = (HERE / "compose.yaml").read_bytes().replace(b"UI_USERNAME: ${UI_USERNAME:-admin}", b"UI_USERNAME: admin")
+    path.write_bytes(old)
+    previous = module.compatibility_hash(tmp_path, "e" * 40)
+    shutil.copyfile(HERE / "releasectl.py", path.parent / "releasectl.py")
+    runtime_before = ctl.runtime_hash(path.parent)
+    path.write_bytes(old.replace(b"UI_USERNAME: admin", b"UI_USERNAME: ${UI_USERNAME:-admin}"))
+    assert module.compatibility_hash(tmp_path, "e" * 40) == previous
+    assert ctl.runtime_hash(path.parent) != runtime_before
+    path.write_bytes(path.read_bytes().replace(b"127.0.0.1:18400", b"0.0.0.0:18400"))
+    assert module.compatibility_hash(tmp_path, "e" * 40) != previous

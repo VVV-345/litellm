@@ -52,7 +52,7 @@ services:
       DATABASE_URL: postgresql://llmproxy:${DB_PASSWORD:?run releasectl.py init}@db:5432/litellm
       STORE_MODEL_IN_DB: "True"
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?run releasectl.py init}
-      UI_USERNAME: admin
+      UI_USERNAME: ${UI_USERNAME:-admin}
       UI_PASSWORD: ${UI_PASSWORD:?run releasectl.py init}
       ACCOUNT_POOL_BACKEND: cockpit
       ACCOUNT_POOL_COCKPIT_ADMIN_URL: http://cockpit:8317

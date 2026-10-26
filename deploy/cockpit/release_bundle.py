@@ -14,6 +14,13 @@ COCKPIT_REVISION: Final = "ec9989c009042a3f8770781926f6087000825ee9"
 ROOT: Final = Path(__file__).resolve().parents[2]
 
 
+def compatibility_bytes(root: Path, path: Path) -> bytes:
+    data: Final = path.read_bytes()
+    if path.relative_to(root).as_posix() == "deploy/cockpit/compose.yaml":
+        return data.replace(b"      UI_USERNAME: ${UI_USERNAME:-admin}\n", b"      UI_USERNAME: admin\n", 1)
+    return data
+
+
 def compatibility_hash(root: Path, cockpit_revision: str) -> str:
     paths: Final = tuple(
         sorted(
@@ -31,7 +38,9 @@ def compatibility_hash(root: Path, cockpit_revision: str) -> str:
     )
     return hashlib.sha256(
         cockpit_revision.encode()
-        + b"".join(path.relative_to(root).as_posix().encode() + b"\0" + path.read_bytes() for path in paths)
+        + b"".join(
+            path.relative_to(root).as_posix().encode() + b"\0" + compatibility_bytes(root, path) for path in paths
+        )
     ).hexdigest()
 
 
