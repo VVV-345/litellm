@@ -96,6 +96,9 @@ jobs:
           context: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy' || '.' }}
           file: ${{ matrix.component == 'cockpit' && './cockpit-source/sidecars/cockpit-cliproxy/Dockerfile' || './Dockerfile' }}
           platforms: linux/${{ matrix.arch }}
+          build-args: |
+            TARGETOS=linux
+            TARGETARCH=${{ matrix.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           labels: |
             org.opencontainers.image.source=https://github.com/VVV-345/litellm
@@ -159,7 +162,18 @@ jobs:
           PY
           printf 'LITELLM_IMAGE=%s@%s\nCOCKPIT_IMAGE=%s@%s\n' "$IMAGE" "$(cat digests/litellm-$ARCH.digest)" "$IMAGE" "$(cat digests/cockpit-$ARCH.digest)" | sudo tee "$TEST_RUNTIME/images.env" >/dev/null
           dc() { sudo env DOCKER_CONFIG="$HOME/.docker" docker compose -p litellm-cockpit-test --project-directory "$TEST_RUNTIME" --env-file "$TEST_RUNTIME/.env" --env-file "$TEST_RUNTIME/images.env" -f "$TEST_RUNTIME/compose.yaml" "$@"; }
-          trap 'dc down --volumes' EXIT
+          cleanup() {
+            result=$?
+            trap - EXIT
+            set +e
+            if [ "$result" -ne 0 ]; then
+              dc ps -a
+              dc logs --no-color --tail 100
+            fi
+            dc down --volumes
+            exit "$result"
+          }
+          trap cleanup EXIT
           dc up -d --wait --wait-timeout 300
           curl --fail --silent --show-error http://127.0.0.1:18400/health/readiness
           curl --fail --silent --show-error --output /tmp/cockpit-ui.html http://127.0.0.1:18400/ui/

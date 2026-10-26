@@ -301,3 +301,20 @@ def test_workflow_separates_publication_and_uses_native_architecture_gates():
     assert "codex/cockpit-reuse-plan" in path.read_text()
     assert "delete-package" not in path.read_text()
     assert ":latest" not in path.read_text()
+
+
+def test_workflow_overrides_cockpit_dockerfile_amd64_default():
+    import yaml
+
+    doc = yaml.safe_load((HERE.parents[1] / ".github/workflows/publish-cockpit-images.yml").read_text())
+    build = next(step for step in doc["jobs"]["build"]["steps"] if step.get("id") == "build")
+    assert build["with"].get("build-args", "").splitlines() == ["TARGETOS=linux", "TARGETARCH=${{ matrix.arch }}"]
+
+
+def test_failed_smoke_captures_container_logs_before_cleanup():
+    import yaml
+
+    doc = yaml.safe_load((HERE.parents[1] / ".github/workflows/publish-cockpit-images.yml").read_text())
+    smoke = next(step["run"] for step in doc["jobs"]["smoke"]["steps"] if "run" in step)
+    assert "dc logs --no-color --tail 100" in smoke
+    assert smoke.index("dc logs --no-color --tail 100") < smoke.index("dc down --volumes")
