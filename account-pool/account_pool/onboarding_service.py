@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets as random_secrets
+from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -98,8 +99,13 @@ def completion_time(item: OnboardingItem) -> datetime | None:
     return item.completed_at or (item.updated_at if item.card_name is not None and item.state in _COMPLETED else None)
 
 
-def holds_reservation(row: StoredOnboarding, card_ids: frozenset[UUID]) -> bool:
-    return row.item.state not in _TERMINAL or row.item.card_id in card_ids
+def holds_reservation(row: StoredOnboarding, cards: Mapping[UUID, tuple[str, ...]]) -> bool:
+    if row.item.state not in _TERMINAL:
+        return True
+    fingerprints: Final = cards.get(row.item.card_id)
+    if fingerprints is None:
+        return False
+    return row.item.source == "oauth" or not frozenset(row.fingerprints).isdisjoint(fingerprints)
 
 
 def usable_models(record: EnvironmentRecord) -> tuple[str, ...]:
@@ -146,8 +152,8 @@ class OnboardingService:
     async def preview(self, request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
         rows: Final = await self.repository.list()
         records: Final = await self._environments.list()
-        card_ids: Final = frozenset(record.id for record in records)
-        known: Final = {key for row in rows if holds_reservation(row, card_ids) for key in row.fingerprints} | {
+        cards: Final = {record.id: record.credential_fingerprints for record in records}
+        known: Final = {key for row in rows if holds_reservation(row, cards) for key in row.fingerprints} | {
             key for record in records for key in record.credential_fingerprints
         }
 
@@ -174,8 +180,8 @@ class OnboardingService:
     async def submit(self, request: OnboardingImport) -> OnboardingImportResult:
         preview: Final = await self.preview(request)
         rows: Final = await self.repository.list()
-        card_ids: Final = frozenset(record.id for record in await self._environments.list())
-        stale: Final = tuple(row for row in rows if not holds_reservation(row, card_ids))
+        cards: Final = {record.id: record.credential_fingerprints for record in await self._environments.list()}
+        stale: Final = tuple(row for row in rows if not holds_reservation(row, cards))
         for result in preview:
             if result.status != "valid":
                 continue
@@ -505,8 +511,16 @@ class OnboardingService:
             if not acquired:
                 return
             rows: Final = await self.repository.list()
+            cards: Final = {record.id: record.credential_fingerprints for record in await self._environments.list()}
             for row in rows:
                 if row.item.source == "auth_file" and row.item.state == "ready":
+                    if not holds_reservation(row, cards):
+                        message: Final = (
+                            "卡片已不存在，任务已失效，可直接重新导入该认证文件"
+                            if row.item.card_id not in cards
+                            else "卡片上的认证文件已移除，任务已失效，可直接重新导入该认证文件"
+                        )
+                        await self._save(row, "failed", message)
                     continue
                 if row.item.state in ("awaiting_authorization", "ready", "cooling_down"):
                     if row.item.updated_at < utc_now() - timedelta(seconds=30):

@@ -159,7 +159,8 @@ async def test_file_import_creates_one_card_without_oauth_and_survives_resubmiss
 
 async def test_deleted_card_releases_duplicate_guard_for_the_same_auth_file(tmp_path):
     service, tasks, environments, runtime, cli, environment_service = setup_service(tmp_path)
-    item = (await service.submit(file_request())).items[0]
+    request = file_request()
+    item = (await service.submit(request)).items[0]
     await service.run_once()
     assert (await service.list())[0].state == "ready"
     assert not isinstance(await environment_service.delete_environment(item.card_id), Failure)
@@ -175,8 +176,38 @@ async def test_deleted_card_releases_duplicate_guard_for_the_same_auth_file(tmp_
     reimported = [entry for entry in await service.list() if entry.job_id == again.job_id]
     assert reimported[0].state == "ready"
     assert reimported[0].card_id != item.card_id
+    stale = next(entry for entry in await service.list() if entry.job_id == request.job_id)
+    assert stale.state == "failed"
+    assert "卡片已不存在" in stale.message
     assert len(runtime.provisioned) == 2
     assert len(cli.upload_calls) == 2
+
+
+async def test_removed_auth_file_releases_duplicate_guard_and_retires_the_old_task(tmp_path):
+    service, tasks, environments, runtime, _, environment_service = setup_service(tmp_path)
+    request = file_request()
+    item = (await service.submit(request)).items[0]
+    await service.run_once()
+    assert not isinstance(await environment_service.delete_auth_file(item.card_id), Failure)
+    assert (await environments.get(item.card_id)).credential_fingerprints == ()
+
+    await service.run_once()
+
+    old = next(entry for entry in await service.list() if entry.job_id == request.job_id)
+    assert old.state == "failed"
+    assert "认证文件已移除" in old.message
+
+    again = file_request()
+
+    assert (await service.preview(again))[0].status == "valid"
+    submitted = await service.submit(again)
+    assert len(submitted.items) == 1
+    assert tasks.rows[item.id].fingerprints == ()
+    await service.run_once()
+    reimported = [entry for entry in await service.list() if entry.job_id == again.job_id]
+    assert reimported[0].state == "ready"
+    assert reimported[0].card_id != item.card_id
+    assert len(runtime.provisioned) == 2
 
 
 async def test_failed_file_validation_reuses_original_card_on_retry(tmp_path):
