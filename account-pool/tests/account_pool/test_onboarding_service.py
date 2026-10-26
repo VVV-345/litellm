@@ -48,7 +48,11 @@ class MemoryOnboarding:
     async def get(self, item_id):
         return self.rows.get(item_id)
 
-    async def insert(self, row):
+    async def insert(self, row, *, release_ids=()):
+        for row_id in release_ids:
+            existing = self.rows.get(row_id)
+            if existing is not None:
+                self.rows[row_id] = existing.model_copy(update={"fingerprints": ()})
         if row.item.id in self.rows or any(
             set(row.fingerprints) & set(other.fingerprints) for other in self.rows.values()
         ):
@@ -151,6 +155,28 @@ async def test_file_import_creates_one_card_without_oauth_and_survives_resubmiss
     assert not cli.submit_calls and not cli.authorization_status_calls
     assert isinstance(await service.reveal(item.id), Failure)
     assert target_view(OnboardingTarget(supplier="openai_codex", count=1), (item,)).ready == 0
+
+
+async def test_deleted_card_releases_duplicate_guard_for_the_same_auth_file(tmp_path):
+    service, tasks, environments, runtime, cli, environment_service = setup_service(tmp_path)
+    item = (await service.submit(file_request())).items[0]
+    await service.run_once()
+    assert (await service.list())[0].state == "ready"
+    assert not isinstance(await environment_service.delete_environment(item.card_id), Failure)
+    assert await environments.get(item.card_id) is None
+
+    again = file_request()
+
+    assert (await service.preview(again))[0].status == "valid"
+    submitted = await service.submit(again)
+    assert len(submitted.items) == 1
+    assert tasks.rows[item.id].fingerprints == ()
+    await service.run_once()
+    reimported = [entry for entry in await service.list() if entry.job_id == again.job_id]
+    assert reimported[0].state == "ready"
+    assert reimported[0].card_id != item.card_id
+    assert len(runtime.provisioned) == 2
+    assert len(cli.upload_calls) == 2
 
 
 async def test_failed_file_validation_reuses_original_card_on_retry(tmp_path):

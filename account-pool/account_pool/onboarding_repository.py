@@ -36,7 +36,7 @@ class OnboardingRepository(Protocol):
     def worker_lock(self) -> AbstractAsyncContextManager[bool]: ...
     async def list(self) -> tuple[StoredOnboarding, ...]: ...
     async def get(self, item_id: UUID) -> StoredOnboarding | None: ...
-    async def insert(self, row: StoredOnboarding) -> bool: ...
+    async def insert(self, row: StoredOnboarding, *, release_ids: tuple[UUID, ...] = ()) -> bool: ...
     async def save(self, row: StoredOnboarding) -> None: ...
     async def targets(self) -> tuple[OnboardingTarget, ...]: ...
     async def save_target(self, target: OnboardingTarget) -> None: ...
@@ -86,10 +86,16 @@ class PostgresOnboardingRepository:
             paused=payload.paused if "paused" in payload.model_fields_set else payload.state == "disabled",
         )
 
-    async def insert(self, row: StoredOnboarding) -> bool:
+    async def insert(self, row: StoredOnboarding, *, release_ids: tuple[UUID, ...] = ()) -> bool:
         async with database_connection(self._database_url) as connection:
             # 同批、跨批和并发导入共用指纹锁，不能先查后写留下竞争窗口。
             await connection.execute("SELECT pg_advisory_xact_lock(714205993)")
+            if release_ids:
+                # 卡片已删除的旧任务不再占用去重指纹，同一凭证可以重新上号。
+                await connection.execute(
+                    "UPDATE account_pool_onboarding SET fingerprints = '{}' WHERE id = ANY(%s)",
+                    (list(release_ids),),
+                )
             cursor: Final = await connection.execute(
                 "INSERT INTO account_pool_onboarding (id, payload, ciphertext, fingerprints, created_at) "
                 "SELECT %s, %s, %s, %s, %s WHERE NOT EXISTS "

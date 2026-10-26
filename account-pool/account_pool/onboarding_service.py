@@ -46,6 +46,7 @@ from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose,
 _LOGGER: Final = logging.getLogger(__name__)
 _ACTIVE: Final = frozenset({"queued", "running", "awaiting_authorization"})
 _COMPLETED: Final = frozenset({"ready", "cooling_down", "disabled"})
+_TERMINAL: Final = _COMPLETED | frozenset({"failed"})
 _SUPPLIER_NAMES: Final = {
     "openai_codex": "Codex",
     "anthropic_claude": "Claude",
@@ -97,6 +98,10 @@ def completion_time(item: OnboardingItem) -> datetime | None:
     return item.completed_at or (item.updated_at if item.card_name is not None and item.state in _COMPLETED else None)
 
 
+def holds_reservation(row: StoredOnboarding, card_ids: frozenset[UUID]) -> bool:
+    return row.item.state not in _TERMINAL or row.item.card_id in card_ids
+
+
 def usable_models(record: EnvironmentRecord) -> tuple[str, ...]:
     now: Final = utc_now()
     remaining, _ = routing_quota_state(record.quota, now)
@@ -141,7 +146,8 @@ class OnboardingService:
     async def preview(self, request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
         rows: Final = await self.repository.list()
         records: Final = await self._environments.list()
-        known: Final = {key for row in rows for key in row.fingerprints} | {
+        card_ids: Final = frozenset(record.id for record in records)
+        known: Final = {key for row in rows if holds_reservation(row, card_ids) for key in row.fingerprints} | {
             key for record in records for key in record.credential_fingerprints
         }
 
@@ -167,6 +173,9 @@ class OnboardingService:
 
     async def submit(self, request: OnboardingImport) -> OnboardingImportResult:
         preview: Final = await self.preview(request)
+        rows: Final = await self.repository.list()
+        card_ids: Final = frozenset(record.id for record in await self._environments.list())
+        stale: Final = tuple(row for row in rows if not holds_reservation(row, card_ids))
         for result in preview:
             if result.status != "valid":
                 continue
@@ -198,12 +207,16 @@ class OnboardingService:
                 mailbox_ready=not request.prepare_mailbox,
                 proxy_profile_id=request.proxy_profile_id,
             )
+            fingerprints: Final = self._fingerprints(request, entry)
             await self.repository.insert(
                 StoredOnboarding(
                     item=item,
                     ciphertext=self._cipher.seal(item_id, payload.model_dump_json()),
-                    fingerprints=self._fingerprints(request, entry),
-                )
+                    fingerprints=fingerprints,
+                ),
+                release_ids=tuple(
+                    row.item.id for row in stale if not frozenset(fingerprints).isdisjoint(row.fingerprints)
+                ),
             )
         return OnboardingImportResult(
             preview=preview,
