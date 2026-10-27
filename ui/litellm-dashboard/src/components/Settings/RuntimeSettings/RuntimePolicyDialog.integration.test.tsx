@@ -164,9 +164,9 @@ describe("RuntimePolicyDialog", () => {
     const confuse = screen.getByRole("switch", { name: "启用 Codex 身份混淆" });
     expect(confuse).not.toBeChecked();
     await user.click(mode);
-    expect(screen.getByRole("option", { name: "设备（遗留，不改写）" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "会话（遗留，不改写）" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "完整（遗留，不改写）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "设备（遗留，仍改写安装标识）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "会话（遗留，仍改写会话标识）" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "完整（遗留，仍改写更多请求标识）" })).toBeInTheDocument();
     await user.click(screen.getByRole("option", { name: "托管安装 ID（推荐）" }));
     await user.click(confuse);
     await user.click(screen.getByRole("button", { name: /保存配置|Save configuration/i }));

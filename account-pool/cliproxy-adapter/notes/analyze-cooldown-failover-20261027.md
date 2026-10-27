@@ -1,6 +1,6 @@
 # CLIProxy 冷却与换号分析（2026-10-27）
 
-本项只读。工作分支 `cursor/capacity-retry-after-8b63`，本地 tip `644c39b1e3`。没有改 `sources.json`，没有整包 rebase，没有推镜像，没有改 Go 或号池调度代码
+本项只读。分析写于工作分支 `cursor/capacity-retry-after-8b63` 的 `644c39b1e3`。2026-10-27 复核时该分支 tip 是 `02eb065515684800c1cef62873f5e51790395c9d`，之后的提交仍没有改 `sources.json`，没有整包 rebase，没有推镜像，没有改 Go 钉点
 
 对照过的材料：
 

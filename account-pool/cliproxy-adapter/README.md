@@ -19,7 +19,7 @@ go build -o cliproxy-adapted ./cmd/server
 
 ## 生效边界
 
-Codex 新增 `identity_fingerprint_mode=managed`，默认仍为 off，旧 device/session/full 模式不变。每个认证文件及账号主体独立持久化 UUIDv4，令牌刷新、代理变化和进程重启不更换它。不同账号、API key 或上游地址使用不同范围，坏档案或无法确定 OAuth 主体时拒绝请求，不悄悄生成替代身份
+Codex 新增 `identity_fingerprint_mode=managed`，默认仍为 off。当前钉点上的 device、session、full 仍会改写请求标识：device 改安装标识，session 再改会话和对话标识，full 再改缓存、线程、回合、窗口和请求标识。新卡用 managed。managed 为每个认证文件及账号主体独立持久化 UUIDv4，令牌刷新、代理变化和进程重启不更换它。不同账号、API key 或上游地址使用不同范围，坏档案或无法确定 OAuth 主体时拒绝请求，不悄悄生成替代身份
 
 HTTP、SSE、compact、WebSocket 和通用请求入口复用同一身份处理。只改已知安装字段，不扫描业务对象、工具或密文历史。standalone API-key 图片和音频请求不注入 Codex 安装字段。`identity_confuse` 继续使用已有显式开关，同时开启时安装字段以 managed 为准，缓存映射仍遵循原开关
 
