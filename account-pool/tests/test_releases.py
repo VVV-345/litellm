@@ -64,6 +64,7 @@ class Runtime:
         self.missing_feature: str | None = None
         self.missing_image: str | None = None
         self.fail_health = False
+        self.unsafe_startup = None
         self.local_pairs = (CURRENT, OLD, NEW)
         self.used_pairs: tuple[str, ...] = ()
 
@@ -120,6 +121,11 @@ class Runtime:
 
     def is_additive_manager_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool:
         return False
+
+    def manager_startup_check(self, pair: ReleasePair):
+        from account_pool.release_models import RollbackCheck
+        return RollbackCheck(key="manager-startup", title="Manager 启动账号安全", detail="启动自动重建",
+                             status="blocked" if pair.id == self.unsafe_startup else "compatible")
 
     def evidence(self, pair: ReleasePair) -> RollbackEvidence:
         if self.missing_image == pair.id:
@@ -702,4 +708,29 @@ def test_forced_rollback_never_bypasses_integrity_startup_or_stale_state(setup, 
         service.run(job)
         assert service.store.jobs()[0].status == "failed"
     assert runtime.running == CURRENT
+    assert not any(event.startswith("apply:") for event in runtime.events)
+
+
+def test_unsafe_manager_startup_is_blocked_and_cannot_be_forced(setup):
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    runtime.unsafe_startup = OLD.id
+    confirmation = service.prepare(action(service, "apply", version_id=OLD.id), "admin")
+    assert confirmation.rollback.status == "blocked"
+    assert confirmation.rollback.force_allowed is False
+    assert confirmation.token == ""
+    with pytest.raises(ReleaseError):
+        service.prepare(action(service, "apply", version_id=OLD.id, force=True,
+                               force_acknowledgement=OLD.commit), "admin")
+    assert not any(event.startswith("apply:") for event in runtime.events)
+
+
+def test_skip_compatibility_cannot_execute_unsafe_manager_startup(setup):
+    service, runtime, clock = setup
+    service.backup(OLD, runtime.compose())
+    bypassed = ReleaseService(service.store, runtime, 0, skip_compatibility_checks=True)
+    job = queued(bypassed, clock, action(bypassed, "apply", version_id=OLD.id))
+    runtime.unsafe_startup = OLD.id
+    bypassed.run(job)
+    assert service.store.jobs()[0].status == "failed"
     assert not any(event.startswith("apply:") for event in runtime.events)

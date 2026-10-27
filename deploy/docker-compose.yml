@@ -25,7 +25,7 @@ services:
 
   litellm:
     container_name: litellm
-    image: ghcr.io/vvv-345/litellm:${DEPLOY_TAG:?set DEPLOY_TAG}
+    image: ghcr.io/vvv-345/litellm-cliproxyapi:litellm-${DEPLOY_TAG:?set DEPLOY_TAG}
     restart: unless-stopped
     ports:
       - "127.0.0.1:4000:4000"
@@ -174,7 +174,7 @@ services:
 
   account-pool:
     container_name: litellm-account-pool
-    image: ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG:?set DEPLOY_TAG}
+    image: ghcr.io/vvv-345/litellm-cliproxyapi:manager-${DEPLOY_TAG:?set DEPLOY_TAG}
     restart: unless-stopped
     environment:
       ACCOUNT_POOL_DATABASE_URL: postgresql://account_pool:${ACCOUNT_POOL_DB_PASSWORD:?set ACCOUNT_POOL_DB_PASSWORD}@account-pool-db:5432/account_pool
@@ -197,7 +197,7 @@ services:
       ACCOUNT_POOL_DOCKER_HOST: tcp://docker-socket-proxy:2375
       ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS: ${ACCOUNT_POOL_DOCKER_COMMAND_TIMEOUT_SECONDS:-60}
       ACCOUNT_POOL_CLI_PROXY_USER: ${ACCOUNT_POOL_CLI_PROXY_USER:-65532:65532}
-      ACCOUNT_POOL_CLI_PROXY_IMAGE: ${ACCOUNT_POOL_CLI_PROXY_IMAGE:-ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106}
+      ACCOUNT_POOL_CLI_PROXY_IMAGE: ${ACCOUNT_POOL_CLI_PROXY_IMAGE:-ghcr.io/vvv-345/litellm-cliproxyapi:cliproxyapi-${DEPLOY_TAG}}
       ACCOUNT_POOL_OAUTH_BROWSER_IMAGE: ${ACCOUNT_POOL_OAUTH_BROWSER_IMAGE:-}
       ACCOUNT_POOL_PROXY_GATEWAY_HOST: ${ACCOUNT_POOL_PROXY_GATEWAY_HOST:-host.docker.internal}
       ACCOUNT_POOL_PLUGIN_REGISTRY_JSON: ${ACCOUNT_POOL_PLUGIN_REGISTRY_JSON:-}
@@ -244,7 +244,7 @@ services:
 
   release-worker:
     container_name: litellm-release-worker
-    image: ghcr.io/vvv-345/account-pool-manager:${ACCOUNT_POOL_RELEASE_IMAGE_TAG:-${DEPLOY_TAG}}
+    image: ${ACCOUNT_POOL_RELEASE_IMAGE:-ghcr.io/vvv-345/litellm-cliproxyapi:manager-${ACCOUNT_POOL_RELEASE_IMAGE_TAG:-${DEPLOY_TAG}}}
     restart: unless-stopped
     entrypoint: ["uvicorn", "account_pool.release_app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8092", "--workers", "1", "--no-access-log"]
     user: "0:0"

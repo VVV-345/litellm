@@ -18,13 +18,27 @@ python account-pool/cliproxy-adapter/probe_managed_identity.py --binary ./clipro
 
 最后一条会在本机启动该二进制。未带管理密钥时 `GET /v0/management/codex/managed-identity` 返回 401，带 `X-Management-Key` 时返回 `{"supported":true,"version":1}`
 
-镜像标签由钉点和补丁哈希决定，当前是 `ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106`。`python account-pool/cliproxy-adapter/image_ref.py` 会打印同一引用。`.github/workflows/publish-cliproxy-adapted-image.yml` 在干净钉点上应用补丁，分别构建 `linux/amd64` 和 `linux/arm64`，探测通过后才把这个标签做成多架构清单。它不发布 `latest`，也不改 `sha-bebf587f5a940af676f6e503065140d4991ae1f3`
+源码钉点和补丁哈希仍由 `python account-pool/cliproxy-adapter/image_ref.py` 校验。v1.9 起 `.github/workflows/publish-cliproxy-adapted-image.yml` 转交统一四组件发布，在干净钉点上应用补丁，分别构建并探测 `linux/amd64` 和 `linux/arm64`。运行时使用配套清单中 `ghcr.io/vvv-345/litellm-cliproxyapi` 的 CLIProxyAPI 组件 digest，不覆盖旧包、旧标签或 `latest`
 
-号池默认 `ACCOUNT_POOL_CLI_PROXY_IMAGE` 已指向该标签。已经在跑的卡片仍使用创建时写入的镜像，所以只改仓库默认值不会让旧容器突然支持托管安装 ID。发布并拉取该标签后，重启 Manager：启动时若卡片 compose 里的镜像和当前配置不同，会保留认证卷并重建容器，然后按已保存策略再同步一次。官方 `eceasy/cli-proxy-api` 和未打补丁的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 没有这条路由，保存 managed 仍会返回「当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效」
+已经在跑的卡片仍使用创建时写入的镜像。Manager 重启只恢复连接和配置同步，不更换卡片镜像、不自动重建账号。官方 `eceasy/cli-proxy-api` 和未打补丁的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 没有这条路由，保存 managed 仍会返回「当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效」
 
-容器镜像的验收与二进制相同，把 `--binary` 换成 `--image ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106`。产品重试仍是 `request-retry: 0`、`max-retry-credentials: 1`，不要改成上游示例的 3 和 0
+容器镜像的验收与二进制相同，把 `--binary` 换成 `--image IMAGE_REF`。探测等待真实 HTTP 响应，不把 Docker 发布端口的 TCP 监听视为应用就绪。仅对连接重置、拒绝或超时做有界就绪重试；HTTP 返回后仍必须通过未授权 401 和授权后 `supported=true, version=1` 两道门禁。产品重试仍是 `request-retry: 0`、`max-retry-credentials: 1`，不要改成上游示例的 3 和 0
 
 安装档案位于认证目录的 `.codex-managed-identity/<scope>.json`，备份和迁移认证卷时一并保留；删掉它会重新生成安装身份，不会改变供应商账号身份
+
+## 受控单卡更新
+
+先按 `deploy/UPDATE_RUNBOOK.md` 备份数据库、该卡 Compose 和完整认证卷，记录旧镜像 digest 与容器运行状态。在页面停用目标卡，等配置同步完成、在途请求结束。从已成功发布的配套清单选取 CLIProxyAPI 组件 digest，不能用其他组件、移动标签或未经验证的镜像
+
+在持有现有 Manager 环境变量、数据目录和专用 Docker Socket Proxy 访问权限的 Manager 容器内显式执行，`CARD_UUID` 是卡片不可变 ID，`IMAGE_DIGEST` 是上述组件的 64 位 SHA-256
+
+```sh
+python -m account_pool.runtime_maintenance CARD_UUID --image ghcr.io/vvv-345/litellm-cliproxyapi@sha256:IMAGE_DIGEST
+```
+
+命令只处理一张已停用且配置收敛的 CLIProxyAPI 卡。整个操作持有与日常配置相同的跨进程操作锁和环境行锁，有活动租约就拒绝，不等待后直接强制重建。只替换既有 Compose 的 image 字段，不重新渲染其他设置，不播种、不删除认证卷或安装档案。先拉取固定 digest，再短暂启动完成 401 和严格能力检查，最后保留原来的运行或停止状态；数据库 enabled 和认证停用标志不改变。原本运行的停用卡仍可通过原页面重新启用；原本停止的卡保持停止，须由运维显式启动后再操作页面
+
+拉取失败不替换容器；替换或探测失败会尝试恢复旧 Compose、旧镜像及原运行状态。失败时保持卡片停用，人工检查容器和备份，不自动重新启用，也不声称补偿一定成功。成功后再按原页面流程刷新卡片并同步已保存策略，确认托管身份生效后由用户决定是否启用。该命令不会自动部署整套服务或迁移其他卡片
 
 ## 生效边界
 

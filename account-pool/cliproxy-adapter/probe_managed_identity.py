@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import socket
 import subprocess
 import sys
 import tempfile
@@ -43,30 +42,29 @@ def config_text(port: int, auth_dir: str) -> str:
     )
 
 
-def fetch(port: int, key: str | None) -> tuple[int, bytes]:
+def fetch(port: int, key: str | None, *, timeout_seconds: float = 2) -> tuple[int, bytes]:
     request: Final = urllib.request.Request(f"http://127.0.0.1:{port}{CAPABILITY_PATH}")
     if key is not None:
         request.add_header(MANAGEMENT_HEADER, key)
     try:
-        with urllib.request.urlopen(request, timeout=2) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
 
 
-def wait_until_listening(port: int, timeout_seconds: float) -> None:
+def wait_until_http_ready(port: int, timeout_seconds: float) -> tuple[int, bytes]:
     deadline: Final = time.monotonic() + timeout_seconds
     while time.monotonic() < deadline:
         try:
-            with socket.create_connection(("127.0.0.1", port), timeout=1):
-                return
+            return fetch(port, None, timeout_seconds=min(2, max(0.001, deadline - time.monotonic())))
         except OSError:
             time.sleep(0.2)
-    raise SystemExit(f"CLIProxyAPI did not listen on 127.0.0.1:{port}")
+    raise SystemExit(f"CLIProxyAPI HTTP readiness timed out on 127.0.0.1:{port}")
 
 
 def assert_capability(port: int) -> None:
-    unauthorized: Final = fetch(port, None)
+    unauthorized: Final = wait_until_http_ready(port, 60)
     sys.stdout.write(f"GET {CAPABILITY_PATH} without key -> {unauthorized[0]}\n")
     if unauthorized[0] != 401:
         raise SystemExit(f"unauthenticated probe status={unauthorized[0]} body={unauthorized[1]!r}")
@@ -93,7 +91,6 @@ def _probe_binary(binary: Path) -> None:
                 stderr=subprocess.STDOUT,
             )
             try:
-                wait_until_listening(_HOST_PORT, 60)
                 assert_capability(_HOST_PORT)
             except BaseException:
                 sys.stderr.write(log_path.read_text(encoding="utf-8", errors="replace")[-4000:])
@@ -135,7 +132,6 @@ def _probe_image(image: str) -> None:
         if started.returncode != 0:
             raise SystemExit(started.stderr.strip() or started.stdout.strip() or "docker run failed")
         try:
-            wait_until_listening(_HOST_PORT, 60)
             assert_capability(_HOST_PORT)
         except BaseException:
             logs: Final = subprocess.run(["docker", "logs", name], check=False, capture_output=True, text=True)

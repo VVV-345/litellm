@@ -57,7 +57,7 @@ def call(token: str, path: str = "", body: dict[str, object] | None = None) -> d
 def main() -> None:
     parser: Final = argparse.ArgumentParser(description="项目镜像备份与恢复，仅连接服务器 127.0.0.1:8092")
     parser.add_argument("action", choices=("status", "scan", "apply", "delete", "deploy", "recover", "restore_data"))
-    parser.add_argument("target", nargs="?", help="apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位")
+    parser.add_argument("target", nargs="?", help="apply/delete 使用备份 ID；deploy 使用新版本 commit 前 10 位，先验证四组件，再切换两业务服务")
     parser.add_argument("--directory", type=Path, default=Path(__file__).resolve().parent)
     parser.add_argument("--snapshot", help="restore_data 必须指定完整快照编号")
     args: Final = cast(dict[str, object], vars(parser.parse_args()))

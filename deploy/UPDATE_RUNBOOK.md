@@ -315,3 +315,24 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 ## 上游源代码兼容更新
 
 LiteLLM 和 CLIProxyAPI 的仓库、分支、权限、启用步骤及故障处理见 [上游更新维护说明](../account-pool/docs/upstream-updates.md)。兼容检测通过不等于可上线，本手册的备份、真实服务和数据库验收门槛仍然适用
+
+## 统一镜像包的首次接管与回退
+
+统一包为 `ghcr.io/vvv-345/litellm-cliproxyapi`，候选标签为 `litellm-SHA10`、`manager-SHA10`、`browser-worker-SHA10`、`cliproxyapi-SHA10`。正式版本和完整来源、补丁、平台、digest 记录在发布工作流的 schema=2 审计清单中。该审计清单不替代 release-worker 已保存的两业务镜像 ReleasePair；旧备份、确认接口和数据库兼容门槛不变
+
+第一次从旧包升级时，必须先按第 5 节单独更新 release-worker。旧发布器不知道统一包和四组件预检，即便业务镜像已发布，直接提交旧版 `releasectl.py deploy SHA10` 也不能完成这次接管。先保存旧 worker 的完整镜像 digest、配置及挂载，只在无发布任务时更换 worker 为已验证的新包 `manager-SHA10` 或其 digest；保留令牌、Docker 登录目录、部署目录、备份目录、网络和 Socket Proxy。不要用整份新 Compose 覆盖服务器实际配置，不要同时替换业务、数据库或 Cockpit。`ACCOUNT_POOL_RELEASE_IMAGE` 可显式固定旧包或新包的完整引用，`ACCOUNT_POOL_RELEASE_IMAGE_TAG` 仅是新包 manager 标签的后缀
+
+新发布器依次真实拉取四组件，核对 Docker 运行平台、镜像 digest、相同完整产品 commit、`ai.zlia.component`，以及 CLIProxyAPI 的来源 SHA、补丁 SHA256 和托管身份版本 1。只有新包第一个 LiteLLM manifest 明确缺失时，才允许读取旧的两个包；鉴权、网络、平台错误，以及其余配套组件缺失均停止，不能通过旧包掩盖失败。错误记录给出 `phase`、`component`、`category`，不保留可能包含令牌的 Docker 原始错误
+
+全部通过后，只为待切换 Manager 配置固定已验证的 CLIProxyAPI digest；浏览器 worker 仅在原配置启用时更新其默认 digest，空值继续禁用。不会重建账号卡片、改认证卷、启动浏览器任务或升级独立 release-worker。账号镜像受控维护仍需停用对应卡片、等待在途请求结束，再走维护入口。单独运行 Manager 且没有部署环境变量时，保留历史 CLIProxyAPI 默认值；统一部署模板从 `DEPLOY_TAG` 取得配套默认，不把后续发布永远绑定到某个版本号
+
+回退仍只导入已核验归档中的 LiteLLM 和 Manager，保留当前配置、数据及账号容器，不在线拉取四组件。首次接管前和完成后均需按第 7 节核对实际运行镜像、健康、鉴权、账号网络与真实上游调用。本轮源码和本地测试不代表上述服务器操作已执行
+
+
+### 旧 Manager 启动重建风险与安全恢复准备
+
+发布器还会读取目标 Manager 镜像中的 app.py，静态检查 lifespan 是否调用旧的 `_align_cliproxy_images` 或 `align_runtime_image`。已知启动会自动重建账号的目标，以及无法读取或识别启动源码的目标，均列为 blocked；强制回退和跳过兼容检查不能绕过。无此启动调用、证据可读的旧版本仍可按原流程回退，不按仓库名或提交号一概禁止旧版
+
+业务切换前先核验当前 Manager 是否能作为安全恢复目标。如果当前版本有上述启动风险，发布器在拉取新镜像、备份、暂停数据库或替换业务前拒绝，不能等失败后才拒绝恢复。仅这些存在风险的旧版本需要一次性人工准备：在维护窗口保留原镜像、账号认证卷、身份和停用状态，准备经过验证且不含启动重建调用的安全恢复 Manager，按明确批准的维护步骤接管并验证健康。不要直接重启旧 Manager，不通过修改伴随镜像环境变量或禁用检查来绕过；本轮没有执行该人工接管
+
+CLIProxyAPI 的来源与补丁不只检查 hash 格式，还必须分别等于本次候选 Manager 的 `ai.zlia.cliproxy-source-revision`、`ai.zlia.cliproxy-patch-sha256`。这些期望值由同次发布 workflow 从 sources.json 固定源信息写入，不能使用旧 release-worker 自带的源版本替代候选证据

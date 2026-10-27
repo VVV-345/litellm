@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import gzip
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -34,20 +36,78 @@ from account_pool.release_compatibility import (
     oauth_browser_schema_upgrade,
     schema_member_contract,
 )
-from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair
+from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair, RollbackCheck
 from account_pool.release_store import ReleaseDownloadError, ReleaseError, write_private
 
 REPOSITORIES: Final = {"litellm": "ghcr.io/vvv-345/litellm", "account-pool": "ghcr.io/vvv-345/account-pool-manager"}
+PRODUCT_REPOSITORY: Final = "ghcr.io/vvv-345/litellm-cliproxyapi"
+COMPONENTS: Final = {"litellm": "litellm", "account-pool": "manager"}
+logger: Final = logging.getLogger(__name__)
+
+
+class DockerOperationError(ReleaseError):
+    def __init__(self, phase: str, component: str, category: str) -> None:
+        self.category: Final = category
+        self.component: Final = component
+        super().__init__(f"Docker phase={phase} component={component} category={category}，请检查部署管理服务")
+
+
+class DockerPullError(DockerOperationError, ReleaseDownloadError):
+    """仅镜像下载失败保留自动发布的可重试分类。"""
+
+
+def docker_error(args: tuple[str, ...], detail: str) -> DockerOperationError:
+    lowered: Final = detail.lower()
+    category: Final = next(
+        (
+            name
+            for name, markers in (
+                ("auth", ("unauthorized", "authentication required", "denied", "forbidden", "401", "403")),
+                ("platform", ("no matching manifest", "unsupported platform", "exec format")),
+                ("disk", ("no space left", "disk quota", "not enough space")),
+                ("missing", ("manifest unknown", "no such manifest", "manifest not found")),
+                ("network", ("timeout", "timed out", "connection", "dial tcp", "tls", "no such host", "eof")),
+            )
+            if any(marker in lowered for marker in markers)
+        ),
+        "unavailable",
+    )
+    component: Final = next(
+        (
+            name
+            for name in ("browser-worker", "cliproxyapi", "manager", "litellm")
+            if any(value.startswith(PRODUCT_REPOSITORY + ":" + name + "-") for value in args)
+        ),
+        next(
+            (
+                COMPONENTS[service]
+                for service, repository in REPOSITORIES.items()
+                if any(value.startswith((repository + ":", repository + "@")) for value in args)
+            ),
+            "docker",
+        ),
+    )
+    phase: Final = args[1] if len(args) > 1 and args[0] in ("image", "manifest") else args[0] if args else "command"
+    error_type: Final = DockerPullError if args[:2] == ("image", "pull") else DockerOperationError
+    return error_type(phase, component, category)
 
 
 def removal_reference_allowed(service: str, reference: str) -> bool:
     repository: Final = REPOSITORIES[service]
-    return reference.startswith(
-        (
-            repository + ":",
-            repository + "@sha256:",
-            "litellm-backup/" + service + ":",
-            "litellm-backup/" + service + "@sha256:",
+    return (
+        bool(
+            re.fullmatch(
+                re.escape(PRODUCT_REPOSITORY + ":" + COMPONENTS[service] + "-") + r"[A-Za-z0-9_.-]+", reference
+            )
+        )
+        or reference.startswith(PRODUCT_REPOSITORY + "@sha256:")
+        or reference.startswith(
+            (
+                repository + ":",
+                repository + "@sha256:",
+                "litellm-backup/" + service + ":",
+                "litellm-backup/" + service + "@sha256:",
+            )
         )
     )
 
@@ -93,6 +153,8 @@ class ImageInspection(BaseModel):
     digests: tuple[str, ...] | None = Field(default=None, alias="RepoDigests")
     tags: tuple[str, ...] | None = Field(default=None, alias="RepoTags")
     config: dict[str, JsonValue] = Field(alias="Config")
+    os: str = Field(default="", alias="Os")
+    architecture: str = Field(default="", alias="Architecture")
 
 
 class ContainerInspection(BaseModel):
@@ -165,6 +227,8 @@ class DockerCommand(Protocol):
 def image_pair(images: tuple[ReleaseImage, ReleaseImage]) -> ReleasePair:
     if {image.service for image in images} != set(REPOSITORIES) or images[0].revision != images[1].revision:
         raise ReleaseError("两个服务的 Git commit 不一致，无法作为配套版本")
+    if len({image.repository == PRODUCT_REPOSITORY for image in images}) != 1:
+        raise ReleaseError("统一包和旧包不能混用为配套版本")
     ordered: Final = sorted(images, key=lambda image: image.service)
     identifier: Final = hashlib.sha256("|".join(image.image_id for image in ordered).encode()).hexdigest()[:24]
     return ReleasePair(id=identifier, commit=images[0].revision, images=images)
@@ -174,11 +238,14 @@ class DockerReleaseRuntime:
     def __init__(self, settings: ReleaseSettings, command: DockerCommand | None = None) -> None:
         self.settings: Final = settings
         self.command: Final = command
+        self._product_preflight: tuple[str, str, str] | None = None
 
     def run(self, *args: str, timeout: int = 120) -> bytes:
-        if self.command is not None:
-            return self.command(*args, timeout=timeout)
         try:
+            if args[:2] == ("image", "pull"):
+                logger.info("Docker phase=pull component=%s timeout_seconds=%s", docker_error(args, "").component, timeout)
+            if self.command is not None:
+                return self.command(*args, timeout=timeout)
             result: Final = subprocess.run(
                 ("docker", *args),
                 stdout=subprocess.PIPE,
@@ -187,10 +254,12 @@ class DockerReleaseRuntime:
                 timeout=timeout,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise ReleaseError("Docker 操作超时或不可用，请检查部署管理服务") from error
+        except (OSError, subprocess.TimeoutExpired, ReleaseError) as error:
+            raise docker_error(
+                args, "timeout" if isinstance(error, subprocess.TimeoutExpired) else str(error)
+            ) from None
         if result.returncode:
-            raise ReleaseError("Docker 操作失败，请检查镜像、磁盘和服务状态")
+            raise docker_error(args, result.stderr.decode("utf-8", errors="replace")) from None
         return result.stdout
 
     def inspect_image(self, reference: str, service: str) -> ReleaseImage:
@@ -203,13 +272,23 @@ class DockerReleaseRuntime:
             raise ReleaseError("镜像缺少完整 Git commit 标签，不能识别源码版本")
         if service not in REPOSITORIES:
             raise ReleaseError("不支持的项目服务")
+        references: Final = (reference, *(image.tags or ()), *(image.digests or ()))
+        product: Final = "ai.zlia.component" in labels or any(
+            value.startswith((PRODUCT_REPOSITORY + ":", PRODUCT_REPOSITORY + "@")) for value in references
+        )
+        if (product or "ai.zlia.component" in labels) and labels.get("ai.zlia.component") != COMPONENTS[service]:
+            raise ReleaseError(
+                f"Docker phase=inspect component={COMPONENTS[service]} category=component，镜像组件不匹配"
+            )
+        if not re.fullmatch(r"sha256:[a-f0-9]{64}", reference) and not removal_reference_allowed(service, reference):
+            raise ReleaseError("镜像来源不在项目白名单内")
         return ReleaseImage.model_validate(
             {
                 "service": service,
                 "image_id": image.id,
                 "revision": revision,
                 "size": image.size,
-                "repository": REPOSITORIES[service],
+                "repository": PRODUCT_REPOSITORY if product else REPOSITORIES[service],
                 "digests": image.digests or (),
             }
         )
@@ -245,6 +324,21 @@ class DockerReleaseRuntime:
             for source in (repository, "litellm-backup/" + service)
             for line in self.run("image", "ls", source, "--quiet", "--no-trunc").decode().splitlines()
             if re.fullmatch(r"sha256:[a-f0-9]{64}", line)
+        ) + tuple(
+            (service, line)
+            for service, component in COMPONENTS.items()
+            for line in self.run(
+                "image",
+                "ls",
+                PRODUCT_REPOSITORY,
+                "--filter",
+                "label=ai.zlia.component=" + component,
+                "--quiet",
+                "--no-trunc",
+            )
+            .decode()
+            .splitlines()
+            if re.fullmatch(r"sha256:[a-f0-9]{64}", line)
         )
         images: Final = tuple(
             self.inspect_image(reference, service) for service, reference in dict.fromkeys(references)
@@ -256,7 +350,9 @@ class DockerReleaseRuntime:
             for first in images
             if first.revision == commit and first.service == "litellm"
             for second in images
-            if second.revision == commit and second.service == "account-pool"
+            if second.revision == commit
+            and second.service == "account-pool"
+            and (first.repository == PRODUCT_REPOSITORY) == (second.repository == PRODUCT_REPOSITORY)
         )
         return tuple({pair.id: pair for pair in pairs}.values())
 
@@ -438,6 +534,46 @@ class DockerReleaseRuntime:
             startup=digest_sources(self._inspection_sources(proxy), STARTUP_SOURCES),
         )
 
+    def manager_startup_check(self, pair: ReleasePair) -> RollbackCheck:
+        manager: Final = next(image for image in pair.images if image.service == "account-pool")
+        try:
+            sources: Final = self._inspection_sources(manager)
+            source: Final = sources.get("app.py", sources.get("account_pool/app.py", b""))
+            tree: Final = ast.parse(source)
+            lifespans: Final = tuple(
+                node
+                for node in ast.walk(tree)
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "lifespan"
+            )
+            unsafe: Final = any(
+                isinstance(node, ast.Call)
+                and (
+                    isinstance(node.func, ast.Name)
+                    and node.func.id == "_align_cliproxy_images"
+                    or isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "align_runtime_image"
+                )
+                for lifespan in lifespans
+                for node in ast.walk(lifespan)
+            )
+        except (ReleaseError, ValueError, SyntaxError, tarfile.TarError):
+            return RollbackCheck(
+                key="manager-startup",
+                title="Manager 启动账号安全",
+                status="blocked",
+                detail="无法核验目标 Manager 启动源码，禁止切换，不能强制绕过。",
+            )
+        return RollbackCheck(
+            key="manager-startup",
+            title="Manager 启动账号安全",
+            status="blocked" if unsafe or not lifespans else "compatible",
+            detail="目标 Manager 启动会自动重建账号容器，禁止切换，不能强制绕过。"
+            if unsafe
+            else "未发现 Manager 启动自动对齐账号镜像调用。"
+            if lifespans
+            else "无法核验目标 Manager 启动入口，禁止切换，不能强制绕过。",
+        )
+
     @lru_cache(maxsize=24)
     def evidence(self, pair: ReleasePair) -> RollbackEvidence:
         proxy: Final = next(image for image in pair.images if image.service == "litellm")
@@ -576,6 +712,9 @@ class DockerReleaseRuntime:
                 raise ReleaseError("导入镜像与备份记录不一致")
 
     def apply(self, pair: ReleasePair, configuration: bytes) -> None:
+        startup: Final = self.manager_startup_check(pair)
+        if startup.status != "compatible":
+            raise ReleaseError(startup.detail)
         config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(configuration)
         services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(config["services"])
         for image in pair.images:
@@ -624,6 +763,11 @@ class DockerReleaseRuntime:
     def pull(self, tag: str) -> ReleasePair:
         if not re.fullmatch(r"[a-f0-9]{10,40}", tag):
             raise ReleaseError("新版本必须使用 Git commit 标签")
+        try:
+            return self._pull_product(tag)
+        except DockerOperationError as error:
+            if error.component != "litellm" or error.category != "missing":
+                raise
         for repository in REPOSITORIES.values():
             self.run("image", "pull", f"{repository}:{tag}", timeout=1800)
         pair: Final = image_pair(
@@ -639,16 +783,163 @@ class DockerReleaseRuntime:
     def pull_candidate(self, candidate: ReleaseCandidate) -> ReleasePair:
         if {image.service for image in candidate.images} != set(REPOSITORIES):
             raise ReleaseError("远程镜像必须包含两个不同的配套服务")
+        try:
+            return self._pull_product(candidate.commit[:10], candidate)
+        except DockerOperationError as error:
+            if error.component != "litellm" or error.category != "missing":
+                raise
         images: Final = tuple(self._pull_pinned(candidate, index) for index in range(2))
         return image_pair((images[0], images[1]))
+
+    def _download(self, reference: str, component: str) -> None:
+        try:
+            self.run("image", "pull", reference, timeout=1800)
+        except DockerOperationError as error:
+            raise DockerPullError("pull", component, error.category) from None
+
+    def _pull_product(self, tag: str, candidate: ReleaseCandidate | None = None) -> ReleasePair:
+        self._product_preflight = None
+        if shutil.disk_usage(self.settings.root).free < self.settings.reserve_bytes:
+            raise DockerOperationError("preflight", "product", "disk")
+        selected: Final = {COMPONENTS[image.service]: image for image in candidate.images} if candidate else {}
+        components: Final = ("litellm", "manager", "browser-worker", "cliproxyapi")
+        references: Final = tuple(
+            PRODUCT_REPOSITORY
+            + ("@" + selected[component].digest if component in selected else ":" + component + "-" + tag[:10])
+            for component in components
+        )
+        # 只允许第一个新包镜像明确不存在时尝试旧仓库，不能把配套缺失或鉴权失败隐藏为降级。
+        self._download(references[0], "litellm")
+        platform: Final = self.run("info", "--format", "{{.OSType}}/{{.Architecture}}").decode().strip()
+        normalized: Final = platform.replace("/x86_64", "/amd64").replace("/aarch64", "/arm64")
+        if normalized not in ("linux/amd64", "linux/arm64"):
+            raise DockerOperationError("preflight", "product", "platform")
+        first: Final = self._inspect_product(references[0], "litellm", tag, normalized)
+        remaining: Final = tuple(
+            self._download_product(reference, component, tag, normalized)
+            for component, reference in zip(components[1:], references[1:], strict=True)
+        )
+        inspected: Final = (first, *remaining)
+        revision: Final = TypeAdapter(dict[str, str]).validate_python(first.config["Labels"])[
+            "org.opencontainers.image.revision"
+        ]
+        for component, image in zip(components, inspected, strict=True):
+            if (
+                TypeAdapter(dict[str, str]).validate_python(image.config["Labels"])["org.opencontainers.image.revision"]
+                != revision
+            ):
+                raise DockerOperationError("preflight", component, "revision")
+            if (
+                candidate is not None
+                and component in selected
+                and (
+                    image.id not in (selected[component].image_id, selected[component].digest)
+                    or revision != candidate.commit
+                )
+            ):
+                raise ReleaseError(f"Docker phase=preflight component={component} category=identity，镜像身份不一致")
+        manager_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[1].config["Labels"])
+        cliproxy_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[3].config["Labels"])
+        if any(
+            manager_labels.get("ai.zlia.cliproxy-" + suffix) != cliproxy_labels.get("ai.zlia." + suffix)
+            for suffix in ("source-revision", "patch-sha256")
+        ):
+            raise DockerOperationError("preflight", "cliproxyapi", "provenance")
+        images: Final = tuple(
+            ReleaseImage(
+                service=service,
+                image_id=image.id,
+                repository=PRODUCT_REPOSITORY,
+                revision=revision,
+                size=image.size,
+                digests=image.digests or (),
+            )
+            for service, image in zip(REPOSITORIES, inspected[:2], strict=True)
+        )
+        pair: Final = image_pair((images[0], images[1]))
+        if (
+            shutil.disk_usage(self.settings.root).free
+            < sum(image.size for image in pair.images) + self.settings.reserve_bytes
+        ):
+            raise DockerOperationError("preflight", "product", "disk")
+        self._product_preflight = (pair.id, self._product_digest(inspected[2]), self._product_digest(inspected[3]))
+        return pair
+
+    def _download_product(self, reference: str, component: str, tag: str, platform: str) -> ImageInspection:
+        self._download(reference, component)
+        return self._inspect_product(reference, component, tag, platform)
+
+    def _inspect_product(self, reference: str, component: str, tag: str, platform: str) -> ImageInspection:
+        image: Final = TypeAdapter(tuple[ImageInspection, ...]).validate_json(self.run("image", "inspect", reference))[
+            0
+        ]
+        labels: Final = TypeAdapter(dict[str, str]).validate_python(image.config.get("Labels") or {})
+        revision: Final = labels.get("org.opencontainers.image.revision", "")
+        if labels.get("ai.zlia.component") != component:
+            raise DockerOperationError("preflight", component, "component")
+        if not re.fullmatch(r"[a-f0-9]{40}", revision) or not revision.startswith(tag):
+            raise DockerOperationError("preflight", component, "revision")
+        if image.os + "/" + image.architecture != platform:
+            raise DockerOperationError("preflight", component, "platform")
+        if (
+            not self._product_digest(image)
+            or not re.fullmatch(r"sha256:[a-f0-9]{64}", image.id)
+            or ("@" in reference and reference not in (image.digests or ()))
+        ):
+            raise DockerOperationError("preflight", component, "digest")
+        if component == "cliproxyapi" and (
+            labels.get("ai.zlia.managed-identity-version") != "1"
+            or not re.fullmatch(r"[a-f0-9]{40}", labels.get("ai.zlia.source-revision", ""))
+            or not re.fullmatch(r"[a-f0-9]{64}", labels.get("ai.zlia.patch-sha256", ""))
+        ):
+            raise DockerOperationError("preflight", component, "managed-identity")
+        return image
+
+    @staticmethod
+    def _product_digest(image: ImageInspection) -> str:
+        return next(
+            (
+                digest
+                for digest in image.digests or ()
+                if re.fullmatch(re.escape(PRODUCT_REPOSITORY) + r"@sha256:[a-f0-9]{64}", digest)
+            ),
+            "",
+        )
+
+    def product_configuration(self, pair: ReleasePair, configuration: bytes) -> bytes:
+        if self._product_preflight is None or self._product_preflight[0] != pair.id:
+            raise ReleaseError("尚未完成目标版本四组件预检，未替换服务")
+        _, browser, cliproxyapi = self._product_preflight
+        config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(configuration)
+        services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(config["services"])
+        manager: Final = services["account-pool"]
+        environment: Final = TypeAdapter(dict[str, JsonValue]).validate_python(manager.get("environment") or {})
+        return json.dumps(
+            {
+                **config,
+                "services": {
+                    **services,
+                    "account-pool": {
+                        **manager,
+                        "environment": {
+                            **environment,
+                            "ACCOUNT_POOL_CLI_PROXY_IMAGE": cliproxyapi,
+                            **(
+                                {"ACCOUNT_POOL_OAUTH_BROWSER_IMAGE": browser}
+                                if environment.get("ACCOUNT_POOL_OAUTH_BROWSER_IMAGE")
+                                else {}
+                            ),
+                        },
+                    },
+                },
+            },
+            ensure_ascii=False,
+        ).encode()
 
     def _pull_pinned(self, candidate: ReleaseCandidate, index: int) -> ReleaseImage:
         selected: Final = candidate.images[index]
         reference: Final = f"{REPOSITORIES[selected.service]}@{selected.digest}"
-        try:
-            self.run("image", "pull", reference, timeout=1800)
-        except ReleaseError as error:
-            raise ReleaseDownloadError("镜像下载失败，旧服务保持不变") from error
+        self._download(reference, COMPONENTS[selected.service])
         actual: Final = self.inspect_image(reference, selected.service)
         if actual.image_id not in (selected.image_id, selected.digest) or actual.revision != candidate.commit:
             raise ReleaseError("拉取后的镜像身份与检查结果不一致，未替换服务")
