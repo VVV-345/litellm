@@ -1725,9 +1725,89 @@ async def test_managed_identity_requires_authorized_codex_card_before_runtime_wr
             _record(),
             _record().model_copy(update={"supplier": SupplierKind.KIMI, "auth_file_name": "kimi.json"}),
         ):
-            with pytest.raises(ValueError, match="authorized Codex"):
+            with pytest.raises(ValueError, match="已完成授权的 Codex 卡片"):
                 await sync.apply_policy(record, policy)
     assert requests == []
+
+
+@pytest.mark.asyncio
+async def test_omitted_provider_policy_writes_that_suppliers_safe_defaults() -> None:
+    stale: Final = (
+        "codex:\n"
+        "  keep: kept\n"
+        "  identity-confuse: true\n"
+        "  disable-codex-cloaking: true\n"
+        "xai:\n"
+        "  inject-x-search: true\n"
+        "antigravity:\n"
+        "  project-id: preserved\n"
+        "  sensitive-words:\n"
+        "    - stale\n"
+        "antigravity-signature-cache-enabled: false\n"
+        "antigravity-signature-bypass-strict: true\n"
+    )
+
+    async def synced(supplier: SupplierKind) -> tuple[dict[str, object], dict[str, object]]:
+        captured: list[dict[str, object]] = []
+        documents: list[dict[str, object]] = []
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/config.yaml") and request.method == "GET":
+                return httpx.Response(200, text=stale, request=request)
+            if request.url.path.endswith("/config.yaml") and request.method == "PUT":
+                documents.append(yaml.safe_load(request.content))
+            if request.url.path.endswith("/auth-files/fields"):
+                captured.append(json.loads(request.content))
+            return httpx.Response(204, request=request)
+
+        record: Final = _record().model_copy(update={"supplier": supplier, "auth_file_name": "account.json"})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            synchronizer: Final = CLIProxySettingsSynchronizer(
+                HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client)
+            )
+            await synchronizer.apply_policy(record, AccountPolicy())
+        assert len(captured) == 1 and len(documents) == 1
+        return captured[0], documents[0]
+
+    codex_auth, codex_yaml = await synced(SupplierKind.OPENAI_CODEX)
+    assert codex_auth["codex_fingerprint_mode"] == "off"
+    assert codex_auth["codex_cli_only"] is False
+    assert codex_auth["codex_cli_only_allow_app_server"] is False
+    assert codex_auth["request_retry"] == 0
+    assert codex_yaml["codex"]["keep"] == "kept"
+    assert codex_yaml["codex"]["identity-confuse"] is False
+    assert codex_yaml["codex"]["disable-codex-cloaking"] is False
+    assert codex_yaml["codex"]["stream-bootstrap-buffering"] is False
+    assert codex_yaml["xai"]["inject-x-search"] is True
+    assert codex_yaml["request-retry"] == 0
+    assert codex_yaml["max-retry-credentials"] == 1
+
+    claude_auth, _ = await synced(SupplierKind.ANTHROPIC_CLAUDE)
+    assert claude_auth["fingerprint_profile"] == "inherit"
+    assert claude_auth["cloak_mode"] == "auto"
+    assert claude_auth["rebuild_mid_system_message"] is False
+    assert "codex_fingerprint_mode" not in claude_auth
+
+    kimi_auth, _ = await synced(SupplierKind.KIMI)
+    assert kimi_auth["fingerprint_profile"] == "inherit"
+    assert "cloak_mode" not in kimi_auth
+
+    _, xai_yaml = await synced(SupplierKind.XAI)
+    assert xai_yaml["xai"]["inject-x-search"] is False
+    assert xai_yaml["codex"]["identity-confuse"] is True
+    assert xai_yaml["request-retry"] == 0
+    assert xai_yaml["max-retry-credentials"] == 1
+
+    _, antigravity_yaml = await synced(SupplierKind.GOOGLE_ANTIGRAVITY)
+    assert antigravity_yaml["antigravity"]["project-id"] == "preserved"
+    assert antigravity_yaml["antigravity"]["sensitive-words"] == []
+    assert antigravity_yaml["antigravity-signature-cache-enabled"] is True
+    assert antigravity_yaml["antigravity-signature-bypass-strict"] is False
+
+    gemini_auth, gemini_yaml = await synced(SupplierKind.GEMINI)
+    assert set(gemini_auth) == {"name", "request_retry"}
+    assert gemini_yaml["codex"]["identity-confuse"] is True
+    assert gemini_yaml["xai"]["inject-x-search"] is True
 
 
 @pytest.mark.asyncio

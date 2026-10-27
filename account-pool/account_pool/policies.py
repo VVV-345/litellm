@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import datetime
 from typing import Final, Literal, Protocol
 from uuid import UUID
@@ -16,6 +17,32 @@ from account_pool.repository import database_connection
 
 class ManagedIdentityUnavailableError(ValueError):
     """运行中的底层未提供稳定身份能力，不包含上游响应正文。"""
+
+
+class PolicyRuntimeRejected(ValueError):
+    """策略不能写入运行时。message 可直接展示，不含上游正文。"""
+
+
+_MANAGED_IDENTITY_UNAVAILABLE: Final = "当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效"
+_APP_SERVER_ORIGINATOR: Final = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_APP_SERVER_ORIGINATOR_LIMIT: Final = 20
+
+
+def public_policy_sync_error(error: BaseException) -> str | None:
+    if isinstance(error, ManagedIdentityUnavailableError):
+        return _MANAGED_IDENTITY_UNAVAILABLE
+    if isinstance(error, PolicyRuntimeRejected):
+        return str(error)
+    return None
+
+
+def normalize_app_server_clients(values: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: Final = tuple(dict.fromkeys(value.strip().lower() for value in values))
+    if len(normalized) > _APP_SERVER_ORIGINATOR_LIMIT or any(
+        _APP_SERVER_ORIGINATOR.fullmatch(value) is None for value in normalized
+    ):
+        raise ValueError("app-server originators must be 1-20 tokens of 1-64 letters, digits, '.', '_' or '-'")
+    return normalized
 
 
 class RoutingPolicy(BaseModel):
@@ -94,6 +121,11 @@ class CodexPolicy(BaseModel):
             )
         )
         return {key: item for key, item in policy.items() if key not in legacy}
+
+    @field_validator("allow_app_server_clients")
+    @classmethod
+    def normalize_clients(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return normalize_app_server_clients(values)
 
 
 class ClaudePolicy(BaseModel):
@@ -235,6 +267,11 @@ class PolicyCapability(BaseModel):
     status: Literal["gateway", "unsupported", "metadata"]
 
 
+_IDENTITY_SUPPLIERS: Final = frozenset(
+    {SupplierKind.OPENAI_CODEX, SupplierKind.ANTHROPIC_CLAUDE, SupplierKind.KIMI}
+)
+
+
 def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCapability, ...]:
     provider_status: Final = "gateway"
     return (
@@ -242,7 +279,9 @@ def policy_capabilities(supplier: SupplierKind | None = None) -> tuple[PolicyCap
             PolicyCapability(name=name, status="gateway")
             for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
         ),
-        PolicyCapability(name="identity", status="gateway" if supplier is SupplierKind.OPENAI_CODEX else "unsupported"),
+        PolicyCapability(
+            name="identity", status="metadata" if supplier in _IDENTITY_SUPPLIERS else "unsupported"
+        ),
         PolicyCapability(name="plan_expiry", status="gateway"),
         PolicyCapability(name="websocket", status="gateway"),
         PolicyCapability(name="debug", status="gateway"),

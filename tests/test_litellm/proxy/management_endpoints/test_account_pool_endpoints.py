@@ -137,6 +137,15 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
     }
 
 
+def test_proxy_policy_normalizes_app_server_originators() -> None:
+    policy: Final = AccountPolicy.model_validate({"codex": {"allow_app_server_clients": [" Codex_App ", "codex_app"]}})
+
+    assert policy.codex is not None
+    assert policy.codex.allow_app_server_clients == ("codex_app",)
+    with pytest.raises(ValueError, match="originators"):
+        AccountPolicy.model_validate({"codex": {"allow_app_server_clients": ["has space"]}})
+
+
 class _ManagerEnvironment(TypedDict):
     id: str
     version: int
