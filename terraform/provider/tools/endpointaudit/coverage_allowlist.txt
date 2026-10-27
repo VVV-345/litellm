@@ -85,6 +85,13 @@ POST /team/permissions_bulk_update
 POST /team/{team_id}/disable_logging
 POST /user/bulk_update
 
+# Account-pool Manager runtime settings; the Manager owns this state and Terraform does not manage it
+GET /config/runtime
+PUT /config/runtime/{section}
+
+# Imperative one-shot: returns a virtual key in plaintext for an authorized caller, not declarative state
+POST /key/reveal
+
 # Alternate method or path for functionality the provider already manages elsewhere
 GET /credentials/by_model/{model_id}
 GET /guardrails/{guardrail_id}
