@@ -219,6 +219,8 @@ class DualCache(BaseCache):
         key,
         parent_otel_span: Span | None = None,
         local_only: bool = False,
+        *,
+        raise_on_error: bool = False,
         **kwargs,
     ):
         # Try to fetch from in-memory cache first
@@ -234,7 +236,9 @@ class DualCache(BaseCache):
 
             if result is None and self.redis_cache is not None and local_only is False:
                 # If not found in in-memory cache, try fetching from Redis
-                redis_result: Final = await self.redis_cache.async_get_cache(key, parent_otel_span=parent_otel_span)
+                redis_result: Final = await self.redis_cache.async_get_cache(
+                    key, parent_otel_span=parent_otel_span, raise_on_error=raise_on_error
+                )
 
                 if redis_result is not None:
                     # Update in-memory cache with the value from Redis
@@ -245,6 +249,8 @@ class DualCache(BaseCache):
             print_verbose(f"get cache: cache result: {result}")
             return result
         except Exception:
+            if raise_on_error:
+                raise
             verbose_logger.error(traceback.format_exc())
 
     def _reserve_redis_batch_keys(

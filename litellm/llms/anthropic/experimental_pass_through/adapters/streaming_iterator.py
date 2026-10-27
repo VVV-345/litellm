@@ -12,6 +12,7 @@ from typing import (
     Literal,
     Protocol,
     get_args,
+    runtime_checkable,
 )
 
 from typing_extensions import assert_never
@@ -45,6 +46,11 @@ class _ChunkStream(Protocol):
     def __iter__(self) -> "Iterator[ModelResponseStream]": ...
 
     def __aiter__(self) -> "AsyncIterator[ModelResponseStream]": ...
+
+
+@runtime_checkable
+class _AsyncCloseable(Protocol):
+    async def aclose(self) -> None: ...
 
 
 def _optional_attr(obj: object, name: str) -> object:
@@ -95,6 +101,14 @@ class _CombinedChunkSplitter:
         self._sync_iter: Iterator[ModelResponseStream] | None = None
         self._async_iter: AsyncIterator[ModelResponseStream] | None = None
         self._buffer: deque[ModelResponseStream] = deque()
+        self._closed = False
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if isinstance(self._stream, _AsyncCloseable):
+            await self._stream.aclose()
 
     @staticmethod
     def _is_combined(chunk: "ModelResponseStream") -> bool:
@@ -955,6 +969,11 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                 return {"type": "message_stop"}
             raise StopAsyncIteration
 
+    async def aclose(self) -> None:
+        stream: Final = self.completion_stream
+        if isinstance(stream, _CombinedChunkSplitter):
+            await stream.aclose()
+
     def anthropic_sse_wrapper(self) -> Iterator[bytes]:
         """
         Convert AnthropicStreamWrapper dict chunks to Server-Sent Events format.
@@ -1109,3 +1128,39 @@ class AnthropicStreamWrapper(AdapterCompletionStreamWrapper):
                 return True
 
         return False
+
+
+class AnthropicSSEStream(AsyncIterator[bytes]):
+    """AsyncIterator view of an Anthropic messages stream that can close the upstream."""
+
+    def __init__(self, anthropic_wrapper: AnthropicStreamWrapper) -> None:
+        self._anthropic_wrapper: Final = anthropic_wrapper
+        self._byte_stream: Final[AsyncIterator[bytes]] = anthropic_wrapper.async_anthropic_sse_wrapper()
+        self._hidden_params: dict[str, object] = {}
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        return self
+
+    @property
+    def chunks(self) -> list[object] | None:
+        collected: Final = getattr(self._anthropic_wrapper, "chunks", None)
+        return collected if isinstance(collected, list) else None
+
+    @property
+    def messages(self) -> list[object] | None:
+        collected: Final = getattr(self._anthropic_wrapper, "messages", None)
+        return collected if isinstance(collected, list) else None
+
+    @property
+    def model(self) -> str:
+        return self._anthropic_wrapper.model
+
+    async def __anext__(self) -> bytes:
+        return await self._byte_stream.__anext__()
+
+    async def aclose(self) -> None:
+        try:
+            if isinstance(self._byte_stream, _AsyncCloseable):
+                await self._byte_stream.aclose()
+        finally:
+            await self._anthropic_wrapper.aclose()

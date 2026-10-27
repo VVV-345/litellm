@@ -33,6 +33,41 @@ class DeploymentAffinityCacheValue(TypedDict):
     model_id: str
 
 
+def _affinity_response_fields(response: object) -> Mapping[str, object]:
+    if isinstance(response, Mapping):
+        return response
+    return {
+        "response": getattr(response, "response", None),
+        "status": getattr(response, "status", None),
+        "error": getattr(response, "error", None),
+    }
+
+
+def completed_affinity_response(response: object) -> bool:
+    if response is None:
+        return False
+    envelope: Final = _affinity_response_fields(response)
+    if envelope.get("error") is not None or envelope.get("status") not in (None, "completed"):
+        return False
+    nested: Final = envelope.get("response")
+    fields: Final = _affinity_response_fields(nested) if nested is not None else envelope
+    return fields.get("response") is None and fields.get("error") is None and fields.get("status") in (None, "completed")
+
+
+def _deployment_model_name(request_kwargs: Mapping[str, object]) -> str | None:
+    for metadata in DeploymentAffinityCheck._iter_metadata_dicts(request_kwargs):
+        value: Final = metadata.get("deployment_model_name")
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+def _legacy_pin_matches(stored: object, pin_value: Mapping[str, str]) -> bool:
+    if isinstance(stored, dict):
+        return all(stored.get(key) is not None and str(stored[key]) == value for key, value in pin_value.items())
+    return isinstance(stored, str) and len(pin_value) == 1 and stored in pin_value.values()
+
+
 VALID_MODEL_GROUP_AFFINITY_FLAGS: Final = frozenset(
     {
         "deployment_affinity",
@@ -64,6 +99,36 @@ def warn_on_unknown_model_group_affinity_flags(model_group_affinity_config: Mapp
 _CLAIM_PIN_SCRIPT: Final = """
 local current = redis.call('GET', KEYS[1])
 if current == false then
+  redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+  return ARGV[1]
+end
+if ARGV[3] then
+  local decoded, stored = pcall(cjson.decode, current)
+  if ARGV[4] then
+    local legacy = current
+    if decoded and type(stored) == 'string' then legacy = stored end
+    for _, eligible in ipairs(cjson.decode(ARGV[3])) do
+      if eligible['model_id'] == legacy then
+        redis.call('EXPIRE', KEYS[1], ARGV[2])
+        return current
+      end
+    end
+  end
+  if decoded and type(stored) == 'table' then
+    for _, eligible in ipairs(cjson.decode(ARGV[3])) do
+      local matches = true
+      for key, value in pairs(eligible) do
+        if stored[key] ~= value then matches = false; break end
+      end
+      for key, _ in pairs(stored) do
+        if eligible[key] == nil then matches = false; break end
+      end
+      if matches then
+        redis.call('EXPIRE', KEYS[1], ARGV[2])
+        return current
+      end
+    end
+  end
   redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
   return ARGV[1]
 end
@@ -110,6 +175,7 @@ class DeploymentAffinityCheck(CustomLogger):
         enable_responses_api_affinity: bool,
         enable_session_id_affinity: bool = False,
         model_group_affinity_config: dict[str, list[str]] | None = None,
+        session_affinity_repin_on_failover: bool = False,
     ):
         super().__init__()
         self.cache = cache
@@ -118,6 +184,7 @@ class DeploymentAffinityCheck(CustomLogger):
         self.enable_responses_api_affinity = enable_responses_api_affinity
         self.enable_session_id_affinity = enable_session_id_affinity
         self.model_group_affinity_config: dict[str, list[str]] = model_group_affinity_config or {}
+        self.session_affinity_repin_on_failover = session_affinity_repin_on_failover
 
     def _get_effective_flags(self, model_group: str) -> tuple[bool, bool, bool]:
         """
@@ -289,7 +356,7 @@ class DeploymentAffinityCheck(CustomLogger):
         return str(session_id)
 
     @staticmethod
-    def _iter_metadata_dicts(request_kwargs: dict) -> list[dict]:
+    def _iter_metadata_dicts(request_kwargs: Mapping[str, object]) -> list[dict]:
         """
         Return all metadata dicts available on the request.
 
@@ -304,7 +371,7 @@ class DeploymentAffinityCheck(CustomLogger):
         return metadata_dicts
 
     @staticmethod
-    def _get_user_key_from_request_kwargs(request_kwargs: dict) -> str | None:
+    def _get_user_key_from_request_kwargs(request_kwargs: Mapping[str, object]) -> str | None:
         """
         Extract a stable affinity key from request kwargs.
 
@@ -322,7 +389,7 @@ class DeploymentAffinityCheck(CustomLogger):
         return None
 
     @staticmethod
-    def _get_session_id_from_request_kwargs(request_kwargs: dict) -> str | None:
+    def _get_session_id_from_request_kwargs(request_kwargs: Mapping[str, object]) -> str | None:
         for metadata in DeploymentAffinityCheck._iter_metadata_dicts(request_kwargs):
             session_id = DeploymentAffinityCheck._get_session_id_from_metadata_dict(metadata=metadata)
             if session_id is not None:
@@ -330,7 +397,7 @@ class DeploymentAffinityCheck(CustomLogger):
         return None
 
     @staticmethod
-    def _get_marker_session_affinity_ttl(request_kwargs: dict) -> int | None:
+    def _get_marker_session_affinity_ttl(request_kwargs: Mapping[str, object]) -> int | None:
         """TTL from the session-affinity marker the Router stamps at pre-routing time
         when an auto-router routed this request with session_affinity enabled.
         Marker presence enables session pinning for this request only; anything that
@@ -388,7 +455,15 @@ class DeploymentAffinityCheck(CustomLogger):
         latest: Final = cast(object, self.cache.in_memory_cache.get_cache(cache_key))  # pyright: ignore[reportUnknownMemberType]  # Re-read after Redis await without trusting the untyped cache.
         return self._pinned_model_id(latest)
 
-    async def _claim_pin(self, cache_key: str, pin_value: DeploymentAffinityCacheValue, ttl_seconds: int) -> str | None:
+    async def _claim_pin(
+        self,
+        cache_key: str,
+        pin_value: DeploymentAffinityCacheValue,
+        ttl_seconds: int,
+        *,
+        eligible_values: tuple[Mapping[str, str], ...] | None = None,
+        preserve_legacy_model_ids: bool = False,
+    ) -> str | None:
         """First-writer-wins pin write: store `pin_value` only when the key is absent and
         return the deployment id the key holds afterwards, so a caller learns whether it won
         by comparing against its own id, and None when the stored value is one no reader can
@@ -408,13 +483,25 @@ class DeploymentAffinityCheck(CustomLogger):
         cross-pod agreement. The redis tier is
         resolved per call because the proxy attaches it after Router construction
         (`Router._update_redis_cache`); the compiled script is cached per event loop
-        underneath the registration seam.
+        underneath the registration seam. Callers that omit `eligible_values` keep
+        first-writer-wins. Callers that pass it replace a pin that is no longer in
+        that set, and with `preserve_legacy_model_ids` also keep a legacy string
+        whose model id is still eligible.
         """
         redis_cache: Final = self.cache.redis_cache
         if redis_cache is not None:
             try:
                 claim_script: Final = redis_cache.async_register_script(_CLAIM_PIN_SCRIPT)
-                raw: Final = await claim_script(keys=(cache_key,), args=(json.dumps(pin_value), int(ttl_seconds)))
+                eligible_arg: Final = (
+                    (json.dumps(tuple(dict(value) for value in eligible_values)),)
+                    if eligible_values is not None
+                    else ()
+                )
+                legacy_arg: Final = ("1",) if preserve_legacy_model_ids and eligible_values is not None else ()
+                raw: Final = await claim_script(
+                    keys=(cache_key,),
+                    args=(json.dumps(dict(pin_value)), int(ttl_seconds), *eligible_arg, *legacy_arg),
+                )
                 decoded: Final = raw.decode("utf-8") if isinstance(raw, bytes) else raw
                 if not isinstance(decoded, str):
                     return pin_value["model_id"]
@@ -429,10 +516,22 @@ class DeploymentAffinityCheck(CustomLogger):
                     "DeploymentAffinityCheck: redis pin claim failed, falling back to pod-local claim. error=%s", e
                 )
 
-        return self._claim_pin_in_memory(cache_key=cache_key, pin_value=pin_value, ttl_seconds=ttl_seconds)
+        return self._claim_pin_in_memory(
+            cache_key=cache_key,
+            pin_value=pin_value,
+            ttl_seconds=ttl_seconds,
+            eligible_values=eligible_values,
+            preserve_legacy_model_ids=preserve_legacy_model_ids,
+        )
 
     def _claim_pin_in_memory(
-        self, cache_key: str, pin_value: DeploymentAffinityCacheValue, ttl_seconds: int
+        self,
+        cache_key: str,
+        pin_value: DeploymentAffinityCacheValue,
+        ttl_seconds: int,
+        *,
+        eligible_values: tuple[Mapping[str, str], ...] | None = None,
+        preserve_legacy_model_ids: bool = False,
     ) -> str | None:
         """Pod-local half of the claim, used when no Redis tier is attached and as the
         fallback when the Redis claim fails. Mirrors the Lua script exactly, including
@@ -440,13 +539,18 @@ class DeploymentAffinityCheck(CustomLogger):
         `_set_local_pin`. Both branches stay synchronous, hence atomic on the event
         loop."""
         existing: Final = self.cache.in_memory_cache.get_cache(cache_key)
-        if existing is not None:
-            existing_model_id: Final = self._pinned_model_id(existing)
-            if existing_model_id == pin_value["model_id"]:
+        if existing is not None and eligible_values is None:
+            if _legacy_pin_matches(existing, pin_value):
                 self._set_local_pin(cache_key=cache_key, value=pin_value, ttl_seconds=ttl_seconds)
-            return existing_model_id
-        self._set_local_pin(cache_key=cache_key, value=pin_value, ttl_seconds=ttl_seconds)
-        return pin_value["model_id"]
+            return self._pinned_model_id(existing)
+        eligible_existing: Final = existing in (eligible_values or ()) or (
+            preserve_legacy_model_ids
+            and isinstance(existing, str)
+            and any("model_id" in value and _legacy_pin_matches(existing, value) for value in (eligible_values or ()))
+        )
+        winner: Final = existing if existing is not None and eligible_existing else pin_value
+        self._set_local_pin(cache_key=cache_key, value=winner, ttl_seconds=ttl_seconds)
+        return self._pinned_model_id(winner)
 
     @staticmethod
     def _find_deployment_by_model_id(healthy_deployments: list[dict], model_id: str) -> dict | None:
@@ -520,7 +624,15 @@ class DeploymentAffinityCheck(CustomLogger):
                 session_cache_key: Final = self.get_session_affinity_cache_key(
                     model_group=stable_model_map_key, session_id=session_id, user_key=user_key
                 )
-                session_cache_result: Final = await self.cache.async_get_cache(key=session_cache_key)
+                session_cache_result: Final = (
+                    await self._read_shared_session_pin(
+                        session_cache_key,
+                        self._get_marker_session_affinity_ttl(request_kwargs) or self.ttl_seconds,
+                        parent_otel_span,
+                    )
+                    if self.session_affinity_repin_on_failover
+                    else await self.cache.async_get_cache(key=session_cache_key)
+                )
 
                 session_model_id: str | None = None
                 if isinstance(session_cache_result, dict):
@@ -604,6 +716,68 @@ class DeploymentAffinityCheck(CustomLogger):
             self._shorten_for_logs(user_key),
         )
         return [deployment]
+
+    async def _read_shared_session_pin(self, cache_key: str, ttl_seconds: int, parent_otel_span: Span | None) -> object:
+        redis_cache: Final = self.cache.redis_cache
+        if redis_cache is None:
+            return await self.cache.async_get_cache(key=cache_key)
+        local_before: Final = self.cache.in_memory_cache.get_cache(cache_key)
+        try:
+            shared: Final[object] = await redis_cache.async_get_cache(
+                key=cache_key, parent_otel_span=parent_otel_span, raise_on_error=True
+            )
+        except Exception:  # noqa: BLE001  # Optional affinity falls back locally on Redis admission or read failure
+            verbose_router_logger.debug("Session pin read failed, using pod-local affinity")
+            return await self.cache.async_get_cache(key=cache_key, local_only=True)
+        if self.cache.in_memory_cache.get_cache(cache_key) is local_before:
+            if shared is None:
+                self.cache.in_memory_cache.delete_cache(cache_key)
+            else:
+                self._set_local_pin(cache_key, shared, ttl_seconds)
+        return shared
+
+    def get_repin_model_group(self, request_kwargs: Mapping[str, object]) -> str | None:
+        model_group: Final = _deployment_model_name(request_kwargs)
+        if model_group is None or self._get_session_id_from_request_kwargs(request_kwargs) is None:
+            return None
+        session_enabled: Final = self._get_effective_flags(model_group)[2]
+        if not session_enabled and self._get_marker_session_affinity_ttl(request_kwargs) is None:
+            return None
+        return model_group
+
+    async def async_repin_session_after_success(
+        self,
+        request_kwargs: Mapping[str, object],
+        model_group: str,
+        eligible_deployment_ids: frozenset[str],
+    ) -> None:
+        if any(
+            metadata.get("account_pool_signed_continuation") is True
+            for metadata in self._iter_metadata_dicts(request_kwargs)
+        ):
+            return
+        marker_ttl: Final = self._get_marker_session_affinity_ttl(request_kwargs)
+        if not self._get_effective_flags(model_group)[2] and marker_ttl is None:
+            return
+        session_id: Final = self._get_session_id_from_request_kwargs(request_kwargs)
+        if session_id is None:
+            return
+        model_info_raw: Final = request_kwargs.get("model_info") or {}
+        if not isinstance(model_info_raw, Mapping):
+            return
+        model_id: Final = model_info_raw.get("id")
+        if model_id is None or str(model_id) not in eligible_deployment_ids:
+            return
+        cache_key: Final = self.get_session_affinity_cache_key(
+            model_group, session_id, self._get_user_key_from_request_kwargs(request_kwargs)
+        )
+        await self._claim_pin(
+            cache_key,
+            DeploymentAffinityCacheValue(model_id=str(model_id)),
+            marker_ttl if marker_ttl is not None else self.ttl_seconds,
+            eligible_values=tuple(DeploymentAffinityCacheValue(model_id=value) for value in eligible_deployment_ids),
+            preserve_legacy_model_ids=True,
+        )
 
     async def async_pre_call_deployment_hook(self, kwargs: dict[str, Any], call_type: CallTypes | None) -> dict | None:
         """

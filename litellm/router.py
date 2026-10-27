@@ -68,6 +68,7 @@ from litellm.litellm_core_utils.coroutine_checker import coroutine_checker
 from litellm.litellm_core_utils.credential_accessor import CredentialAccessor
 from litellm.litellm_core_utils.dd_tracing import tracer
 from litellm.litellm_core_utils.get_llm_provider_logic import declared_authenticating_provider
+from litellm.litellm_core_utils.get_provider_specific_headers import ProviderSpecificHeaderUtils
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLogging
 from litellm.litellm_core_utils.ptu_pricing import (
     PTU_COST_ATTRIBUTION_ENV_VAR,
@@ -163,6 +164,7 @@ from litellm.router_utils.handle_error import (
 from litellm.router_utils.health_state_cache import DeploymentHealthCache
 from litellm.router_utils.pre_call_checks.deployment_affinity_check import (
     DeploymentAffinityCheck,
+    completed_affinity_response,
     warn_on_unknown_model_group_affinity_flags,
 )
 from litellm.router_utils.pre_call_checks.encrypted_content_affinity_check import (
@@ -374,6 +376,90 @@ _PreRoutingStrategyT = TypeVar("_PreRoutingStrategyT")
 
 _ALIAS_PARAMS_NEVER_FORWARDED: Final = frozenset({"model", "api_base", "api_key", "api_version"})
 _ALIAS_MARKER_FORWARDED_PARAMS_KWARG: Final = "_alias_marker_forwarded_params"
+_FORWARDED_CREDENTIAL_ISOLATION_PROVIDERS: Final = frozenset({"anthropic"})
+
+
+def _mapping_or_model_dump(raw: object) -> Mapping[str, object] | None:
+    if isinstance(raw, Mapping):
+        return raw
+    dump: Final = getattr(raw, "model_dump", None)
+    if not callable(dump):
+        return None
+    dumped: Final = dump()
+    return dumped if isinstance(dumped, dict) else None
+
+
+def _isolation_provider(deployment: Mapping[str, object]) -> str | None:
+    params: Final = _mapping_or_model_dump(deployment.get("litellm_params"))
+    if params is None:
+        return None
+    custom: Final = params.get("custom_llm_provider")
+    if isinstance(custom, str) and custom:
+        return custom
+    model: Final = params.get("model")
+    if not isinstance(model, str) or not model:
+        return None
+    try:
+        resolved: Final = get_llm_provider(model=model)
+    except Exception:  # noqa: BLE001  # a bad model name must not abort deployment selection
+        return None
+    provider: Final = resolved[1]
+    return provider if provider else None
+
+
+def _registered_deployment_ids(deployments: Sequence[object] | None) -> frozenset[str]:
+    if not deployments:
+        return frozenset()
+    return frozenset(
+        str(model_id)
+        for deployment in deployments
+        if isinstance(deployment, Mapping)
+        for model_info in (_mapping_or_model_dump(deployment.get("model_info")),)
+        if model_info is not None
+        for model_id in (model_info.get("id"),)
+        if model_id is not None
+    )
+
+
+def _is_credential_clone(deployment: Mapping[str, object]) -> bool:
+    model_info: Final = deployment.get("model_info")
+    return isinstance(model_info, Mapping) and model_info.get("original_model_id") is not None
+
+
+def _request_keeps_credential_clones(request_kwargs: Mapping[str, object]) -> bool:
+    if isinstance(request_kwargs, dict) and is_clientside_credential(request_kwargs):
+        return True
+    header: Final = request_kwargs.get("provider_specific_header")
+    if not isinstance(header, dict):
+        return False
+    providers: Final = header.get("custom_llm_provider")
+    if not isinstance(providers, str):
+        return False
+    matched: Final = next(
+        (
+            provider.strip()
+            for provider in providers.split(",")
+            if provider.strip() in _FORWARDED_CREDENTIAL_ISOLATION_PROVIDERS
+        ),
+        None,
+    )
+    if matched is None:
+        return False
+    return ProviderSpecificHeaderUtils.forwarded_authorization(header, matched) is not None
+
+
+def _without_unrequested_credential_clones(deployments: list[dict], request_kwargs: Mapping[str, object]) -> list[dict]:
+    if _request_keeps_credential_clones(request_kwargs):
+        return deployments
+    return [deployment for deployment in deployments if not _is_credential_clone(deployment)]
+
+
+def _team_id_from_litellm_params(litellm_params: Mapping[str, object]) -> str | None:
+    metadata: Final = litellm_params.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return None
+    team_id: Final = metadata.get("user_api_key_team_id")
+    return team_id if isinstance(team_id, str) else None
 
 
 def _stream_chunks_have_generated_content(chunks: Sequence[ModelResponseStream]) -> bool:
@@ -656,6 +742,7 @@ class Router:
         alerting_config: AlertingConfig | None = None,
         router_general_settings: RouterGeneralSettings | None = RouterGeneralSettings(),
         deployment_affinity_ttl_seconds: int = 3600,
+        session_affinity_repin_on_failover: bool = False,
         model_group_affinity_config: dict[str, list[str]] | None = None,
         ignore_invalid_deployments: bool = False,
         enable_health_check_routing: bool = False,
@@ -699,6 +786,7 @@ class Router:
             alerting_config (AlertingConfig): Slack alerting configuration. Defaults to None.
             provider_budget_config (ProviderBudgetConfig): Provider budget configuration. Use this to set llm_provider budget limits. example $100/day to OpenAI, $100/day to Azure, etc. Defaults to None.
             deployment_affinity_ttl_seconds (int): TTL for user-key -> deployment affinity mapping. Defaults to 3600.
+            session_affinity_repin_on_failover (bool): After a successful replacement response, move a session pin whose deployment is in cooldown or removed. Async routes only. Defaults to False.
             ignore_invalid_deployments (bool): Ignores invalid deployments, and continues with other deployments. Default is to raise an error.
             enable_weighted_failover (bool): When True and the routing strategy is "simple-shuffle", a retryable failure on one deployment causes the request to re-pick (weighted) across the other deployments in the same model group before any cross-group fallback runs. Bounded by `max_fallbacks`. Async-only: currently honored by `router.acompletion()` and other async entrypoints. The sync `router.completion()` path falls back to the regular fallback flow. Defaults to False.
             fallback_access_check (Optional[FallbackAccessCheck]): Awaited before each cross-model-group fallback attempt on the async path; a fallback target it rejects is skipped. Defaults to None (every configured fallback is attempted).
@@ -851,6 +939,7 @@ class Router:
 
         self.account_pool_routing = AccountPoolRoutingConfig.model_validate(account_pool_routing or {})
         self.deployment_affinity_ttl_seconds = deployment_affinity_ttl_seconds
+        self.session_affinity_repin_on_failover = session_affinity_repin_on_failover
         self.model_group_affinity_config = model_group_affinity_config
         warn_on_unknown_model_group_affinity_flags(model_group_affinity_config)
 
@@ -1996,6 +2085,11 @@ class Router:
         session-affinity marker a complexity router stamps at pre-routing time.
         """
         if any(isinstance(cb, DeploymentAffinityCheck) for cb in (self.optional_callbacks or [])):
+            for existing_callback in self.optional_callbacks or []:
+                if isinstance(existing_callback, DeploymentAffinityCheck):
+                    existing_callback.session_affinity_repin_on_failover = (
+                        existing_callback.session_affinity_repin_on_failover or self.session_affinity_repin_on_failover
+                    )
             return
         if self.optional_callbacks is None:
             self.optional_callbacks = []
@@ -2006,6 +2100,7 @@ class Router:
             enable_responses_api_affinity=False,
             enable_session_id_affinity=False,
             model_group_affinity_config=self.model_group_affinity_config,
+            session_affinity_repin_on_failover=self.session_affinity_repin_on_failover,
         )
         self.optional_callbacks.append(affinity_callback)
         litellm.logging_callback_manager.add_litellm_callback(affinity_callback)
@@ -2041,6 +2136,10 @@ class Router:
                     existing_affinity_callback.enable_session_id_affinity or enable_session_id_affinity
                 )
                 existing_affinity_callback.ttl_seconds = self.deployment_affinity_ttl_seconds
+                existing_affinity_callback.session_affinity_repin_on_failover = (
+                    existing_affinity_callback.session_affinity_repin_on_failover
+                    or self.session_affinity_repin_on_failover
+                )
                 if self.model_group_affinity_config:
                     existing_affinity_callback.model_group_affinity_config = self.model_group_affinity_config
             else:
@@ -2051,6 +2150,7 @@ class Router:
                     enable_responses_api_affinity=enable_responses_api_affinity,
                     enable_session_id_affinity=enable_session_id_affinity,
                     model_group_affinity_config=self.model_group_affinity_config,
+                    session_affinity_repin_on_failover=self.session_affinity_repin_on_failover,
                 )
                 self.optional_callbacks.append(affinity_callback)
                 litellm.logging_callback_manager.add_litellm_callback(affinity_callback)
@@ -3502,9 +3602,20 @@ class Router:
         deployment_litellm_model_name = deployment["litellm_params"]["model"]
         deployment_api_base = deployment["litellm_params"].get("api_base")
         deployment_model_name: Final = deployment["model_name"]
-        if is_clientside_credential(request_kwargs=kwargs):
+        deployment_provider: Final = _isolation_provider(deployment)
+        forwarded_authorization: Final = (
+            ProviderSpecificHeaderUtils.forwarded_authorization(
+                kwargs.get("provider_specific_header"), deployment_provider
+            )
+            if deployment_provider in _FORWARDED_CREDENTIAL_ISOLATION_PROVIDERS
+            else None
+        )
+        if is_clientside_credential(request_kwargs=kwargs) or forwarded_authorization is not None:
+            credential_kwargs: Final = (
+                {**kwargs, "api_key": forwarded_authorization} if forwarded_authorization is not None else kwargs
+            )
             deployment_pydantic_obj: Final = self._handle_clientside_credential(
-                deployment=deployment, kwargs=kwargs, function_name=function_name
+                deployment=deployment, kwargs=credential_kwargs, function_name=function_name
             )
             model_info = deployment_pydantic_obj.model_info.model_dump()
             deployment_litellm_model_name = deployment_pydantic_obj.litellm_params.model
@@ -7899,6 +8010,10 @@ class Router:
                     litellm_router_instance=self,
                     deployment_id=id,
                 )
+                if self.session_affinity_repin_on_failover:
+                    success_litellm_params: Final = kwargs.get("litellm_params")
+                    if isinstance(success_litellm_params, Mapping):
+                        await self._repin_session_after_success(success_litellm_params, completion_response)
 
                 deployment_dict = deployment_info if isinstance(deployment_info, dict) else deployment_info.model_dump()
                 has_io_token_limits: Final = deployment_has_io_token_limits(deployment_dict)
@@ -7964,6 +8079,37 @@ class Router:
             verbose_router_logger.debug(
                 "litellm.router.Router::deployment_callback_on_success(): Exception occured - %s", e
             )
+
+    async def _repin_session_after_success(self, litellm_params: Mapping[str, object], response: object) -> None:
+        if not self.session_affinity_repin_on_failover:
+            return
+        try:
+            if not completed_affinity_response(response):
+                return
+            callbacks: Final = self.optional_callbacks or ()
+            callback: Final = next(
+                (logger for logger in callbacks if isinstance(logger, DeploymentAffinityCheck)),
+                None,
+            )
+            if callback is None:
+                return
+            model_group: Final = callback.get_repin_model_group(litellm_params)
+            if model_group is None:
+                return
+            registered_ids: Final = _registered_deployment_ids(
+                self.get_model_list(model_name=model_group, team_id=_team_id_from_litellm_params(litellm_params))
+            )
+            cooldown_ids: Final = frozenset(
+                model_id
+                for model_id, _cooldown in await self.cooldown_cache.async_get_active_cooldowns(
+                    model_ids=list(registered_ids), parent_otel_span=None
+                )
+            )
+            await callback.async_repin_session_after_success(
+                litellm_params, model_group, registered_ids - cooldown_ids
+            )
+        except Exception as error:  # noqa: BLE001  # Optional pin updates must not interrupt success accounting
+            verbose_router_logger.debug("Session re-pinning failed: %s", error)
 
     def sync_deployment_callback_on_success(
         self,
@@ -12374,6 +12520,10 @@ class Router:
             healthy_deployments = preferred_deployments(
                 healthy_deployments, model, effective_config(self.account_pool_routing), snapshots.values, now_utc()
             )
+
+        healthy_deployments = _without_unrequested_credential_clones(
+            cast(list[dict], healthy_deployments), request_kwargs
+        )
 
         if len(healthy_deployments) == 0:
             exception: Final = await async_raise_no_deployment_exception(

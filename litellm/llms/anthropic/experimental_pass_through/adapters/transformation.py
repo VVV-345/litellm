@@ -151,7 +151,7 @@ from litellm.types.llms.openai import (
 )
 from litellm.types.utils import Choices, ModelResponse, StreamingChoices, Usage
 
-from .streaming_iterator import AnthropicStreamWrapper
+from .streaming_iterator import AnthropicSSEStream, AnthropicStreamWrapper
 
 if TYPE_CHECKING:
     from litellm.types.llms.anthropic import ContentBlockContentBlockDict
@@ -273,7 +273,7 @@ class AnthropicAdapter:
         )
         # Return the SSE-wrapped version for proper event formatting.
         if is_async:
-            return anthropic_wrapper.async_anthropic_sse_wrapper()
+            return AnthropicSSEStream(anthropic_wrapper)
         return anthropic_wrapper.anthropic_sse_wrapper()
 
 

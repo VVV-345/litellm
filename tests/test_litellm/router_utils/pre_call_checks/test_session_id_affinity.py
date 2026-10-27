@@ -768,3 +768,193 @@ async def test_forget_pin_compares_shared_owner_and_preserves_remaining_ttl(stor
     if winner:
         import time
         assert cache.in_memory_cache.ttl_dict["pin"] == pytest.approx(time.time() + 45, abs=1)
+
+
+def _session_router(*, repin: bool) -> litellm.Router:
+    return litellm.Router(
+        model_list=[
+            {
+                "model_name": "group",
+                "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "a"},
+                "model_info": {"id": "dep-old"},
+            },
+            {
+                "model_name": "group",
+                "litellm_params": {"model": "openai/gpt-4o-mini", "api_key": "b"},
+                "model_info": {"id": "dep-new"},
+            },
+        ],
+        optional_pre_call_checks=["session_affinity"],
+        session_affinity_repin_on_failover=repin,
+        num_retries=0,
+    )
+
+
+def _repin_params(model_id: str, **metadata: object) -> dict:
+    return {
+        "metadata": {
+            "model_group": "group",
+            "deployment": "openai/gpt-4o-mini",
+            "deployment_model_name": "group",
+            "session_id": "s1",
+            "user_api_key_hash": "user",
+            **metadata,
+        },
+        "model_info": {"id": model_id},
+    }
+
+
+def _repin_cache_key() -> str:
+    return DeploymentAffinityCheck.get_session_affinity_cache_key("group", "s1", user_key="user")
+
+
+@pytest.mark.asyncio
+async def test_repin_flag_off_keeps_the_existing_pin_after_success():
+    router = _session_router(repin=False)
+    key = _repin_cache_key()
+    router.cache.in_memory_cache.set_cache(key, {"model_id": "dep-old"}, ttl=60)
+    await router._repin_session_after_success(_repin_params("dep-new"), object())
+    assert router.cache.in_memory_cache.get_cache(key) == {"model_id": "dep-old"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", [{"error": "failed"}, {"status": "in_progress"}, None])
+async def test_incomplete_response_does_not_repin(response):
+    router = _session_router(repin=True)
+    key = _repin_cache_key()
+    router.cache.in_memory_cache.set_cache(key, {"model_id": "dep-old"}, ttl=60)
+    await router._repin_session_after_success(_repin_params("dep-new"), response)
+    assert router.cache.in_memory_cache.get_cache(key) == {"model_id": "dep-old"}
+
+
+@pytest.mark.asyncio
+async def test_successful_replacement_repins_and_sticks():
+    router = _session_router(repin=True)
+    key = _repin_cache_key()
+    router.cache.in_memory_cache.set_cache(key, {"model_id": "removed"}, ttl=60)
+    await router.deployment_callback_on_success(
+        kwargs={
+            "call_type": "acompletion",
+            "standard_logging_object": {"total_tokens": 1},
+            "litellm_params": _repin_params("dep-new"),
+        },
+        completion_response=object(),
+        start_time=0,
+        end_time=1,
+    )
+    assert router.cache.in_memory_cache.get_cache(key) == {"model_id": "dep-new"}
+    await router._repin_session_after_success(_repin_params("dep-old"), object())
+    assert router.cache.in_memory_cache.get_cache(key) == {"model_id": "dep-new"}
+
+
+@pytest.mark.asyncio
+async def test_signed_continuation_skips_repin():
+    router = _session_router(repin=True)
+    key = _repin_cache_key()
+    router.cache.in_memory_cache.set_cache(key, {"model_id": "dep-old"}, ttl=60)
+    await router._repin_session_after_success(
+        _repin_params("dep-new", account_pool_signed_continuation=True),
+        object(),
+    )
+    assert router.cache.in_memory_cache.get_cache(key) == {"model_id": "dep-old"}
+
+
+@pytest.mark.asyncio
+async def test_cooled_replacement_is_not_an_eligible_repin_target():
+    router = _session_router(repin=True)
+    key = _repin_cache_key()
+    router.cache.in_memory_cache.set_cache(key, {"model_id": "dep-old"}, ttl=60)
+    router.cooldown_cache.add_deployment_to_cooldown(
+        model_id="dep-new",
+        original_exception=Exception("limited"),
+        exception_status=429,
+        cooldown_time=60,
+    )
+    await router._repin_session_after_success(_repin_params("dep-new"), object())
+    assert router.cache.in_memory_cache.get_cache(key) == {"model_id": "dep-old"}
+
+
+@pytest.mark.asyncio
+async def test_in_memory_repin_claims_converge_and_keep_legacy_string_pins():
+    cache = DualCache()
+    callback = DeploymentAffinityCheck(
+        cache=cache,
+        ttl_seconds=60,
+        enable_user_key_affinity=False,
+        enable_responses_api_affinity=False,
+        enable_session_id_affinity=True,
+        session_affinity_repin_on_failover=True,
+    )
+    eligible = (
+        {"model_id": "dep-a"},
+        {"model_id": "dep-b"},
+    )
+    first = await callback._claim_pin(
+        "pin", {"model_id": "dep-a"}, 60, eligible_values=eligible, preserve_legacy_model_ids=True
+    )
+    second = await callback._claim_pin(
+        "pin", {"model_id": "dep-b"}, 60, eligible_values=eligible, preserve_legacy_model_ids=True
+    )
+    assert first == second == "dep-a"
+    assert cache.in_memory_cache.get_cache("pin") == {"model_id": "dep-a"}
+
+    cache.in_memory_cache.set_cache("legacy", "dep-a", ttl=60)
+    kept = await callback._claim_pin(
+        "legacy", {"model_id": "dep-b"}, 60, eligible_values=eligible, preserve_legacy_model_ids=True
+    )
+    assert kept == "dep-a"
+    assert cache.in_memory_cache.get_cache("legacy") == "dep-a"
+
+
+class _RecordingRedis:
+    def __init__(self) -> None:
+        self.args: tuple[object, ...] = ()
+
+    def async_register_script(self, script: str):
+        assert "ARGV[3]" in script
+
+        async def claim(keys, args):
+            self.args = tuple(args)
+            return args[0]
+
+        return claim
+
+
+@pytest.mark.asyncio
+async def test_eligible_claim_passes_replacement_args_to_redis():
+    cache = DualCache()
+    redis = _RecordingRedis()
+    cache.redis_cache = redis
+    callback = DeploymentAffinityCheck(cache, 60, False, False, True, session_affinity_repin_on_failover=True)
+    winner = await callback._claim_pin(
+        "pin",
+        {"model_id": "dep-b"},
+        60,
+        eligible_values=({"model_id": "dep-a"}, {"model_id": "dep-b"}),
+        preserve_legacy_model_ids=True,
+    )
+    assert winner == "dep-b"
+    assert len(redis.args) == 4
+    assert redis.args[3] == "1"
+    assert json.loads(redis.args[2]) == [{"model_id": "dep-a"}, {"model_id": "dep-b"}]
+
+
+class _BoomRedis:
+    async def async_get_cache(self, key, parent_otel_span=None, *, raise_on_error: bool = False, **kwargs):
+        raise RuntimeError("redis down")
+
+
+@pytest.mark.asyncio
+async def test_repin_read_falls_back_locally_when_redis_raises():
+    cache = DualCache()
+    cache.redis_cache = _BoomRedis()
+    callback = DeploymentAffinityCheck(cache, 60, False, False, True, session_affinity_repin_on_failover=True)
+    key = DeploymentAffinityCheck.get_session_affinity_cache_key("group", "s1", user_key="user")
+    cache.in_memory_cache.set_cache(key, {"model_id": "dep-old"}, ttl=60)
+    filtered = await callback.async_filter_deployments(
+        model="group",
+        healthy_deployments=[{"model_name": "group", "litellm_params": {"model": "m"}, "model_info": {"id": "dep-old"}}],
+        messages=[],
+        request_kwargs={"metadata": {"user_api_key_hash": "user", "session_id": "s1"}},
+    )
+    assert [item["model_info"]["id"] for item in filtered] == ["dep-old"]
