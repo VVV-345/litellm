@@ -12,9 +12,18 @@ NewAPI 继续负责下游用户、下游 Key、预算、模型权限和限流。
 - API Key：号池生成的 `cpk_...`
 - 模型：先请求 `GET /v1/models` 查看该卡片实际可用的模型和别名，再配置到 NewAPI
 
-可用的公共入口包括 `GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/responses`、`POST /v1/responses/compact` 和 `POST /v1/images/generations`。具体入口仍受卡片和账号策略限制。卡片 Key 不能访问 LiteLLM 管理接口，WebSocket 和压缩请求体当前不支持
+可用的公共入口包括 `GET /v1/models`、`POST /v1/chat/completions`、`POST /v1/responses`、`POST /v1/responses/compact` 和 `POST /v1/images/generations`。具体入口仍受卡片和账号策略限制。**`POST /v1/images/edits` 当前不在号池支持面，不要把 edits 指到卡片 Key。**卡片 Key 不能访问 LiteLLM 管理接口，WebSocket（含 Responses / Realtime）和压缩请求体当前不支持
 
-如果下游客户端能提供稳定会话标识，NewAPI 可以透传 `X-Session-ID`。号池会按卡片 Key、模型和该值的哈希建立会话粘性，不保存原始会话值。未传该 Header 时仍会正常路由，只是不保证同一会话持续使用同一账号
+如果下游客户端能提供稳定会话标识，NewAPI 可以透传 `X-Session-ID`。号池会按卡片 Key、模型和该值的哈希建立会话粘性，不保存原始会话值。未传该 Header 时仍会正常路由，只是不保证同一会话持续使用同一账号。NewAPI 侧须**原样转发** `X-Session-ID`，不要剥离或改写。NewAPI 的请求策略（会话与重试、渠道健康等）可能更积极地换渠或重试，从而削弱粘性体感；是否粘住同一账号以号池侧哈希命中为准
+
+## 对接红线
+
+- 禁 WS（WebSocket，含 Responses / Realtime）
+- `POST /v1/images/edits` 不在支持面，不要把 edits 指到卡片 Key
+- 同一模型勿让任务插件与普通渠道抢权定价：不要按优先级或权重抢流量，并存须单独定价
+- `Authorization` 只能是 `Bearer cpk_...`。禁下游 Key 或 Cookie。禁透传压缩请求体和 LiteLLM 管理面路径
+- 必须原样转发 `X-Session-ID`
+- 对账以号池日志和 `x-request-id` 为准
 
 ## 验证
 
@@ -35,6 +44,6 @@ curl https://llm.example.com/v1/responses \
   -d '{"model":"MODEL_FROM_V1_MODELS","input":"ping"}'
 ```
 
-成功响应包含 `x-request-id`。排查失败时可以在号池日志页按卡片、账号、模型或请求 ID 查询实际选中的账号、状态码、错误分类、重试和切号结果
+成功响应包含 `x-request-id`。排查失败时可以在号池日志页按卡片、账号、模型或请求 ID 查询实际选中的账号、状态码、错误分类、重试和切号结果。对账以号池日志和 `x-request-id` 为准
 
 当前开发环境没有可用的 Docker Desktop、PostgreSQL 和真实 NewAPI 实例，因此上述链路已经通过单元和网关集成测试验证，仍需在部署环境完成一次真实容器、数据库和上游请求验收
