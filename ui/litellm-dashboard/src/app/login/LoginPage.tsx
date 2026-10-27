@@ -119,7 +119,6 @@ function LoginPageContent() {
 
     const rawToken = getCookieFromDocument("token");
     if (rawToken && !isJwtExpired(rawToken)) {
-      // User already logged in - redirect to return URL or default
       const returnUrl = consumeReturnUrl();
       if (returnUrl) {
         router.replace(returnUrl);
@@ -128,6 +127,7 @@ function LoginPageContent() {
       }
       return;
     }
+    if (rawToken) clearTokenCookies();
 
     if (uiConfig && uiConfig.auto_redirect_to_sso) {
       // For SSO, pass the return URL to the SSO endpoint

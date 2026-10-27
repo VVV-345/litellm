@@ -1,6 +1,7 @@
 "use client";
 
 import { getProxyBaseUrl } from "@/components/networking";
+import { unauthorizedSessionAction } from "@/lib/sessionExpiry";
 import { clearTokenCookies, getCookie } from "@/utils/cookieUtils";
 import { checkTokenValidity, decodeToken } from "@/utils/jwtUtils";
 import { buildLoginUrlWithReturn, getLoginUrl, storeReturnUrl } from "@/utils/returnUrlUtils";
@@ -13,8 +14,8 @@ const useAuthorized = () => {
 
   const token = typeof document !== "undefined" ? getCookie("token") : null;
 
-  const decoded = useMemo(() => decodeToken(token), [token]);
-  const isTokenValid = useMemo(() => checkTokenValidity(token), [token]);
+  const decoded = useMemo(() => (checkTokenValidity(token) ? decodeToken(token) : null), [token]);
+  const isTokenValid = decoded !== null;
   const isLoading = isUIConfigLoading;
   const isAuthorized = isTokenValid && !uiConfig?.admin_ui_disabled;
 
@@ -29,14 +30,17 @@ const useAuthorized = () => {
   // Single useEffect for all redirect logic
   useEffect(() => {
     if (isLoading) return;
-
-    if (!isAuthorized) {
-      if (token) {
-        clearTokenCookies();
-      }
-      redirectToLogin();
-    }
-  }, [isLoading, isAuthorized, token, redirectToLogin]);
+    const current = getCookie("token");
+    const action = unauthorizedSessionAction(
+      current,
+      token,
+      checkTokenValidity(current),
+      Boolean(uiConfig?.admin_ui_disabled),
+    );
+    if (action === "allow") return;
+    if (action === "clear-and-redirect") clearTokenCookies();
+    redirectToLogin();
+  }, [isLoading, isAuthorized, token, redirectToLogin, uiConfig?.admin_ui_disabled]);
 
   return {
     isLoading,

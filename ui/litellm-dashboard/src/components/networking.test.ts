@@ -20,26 +20,42 @@ describe("networking - expired session handling", () => {
     global.fetch = originalFetch;
   });
 
-  it("should call clearTokenCookies on expired session", async () => {
-    const errorData = "Authentication Error - Expired Key";
-    const { toast } = await import("@/lib/toast");
-
-    if (errorData.includes("Authentication Error - Expired Key")) {
-      toast.info("UI Session Expired. Logging out.");
-      clearTokenCookies();
-    }
-
-    expect(clearTokenCookies).toHaveBeenCalledOnce();
+  it("does not log out on 403 or a provider authentication failure", async () => {
+    const { getCookie } = await import("@/utils/cookieUtils");
+    vi.mocked(getCookie).mockReturnValue("session-a");
+    await Networking.handleError({
+      message: "Authentication Error - Expired Key",
+      status: 403,
+      sessionToken: "session-a",
+    });
+    await Networking.handleError({
+      message: "AnthropicException: Authentication Error - Expired Key",
+      status: 401,
+      sessionToken: "session-a",
+    });
+    expect(clearTokenCookies).not.toHaveBeenCalled();
   });
 
-  it("should not clear cookies for non-authentication errors", () => {
-    const errorData = "Some other error";
-
-    if (errorData.includes("Authentication Error - Expired Key")) {
-      clearTokenCookies();
-    }
-
-    expect(clearTokenCookies).not.toHaveBeenCalled();
+  it("logs out once when the expired UI key still matches the session and keeps a newer session", async () => {
+    const { getCookie } = await import("@/utils/cookieUtils");
+    vi.mocked(getCookie).mockReturnValue("session-a");
+    await Networking.handleError({
+      message: "Authentication Error - Expired Key",
+      status: 401,
+      sessionToken: "session-a",
+    });
+    await Networking.handleError({
+      message: "Authentication Error - Expired Key",
+      status: 401,
+      sessionToken: "session-a",
+    });
+    vi.mocked(getCookie).mockReturnValue("session-b");
+    await Networking.handleError({
+      message: "Authentication Error - Expired Key",
+      status: 401,
+      sessionToken: "session-a",
+    });
+    expect(clearTokenCookies).toHaveBeenCalledOnce();
   });
 
   it("should surface backend detail error when updateSSOSettings fails", async () => {

@@ -172,7 +172,11 @@ describe("typed api client middleware", () => {
 
     await expect(fetchClient.GET("/model_group/info", { fetch })).rejects.toBeInstanceOf(Error);
 
-    expect(onError).toHaveBeenCalledWith("Authentication Error - Expired Key");
+    expect(onError).toHaveBeenCalledWith({
+      message: "Authentication Error - Expired Key",
+      status: 401,
+      sessionToken: null,
+    });
   });
 
   it("does not call the error handler on a successful response", async () => {

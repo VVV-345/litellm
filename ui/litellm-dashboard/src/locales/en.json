@@ -97,6 +97,7 @@
     "moduleFailed": "Module failed to load. Retry or update the page",
     "pageFailed": "Page failed to load. Retry, or update after a deployment",
     "keepDraft": "No automatic reload. Retry or update reloads the page. Save your configuration first.",
+    "reloadLimited": "Reload limit reached. Sign in again from a fresh page.",
     "retry": "Retry loading",
     "update": "Update page",
     "discardChanges": "You have unsaved configuration changes. Discard them and continue?"

@@ -1,3 +1,4 @@
+import type { SessionFailure } from "../sessionExpiry";
 import { resolveApiBase } from "./resolveApiBase";
 
 /**
@@ -22,7 +23,8 @@ type Getter<T> = () => T;
 let baseUrlGetter: Getter<string> = () => resolveApiBase({ explicitBase: process.env.NEXT_PUBLIC_BASE_URL });
 let authHeaderNameGetter: Getter<string> = () => "Authorization";
 let authTokenGetter: Getter<string | null> = () => null;
-let errorHandler: (message: string) => void = () => {};
+let sessionTokenGetter: Getter<string | null> = () => null;
+let errorHandler: (failure: SessionFailure | string) => void = () => {};
 
 export const registerBaseUrlGetter = (getter: Getter<string>): void => {
   baseUrlGetter = getter;
@@ -36,11 +38,16 @@ export const registerAuthTokenGetter = (getter: Getter<string | null>): void => 
   authTokenGetter = getter;
 };
 
-export const registerErrorHandler = (handler: (message: string) => void): void => {
+export const registerSessionTokenGetter = (getter: Getter<string | null>): void => {
+  sessionTokenGetter = getter;
+};
+
+export const registerErrorHandler = (handler: (failure: SessionFailure | string) => void): void => {
   errorHandler = handler;
 };
 
 export const getRequestBaseUrl = (): string => baseUrlGetter();
 export const getAuthHeaderName = (): string => authHeaderNameGetter();
 export const getAuthToken = (): string | null => authTokenGetter();
-export const reportError = (message: string): void => errorHandler(message);
+export const getSessionToken = (): string | null => sessionTokenGetter();
+export const reportError = (failure: SessionFailure | string): void => errorHandler(failure);

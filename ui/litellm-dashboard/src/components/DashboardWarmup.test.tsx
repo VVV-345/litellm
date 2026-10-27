@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
 import { useDashboardReadiness } from "./DashboardReadinessContext";
@@ -7,7 +7,7 @@ import { registerResponseCache } from "@/lib/http/responseCache";
 import { registerAuthTokenGetter } from "@/lib/http/runtime";
 import { initialLogsRange, requestLogsQueryOptions, DEFAULT_LOGS_SORTING } from "./view_logs/log_filter_logic";
 
-const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {} }));
+const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {}, failModules: false }));
 const auth = vi.hoisted(() => ({ accessToken: "test", userID: "user", userRole: "Admin", token: "session" }));
 const initialAuth = { ...auth };
 
@@ -23,7 +23,10 @@ vi.mock("@/features/account-pool/preloadModules", () => {
   });
   return {
     ACCOUNT_POOL_MODULE_LOADERS: loaders,
-    preloadAccountPoolModules: () => Promise.all(loaders.map((load) => load())),
+    preloadAccountPoolModules: () => {
+      if (modules.failModules) return Promise.reject(new Error("ChunkLoadError: Loading chunk 9 failed"));
+      return Promise.all(loaders.map((load) => load()));
+    },
   };
 });
 vi.mock("@/components/view_logs", () => ({
@@ -66,6 +69,7 @@ describe("dashboard warmup wiring", () => {
     urls.length = 0;
     modules.loaded.clear();
     modules.wait = async () => {};
+    modules.failModules = false;
     controller = new AbortController();
     fetch.mockReset().mockImplementation(async (input) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
@@ -287,8 +291,9 @@ describe("dashboard warmup wiring", () => {
     expect(fetch).toHaveBeenCalledTimes(count);
   });
 
-  it("keeps the initial page blocked and offers retry when a required preload fails", async () => {
+  it("reveals the page when only a data prefetch fails and still offers retry or a new login", async () => {
     fetch.mockRejectedValue(new Error("offline"));
+    const clear = vi.spyOn(await import("@/utils/cookieUtils"), "clearTokenCookies").mockImplementation(() => {});
     render(
       <QueryClientProvider client={client}>
         <DashboardWarmup>
@@ -296,8 +301,23 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(await screen.findByText("Dashboard content", {}, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试加载" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新登录" }));
+    expect(clear).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the initial page blocked and offers retry or a new login when a required module fails", async () => {
+    modules.failModules = true;
+    render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <p>Dashboard content</p>
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
     expect(await screen.findByRole("button", { name: "重试加载" }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新登录" })).toBeInTheDocument();
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
   });
 

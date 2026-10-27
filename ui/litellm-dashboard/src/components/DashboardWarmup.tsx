@@ -52,6 +52,7 @@ import { dashboardBackgroundTasks } from "@/lib/dashboardBackground";
 import { DEFAULT_DISABLED_PAGES } from "@/lib/moduleVisibility";
 import { DashboardReadinessProvider } from "@/components/DashboardReadinessContext";
 import { apiClient, modelAvailableCall, userGetInfoV2 } from "@/components/networking";
+import { clearTokenCookies } from "@/utils/cookieUtils";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 import { listAccountPoolProviderFamilies } from "@/features/account-pool/api/AccountPoolApi";
 import { SESSION_RESET_EVENT } from "@/lib/cacheEvents";
@@ -60,6 +61,11 @@ const PRIMARY_PAGES = ["api-keys", "models", "account-pool", "logs", "new_usage"
 const LOG_PAGE_SIZE = 50;
 
 const task = (id: string, run: () => unknown | Promise<unknown>): PreloadTask => ({ id, run });
+const optionalTask = (id: string, run: () => unknown | Promise<unknown>): PreloadTask => ({
+  id,
+  run,
+  critical: false,
+});
 
 const pageUrl = (page: string): string => {
   const migratedRoute = MIGRATED_PAGES[page];
@@ -137,8 +143,8 @@ const createPrimaryTasks = (
   { queryClient, router, accessToken, userId, userRole, token }: DashboardWarmupContext,
   signal: AbortSignal,
 ): readonly PreloadTask[] => [
-  task("virtual-keys", async () => {
-    await loadApiKeysPage(router);
+  task("virtual-keys", () => loadApiKeysPage(router)),
+  optionalTask("virtual-keys-data", async () => {
     if (signal.aborted) return;
     await Promise.all([
       runQuery(
@@ -165,8 +171,8 @@ const createPrimaryTasks = (
         : []),
     ]);
   }),
-  task("models-and-endpoints", async () => {
-    await loadModelsPage(router);
+  task("models-and-endpoints", () => loadModelsPage(router)),
+  optionalTask("models-and-endpoints-data", async () => {
     if (signal.aborted) return;
     if (!userId || !rolesAllowedToViewWriteScopedPages.includes(userRole)) return;
     await Promise.all([
@@ -179,15 +185,17 @@ const createPrimaryTasks = (
   }),
   task("account-pool", async () => {
     await loadAccountPoolPage(router);
-    if (signal.aborted) return;
-    if (!canManageAccountPool(userRole, false)) return;
+    if (signal.aborted || !canManageAccountPool(userRole, false)) return;
+    await preloadAccountPoolModules();
+  }),
+  optionalTask("account-pool-data", async () => {
+    if (signal.aborted || !canManageAccountPool(userRole, false)) return;
     await Promise.all([
       runQuery(queryClient, accountPoolEnvironmentOptions(accessToken)),
       runQuery(queryClient, accountPoolPolicyOptions(accessToken)),
       runQuery(queryClient, accountPoolDashboardStatsOptions(accessToken)),
       runQuery(queryClient, accountPoolQuotaRefreshStatusOptions(accessToken)),
       runQuery(queryClient, proxyGatewayQueryOptions(accessToken)),
-      preloadAccountPoolModules(),
       runQuery(queryClient, {
         queryKey: accountPoolQueryKeys.providerFamilies(accessToken),
         queryFn: () => listAccountPoolProviderFamilies(accessToken),
@@ -197,6 +205,8 @@ const createPrimaryTasks = (
   task("logs", async () => {
     await loadLogsPage(router);
     await preloadOperationLogModule();
+  }),
+  optionalTask("logs-data", async () => {
     if (signal.aborted) return;
     await runQuery(
       queryClient,
@@ -209,8 +219,8 @@ const createPrimaryTasks = (
       operationLogsQueryOptions({ accessToken, filters, offset: 0, pageSize: LOG_PAGE_SIZE }),
     );
   }),
-  task("usage", async () => {
-    await loadUsagePage(router);
+  task("usage", () => loadUsagePage(router)),
+  optionalTask("usage-data", async () => {
     if (signal.aborted) return;
     const endTime = new Date();
     const startTime = new Date(endTime.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -296,10 +306,12 @@ function WarmupProgress({
   state,
   primaryOnly,
   retry,
+  relogin,
 }: {
   state: PreloadStageProgress;
   primaryOnly: boolean;
   retry: () => void;
+  relogin: () => void;
 }) {
   const progress = primaryOnly ? state.primary : state.background;
   const succeeded = progress.completed - progress.failed;
@@ -336,7 +348,14 @@ function WarmupProgress({
             {progress.failed} 个模块加载失败，尚未准备完成
           </p>
         )}
-        {progress.failed > 0 && <Button onClick={retry}>重试加载</Button>}
+        {progress.failed > 0 && (
+          <div className="flex gap-2">
+            <Button onClick={retry}>重试加载</Button>
+            <Button variant="outline" onClick={relogin}>
+              重新登录
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -398,12 +417,27 @@ export default function DashboardWarmup({
   }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPagesKey]);
 
   const retry = () => setAttempt((value) => value + 1);
-  if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} />;
+  const relogin = () => clearTokenCookies();
+  const prefetchFailed = state.primary.failed + state.background.failed;
+  const failureState: PreloadStageProgress = {
+    ...state,
+    background: {
+      completed: state.primary.completed + state.background.completed,
+      total: state.primary.total + state.background.total,
+      failed: prefetchFailed,
+    },
+  };
+  if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} relogin={relogin} />;
   return (
     <DashboardReadinessProvider value={ready}>
       {children}
-      {(shouldWarmup && (state.stage === "background" || state.background.failed > 0)) && (
-        <WarmupProgress state={state} primaryOnly={false} retry={retry} />
+      {shouldWarmup && (state.stage === "background" || prefetchFailed > 0) && (
+        <WarmupProgress
+          state={prefetchFailed > 0 ? failureState : state}
+          primaryOnly={false}
+          retry={retry}
+          relogin={relogin}
+        />
       )}
     </DashboardReadinessProvider>
   );

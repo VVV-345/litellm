@@ -61,7 +61,7 @@ describe("createApiClient", () => {
 
     await expect(promise).rejects.toBeInstanceOf(ApiError);
     await expect(promise).rejects.toMatchObject({ message: "no access", status: 403 });
-    expect(onError).toHaveBeenCalledWith("no access");
+    expect(onError).toHaveBeenCalledWith({ message: "no access", status: 403, sessionToken: null });
   });
 
   it("unwraps an object-shaped detail ({detail:{error}}) rather than dumping the JSON envelope (FastAPI HTTPException shape)", async () => {
@@ -73,7 +73,7 @@ describe("createApiClient", () => {
     const promise = client.get("/claude-code/plugins", { accessToken: "sk" });
 
     await expect(promise).rejects.toMatchObject({ message: conflict, status: 409 });
-    expect(onError).toHaveBeenCalledWith(conflict);
+    expect(onError).toHaveBeenCalledWith({ message: conflict, status: 409, sessionToken: null });
   });
 
   it("falls back to the raw text body when a non-2xx response is not JSON (e.g. an HTML 502)", async () => {
@@ -84,7 +84,7 @@ describe("createApiClient", () => {
     const promise = client.get("/keys", { accessToken: "sk" });
 
     await expect(promise).rejects.toMatchObject({ message: "<html>Bad Gateway</html>", status: 502 });
-    expect(onError).toHaveBeenCalledWith("<html>Bad Gateway</html>");
+    expect(onError).toHaveBeenCalledWith({ message: "<html>Bad Gateway</html>", status: 502, sessionToken: null });
   });
 
   it("returns undefined for an empty success body (e.g. a 204 No Content)", async () => {
