@@ -31,8 +31,10 @@ from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.common_utils.sse_keepalive import wrap_passthrough_sse_bytes_with_keepalive_pings
 from litellm.proxy.management_endpoints.account_pool_failover import (
     RETRY_WINDOW_SECONDS,
+    Failure,
     capacity_request_scoped_retry_after,
     classify_failure,
+    cooldown_exempt_upstream_code,
     failure_headers,
     is_capacity_shed,
 )
@@ -309,6 +311,24 @@ async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
             attempt.result = await attempt.log.finish(attempt.result)
     finally:
         await report(control, attempt.result)
+
+
+def recorded_upstream_result(
+    failure: Failure,
+    headers: Mapping[str, str],
+    payload: Mapping[str, object],
+    status: int,
+    extracted_code: str | None,
+) -> tuple[int, str | None]:
+    exempt: Final = cooldown_exempt_upstream_code(status, payload)
+    if exempt is not None:
+        return 0, exempt
+    delay: Final = (
+        capacity_request_scoped_retry_after(headers, payload)
+        if is_capacity_shed(failure)
+        else retry_after(headers)
+    )
+    return delay, extracted_code
 
 
 def retry_allowed(resolution: Resolution, status: int) -> bool:
@@ -885,16 +905,14 @@ async def execute(
                         and asyncio.get_running_loop().time() < deadline
                     )
                     retry: Final = retry_target is not None and retryable
-                    retry_after_seconds: Final = (
-                        capacity_request_scoped_retry_after(response.headers, error_payload)
-                        if is_capacity_shed(failure)
-                        else retry_after(response.headers)
+                    retry_after_seconds, reported_code = recorded_upstream_result(
+                        failure, response.headers, error_payload, public_status, code
                     )
                     attempt.outcome(
                         public_status,
                         f"Upstream HTTP {response.status_code}",
                         stage="upstream",
-                        upstream_code=code,
+                        upstream_code=reported_code,
                         failure_reason=failure.reason,
                         retryable=retry,
                         switched_account=retry and retry_target != route.account.id,
@@ -1402,16 +1420,18 @@ async def guarded_stream_response(
                 and asyncio.get_running_loop().time() < deadline
             )
             retry: Final = retry_target is not None and retryable
-            retry_after_seconds: Final = (
-                capacity_request_scoped_retry_after(response.headers, bootstrap.state.error_info)
-                if is_capacity_shed(failure)
-                else retry_after(response.headers)
+            retry_after_seconds, reported_code = recorded_upstream_result(
+                failure,
+                response.headers,
+                bootstrap.state.error_info,
+                bootstrap.state.error_status,
+                bootstrap.state.error_code,
             )
             attempt.outcome(
                 bootstrap.state.error_status,
                 str(bootstrap.state.public_error()["message"]),
                 stage="response",
-                upstream_code=bootstrap.state.error_code,
+                upstream_code=reported_code,
                 failure_reason=failure.reason,
                 retryable=retry,
                 switched_account=retry and retry_target != route.account.id,
@@ -1501,16 +1521,14 @@ async def stream_response(
             raise IncompleteStreamError("Upstream event stream ended before completion")
         if state.failed:
             failure: Final = classify_failure(state.error_status, state.error_info, response.headers)
-            retry_after_seconds: Final = (
-                capacity_request_scoped_retry_after(response.headers, state.error_info)
-                if is_capacity_shed(failure)
-                else retry_after(response.headers)
+            retry_after_seconds, reported_code = recorded_upstream_result(
+                failure, response.headers, state.error_info, state.error_status, state.error_code
             )
             attempt.outcome(
                 state.error_status,
                 str(state.public_error()["message"]),
                 stage="response",
-                upstream_code=state.error_code,
+                upstream_code=reported_code,
                 failure_reason=failure.reason,
                 retry_after_seconds=retry_after_seconds,
                 model_cooldown_seconds=failure.cooldown_seconds,

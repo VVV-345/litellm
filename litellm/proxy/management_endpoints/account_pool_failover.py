@@ -72,6 +72,7 @@ class Failure:
     retryable: bool
     same_account: bool = False
     cooldown_seconds: int = 0
+    capacity_shed: bool = False
 
 
 def number(value: object) -> float:
@@ -85,7 +86,12 @@ def number(value: object) -> float:
 
 
 def is_capacity_shed(failure: Failure) -> bool:
-    return failure.reason == "upstream_unavailable" and failure.same_account and failure.cooldown_seconds == 0
+    return (
+        failure.capacity_shed
+        and failure.reason == "upstream_unavailable"
+        and failure.same_account
+        and failure.cooldown_seconds == 0
+    )
 
 
 def _header_text(headers: Mapping[str, str], name: str) -> str:
@@ -152,6 +158,7 @@ _JSON_BODY: Final = TypeAdapter(JsonValue)
 _CLOUDFLARE_CODE_FIELDS: Final = frozenset(("code", "error_code"))
 _BROWSER_SIGNATURE_BANNED: Final = "browser_signature_banned"
 _CLOUDFLARE_1010_TEXT: Final = "error code: 1010"
+CLOUDFLARE_BOT_BLOCK_CODE: Final = "cloudflare_1010"
 
 
 def _is_cloudflare_bot_block_code(value: object) -> bool:
@@ -186,6 +193,12 @@ def _contains_cloudflare_bot_block_code(value: object) -> bool:
     if isinstance(value, list):
         return any(_contains_cloudflare_bot_block_code(child) for child in value)
     return False
+
+
+def cooldown_exempt_upstream_code(status: int, payload: object) -> str | None:
+    if status == 403 and is_cloudflare_bot_block_response(payload):
+        return CLOUDFLARE_BOT_BLOCK_CODE
+    return None
 
 
 def is_cloudflare_bot_block_response(body: object) -> bool:
@@ -245,8 +258,13 @@ def classify_failure(status: int, payload: Mapping[str, object], headers: Mappin
             )
         return Failure("rate_limit", True, same_account=True)
     if status in (408, 500, 502, 503, 504, 529):
+        capacity: Final = bool(codes & CAPACITY_CODES)
         return Failure(
-            "upstream_unavailable", True, same_account=True, cooldown_seconds=0 if codes & CAPACITY_CODES else 1
+            "upstream_unavailable",
+            True,
+            same_account=True,
+            cooldown_seconds=0 if capacity else 1,
+            capacity_shed=capacity,
         )
     if status == 403 and is_cloudflare_bot_block_response(payload):
         return Failure("upstream_unavailable", True, same_account=True, cooldown_seconds=0)

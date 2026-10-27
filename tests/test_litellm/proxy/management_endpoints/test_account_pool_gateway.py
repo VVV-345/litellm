@@ -607,6 +607,38 @@ def test_retry_after_beyond_remaining_budget_stops_without_sleeping_or_rotating(
     assert control.finished[0].retry_after_seconds == 300
 
 
+def test_cloudflare_1010_stays_on_the_same_account_without_cooldown() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return httpx.Response(
+            403,
+            json={"cloudflare_error": True, "code": 1010, "error_name": "browser_signature_banned"},
+            headers={"retry-after": "60"},
+        )
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 403
+    assert len(calls) == 1
+    assert len(control.acquisitions) == 1
+    assert control.acquisitions[0].account_id.hex in calls[0]
+    assert len(control.finished) == 1
+    finished: Final = control.finished[0]
+    assert finished.failure_reason == "upstream_unavailable"
+    assert finished.upstream_code == "cloudflare_1010"
+    assert finished.switched_account is False
+    assert finished.retryable is False
+    assert finished.model_cooldown_seconds == 0
+    assert finished.retry_after_seconds == 0
+
+
 @pytest.mark.parametrize(
     "headers,body,expected",
     [

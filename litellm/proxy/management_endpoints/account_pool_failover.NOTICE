@@ -18,7 +18,9 @@ limit, then stored on FinishRequest.retry_after_seconds
 Cloudflare 1010 classification: e0fa4b94f9b962949da039c09e63968358324e26
 Merged as aa48a8bb
 The idea is the 403 short-circuit in ratelimit_service.go
-A matching 403 is upstream_unavailable, retryable, same-account, and cooldown 0
+A matching 403 is upstream_unavailable, same-account, and cooldown 0
+It is not a capacity shed. FinishRequest stores upstream_code cloudflare_1010 and retry_after_seconds 0
+The manager does not write the 300 second 403 account cooldown or a model cooldown
 The Go RateLimitService is not ported
 The adapter does not copy the Go scheduler, database, authentication, or server
 The Python adapter source is distributed in the same package and can be replaced

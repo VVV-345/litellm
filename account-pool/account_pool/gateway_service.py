@@ -256,14 +256,7 @@ class GatewayService:
         if lease is None:
             return
         # 瞬时失败的同卡预算由网关持有，不能用持久冷却提前阻断下一次已获准的重试。
-        request_scoped: Final = (
-            request.failure_reason in ("request_rejected", "policy_rejected")
-            or request.failure_reason in ("rate_limit", "upstream_unavailable")
-            and request.retryable
-            and not request.switched_account
-            or request.failure_reason == "upstream_unavailable"
-            and request.upstream_code in ("server_is_overloaded", "overloaded_error", "overloaded")
-        )
+        request_scoped: Final = _request_scoped_failure(request)
         observed_delay: Final = (
             await self.cooldown_delay(lease) if request.http_status >= 400 and not request_scoped else 0
         )
@@ -410,6 +403,28 @@ class GatewayService:
         except Exception:
             # 状态同步失败不能阻止租约释放，仍使用转发层报告的保守冷却。
             return 0
+
+
+_CAPACITY_UPSTREAM_CODES: Final = frozenset(("server_is_overloaded", "overloaded_error", "overloaded"))
+_CLOUDFLARE_BOT_BLOCK_CODE: Final = "cloudflare_1010"
+
+
+def _request_scoped_failure(request: FinishRequest) -> bool:
+    if (
+        request.http_status == 403
+        and request.failure_reason == "upstream_unavailable"
+        and request.upstream_code == _CLOUDFLARE_BOT_BLOCK_CODE
+    ):
+        return True
+    if request.failure_reason in ("request_rejected", "policy_rejected"):
+        return True
+    if (
+        request.failure_reason in ("rate_limit", "upstream_unavailable")
+        and request.retryable
+        and not request.switched_account
+    ):
+        return True
+    return request.failure_reason == "upstream_unavailable" and request.upstream_code in _CAPACITY_UPSTREAM_CODES
 
 
 def binding_hash(key_id: UUID, session_hash: str | None) -> str | None:

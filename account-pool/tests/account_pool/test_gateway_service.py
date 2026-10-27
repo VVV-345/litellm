@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -146,6 +146,76 @@ class MemoryLeases:
 class FailingLogs(MemoryLogs):
     async def append(self, event: ErrorLogRecord) -> None:
         raise RuntimeError("log storage unavailable")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status,reason,code,retry_after_seconds,reported,expect_cooled,expect_model",
+    [
+        (403, "upstream_unavailable", "cloudflare_1010", 8, 30, False, 0),
+        (403, "account_unavailable", None, 0, 0, True, 55),
+        (401, "account_unavailable", None, 0, 0, True, 55),
+    ],
+)
+async def test_cloudflare_1010_finish_does_not_cool_account_or_model(
+    status: int,
+    reason: Literal["upstream_unavailable", "account_unavailable"],
+    code: str | None,
+    retry_after_seconds: int,
+    reported: int,
+    expect_cooled: bool,
+    expect_model: int,
+) -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    leases: Final = MemoryLeases()
+
+    async def observed(record: EnvironmentRecord) -> tuple[ModelCooldown, ...]:
+        return (ModelCooldown(model="gpt-5", retry_at=utc_now() + timedelta(seconds=55)),)
+
+    service: Final = GatewayService(
+        keys,
+        MemoryRepository(card),
+        MemoryPolicies(),
+        leases,
+        ErrorLogService(MemoryLogs()),
+        gateway,
+        model_cooldowns=observed,
+    )
+    resolved: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    account: Final = resolved.candidates[0]
+    lease: Final = await service.acquire(
+        AcquireRequest(
+            card_key=issued.value.key,
+            account_id=card.id,
+            request_id=uuid4(),
+            model="gpt-5",
+            card_version=resolved.card_version,
+            policy_version=resolved.policy_version,
+            account_version=account.environment_version,
+            account_policy_version=account.policy_version,
+            timeout_seconds=30,
+            attempt=1,
+        )
+    )
+    await service.finish(
+        FinishRequest(
+            lease_id=lease.lease_id,
+            http_status=status,
+            message="classified failure",
+            endpoint="/v1/responses",
+            failure_reason=reason,
+            upstream_code=code,
+            retryable=False,
+            retry_after_seconds=retry_after_seconds,
+            model_cooldown_seconds=reported,
+        )
+    )
+    assert leases.cooled == ((card.id,) if expect_cooled else ())
+    assert leases.model_cooldowns.get((card.id, "gpt-5"), 0) == expect_model
+    assert not leases.leases
 
 
 @pytest.mark.asyncio

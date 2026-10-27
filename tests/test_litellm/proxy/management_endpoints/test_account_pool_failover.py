@@ -3,9 +3,11 @@
 import pytest
 
 from litellm.proxy.management_endpoints.account_pool_failover import (
+    CLOUDFLARE_BOT_BLOCK_CODE,
     Failure,
     capacity_request_scoped_retry_after,
     classify_failure,
+    cooldown_exempt_upstream_code,
     is_capacity_shed,
     is_cloudflare_bot_block_response,
 )
@@ -44,9 +46,11 @@ def test_capacity_shed_is_same_account_upstream_without_cooldown():
     overloaded = classify_failure(503, {"error": {"code": "server_is_overloaded"}}, {})
     ordinary = classify_failure(503, {"error": {"code": "server_error"}}, {})
     limited = classify_failure(429, {"error": {"code": "rate_limit_exceeded"}}, {})
+    blocked = classify_failure(403, {"error_name": "browser_signature_banned"}, {})
     assert is_capacity_shed(overloaded)
     assert not is_capacity_shed(ordinary)
     assert not is_capacity_shed(limited)
+    assert not is_capacity_shed(blocked)
 
 
 @pytest.mark.parametrize(
@@ -82,6 +86,8 @@ def test_capacity_retry_after_uses_first_positive_value_and_caps_at_eight_second
 def test_cloudflare_403_is_same_account_upstream_without_cooldown(body):
     failure = classify_failure(403, body, {})
     assert failure == Failure("upstream_unavailable", True, same_account=True, cooldown_seconds=0)
+    assert cooldown_exempt_upstream_code(403, body) == CLOUDFLARE_BOT_BLOCK_CODE
+    assert CLOUDFLARE_BOT_BLOCK_CODE == "cloudflare_1010"
 
 
 @pytest.mark.parametrize(
