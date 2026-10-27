@@ -639,6 +639,45 @@ def test_cloudflare_1010_stays_on_the_same_account_without_cooldown() -> None:
     assert finished.retry_after_seconds == 0
 
 
+def test_plain_text_cloudflare_1010_stays_on_the_same_account_without_cooldown() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return httpx.Response(403, content=b"\nError Code: 1010\n", headers={"retry-after": "60"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 403
+    assert len(calls) == 1
+    assert len(control.acquisitions) == 1
+    assert control.acquisitions[0].account_id.hex in calls[0]
+    finished: Final = control.finished[0]
+    assert finished.failure_reason == "upstream_unavailable"
+    assert finished.upstream_code == "cloudflare_1010"
+    assert finished.switched_account is False
+    assert finished.model_cooldown_seconds == 0
+    assert finished.retry_after_seconds == 0
+
+
+def test_plain_forbidden_403_stays_account_unavailable() -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(403, content=b"forbidden"), retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 403
+    assert control.finished[0].failure_reason == "account_unavailable"
+    assert control.finished[0].upstream_code != "cloudflare_1010"
+
+
 @pytest.mark.parametrize(
     "headers,body,expected",
     [

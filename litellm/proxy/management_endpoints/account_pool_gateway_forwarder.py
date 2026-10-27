@@ -17,7 +17,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import httpx
 from openai.types.responses.response_create_params import ResponseInputParam
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue, TypeAdapter, ValidationError
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Message, Send
@@ -37,6 +37,7 @@ from litellm.proxy.management_endpoints.account_pool_failover import (
     cooldown_exempt_upstream_code,
     failure_headers,
     is_capacity_shed,
+    is_cloudflare_bot_block_response,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
@@ -1203,8 +1204,14 @@ async def upstream_error_payload(
     secrets: tuple[str, ...],
 ) -> tuple[dict[str, JsonValue], str | None]:
     try:
-        data: Final = _JSON.validate_json(await bounded_body(response, 65536))
+        raw: Final = await bounded_body(response, 65536)
     except ValueError:
+        return {"error": {"message": f"Upstream HTTP {response.status_code}", "type": "upstream_error"}}, None
+    try:
+        data: Final = _JSON.validate_json(raw)
+    except ValidationError:
+        if response.status_code == 403 and is_cloudflare_bot_block_response(raw.decode("utf-8", "replace")):
+            return {"error_name": "browser_signature_banned"}, None
         return {"error": {"message": f"Upstream HTTP {response.status_code}", "type": "upstream_error"}}, None
     safe: Final = _safe_error_value(data, secrets)
     if not isinstance(safe, dict):
