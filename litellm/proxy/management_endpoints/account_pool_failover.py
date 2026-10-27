@@ -1,7 +1,8 @@
 """移植 sub2api 的失败分类与重试边界；不调度账号、不持有凭据或请求正文。
 
 SPDX-License-Identifier: LGPL-3.0-or-later
-Adapted from Wei-Shaw/sub2api commit 698d142468ab15374bc22bd5247759e5b7352006.
+Adapted from Wei-Shaw/sub2api commits 698d142468ab15374bc22bd5247759e5b7352006
+and c591412c42ab195dacdede9eb19f9cbfee221144.
 See account_pool_failover.LICENSE and account-pool/docs/sub2api-port.md.
 """
 
@@ -11,6 +12,9 @@ import math
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
+from functools import reduce
 from types import MappingProxyType
 from typing import Final, Literal, TypeAlias, cast
 
@@ -78,6 +82,70 @@ def number(value: object) -> float:
         return parsed if math.isfinite(parsed) and parsed > 0 else 0
     except (ValueError, OverflowError):
         return 0
+
+
+def is_capacity_shed(failure: Failure) -> bool:
+    return failure.reason == "upstream_unavailable" and failure.same_account and failure.cooldown_seconds == 0
+
+
+def _header_text(headers: Mapping[str, str], name: str) -> str:
+    folded: Final = name.casefold()
+    found: Final = next((value for key, value in headers.items() if key.casefold() == folded), "")
+    return found.strip()
+
+
+def _field(current: object, key: str) -> object:
+    if not isinstance(current, Mapping):
+        return ""
+    value: Final = cast(Mapping[str, object], current).get(  # cast-ok: JSON objects are string-keyed mappings
+        key, ""
+    )
+    return value
+
+
+def _path(payload: Mapping[str, object], path: tuple[str, ...]) -> object:
+    located: Final = reduce(_field, path, payload)
+    return located
+
+
+def _delay_seconds(raw: object, *, milliseconds: bool) -> float:
+    if isinstance(raw, str):
+        text: Final = raw.strip()
+        if text == "":
+            return 0
+        numeric: Final = number(text)
+        if numeric > 0:
+            return numeric / 1000 if milliseconds else numeric
+        if milliseconds:
+            return 0
+        try:
+            parsed: Final = parsedate_to_datetime(text)
+        except (TypeError, ValueError, OverflowError, OSError):
+            return 0
+        moment: Final = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+        delay: Final = (moment - datetime.now(timezone.utc)).total_seconds()
+        return delay if math.isfinite(delay) and delay > 0 else 0
+    amount: Final = number(raw)
+    if amount <= 0:
+        return 0
+    return amount / 1000 if milliseconds else amount
+
+
+def capacity_request_scoped_retry_after(
+    headers: Mapping[str, str],
+    payload: Mapping[str, object] | None = None,
+) -> int:
+    body: Final = payload if payload is not None else MappingProxyType({})
+    candidates: Final = (
+        _delay_seconds(_header_text(headers, "retry-after"), milliseconds=False),
+        _delay_seconds(_header_text(headers, "retry-after-ms"), milliseconds=True),
+        _delay_seconds(_path(body, ("error", "headers", "retry-after")), milliseconds=False),
+        _delay_seconds(_path(body, ("response", "error", "headers", "retry-after")), milliseconds=False),
+        _delay_seconds(_path(body, ("error", "headers", "retry-after-ms")), milliseconds=True),
+        _delay_seconds(_path(body, ("response", "error", "headers", "retry-after-ms")), milliseconds=True),
+    )
+    seconds: Final = next((item for item in candidates if item > 0), 0.0)
+    return min(MAX_RETRY_DELAY_SECONDS, math.ceil(seconds)) if seconds > 0 else 0
 
 
 def classify_failure(status: int, payload: Mapping[str, object], headers: Mapping[str, str]) -> Failure:

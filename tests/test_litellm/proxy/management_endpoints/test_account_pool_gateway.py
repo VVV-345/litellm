@@ -604,6 +604,58 @@ def test_retry_after_beyond_remaining_budget_stops_without_sleeping_or_rotating(
     assert result.status_code == 503
     assert result.json()["error"]["code"] == "retry_deadline_exceeded"
     assert len(control.acquisitions) == 1
+    assert control.finished[0].retry_after_seconds == 300
+
+
+@pytest.mark.parametrize(
+    "headers,body,expected",
+    [
+        ({"retry-after": "6"}, {"error": {"code": "server_is_overloaded"}}, 6),
+        (
+            {},
+            {
+                "error": {"code": "server_is_overloaded"},
+                "response": {"error": {"headers": {"retry-after-ms": "7000"}}},
+            },
+            7,
+        ),
+        ({"retry-after": "60"}, {"error": {"code": "server_is_overloaded"}}, 8),
+    ],
+)
+def test_capacity_shed_retry_after_stays_on_the_same_account(monkeypatch, headers, body, expected) -> None:
+    slept: list[float] = []
+
+    async def instant(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.asyncio.sleep",
+        instant,
+    )
+    calls: list[int] = []
+
+    def upstream(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, json=body, headers=headers)
+        return httpx.Response(200, json={"id": "ok"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200
+    assert control.finished[0].retry_after_seconds == expected
+    assert control.finished[0].failure_reason == "upstream_unavailable"
+    assert control.finished[0].model_cooldown_seconds == 0
+    assert control.finished[0].switched_account is False
+    assert len(control.acquisitions) == 2
+    assert control.acquisitions[0].account_id == control.acquisitions[1].account_id
+    assert control.acquisitions[1].routing_reason == "same_account_retry"
+    assert slept == [float(expected)]
 
 
 def test_stream_quota_retains_upstream_reset_without_replaying_output() -> None:

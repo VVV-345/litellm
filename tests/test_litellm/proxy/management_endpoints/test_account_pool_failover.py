@@ -2,7 +2,11 @@
 
 import pytest
 
-from litellm.proxy.management_endpoints.account_pool_failover import classify_failure
+from litellm.proxy.management_endpoints.account_pool_failover import (
+    capacity_request_scoped_retry_after,
+    classify_failure,
+    is_capacity_shed,
+)
 
 
 @pytest.mark.parametrize(
@@ -32,3 +36,31 @@ def test_error_envelope_controls_retry_classification(status, body, headers, kin
     assert failure.reason == kind
     assert failure.cooldown_seconds == cooldown
     assert failure.retryable is (kind != "request_rejected")
+
+
+def test_capacity_shed_is_same_account_upstream_without_cooldown():
+    overloaded = classify_failure(503, {"error": {"code": "server_is_overloaded"}}, {})
+    ordinary = classify_failure(503, {"error": {"code": "server_error"}}, {})
+    limited = classify_failure(429, {"error": {"code": "rate_limit_exceeded"}}, {})
+    assert is_capacity_shed(overloaded)
+    assert not is_capacity_shed(ordinary)
+    assert not is_capacity_shed(limited)
+
+
+@pytest.mark.parametrize(
+    "headers,body,expected",
+    [
+        ({"Retry-After": "6"}, None, 6),
+        ({"Retry-After-Ms": "6000"}, None, 6),
+        ({"Retry-After": "6.2"}, None, 7),
+        ({"Retry-After": "60"}, None, 8),
+        ({"Retry-After": "0", "Retry-After-Ms": "1500"}, None, 2),
+        ({}, {"error": {"headers": {"retry-after": "7"}}}, 7),
+        ({}, {"response": {"error": {"headers": {"retry-after-ms": "7000"}}}}, 7),
+        ({"Retry-After": "6"}, {"response": {"error": {"headers": {"retry-after-ms": "7000"}}}}, 6),
+        ({}, None, 0),
+        ({"Retry-After": "0"}, {"error": {"headers": {"retry-after": "0"}}}, 0),
+    ],
+)
+def test_capacity_retry_after_uses_first_positive_value_and_caps_at_eight_seconds(headers, body, expected):
+    assert capacity_request_scoped_retry_after(headers, body) == expected

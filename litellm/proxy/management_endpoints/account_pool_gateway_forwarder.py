@@ -31,8 +31,10 @@ from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.common_utils.sse_keepalive import wrap_passthrough_sse_bytes_with_keepalive_pings
 from litellm.proxy.management_endpoints.account_pool_failover import (
     RETRY_WINDOW_SECONDS,
+    capacity_request_scoped_retry_after,
     classify_failure,
     failure_headers,
+    is_capacity_shed,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
@@ -883,6 +885,11 @@ async def execute(
                         and asyncio.get_running_loop().time() < deadline
                     )
                     retry: Final = retry_target is not None and retryable
+                    retry_after_seconds: Final = (
+                        capacity_request_scoped_retry_after(response.headers, error_payload)
+                        if is_capacity_shed(failure)
+                        else retry_after(response.headers)
+                    )
                     attempt.outcome(
                         public_status,
                         f"Upstream HTTP {response.status_code}",
@@ -892,7 +899,7 @@ async def execute(
                         retryable=retry,
                         switched_account=retry and retry_target != route.account.id,
                         next_account_id=str(retry_target) if retry and retry_target != route.account.id else None,
-                        retry_after_seconds=retry_after(response.headers),
+                        retry_after_seconds=retry_after_seconds,
                         model_cooldown_seconds=failure.cooldown_seconds,
                         cost_usd=cost_usd,
                     )
@@ -1395,6 +1402,11 @@ async def guarded_stream_response(
                 and asyncio.get_running_loop().time() < deadline
             )
             retry: Final = retry_target is not None and retryable
+            retry_after_seconds: Final = (
+                capacity_request_scoped_retry_after(response.headers, bootstrap.state.error_info)
+                if is_capacity_shed(failure)
+                else retry_after(response.headers)
+            )
             attempt.outcome(
                 bootstrap.state.error_status,
                 str(bootstrap.state.public_error()["message"]),
@@ -1404,7 +1416,7 @@ async def guarded_stream_response(
                 retryable=retry,
                 switched_account=retry and retry_target != route.account.id,
                 next_account_id=str(retry_target) if retry and retry_target != route.account.id else None,
-                retry_after_seconds=retry_after(response.headers),
+                retry_after_seconds=retry_after_seconds,
                 model_cooldown_seconds=failure.cooldown_seconds,
             )
             if retry:
@@ -1489,13 +1501,18 @@ async def stream_response(
             raise IncompleteStreamError("Upstream event stream ended before completion")
         if state.failed:
             failure: Final = classify_failure(state.error_status, state.error_info, response.headers)
+            retry_after_seconds: Final = (
+                capacity_request_scoped_retry_after(response.headers, state.error_info)
+                if is_capacity_shed(failure)
+                else retry_after(response.headers)
+            )
             attempt.outcome(
                 state.error_status,
                 str(state.public_error()["message"]),
                 stage="response",
                 upstream_code=state.error_code,
                 failure_reason=failure.reason,
-                retry_after_seconds=retry_after(response.headers),
+                retry_after_seconds=retry_after_seconds,
                 model_cooldown_seconds=failure.cooldown_seconds,
             )
         else:

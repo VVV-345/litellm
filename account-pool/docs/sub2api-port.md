@@ -14,12 +14,15 @@
 
 `litellm/proxy/management_endpoints/account_pool_failover.py` 是可复用的纯分类入口，HTTP 和 SSE 共用 `classify_failure`，Router 和会话续接共用类型化失败标记。Manager 只接收内部 `FinishRequest.failure_reason`，不反向依赖 LiteLLM 包，不创建第二套调度器
 
+请求级容量等待对照 [c591412c42ab195dacdede9eb19f9cbfee221144](https://github.com/Wei-Shaw/sub2api/commit/c591412c42ab195dacdede9eb19f9cbfee221144) 的 `openAIRequestScopedRetryDelay`。采用的字段按序是 Retry-After、Retry-After-Ms、`error.headers.retry-after`、`response.error.headers.retry-after`，以及这两处的 `retry-after-ms`。第一正值向上取整，封顶为已有 `MAX_RETRY_DELAY_SECONDS`（8），写入已有 `FinishRequest.retry_after_seconds`
+
 ## 本项目的适配规则
 
 | 情况 | 行为 |
 | --- | --- |
 | 明确额度耗尽、Codex 窗口用量达到 100%、429 返回重置时间 | 跳过同卡重试，按照已有额度切换开关选下一张授权卡片，保留上游 reset 冷却 |
 | 普通 429 | 按原有 `max_attempts` 先重试同卡，等待 Retry-After，不再一律先写 60 秒冷却 |
+| 容量降载（`upstream_unavailable`、同卡、冷却为 0） | 同卡重试，等待请求级 Retry-After 或 Retry-After-Ms，向上取整后封顶 8 秒 |
 | 连接失败或已确认的临时上游错误 | 在安全边界内重试，同卡预算耗尽后按 `fallback_enabled` 换号 |
 | model_not_found、CLIProxyAPI auth_unavailable/auth_not_found/model_cooldown | 该卡当前不可用，避免消耗无意义的同卡重试，允许已有范围内换号 |
 | 上下文超限、内容或 cyber policy 拒绝 | 不换号，不把拒绝计为账号健康故障 |
