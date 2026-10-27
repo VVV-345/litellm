@@ -3,9 +3,11 @@
 import pytest
 
 from litellm.proxy.management_endpoints.account_pool_failover import (
+    Failure,
     capacity_request_scoped_retry_after,
     classify_failure,
     is_capacity_shed,
+    is_cloudflare_bot_block_response,
 )
 
 
@@ -64,3 +66,53 @@ def test_capacity_shed_is_same_account_upstream_without_cooldown():
 )
 def test_capacity_retry_after_uses_first_positive_value_and_caps_at_eight_seconds(headers, body, expected):
     assert capacity_request_scoped_retry_after(headers, body) == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"error_name": "browser_signature_banned"},
+        {"error_name": " Browser_Signature_Banned "},
+        {"cloudflare_error": True, "code": 1010},
+        {"cloudflare_error": True, "error_code": "1010"},
+        {"errors": [{"cloudflare_error": True, "code": "1010"}]},
+        {"cloudflare_error": True, "error_code": 1010, "error_name": "browser_signature_banned"},
+    ],
+)
+def test_cloudflare_403_is_same_account_upstream_without_cooldown(body):
+    failure = classify_failure(403, body, {})
+    assert failure == Failure("upstream_unavailable", True, same_account=True, cooldown_seconds=0)
+
+
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (403, {"error": {"code": 1010, "message": "account banned"}}),
+        (403, {"message": "error code: 1010"}),
+        (403, {"error": {"message": "forbidden"}}),
+        (403, {"code": 403, "message": "forbidden"}),
+        (401, {"error_name": "browser_signature_banned"}),
+    ],
+)
+def test_non_cloudflare_auth_failure_stays_account_unavailable(status, body):
+    failure = classify_failure(status, body, {})
+    assert failure.reason == "account_unavailable"
+    assert failure.same_account is False
+    assert failure.cooldown_seconds == 0
+
+
+@pytest.mark.parametrize(
+    "body,matched",
+    [
+        ("error code: 1010", True),
+        ("\nError Code: 1010\n", True),
+        ('{"code":1010', False),
+        ('{"message":"error code: 1010"}', False),
+        ('{"error":{"code":1010,"message":"account banned"}}', False),
+        ('{"error_name":"browser_signature_banned"}', True),
+        ('{"cloudflare_error":true,"code":1010}', True),
+        ('{"errors":[{"cloudflare_error":true,"code":"1010"}]}', True),
+    ],
+)
+def test_cloudflare_bot_block_response_uses_plain_text_only_when_json_fails(body, matched):
+    assert is_cloudflare_bot_block_response(body) is matched

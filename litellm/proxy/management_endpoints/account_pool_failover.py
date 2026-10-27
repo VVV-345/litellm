@@ -1,8 +1,8 @@
 """移植 sub2api 的失败分类与重试边界；不调度账号、不持有凭据或请求正文。
 
 SPDX-License-Identifier: LGPL-3.0-or-later
-Adapted from Wei-Shaw/sub2api commits 698d142468ab15374bc22bd5247759e5b7352006
-and c591412c42ab195dacdede9eb19f9cbfee221144.
+Adapted from Wei-Shaw/sub2api commits 698d142468ab15374bc22bd5247759e5b7352006,
+c591412c42ab195dacdede9eb19f9cbfee221144, and e0fa4b94f9b962949da039c09e63968358324e26.
 See account_pool_failover.LICENSE and account-pool/docs/sub2api-port.md.
 """
 
@@ -148,6 +148,59 @@ def capacity_request_scoped_retry_after(
     return min(MAX_RETRY_DELAY_SECONDS, math.ceil(seconds)) if seconds > 0 else 0
 
 
+_JSON_BODY: Final = TypeAdapter(JsonValue)
+_CLOUDFLARE_CODE_FIELDS: Final = frozenset(("code", "error_code"))
+_BROWSER_SIGNATURE_BANNED: Final = "browser_signature_banned"
+_CLOUDFLARE_1010_TEXT: Final = "error code: 1010"
+
+
+def _is_cloudflare_bot_block_code(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return value == 1010
+    return isinstance(value, str) and value.strip() == "1010"
+
+
+def _browser_signature_banned(value: object) -> bool:
+    return isinstance(value, str) and value.strip().casefold() == _BROWSER_SIGNATURE_BANNED
+
+
+def _cloudflare_field(key: object, child: object, cloudflare_error: bool) -> bool:
+    if isinstance(key, str):
+        folded: Final = key.casefold()
+        if folded == "error_name" and _browser_signature_banned(child):
+            return True
+        if cloudflare_error and folded in _CLOUDFLARE_CODE_FIELDS and _is_cloudflare_bot_block_code(child):
+            return True
+    return _contains_cloudflare_bot_block_code(child)
+
+
+def _contains_cloudflare_bot_block_code(value: object) -> bool:
+    if isinstance(value, Mapping):
+        cloudflare_error: Final = any(
+            isinstance(key, str) and key.casefold() == "cloudflare_error" and child is True
+            for key, child in value.items()
+        )
+        return any(_cloudflare_field(key, child, cloudflare_error) for key, child in value.items())
+    if isinstance(value, list):
+        return any(_contains_cloudflare_bot_block_code(child) for child in value)
+    return False
+
+
+def is_cloudflare_bot_block_response(body: object) -> bool:
+    if isinstance(body, (bytes, bytearray)):
+        text: Final = body.decode("utf-8", "replace")
+        return is_cloudflare_bot_block_response(text)
+    if not isinstance(body, str):
+        return _contains_cloudflare_bot_block_code(body)
+    try:
+        parsed: Final = _JSON_BODY.validate_json(body)
+    except ValidationError:
+        return _CLOUDFLARE_1010_TEXT in body.strip().casefold()
+    return _contains_cloudflare_bot_block_code(parsed)
+
+
 def classify_failure(status: int, payload: Mapping[str, object], headers: Mapping[str, str]) -> Failure:
     nested: Final = payload.get("error")
     error: Final = (
@@ -195,6 +248,8 @@ def classify_failure(status: int, payload: Mapping[str, object], headers: Mappin
         return Failure(
             "upstream_unavailable", True, same_account=True, cooldown_seconds=0 if codes & CAPACITY_CODES else 1
         )
+    if status == 403 and is_cloudflare_bot_block_response(payload):
+        return Failure("upstream_unavailable", True, same_account=True, cooldown_seconds=0)
     if status in (401, 402, 403):
         return Failure("account_unavailable", True)
     return Failure("request_rejected", False)
