@@ -70,6 +70,10 @@ def test_renderer_generates_private_management_and_gateway_configuration() -> No
     assert rendered["remote-management"]["secret-key"] == "management"
     assert rendered["api-keys"] == ["gateway"]
     assert rendered["plugins"] == {"enabled": False, "dir": "/data/plugins"}
+    assert rendered["request-retry"] == 0
+    assert rendered["max-retry-credentials"] == 1
+    assert rendered["max-retry-interval"] == 0
+    assert rendered["streaming"] == {"bootstrap-retries": 0}
 
 
 def test_renderer_writes_selected_proxy_to_initial_configuration() -> None:

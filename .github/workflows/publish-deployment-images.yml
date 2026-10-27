@@ -114,6 +114,7 @@ jobs:
             account-pool/tests/account_pool/test_upstream_sync.py \
             account-pool/tests/account_pool/test_settings.py \
             account-pool/tests/account_pool/test_policies.py \
+            account-pool/tests/account_pool/test_cliproxy_runtime_image.py \
             account-pool/tests/account_pool/test_isp_profiles.py \
             account-pool/tests/account_pool/test_isp_probe.py \
             tests/test_litellm/test_dockerfile_non_root.py \

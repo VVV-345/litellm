@@ -18,6 +18,7 @@ from account_pool.batch_repository import PostgresBatchRepository
 from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.channels.base import UnsupportedChannelError
+from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
@@ -180,6 +181,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
+        if isinstance(channel, CLIProxyAPIChannel):
+            await _align_cliproxy_images(channel, records)
         await service.refresh_auth_files()
         # 旧卡片可能在新增运行配置前已创建，启动时补一次同步以迁移插件目录等持久配置。
         try:
@@ -387,6 +390,21 @@ async def _restore_control_plane_connections(
             if record.status is not EnvironmentStatus.DELETING and record.channel is ChannelKind.CLIPROXYAPI
         )
     )
+
+
+async def _align_cliproxy_images(channel: CLIProxyAPIChannel, records: tuple[EnvironmentRecord, ...]) -> None:
+    for record in records:
+        if record.channel is not ChannelKind.CLIPROXYAPI or record.status is EnvironmentStatus.DELETING:
+            continue
+        try:
+            if await channel.align_runtime_image(record):
+                _LOGGER.warning("CLIProxyAPI card %s switched to the configured runtime image", record.id)
+        except Exception as error:
+            _LOGGER.warning(
+                "CLIProxyAPI image alignment failed for %s: %s",
+                record.id,
+                error.__class__.__name__,
+            )
 
 
 async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:

@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Final, Protocol
 from uuid import UUID
 
+import yaml
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+
 from account_pool.compose_renderer import (
     data_volume_name,
     render_cli_proxy_config,
@@ -150,6 +153,22 @@ class ComposeRuntime:
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
         await self._connect_control_plane(environment_id, self._settings.gateway_container)
+
+    async def align_runtime_image(self, record: EnvironmentRecord) -> bool:
+        compose_file: Final = self.environment_dir(record.id) / "compose.yaml"
+        if not compose_file.is_file():
+            return False
+        current: Final = compose_file.read_text(encoding="utf-8")
+        desired: Final = render_compose(record, self._settings)
+        if _compose_service_image(current) == _compose_service_image(desired):
+            return False
+        _write_private(compose_file, desired)
+        try:
+            await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
+        except (OSError, RuntimeError, ValueError):
+            _write_private(compose_file, current)
+            raise
+        return True
 
     async def write_volume_files(
         self,
@@ -364,6 +383,26 @@ class ComposeRuntime:
             raise ValueError("invalid account pool project name")
         await self._disconnect_control_plane(UUID(hex=slug), self._settings.manager_container)
         await self._disconnect_control_plane(UUID(hex=slug), self._settings.gateway_container)
+
+
+class _ComposeService(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    image: str
+
+
+class _ComposeDocument(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    services: dict[str, _ComposeService]
+
+
+def _compose_service_image(content: str) -> str:
+    document: Final = TypeAdapter(_ComposeDocument).validate_python(yaml.safe_load(content))
+    service: Final = document.services.get("cli-proxy-api")
+    if service is None or not service.image.strip():
+        raise ValueError("cli proxy compose image is missing")
+    return service.image
 
 
 def _write_private(path: Path, content: str) -> None:

@@ -13,9 +13,18 @@
 ```sh
 go test ./internal/runtime/executor/helps ./internal/runtime/executor ./internal/api/handlers/management ./internal/watcher/synthesizer ./internal/api -run 'Test(Managed|ManagementManagedIdentity|PatchAuthFileFields_ClaudePolicyAttributesFollowMetadata|FileSynthesizer_ClaudePolicyAttributes|Codex.*(Identity|Fingerprint|Cache|Websocket))' -count=1
 go build -o cliproxy-adapted ./cmd/server
+python account-pool/cliproxy-adapter/probe_managed_identity.py --binary ./cliproxy-adapted
 ```
 
-这不会自动更新容器。将来替换底层需单独经过部署流程，保留认证卷。安装档案位于认证目录的 `.codex-managed-identity/<scope>.json`，备份和迁移认证卷时一并保留；删掉它会重新生成安装身份，不会改变供应商账号身份
+最后一条会在本机启动该二进制。未带管理密钥时 `GET /v0/management/codex/managed-identity` 返回 401，带 `X-Management-Key` 时返回 `{"supported":true,"version":1}`
+
+镜像标签由钉点和补丁哈希决定，当前是 `ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106`。`python account-pool/cliproxy-adapter/image_ref.py` 会打印同一引用。`.github/workflows/publish-cliproxy-adapted-image.yml` 在干净钉点上应用补丁，分别构建 `linux/amd64` 和 `linux/arm64`，探测通过后才把这个标签做成多架构清单。它不发布 `latest`，也不改 `sha-bebf587f5a940af676f6e503065140d4991ae1f3`
+
+号池默认 `ACCOUNT_POOL_CLI_PROXY_IMAGE` 已指向该标签。已经在跑的卡片仍使用创建时写入的镜像，所以只改仓库默认值不会让旧容器突然支持托管安装 ID。发布并拉取该标签后，重启 Manager：启动时若卡片 compose 里的镜像和当前配置不同，会保留认证卷并重建容器，然后按已保存策略再同步一次。官方 `eceasy/cli-proxy-api` 和未打补丁的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 没有这条路由，保存 managed 仍会返回「当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效」
+
+容器镜像的验收与二进制相同，把 `--binary` 换成 `--image ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106`。产品重试仍是 `request-retry: 0`、`max-retry-credentials: 1`，不要改成上游示例的 3 和 0
+
+安装档案位于认证目录的 `.codex-managed-identity/<scope>.json`，备份和迁移认证卷时一并保留；删掉它会重新生成安装身份，不会改变供应商账号身份
 
 ## 生效边界
 

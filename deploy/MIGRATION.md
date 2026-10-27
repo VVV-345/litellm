@@ -109,7 +109,7 @@ ghcr.io/vvv-345/litellm:<DEPLOY_TAG>
 ghcr.io/vvv-345/account-pool-manager:<DEPLOY_TAG>
 ```
 
-CLIProxyAPI 来自另一个仓库的 `ghcr.io/vvv-345/cliproxyapi`，其 tag/digest 以实际发布结果为准，不套用上述命名规则。`release-worker` 复用 Manager 镜像，但可能固定在另一个历史 commit，必须单独记录
+CLIProxyAPI 来自另一个仓库的源码，但托管安装 ID 只存在于本仓库补丁打进钉点后的镜像。账号卡片要使用 `ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106`，由 `.github/workflows/publish-cliproxy-adapted-image.yml` 发布。不要换回 `eceasy/cli-proxy-api` 或 `sha-bebf587f5a940af676f6e503065140d4991ae1f3`，那两个镜像没有 `GET /v0/management/codex/managed-identity`。`release-worker` 复用 Manager 镜像，但可能固定在另一个历史 commit，必须单独记录
 
 在目标机，私有包使用仅有必要读取权限的凭据，不把 PAT 写入命令历史：
 

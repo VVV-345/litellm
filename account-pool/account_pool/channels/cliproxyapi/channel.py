@@ -71,6 +71,9 @@ class CLIProxyAPIChannel:
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._runtime.ensure_control_plane_connections(environment_id)
 
+    async def align_runtime_image(self, record: EnvironmentRecord) -> bool:
+        return await self._runtime.align_runtime_image(record)
+
     async def set_running(self, record: EnvironmentRecord, running: bool) -> None:
         await self._runtime.set_running(record, running)
 
