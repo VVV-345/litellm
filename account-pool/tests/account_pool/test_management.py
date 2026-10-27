@@ -369,7 +369,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     capabilities: Final = {item["name"]: item["status"] for item in first.json()["capabilities"]}
     assert capabilities["responses_compact"] == "gateway"
     assert "desktop_compact" not in capabilities
-    assert capabilities["identity"] == "gateway"
+    assert capabilities["identity"] == "metadata"
     assert capabilities["provider_settings"] == "gateway"
     assert capabilities["plan_expiry"] == "gateway"
     assert client.put(path, json={"version": 0, "policy": {}}).status_code == 409

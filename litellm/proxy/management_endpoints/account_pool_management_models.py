@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Final, Literal, TypeAlias
 from uuid import UUID, uuid4
@@ -201,6 +202,19 @@ class TransportPolicy(BaseModel):
     debug_log_enabled: bool = False
 
 
+_APP_SERVER_ORIGINATOR: Final = re.compile(r"^[a-z0-9][a-z0-9._-]{0,63}$")
+_APP_SERVER_ORIGINATOR_LIMIT: Final = 20
+
+
+def _normalize_app_server_clients(values: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: Final = tuple(dict.fromkeys(value.strip().lower() for value in values))
+    if len(normalized) > _APP_SERVER_ORIGINATOR_LIMIT or any(
+        _APP_SERVER_ORIGINATOR.fullmatch(value) is None for value in normalized
+    ):
+        raise ValueError("app-server originators must be 1-20 tokens of 1-64 letters, digits, '.', '_' or '-'")
+    return normalized
+
+
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -227,6 +241,11 @@ class CodexPolicy(BaseModel):
             )
         )
         return {key: item for key, item in policy.items() if key not in legacy}
+
+    @field_validator("allow_app_server_clients")
+    @classmethod
+    def normalize_clients(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        return _normalize_app_server_clients(values)
 
 
 class ClaudePolicy(BaseModel):
@@ -765,6 +784,9 @@ class PolicyCapability(BaseModel):
     status: Literal["gateway", "unsupported", "metadata"]
 
 
+_IDENTITY_SUPPLIERS: Final = frozenset({"openai_codex", "anthropic_claude", "kimi"})
+
+
 def policy_capabilities(supplier: str | None = None) -> tuple[PolicyCapability, ...]:
     provider_status: Final = "gateway"
     return (
@@ -772,7 +794,7 @@ def policy_capabilities(supplier: str | None = None) -> tuple[PolicyCapability, 
             PolicyCapability(name=name, status="gateway")
             for name in ("routing", "models", "quota", "retry", "timeout", "client", "responses_compact", "image")
         ),
-        PolicyCapability(name="identity", status="metadata" if supplier == "openai_codex" else "unsupported"),
+        PolicyCapability(name="identity", status="metadata" if supplier in _IDENTITY_SUPPLIERS else "unsupported"),
         PolicyCapability(name="plan_expiry", status="gateway"),
         PolicyCapability(name="websocket", status="gateway"),
         PolicyCapability(name="debug", status="gateway"),

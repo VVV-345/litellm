@@ -168,11 +168,16 @@ export function RuntimePolicyDialog({
   const query = useQuery(queryOptions);
   const options = buildAccountPoolPolicyOptions(environment, environments, policies);
   const save = async (policy: AccountPolicy, version: number) => {
-    const saved = await saveAccountPolicy(accessToken, environment.id, version, policy);
-    await queryClient.cancelQueries({ queryKey: queryOptions.queryKey, exact: true });
-    queryClient.setQueryData(queryOptions.queryKey, saved);
-    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.policies(accessToken) });
-    return saved;
+    try {
+      const saved = await saveAccountPolicy(accessToken, environment.id, version, policy);
+      await queryClient.cancelQueries({ queryKey: queryOptions.queryKey, exact: true });
+      queryClient.setQueryData(queryOptions.queryKey, saved);
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.policies(accessToken) });
+      return saved;
+    } catch (error) {
+      void queryClient.invalidateQueries({ queryKey: queryOptions.queryKey });
+      throw error;
+    }
   };
   return (
     <Dialog open onOpenChange={(open) => !open && confirmDiscardChanges() && onClose()}>

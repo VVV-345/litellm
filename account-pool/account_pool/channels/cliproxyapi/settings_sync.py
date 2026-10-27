@@ -11,11 +11,20 @@ from pydantic import JsonValue, TypeAdapter
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient, JSONValue
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import EnvironmentRecord, SupplierKind
-from account_pool.policies import AccountPolicy
+from account_pool.policies import (
+    AccountPolicy,
+    AntigravityPolicy,
+    ClaudePolicy,
+    CodexPolicy,
+    KimiPolicy,
+    PolicyRuntimeRejected,
+    XaiPolicy,
+)
 from account_pool.settings import AccountPoolSettings
 
 _JSON_VALUE_ADAPTER: Final = TypeAdapter(JsonValue)
 _YAML_DOCUMENT_ADAPTER: Final = TypeAdapter(dict[str, object])
+_MANAGED_CARD_REQUIRED: Final = "托管安装 ID 需要已完成授权的 Codex 卡片；配置已保存但尚未写入运行时"
 
 
 class CLIProxySettingsSynchronizer:
@@ -62,7 +71,7 @@ class CLIProxySettingsSynchronizer:
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
         if policy.codex is not None and policy.codex.identity_fingerprint_mode == "managed":
             if record.supplier != SupplierKind.OPENAI_CODEX or not record.auth_file_name:
-                raise ValueError("Managed identity requires an authorized Codex card")
+                raise PolicyRuntimeRejected(_MANAGED_CARD_REQUIRED)
             await self._client.require_managed_identity(record)
         route_strategy: Final = {
             "auto": "round-robin",
@@ -127,30 +136,34 @@ def _yaml_document(content: str) -> dict[str, object]:
 
 
 def _policy_auth_fields(record: EnvironmentRecord, policy: AccountPolicy) -> Mapping[str, object]:
-    if policy.codex is not None:
+    if record.supplier is SupplierKind.OPENAI_CODEX:
+        codex: Final = policy.codex or CodexPolicy()
         return {
-            "codex_fingerprint_mode": policy.codex.identity_fingerprint_mode,
+            "codex_fingerprint_mode": codex.identity_fingerprint_mode,
             "codex_fingerprint_seed": str(record.id),
-            "codex_cli_only": policy.codex.cli_only,
-            "codex_cli_only_allow_app_server": policy.codex.allow_app_server,
+            "codex_cli_only": codex.cli_only,
+            "codex_cli_only_allow_app_server": codex.allow_app_server,
         }
-    if policy.claude is not None:
+    if record.supplier is SupplierKind.ANTHROPIC_CLAUDE:
+        claude: Final = policy.claude or ClaudePolicy()
         return {
-            "fingerprint_profile": policy.claude.fingerprint_profile,
-            "cloak_mode": policy.claude.cloak_mode,
-            "rebuild_mid_system_message": policy.claude.rebuild_mid_system_message,
+            "fingerprint_profile": claude.fingerprint_profile,
+            "cloak_mode": claude.cloak_mode,
+            "rebuild_mid_system_message": claude.rebuild_mid_system_message,
         }
-    if policy.kimi is not None:
-        return {"fingerprint_profile": policy.kimi.fingerprint_profile}
+    if record.supplier is SupplierKind.KIMI:
+        return {"fingerprint_profile": (policy.kimi or KimiPolicy()).fingerprint_profile}
     return {}
 
 
 def _policy_yaml_document(
     document: Mapping[str, object], policy: AccountPolicy, supplier: SupplierKind
 ) -> dict[str, object]:
-    codex: Final = policy.codex
-    xai: Final = policy.xai
-    antigravity: Final = policy.antigravity
+    codex: Final = policy.codex or (CodexPolicy() if supplier is SupplierKind.OPENAI_CODEX else None)
+    xai: Final = policy.xai or (XaiPolicy() if supplier is SupplierKind.XAI else None)
+    antigravity: Final = policy.antigravity or (
+        AntigravityPolicy() if supplier is SupplierKind.GOOGLE_ANTIGRAVITY else None
+    )
     codex_section: Final = _yaml_section(document, "codex")
     xai_section: Final = _yaml_section(document, "xai")
     antigravity_section: Final = _yaml_section(document, "antigravity")

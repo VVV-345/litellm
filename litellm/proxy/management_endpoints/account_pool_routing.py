@@ -59,9 +59,10 @@ def protocol_policy(
     agent: Final = headers.get("user-agent", "").lower()
     originator: Final = headers.get("originator", "").lower()
     official: Final = agent.startswith(("codex_cli_rs/", "codex-tui/")) or originator in ("codex_cli_rs", "codex-tui")
-    app_server: Final = codex.allow_app_server and (
-        originator == "codex_app" or originator in codex.allow_app_server_clients
+    allowed_originators: Final = frozenset(
+        item.strip().lower() for item in codex.allow_app_server_clients if item.strip()
     )
+    app_server: Final = codex.allow_app_server and (originator == "codex_app" or originator in allowed_originators)
     return None if official or app_server else Rejected(403, "This account requires an allowed Codex client")
 
 

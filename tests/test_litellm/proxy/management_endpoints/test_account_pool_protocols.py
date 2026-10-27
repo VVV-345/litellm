@@ -106,6 +106,28 @@ def test_empty_protocol_selection_rejects_http_and_websocket_paths(path):
     assert rejected is not None and rejected.code == "account_pool_protocol_disabled"
 
 
+def test_codex_client_gate_matches_originators_after_normalization_and_blocks_compact_by_default():
+    from starlette.datastructures import Headers
+
+    from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy, CodexPolicy
+    from litellm.proxy.management_endpoints.account_pool_routing import protocol_policy
+
+    policy = AccountPolicy(
+        codex=CodexPolicy(cli_only=True, allow_app_server=True, allow_app_server_clients=(" Codex_App ",))
+    )
+    assert policy.codex is not None and policy.codex.allow_app_server_clients == ("codex_app",)
+    assert protocol_policy(policy, "/v1/responses", Headers({"originator": "CODEX_APP"}), False) is None
+    assert protocol_policy(policy, "/v1/responses", Headers({"user-agent": "codex_cli_rs/1.0"}), False) is None
+    denied = protocol_policy(policy, "/v1/responses", Headers({"user-agent": "curl/8.0"}), False)
+    assert denied is not None and denied.status == 403
+    compact = protocol_policy(AccountPolicy(codex=CodexPolicy()), "/v1/responses/compact", Headers(), False)
+    assert compact is not None and compact.status == 403
+    open_responses = protocol_policy(
+        AccountPolicy(codex=CodexPolicy()), "/v1/responses", Headers({"user-agent": "curl/8.0"}), False
+    )
+    assert open_responses is None
+
+
 @pytest.mark.asyncio
 async def test_websocket_checks_each_turn_and_moves_before_output():
     import asyncio

@@ -27,7 +27,7 @@ from account_pool.domain import (
     configured_proxy_url,
     utc_now,
 )
-from account_pool.policies import AccountPolicy, PolicyRepository, PolicyView
+from account_pool.policies import AccountPolicy, PolicyRepository, PolicyView, public_policy_sync_error
 from account_pool.ports import (
     CLIProxyClient,
     EnvironmentRepository,
@@ -107,11 +107,11 @@ class EnvironmentSettingsSync:
             return
         try:
             await self._cli_proxy.apply_policy(configured, policy.policy)
-        except Exception:
+        except Exception as error:
             await self.set_policy_runtime_status(
                 policy,
                 "failed",
-                "policy runtime synchronization failed",
+                public_policy_sync_error(error) or "policy runtime synchronization failed",
                 require_current=False,
             )
             raise
