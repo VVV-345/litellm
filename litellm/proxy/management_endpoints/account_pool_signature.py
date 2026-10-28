@@ -118,7 +118,7 @@ def foreign_history_recovery(payload: Mapping[str, object], router: "Router") ->
     if recovered is None:
         return {}
     verbose_proxy_logger.info("Account pool signature recovery: foreign origin; request_id=%s", identity.request_id)
-    return {key: value for key, value in recovered.items() if key in ("input", "messages")}
+    return {key: value for key, value in recovered.items() if key in ("input", "messages", "tools")}
 
 
 def signature_error(error: JsonValue) -> bool:

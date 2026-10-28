@@ -3259,10 +3259,11 @@ def test_signature_recovery_promotes_codex_additional_tools_and_drops_control_it
         {**payload, "tools": [{"type": "function", "name": "kept", "parameters": {"type": "object"}}]}
     )
     assert kept is not None
-    assert kept["tools"] == [{"type": "function", "name": "kept", "parameters": {"type": "object"}}]
+    assert kept["tools"] == [{"type": "function", "name": "kept", "parameters": {"type": "object"}}, *tools]
 
 
-def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
+@pytest.mark.parametrize("image_tools", [[], [{"type": "image_generation"}]])
+def test_responses_signature_recovery_promotes_codex_additional_tools(image_tools) -> None:
     requests: list[dict[str, object]] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -3271,9 +3272,13 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
             return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
         return httpx.Response(200, json={"id": "resp_success"})
 
-    tools = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    tools = [
+        {"type": "function", "name": "exec_command", "parameters": {"type": "object"}},
+        {"type": "custom", "name": "apply_patch"},
+    ]
     payload = {
         "model": "model-a",
+        "tools": image_tools,
         "input": [
             {"type": "additional_tools", "role": "developer", "id": "at_1", "tools": tools},
             {"role": "user", "content": "hi"},
@@ -3288,7 +3293,7 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
     assert response.status_code == 200
     assert len(requests) == 2
     retried = requests[1]
-    assert retried["tools"] == tools
+    assert retried["tools"] == [*image_tools, *tools]
     assert all(item.get("type") != "additional_tools" for item in retried["input"])
     assert all(item.get("type") != "reasoning" for item in retried["input"])
     assert [item for item in retried["input"] if item.get("role") == "user"] == [
@@ -3296,6 +3301,29 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
         {"role": "user", "content": "continue"},
     ]
     assert "signature_recovery" in control.finished[0].detail
+
+
+def test_signature_recovery_merges_tools_without_overwriting_current_definitions() -> None:
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    current = {"type": "function", "name": "exec_command", "description": "current"}
+    old = {**current, "description": "old"}
+    patch = {"type": "custom", "name": "apply_patch"}
+    namespace = {"type": "namespace", "name": "local", "description": "current namespace", "tools": [current]}
+    payload = {
+        "tools": [{"type": "image_generation"}, current, namespace],
+        "input": [
+            {"role": "user", "content": "Continue"},
+            {"type": "additional_tools", "tools": [old, patch, {**namespace, "tools": [old, patch]}]},
+        ],
+    }
+    recovered = recover_signature_history(payload)
+    assert recovered is not None
+    assert recovered["tools"] == [
+        {"type": "image_generation"}, current, {**namespace, "tools": [current, patch]}, patch,
+    ]
+    assert payload["tools"] == [{"type": "image_generation"}, current, namespace]
+    assert recovered["input"] == [{"role": "user", "content": "Continue"}]
 
 
 def test_signature_recovery_strips_gemini_thought_signatures() -> None:

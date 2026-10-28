@@ -4,7 +4,8 @@ import base64
 import binascii
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Final
 
 from pydantic import JsonValue, TypeAdapter
@@ -12,6 +13,8 @@ from pydantic import JsonValue, TypeAdapter
 from litellm.llms.anthropic.common_utils import strip_thinking_blocks_from_anthropic_messages
 
 _HISTORY: Final = TypeAdapter(list[dict[str, JsonValue]])
+_TOOLS: Final = TypeAdapter(list[JsonValue])
+_TOOL: Final = TypeAdapter(dict[str, JsonValue])
 _CALLS: Final = frozenset(("function_call", "custom_tool_call", "tool_use"))
 _RESULTS: Final = frozenset(("function_call_output", "custom_tool_call_output", "tool_result"))
 _CONTENT: Final = frozenset(
@@ -370,6 +373,37 @@ def _strip_thought_signatures(value: JsonValue) -> JsonValue:
     return {key: item for key, item in entries}
 
 
+def _tool_identity(tool: JsonValue) -> tuple[str, str]:
+    if not isinstance(tool, dict):
+        return "", ""
+    definition: Final = tool.get("function", tool.get("custom", tool))
+    name: Final = definition.get("name") if isinstance(definition, dict) else None
+    return str(tool.get("type") or "function"), name if isinstance(name, str) else ""
+
+
+def _merge_tool_definitions(
+    current: Sequence[JsonValue], additional: Sequence[JsonValue]
+) -> tuple[JsonValue, ...]:
+    existing: Final = frozenset(_tool_identity(tool) for tool in current)
+    additions: Final = MappingProxyType({_tool_identity(tool): tool for tool in additional})
+
+    def merged(tool: JsonValue) -> JsonValue:
+        extra: Final = additions.get(_tool_identity(tool))
+        if isinstance(tool, dict) and tool.get("type") == "namespace" and isinstance(extra, dict):
+            members: Final = tool.get("tools")
+            extra_members: Final = extra.get("tools")
+            if isinstance(members, list) and isinstance(extra_members, list):
+                return _TOOL.validate_python(MappingProxyType({
+                    **tool, "tools": _TOOLS.validate_python(_merge_tool_definitions(members, extra_members)),
+                }))
+        return tool
+
+    return (
+        *(merged(tool) for tool in current),
+        *(tool for identity, tool in additions.items() if identity not in existing),
+    )
+
+
 def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
     if signature_recovery_reason(payload) is not None:
         return None
@@ -430,6 +464,9 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
         **{key: value for key, value in payload.items() if key != "thinking"},
         "messages" if "messages" in payload else "input": cleaned_history,
     }
-    if promoted is not None and not payload.get("tools"):
-        cleaned["tools"] = promoted
+    if promoted is not None:
+        current_tools: Final = payload.get("tools")
+        cleaned["tools"] = _TOOLS.validate_python(
+            _merge_tool_definitions(current_tools if isinstance(current_tools, list) else (), promoted)
+        )
     return cleaned if cleaned != payload else None
