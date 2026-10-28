@@ -101,6 +101,15 @@ describe("account card local configuration", () => {
   });
   afterEach(() => vi.useRealTimers());
 
+  it("keeps feedback outside the account pool and ignores its former tab URL", async () => {
+    searchState.value = "tab=feedback";
+    renderPage();
+
+    expect(screen.queryByRole("tab", { name: "反馈中心" })).not.toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "仪表盘" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByTestId(`account-pool-card-${environment.id}`)).toBeInTheDocument();
+  });
+
   it("refreshes visible dashboard statistics without polling inactive tabs", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const page = () => (

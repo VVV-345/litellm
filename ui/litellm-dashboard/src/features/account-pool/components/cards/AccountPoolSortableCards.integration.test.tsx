@@ -22,6 +22,14 @@ const names = () =>
 describe("account pool card ordering", () => {
   beforeEach(() => window.localStorage.clear());
 
+  it("uses four desktop columns with one mobile column and two tablet columns", () => {
+    renderCards([...cards, { id: "d", name: "Delta" }]);
+
+    expect(screen.getByRole("list")).toHaveClass("grid-cols-1", "md:grid-cols-2", "xl:grid-cols-4");
+    expect(screen.getByRole("list")).not.toHaveClass("2xl:grid-cols-3");
+    expect(names()).toEqual(["Alpha", "Beta", "Gamma", "Delta"]);
+  });
+
   it("reorders with the handle keyboard controls and restores the order on remount", () => {
     const view = renderCards();
     fireEvent.keyDown(screen.getByRole("button", { name: /Beta/ }), { key: "ArrowUp" });
