@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createDashboardQueryClient } from "@/lib/queryClient";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
@@ -341,7 +342,11 @@ describe("dashboard warmup wiring", () => {
     ).toEqual(["0"]);
   });
 
-  it("does not periodically refetch inactive pages after warmup completes", async () => {
+  it("keeps warmed pages available after fifteen minutes without background refetches", async () => {
+    unregister();
+    client.clear();
+    client = createDashboardQueryClient();
+    unregister = registerResponseCache(client);
     vi.useFakeTimers();
     const { unmount } = render(
       <QueryClientProvider client={client}>
@@ -350,11 +355,14 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    await act(() => vi.runAllTimersAsync());
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
     expect(urls.some((url) => url.pathname === "/logs/full/sessions")).toBe(true);
     const count = fetch.mock.calls.length;
-    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+    expect(client.getQueryCache().find({ queryKey: ["keys"], exact: false })).toBeDefined();
+    await act(() => vi.advanceTimersByTimeAsync(15 * 60_000));
     expect(fetch).toHaveBeenCalledTimes(count);
+    expect(client.getQueryCache().find({ queryKey: ["keys"], exact: false })).toBeDefined();
+    expect(client.getQueryCache().find({ queryKey: ["modelCostMap"], exact: false })).toBeDefined();
     unmount();
     vi.useRealTimers();
   });

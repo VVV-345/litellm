@@ -22,10 +22,11 @@ const names = () =>
 describe("account pool card ordering", () => {
   beforeEach(() => window.localStorage.clear());
 
-  it("uses four desktop columns with one mobile column and two tablet columns", () => {
+  it("keeps two columns on tablet and desktop without hiding any cards", () => {
     renderCards([...cards, { id: "d", name: "Delta" }]);
 
-    expect(screen.getByRole("list")).toHaveClass("grid-cols-1", "md:grid-cols-2", "xl:grid-cols-4");
+    expect(screen.getByRole("list")).toHaveClass("grid-cols-1", "md:grid-cols-2");
+    expect(screen.getByRole("list")).not.toHaveClass("xl:grid-cols-4");
     expect(screen.getByRole("list")).not.toHaveClass("2xl:grid-cols-3");
     expect(names()).toEqual(["Alpha", "Beta", "Gamma", "Delta"]);
   });

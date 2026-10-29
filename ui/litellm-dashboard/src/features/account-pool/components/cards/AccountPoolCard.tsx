@@ -84,6 +84,8 @@ const AccountPoolCardComponent = ({
     environment.status === "error" ? t("accountPool.reauthorize") : t("accountPool.continueAuthorization");
   const visibleModels = accountPoolVisibleModels(environment);
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
+  const showPlan = environment.supplier !== "openai_codex" && Boolean(environment.quota.plan_type);
+  const showLabels = showPlan || Boolean(group) || tags.length > 0;
   const policyValues = policy?.policy;
   const completedRequests = (requestStats?.succeeded_requests ?? 0) + (requestStats?.failed_requests ?? 0);
   const successRate =
@@ -145,10 +147,10 @@ const AccountPoolCardComponent = ({
         }`;
   return (
     <Card
-      className="min-w-0 gap-4 [--card-spacing:--spacing(4)]"
+      className="@container/card min-w-0 gap-3 [--card-spacing:--spacing(4)]"
       data-testid={`account-pool-card-${environment.id}`}
     >
-      <CardHeader className="gap-3">
+      <CardHeader className="gap-2">
         <div className="flex min-w-0 items-start justify-between gap-3 pr-8">
           <div className="flex min-w-0 items-start gap-3">
             <AccountPoolSupplierLogo supplier={environment.supplier} className="mt-0.5 size-6 shrink-0" />
@@ -263,18 +265,18 @@ const AccountPoolCardComponent = ({
           </div>
         </div>
       </CardHeader>
-      <CardContent className="grid gap-4 text-sm">
-        <div className="flex flex-wrap gap-1.5">
-          {environment.supplier !== "openai_codex" && environment.quota.plan_type && (
-            <Badge variant="outline">{environment.quota.plan_type}</Badge>
-          )}
-          {group && <Badge variant="secondary">{group}</Badge>}
-          {tags.map((tag) => (
-            <Badge key={tag} variant="outline">
-              {tag}
-            </Badge>
-          ))}
-        </div>
+      <CardContent className="grid gap-3 text-sm">
+        {showLabels && (
+          <div className="flex flex-wrap gap-1.5">
+            {showPlan && <Badge variant="outline">{environment.quota.plan_type}</Badge>}
+            {group && <Badge variant="secondary">{group}</Badge>}
+            {tags.map((tag) => (
+              <Badge key={tag} variant="outline">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+        )}
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
           <p className="mt-1 break-words font-medium">
@@ -285,7 +287,7 @@ const AccountPoolCardComponent = ({
           <span className="text-muted-foreground">{t("accountPool.nodeLatency.label")}</span>
           <span className="font-medium tabular-nums">{latency.status === "ok" ? `${latency.delay} ms` : t(`accountPool.nodeLatency.${latency.status}`)}</span>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2 @sm/card:grid-cols-4">
           <div>
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
             <p className="mt-1 font-medium">{requestStats?.total_requests ?? "-"}</p>
@@ -328,11 +330,11 @@ const AccountPoolCardComponent = ({
             )}
         </div>
         {environment.supplier === "openai_codex" && <AccountPoolCardQuota environment={environment} />}
-        <p className="border-t border-border pt-3 text-xs text-muted-foreground">
+        <p className="border-t border-border pt-2 text-xs text-muted-foreground">
           路由策略、权重和优先级在 LiteLLM 模型设置中管理
         </p>
         {providerSummary && (
-          <div className="grid gap-1 border-t border-border pt-3">
+          <div className="grid gap-1 border-t border-border pt-2">
             <p className="text-xs text-muted-foreground">{t("accountPool.policy.providerSummary")}</p>
             <p className="font-medium">{providerSummary}</p>
           </div>

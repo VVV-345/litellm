@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "./http/client";
 import { createDashboardQueryClient } from "./queryClient";
+import { QueryObserver } from "@tanstack/react-query";
 
 describe("dashboard query caching", () => {
   it("deduplicates concurrent requests and reuses fresh data until invalidated", async () => {
@@ -16,15 +17,40 @@ describe("dashboard query caching", () => {
     client.clear();
   });
 
-  it("releases inactive cached pages after ten minutes", async () => {
+  it("retains inactive pages for an hour before releasing them", async () => {
     vi.useFakeTimers();
     const client = createDashboardQueryClient();
     try {
       await client.fetchQuery({ queryKey: ["old-page"], queryFn: async () => "data" });
-      await vi.advanceTimersByTimeAsync(5 * 60_000);
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
       expect(client.getQueryData(["old-page"])).toBe("data");
-      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+      await vi.advanceTimersByTimeAsync(45 * 60_000 + 1);
       expect(client.getQueryData(["old-page"])).toBeUndefined();
+    } finally {
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows cached content immediately after fifteen minutes while fetching fresh data", async () => {
+    vi.useFakeTimers();
+    const client = createDashboardQueryClient();
+    const pending = Promise.withResolvers<string>();
+    const options = { queryKey: ["return-page"], queryFn: () => pending.promise };
+    try {
+      client.setQueryData(options.queryKey, "cached page");
+      await vi.advanceTimersByTimeAsync(15 * 60_000);
+      const observer = new QueryObserver(client, options);
+      const unsubscribe = observer.subscribe(() => {});
+      expect(observer.getCurrentResult()).toMatchObject({
+        data: "cached page",
+        isPending: false,
+        isFetching: true,
+      });
+      pending.resolve("fresh page");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(observer.getCurrentResult().data).toBe("fresh page");
+      unsubscribe();
     } finally {
       client.clear();
       vi.useRealTimers();

@@ -109,7 +109,7 @@ const runQuery = <TQueryFnData, TError = Error, TData = TQueryFnData, TQueryKey 
 ) => {
   return queryClient.fetchQuery({
     ...options,
-    gcTime: 10 * 60_000,
+    gcTime: queryClient.getDefaultOptions().queries?.gcTime,
     meta: { ...options.meta, dashboardWarmup: priority },
   });
 };
