@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import yaml
-from account_pool.api import _credential_views
+from account_pool.api import _credential_views, create_router
 from account_pool.app import (
     _notify_refresh_schedulers_after_settings_sync,
     _reconcile_pending_configurations_until_cancelled,
@@ -65,6 +65,7 @@ from account_pool.settings import (
     NetworkSettingsProfile,
     NetworkSettingsValues,
 )
+from fastapi import FastAPI
 
 
 @pytest.mark.parametrize("supplier", tuple(kind.value for kind in SupplierKind))
@@ -2016,6 +2017,34 @@ async def test_authorization_poll_error_does_not_overwrite_newer_state(tmp_path:
 
     assert await service._refresh_authorization(signed) == replacement
     assert await repository.get(record.id) == replacement
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ("/auth/callback", "/callback", "/oauth-callback"))
+async def test_callback_page_reports_accepted_while_channel_validation_is_pending(tmp_path: Path, path: str) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    cli: Final = FakeCLIProxy(authorization_status="ok", data_plane_healthy=False)
+    service: Final = _service(record, cli, tmp_path)
+    state: Final = service._callback_state(record)
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
+    await service._repository.save(signed)
+    app: Final = FastAPI()
+    app.include_router(create_router(service, "m" * 32))
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager") as client:
+        response: Final = await client.get(path, params={"state": state, "code": "test-code"})
+        replay: Final = await client.get(path, params={"state": state, "code": "test-code"})
+
+    assert response.status_code == 202
+    assert "授权已接收" in response.text
+    assert "后台" in response.text
+    assert "授权未完成" not in response.text
+    assert response.headers["Cache-Control"] == "no-store"
+    assert replay.status_code == 409
+    assert "授权未完成" in replay.text
+    pending: Final = await service._repository.get(record.id)
+    assert pending is not None
+    assert pending.status is EnvironmentStatus.VALIDATING
 
 
 @pytest.mark.asyncio

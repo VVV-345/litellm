@@ -20,6 +20,7 @@ from psycopg import Error as DatabaseError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 
+from account_pool.application.environments.contracts import AuthorizationPending
 from account_pool.batch_models import BatchJob, BatchRequest
 from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
@@ -1120,6 +1121,12 @@ def create_router(
             error_description=error_description,
         )
         result: Final = await service.submit_oauth_callback(callback, environment_id)
+        if isinstance(result, AuthorizationPending):
+            return HTMLResponse(
+                _callback_page("授权已接收", "账号凭据已保存，后台正在验证渠道启动。请关闭此页面并返回 LiteLLM 号池查看最新状态，无需重复授权。"),
+                status_code=status.HTTP_202_ACCEPTED,
+                headers={"Cache-Control": "no-store"},
+            )
         if isinstance(result, Failure):
             return HTMLResponse(_callback_page("授权未完成", result.message), status_code=_status_for(result.code))
         return HTMLResponse(_callback_page("授权已接收", "可以关闭此页面并返回 LiteLLM 号池"))
