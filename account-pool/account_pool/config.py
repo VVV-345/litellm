@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     cli_proxy_user: str = Field(default="65532:65532", pattern=r"^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$")
     cli_proxy_image: str = DEFAULT_CLI_PROXY_IMAGE
     oauth_browser_image: str | None = None
+    adspower_api_url: str = ""
+    adspower_api_key: SecretStr | None = None
     upstream_sync_github_token: SecretStr | None = None
     upstream_sync_current_tag: str = Field(
         default="v7.2.146", pattern=r"^v[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$"
@@ -104,6 +106,30 @@ class Settings(BaseSettings):
             or not 1 <= port <= 65535
         ):
             raise ValueError("clash_controller_url must be a credential-free HTTP(S) origin with an explicit port")
+        return value.strip()
+
+    @field_validator("adspower_api_url")
+    @classmethod
+    def validate_adspower_api_url(cls, value: str) -> str:
+        if not value.strip():
+            return ""
+        parsed: Final = urlsplit(value.strip())
+        try:
+            port: Final = parsed.port
+        except ValueError as error:
+            raise ValueError("adspower_api_url must use a valid port") from error
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or port is None
+            or not 1 <= port <= 65535
+        ):
+            raise ValueError("adspower_api_url must be a credential-free HTTP(S) origin with an explicit port")
         return value.strip()
 
     @field_validator("clash_config_path", "clash_runtime_config_path")

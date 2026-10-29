@@ -65,6 +65,8 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
 
 ## 公共代理出口
 
+AdsPower 的环境代理可以从页面手动导入 ISP 列表，配置和操作见 [AdsPower 手动同步代理](docs/adspower.md)
+
 CLIProxyAPI 账号共用 `ProxyGatewayService` 登记的代理名单。比如配置 7891 到 7910 共 20 个端口后，多张卡片可以选择同一个 7891。代理设置里更换 7891 的 Clash 节点，该端口上的所有账号随之使用同一出口；已有连接可能继续使用原节点，新连接使用更新后的节点
 
 Manager 发起的授权请求从最新账号记录读取同一代理地址；等待授权期间换端口后，下一次轮询使用新端口。受控浏览器 worker 仅通过会话专用 egress relay 访问该代理，代理不可用时不回退直连。浏览器 worker 默认不启用，真实 Docker 和 OAuth 验收另行记录

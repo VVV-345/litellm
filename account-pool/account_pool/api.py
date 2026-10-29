@@ -20,6 +20,8 @@ from psycopg import Error as DatabaseError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 
+from account_pool.adspower import AdsPowerSyncService
+from account_pool.adspower_api import create_adspower_router
 from account_pool.application.environments.contracts import AuthorizationPending
 from account_pool.batch_models import BatchJob, BatchRequest
 from account_pool.batch_service import BatchService
@@ -293,6 +295,7 @@ def create_router(
     service: EnvironmentService,
     manager_token: str,
     *,
+    adspower: AdsPowerSyncService | None = None,
     keys: CardKeyService | None = None,
     logs: ErrorLogService | None = None,
     environments: EnvironmentRepository | None = None,
@@ -913,6 +916,9 @@ def create_router(
     @router.get("/api/proxy-profiles", dependencies=[Depends(require_manager)])
     async def list_proxy_profiles() -> tuple[ProxyProfile, ...]:
         return await service.list_proxy_profiles()
+
+    if adspower is not None:
+        router.include_router(create_adspower_router(adspower, require_manager))
 
     if proxy_catalog is not None:
         isp_router: Final = APIRouter(route_class=ISPCatalogRoute)
