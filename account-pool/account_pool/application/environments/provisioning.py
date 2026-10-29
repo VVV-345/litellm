@@ -33,6 +33,7 @@ from account_pool.application.environments.contracts import (
 from account_pool.application.environments.contracts import constant_async as _constant_async
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.config import Settings, validate_proxy_profile_url
+from account_pool.credential_import import normalize_auth_file
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
 from account_pool.domain import (
     AuthorizationFlow,
@@ -286,6 +287,10 @@ class EnvironmentProvisioning:
     async def create_auth_file_environment(
         self, request: CreateEnvironmentRequest, environment_id: UUID, filename: str, content: bytes
     ) -> Result[EnvironmentView]:
+        try:
+            normalized: Final = normalize_auth_file(content, request.supplier.value)
+        except CredentialConflict as error:
+            return Failure(FailureCode.INVALID, str(error))
         existing: Final = await self._repository.get(environment_id)
         if existing is not None:
             if existing.status is EnvironmentStatus.DELETING or not existing.enabled or existing.manual_cooldown:
@@ -304,7 +309,7 @@ class EnvironmentProvisioning:
             return await self.upload_auth_file(
                 environment_id,
                 filename,
-                auth_file_with_proxy(content, selected_proxy.value[2]) if selected_proxy is not None else content,
+                auth_file_with_proxy(normalized, selected_proxy.value[2]) if selected_proxy is not None else normalized,
                 "application/json",
                 replace=True,
             )
@@ -314,11 +319,11 @@ class EnvironmentProvisioning:
                 name=request.name,
                 supplier=request.supplier,
                 operation_id=request.operation_id,
-                credential_content=content,
+                credential_content=normalized,
                 write_credential=lambda channel, record, proxy_url: self._cli_proxy.upload_auth_file(
                     record,
                     filename,
-                    auth_file_with_proxy(content, proxy_url) if request.proxy_profile_id is not None else content,
+                    auth_file_with_proxy(normalized, proxy_url) if request.proxy_profile_id is not None else normalized,
                     "application/json",
                 ),
                 auth_file=True,

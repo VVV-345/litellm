@@ -3,6 +3,14 @@ import { describe, expect, it } from "vitest";
 import { authFileTemplateFromForm, authFileTemplateToForm, mergeAuthFileTemplate } from "./AuthFileTemplate";
 
 describe("auth-file form templates", () => {
+  it("rejects package templates rather than silently losing selected settings during account expansion", () => {
+    expect(() =>
+      mergeAuthFileTemplate(
+        '{"accounts":[{"platform":"openai","type":"oauth","credentials":{"refresh_token":"fixture"}}]}',
+        { priority: 4 },
+      ),
+    ).toThrow("认证模板仅支持单账号 JSON");
+  });
   it("keeps zero priority and empty prefix explicit without sending unselected fields", () => {
     const form = authFileTemplateToForm({ priority: 0, prefix: "", proxy_profile_id: null });
     expect(authFileTemplateFromForm(form)).toEqual({ priority: 0, prefix: "", proxy_profile_id: null });

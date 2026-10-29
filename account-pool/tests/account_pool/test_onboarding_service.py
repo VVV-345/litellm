@@ -153,6 +153,190 @@ async def test_file_import_creates_one_card_without_oauth_and_survives_resubmiss
     assert target_view(OnboardingTarget(supplier="openai_codex", count=1), (item,)).ready == 0
 
 
+def sub2api_fixture():
+    return {
+        "name": "fixture@example.test",
+        "platform": "openai",
+        "type": "oauth",
+        "credentials": {
+            "access_token": "fixture-access",
+            "refresh_token": "fixture-refresh",
+            "chatgpt_account_id": "fixture-account",
+            "email": "fixture@example.test",
+            "plan_type": "plus",
+        },
+        "extra": {"last_refresh": "2026-10-28T04:20:05.764Z"},
+        "concurrency": 10,
+        "priority": 1,
+    }
+
+
+@pytest.mark.parametrize("wrapped", [False, True])
+async def test_sub2api_batch_normalizes_tokens_before_ownership_and_upload(tmp_path, wrapped):
+    service, _, _, _, cli, _ = setup_service(tmp_path)
+    account = sub2api_fixture()
+    content = json.dumps({"accounts": [account], "proxies": []} if wrapped else account)
+    request = file_request().model_copy(update={"entries": (OnboardingEntry(label="sub2.json", content=content),)})
+    result = await service.submit(request)
+    assert result.preview[0].status == "valid"
+    await service.run_once()
+    assert (await service.list())[0].state == "ready"
+    uploaded = json.loads(cli.upload_calls[0][2])
+    assert uploaded["type"] == "codex"
+    assert uploaded["refresh_token"] == "fixture-refresh"
+    assert uploaded["account_id"] == "fixture-account"
+    assert uploaded["plan_type"] == "plus"
+    assert uploaded["last_refresh"] == "2026-10-28T04:20:05.764Z"
+    assert "credentials" not in uploaded and "concurrency" not in uploaded
+    cpa = request.model_copy(
+        update={"job_id": uuid4(), "entries": (OnboardingEntry(label="same.json", content=json.dumps(uploaded)),)}
+    )
+    assert (await service.preview(cpa))[0].status == "duplicate"
+
+
+async def test_sub2api_single_upload_uses_the_same_normalization(tmp_path):
+    _, _, environments, _, cli, environment_service = setup_service(tmp_path)
+    record = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    await environments.save(record)
+    result = await environment_service.upload_auth_file(
+        record.id, "sub2.json", json.dumps(sub2api_fixture()).encode(), "application/json"
+    )
+    assert isinstance(result, Success)
+    assert json.loads(cli.upload_calls[0][2])["account_id"] == "fixture-account"
+
+
+async def test_two_factor_text_creates_encrypted_oauth_tasks_without_fake_auth_files(tmp_path):
+    service, tasks, _, _, cli, _ = setup_service(tmp_path)
+    content = "first@example.test----fixture-password----JBSWY3DPEHPK3PXP\r\nsecond@example.test----other-password----JBSWY3DPEHPK3PXP"
+    request = file_request().model_copy(
+        update={
+            "proxy_profile_id": "onboarding-proxy",
+            "entries": (OnboardingEntry(label="accounts.txt", content=content),),
+        }
+    )
+    result = await service.submit(request)
+    assert len(result.items) == 2
+    assert all(item.source == "oauth" and item.state == "queued" for item in result.items)
+    assert "fixture-password" not in result.model_dump_json()
+    assert "JBSWY3DPEHPK3PXP" not in tasks.rows[result.items[0].id].model_dump_json()
+    revealed = await service.reveal(result.items[0].id)
+    assert revealed.value.mailbox_password == ""
+    assert revealed.value.supplier_password == "fixture-password"
+    assert revealed.value.totp_secret == "JBSWY3DPEHPK3PXP"
+    await service.run_once()
+    assert (await service.list())[0].state == "awaiting_authorization"
+    assert not cli.upload_calls
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "fixture@example.test----password----bad!secret",
+        "fixture@example.test----password----JBSWY3DPEHPK3PXP----extra",
+    ],
+)
+async def test_invalid_two_factor_text_never_echoes_secret_or_creates_tasks(tmp_path, content):
+    service, _, _, runtime, _, _ = setup_service(tmp_path)
+    request = file_request().model_copy(
+        update={
+            "proxy_profile_id": "onboarding-proxy",
+            "entries": (OnboardingEntry(label="accounts.txt", content=content),),
+        }
+    )
+    result = await service.submit(request)
+    assert result.preview[0].status == "invalid"
+    assert not result.items and not runtime.provisioned
+    assert "password" not in result.model_dump_json() and "bad!secret" not in result.model_dump_json()
+
+
+async def test_two_factor_import_requires_proxy_and_rejects_wrong_provider(tmp_path):
+    service, _, _, _, _, _ = setup_service(tmp_path)
+    request = file_request().model_copy(
+        update={
+            "entries": (
+                OnboardingEntry(label="accounts.txt", content="fixture@example.test----password----JBSWY3DPEHPK3PXP"),
+            )
+        }
+    )
+    assert (await service.preview(request))[0].status == "invalid"
+    wrong = request.model_copy(update={"proxy_profile_id": "onboarding-proxy", "supplier": "anthropic_claude"})
+    assert (await service.preview(wrong))[0].status == "invalid"
+
+
+async def test_sub2api_multi_account_package_expands_and_enforces_batch_limit(tmp_path):
+    service, _, _, _, _, _ = setup_service(tmp_path)
+    accounts = [{**sub2api_fixture(), "credentials": {"refresh_token": f"fixture-{index}"}} for index in range(2)]
+    request = file_request().model_copy(
+        update={
+            "entries": (
+                OnboardingEntry(label="export.json", content=json.dumps({"accounts": accounts, "proxies": []})),
+            )
+        }
+    )
+    result = await service.submit(request)
+    assert len(result.items) == 2 and result.items[0].card_id != result.items[1].card_id
+    oversized = request.model_copy(
+        update={
+            "entries": tuple(
+                OnboardingEntry(label=f"batch-{index}.json", content=json.dumps({"accounts": accounts}))
+                for index in range(51)
+            )
+        }
+    )
+    assert (await service.preview(oversized))[0].status == "invalid"
+
+
+async def test_two_factor_pending_card_does_not_use_credentials_before_authorization_completes(tmp_path):
+    from account_pool.domain import ProxyMode
+
+    service, _, environments, _, cli, _ = setup_service(tmp_path)
+    record = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "onboarding-proxy"}
+    )
+    await environments.save(record)
+    result = await service.import_login_file(record.id, "fixture@example.test----password----JBSWY3DPEHPK3PXP")
+    assert isinstance(result, Success)
+    assert result.value.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert not cli.authorization_status_calls
+
+
+async def test_two_factor_empty_card_guard_preserves_a_concurrently_uploaded_credential(tmp_path):
+    _, _, environments, _, cli, environment_service = setup_service(tmp_path)
+    record = (await environments.list())[0]
+    result = await environment_service.authorize_environment(record.id, require_empty=True)
+    assert isinstance(result, Failure)
+    assert (await environments.get(record.id)).auth_file_name == record.auth_file_name
+    assert not cli.events
+
+
+def test_sub2api_normalization_preserves_real_tokens_and_derives_access_expiration():
+    import base64
+
+    from account_pool.credential_import import normalize_auth_file
+
+    claims = base64.urlsafe_b64encode(b'{"exp":1794018581}').decode().rstrip("=")
+    account = sub2api_fixture()
+    account["credentials"].update({"access_token": f"header.{claims}.signature", "id_token": "real-fixture-id"})
+    normalized = json.loads(normalize_auth_file(json.dumps(account).encode(), "openai_codex"))
+    assert normalized["expired"] == "2026-11-07T02:29:41+00:00"
+    assert normalized["id_token"] == "real-fixture-id"
+    assert normalized["access_token"] == f"header.{claims}.signature"
+
+
+@pytest.mark.parametrize(
+    "changes", [{"platform": "anthropic"}, {"type": "api_key"}, {"credentials": {"access_token": "access-only"}}]
+)
+async def test_unsupported_sub2api_does_not_replace_existing_file(tmp_path, changes):
+    _, _, environments, _, cli, environment_service = setup_service(tmp_path)
+    record = (await environments.list())[0]
+    result = await environment_service.upload_auth_file(
+        record.id, "sub2.json", json.dumps({**sub2api_fixture(), **changes}).encode(), "application/json", replace=True
+    )
+    assert isinstance(result, Failure)
+    assert (await environments.get(record.id)).auth_file_name == record.auth_file_name
+    assert not cli.upload_calls
+
+
 async def test_failed_file_validation_reuses_original_card_on_retry(tmp_path):
     cli = FakeCLIProxy(data_plane_healthy=False)
     service, _, _, runtime, _, _ = setup_service(tmp_path, cli)

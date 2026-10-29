@@ -2,8 +2,61 @@
 
 import httpx
 from account_pool.api import create_router
+from account_pool.domain import EnvironmentStatus, ProxyMode
 from fastapi import FastAPI
+from test_account_pool import _record
 from test_onboarding_service import oauth_request, setup_service
+
+
+async def test_single_two_factor_upload_reuses_card_and_keeps_secrets_out_of_response(tmp_path):
+    service, tasks, environments, _, cli, environment_service = setup_service(tmp_path)
+    record = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "onboarding-proxy"}
+    )
+    await environments.save(record)
+    app = FastAPI()
+    app.include_router(create_router(environment_service, "manager-test", onboarding_service=service))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        headers = {"Authorization": "Bearer manager-test"}
+        for _ in range(2):
+            response = await client.post(
+                "/api/auth-files",
+                headers=headers,
+                data={"card_id": str(record.id)},
+                files={
+                    "file": (
+                        "account.txt",
+                        b"fixture@example.test----fixture-password----JBSWY3DPEHPK3PXP",
+                        "text/plain",
+                    )
+                },
+            )
+            assert response.status_code == 200
+            assert response.json()["id"] == str(record.id)
+            assert response.json()["status"] == "awaiting_authorization"
+            assert "fixture-password" not in response.text and "JBSWY3DPEHPK3PXP" not in response.text
+        assert len(tasks.rows) == 1 and not cli.upload_calls
+        item = next(iter(tasks.rows.values())).item
+        reveal = await client.post(f"/api/onboarding/items/{item.id}/secrets", headers=headers)
+        assert reveal.headers["cache-control"] == "no-store"
+        assert reveal.json()["totp_secret"] == "JBSWY3DPEHPK3PXP"
+
+
+async def test_two_factor_upload_does_not_replace_working_token_or_accept_multiple_accounts(tmp_path):
+    service, _, environments, _, cli, environment_service = setup_service(tmp_path)
+    record = (await environments.list())[0]
+    app = FastAPI()
+    app.include_router(create_router(environment_service, "manager-test", onboarding_service=service))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/auth-files",
+            headers={"Authorization": "Bearer manager-test"},
+            data={"card_id": str(record.id), "replace": "true"},
+            files={"file": ("account.txt", b"fixture@example.test----password----JBSWY3DPEHPK3PXP", "text/plain")},
+        )
+    assert response.status_code == 409
+    assert (await environments.get(record.id)).auth_file_name == record.auth_file_name
+    assert not cli.upload_calls
 
 
 async def test_manager_requires_auth_and_never_echoes_passwords_in_validation_errors(tmp_path):

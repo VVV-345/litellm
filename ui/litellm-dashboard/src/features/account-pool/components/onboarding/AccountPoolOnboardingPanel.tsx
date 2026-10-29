@@ -212,20 +212,24 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
           ? await Promise.all(
               files.map(async (file) => ({
                 label: file.name,
-                content:
-                  useTemplate && template ? mergeAuthFileTemplate(await file.text(), template) : await file.text(),
+                content: await file.text(),
                 mailbox_password: "",
                 supplier_password: "",
+                totp_secret: "",
               })),
             )
           : parseMailboxAccounts(await files[0].text());
+      const preparedEntries =
+        source === "auth_file" && useTemplate && template
+          ? entries.map((entry) => ({ ...entry, content: mergeAuthFileTemplate(entry.content, template) }))
+          : entries;
       const body: OnboardingImport = {
         job_id: crypto.randomUUID(),
         source,
         supplier,
         mailbox,
         prepare_mailbox: prepareMailbox,
-        entries,
+        entries: preparedEntries,
         ...(effectiveProxyId ? { proxy_profile_id: effectiveProxyId } : {}),
       };
       const checked = await previewOnboarding(accessToken, body);
@@ -243,6 +247,10 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     try {
       const result = await submitOnboarding(accessToken, request);
       toast.success(`已接收 ${result.items.length} 项，任务进度会自动更新`);
+      if (result.items.some((item) => item.source !== request.source)) {
+        toast.info("2FA 登录资料已归入 OAuth 上号；Token 导入结果在认证文件任务中查看");
+      }
+      if (result.items.length > 0 && result.items.every((item) => item.source === "oauth")) setSource("oauth");
       reset();
       await refresh();
     } catch {
@@ -288,7 +296,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
               <CardTitle>{source === "auth_file" ? "批量导入认证文件" : "导入邮箱账号库存"}</CardTitle>
               <CardDescription>
                 {source === "auth_file"
-                  ? "选择供应商后批量上传 JSON，自动创建卡片、写入凭证并验证模型。此流程不发起 OAuth，也不进入邮箱账号表。"
+                  ? "自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。Token 文件创建卡片并验证模型；2FA 登录资料进入 OAuth 任务，需人工完成登录和二次验证。"
                   : "邮箱账号与供应商账号分别保存。沿用现有 OAuth 授权，登录、验证码和二次验证由你完成，后台自动验证并更新卡片。"}
               </CardDescription>
             </CardHeader>
@@ -361,7 +369,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     key={`${source}-${supplier}-${mailbox}-${prepareMailbox}`}
                     id="onboarding-files"
                     type="file"
-                    accept=".json,application/json"
+                    accept=".json,.txt,application/json,text/plain"
                     multiple={source === "auth_file"}
                     disabled={fileInputDisabled}
                     onChange={(event) => {
@@ -385,7 +393,8 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     使用默认认证模板
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    在“认证文件”的“认证模板”中用表单保存默认值。勾选后仅修改模板选中的字段，账号身份和令牌保持不变；显式选择节点优先于模板
+                    认证模板仅用于单账号 JSON，不用于 2FA 文本或多账号整包；显式选择节点优先于模板。2FA
+                    文本须选择出站代理
                   </p>
                   {useTemplate && template && (
                     <p className="text-xs text-muted-foreground">
@@ -430,6 +439,9 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                         '[{"email":"you@example.com","mailbox_password":"邮箱密码","supplier_password":"可选的供应商密码"}]'
                       }
                     </pre>
+                    <p className="mt-2">
+                      也支持 TXT，每行：邮箱----供应商密码----2FA密钥。不会把供应商密码当成邮箱密码，不自动填写验证码。
+                    </p>
                   </details>
                 </div>
               )}

@@ -37187,6 +37187,11 @@ export interface components {
              * @default
              */
             supplier_password: string;
+            /**
+             * Totp Secret
+             * @default
+             */
+            totp_secret: string;
         };
         /** OnboardingImport */
         OnboardingImport: {
@@ -37313,6 +37318,11 @@ export interface components {
             proposed_password?: string | null;
             /** Supplier Password */
             supplier_password: string;
+            /**
+             * Totp Secret
+             * @default
+             */
+            totp_secret: string;
         };
         /** OnboardingSupplierOption */
         OnboardingSupplierOption: {

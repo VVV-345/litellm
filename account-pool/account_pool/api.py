@@ -25,6 +25,7 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
+from account_pool.credential_import import is_two_factor_text
 from account_pool.domain import (
     AuthorizationFlow,
     ChannelKind,
@@ -699,6 +700,11 @@ def create_router(
         content: Final = await file.read(16 * 1024 * 1024 + 1)
         if len(content) > 16 * 1024 * 1024:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
+        text: Final = content.decode("utf-8-sig", errors="replace")
+        if is_two_factor_text(text):
+            if onboarding_service is None:
+                raise HTTPException(503, "OAuth 上号服务不可用")
+            return _unwrap(await onboarding_service.import_login_file(card_id, text))
         return _unwrap(await service.upload_auth_file(card_id, filename, content, file.content_type, replace=replace))
 
     @router.get("/api/environments/{environment_id}/auth-file/download", dependencies=[Depends(require_manager)])
