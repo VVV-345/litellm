@@ -165,7 +165,7 @@ def render_oauth_browser_compose(
                 },
                 "networks": {
                     "browser": None,
-                    "control": {"aliases": [f"{project_name}-callback-relay"]},
+                    "control": {"aliases": [f"oauth-browser-{session_slug}-callback"]},
                 },
                 "healthcheck": {
                     "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "callback-relay"],

@@ -74,8 +74,15 @@ def test_browser_relay_url_preserves_non_ticket_query_parameters() -> None:
     )
 
     assert url == (
-        f"http://account-pool-oauth-browser-{session_id.hex}-callback-relay:8093/vnc.html?path=websockify&token=a+b"
+        f"http://oauth-browser-{session_id.hex}-callback:8093/vnc.html?path=websockify&token=a+b"
     )
+
+
+@pytest.mark.parametrize("scheme", ("http", "ws"))
+def test_browser_relay_hostname_fits_dns_label_limit(scheme: Literal["http", "ws"]) -> None:
+    url: Final = httpx.URL(_browser_relay_url(uuid4(), "websockify", (), scheme=scheme))
+
+    assert len(url.host.encode("idna")) <= 63
 
 
 @pytest.mark.asyncio
@@ -1290,7 +1297,7 @@ def test_browser_websocket_relays_binary_and_closes_after_upstream_disconnect() 
         port = server.socket.getsockname()[1]
 
         def dial(url: str):
-            assert url == f"ws://account-pool-oauth-browser-{session_id.hex}-callback-relay:8093/websockify"
+            assert url == f"ws://oauth-browser-{session_id.hex}-callback:8093/websockify"
             return endpoints.connect(f"ws://127.0.0.1:{port}/websockify", proxy=None)
 
         app = FastAPI()

@@ -49,7 +49,7 @@ class _BrowserWebSocket(Protocol):
 
 
 def _browser_relay_host(session_id: UUID) -> str:
-    return f"account-pool-oauth-browser-{session_id.hex}-callback-relay"
+    return f"oauth-browser-{session_id.hex}-callback"
 
 
 def _browser_relay_url(

@@ -83,9 +83,11 @@ def test_browser_compose_keeps_worker_internal_and_binds_only_selected_proxy(tmp
     assert "CALLBACK_TOKEN" not in browser["environment"]
     assert browser["networks"] == {"browser": {"aliases": ["browser"]}}
     assert callback["command"] == ["callback-relay"]
+    for alias in callback["networks"]["control"]["aliases"]:
+        assert len(alias.encode("idna")) <= 63
     assert callback["networks"] == {
         "browser": None,
-        "control": {"aliases": [f"{rendered['name']}-callback-relay"]},
+        "control": {"aliases": [f"oauth-browser-{session.id.hex}-callback"]},
     }
     assert callback["environment"]["CALLBACK_TOKEN"] == "callback-ticket-secret"
     assert callback["environment"]["MANAGER_CALLBACK_URL"].startswith(
