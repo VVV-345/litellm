@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { extractProxyErrorMessage } from "@/lib/http/client";
 
 import { formatDateTime } from "../../utils/AccountPoolFormatters";
+import { authorizeAccountPoolEnvironment } from "../../api/AccountPoolApi";
 import {
   cancelAccountPoolOAuthBrowserSession,
   getAccountPoolOAuthBrowserSession,
@@ -44,6 +45,7 @@ export function AccountPoolAuthorizationPanel({
 }) {
   const { t, i18n } = useTranslation();
   const isBrowserFlow = authorization.flow === "browser_oauth";
+  const showOriginalExpiry = !isBrowserFlow || !accessToken || !environmentId;
 
   return (
     <div className="grid gap-5" data-testid="account-pool-authorization-panel">
@@ -57,6 +59,7 @@ export function AccountPoolAuthorizationPanel({
           key={`${accessToken}:${environmentId}`}
           accessToken={accessToken}
           environmentId={environmentId}
+          expiresAt={authorization.expires_at}
         />
       ) : null}
       {authorization.flow === "device_code" && authorization.user_code && (
@@ -89,11 +92,13 @@ export function AccountPoolAuthorizationPanel({
           </Button>
         </div>
       )}
-      <p className="text-xs text-muted-foreground">
-        {t("accountPool.create.authorizationExpires", {
-          time: formatDateTime(authorization.expires_at, i18n.language),
-        })}
-      </p>
+      {showOriginalExpiry && (
+        <p className="text-xs text-muted-foreground">
+          {t("accountPool.create.authorizationExpires", {
+            time: formatDateTime(authorization.expires_at, i18n.language),
+          })}
+        </p>
+      )}
       {children}
     </div>
   );
@@ -102,12 +107,21 @@ export function AccountPoolAuthorizationPanel({
 const isBrowserSessionActive = (session: AccountPoolOAuthBrowserSession) =>
   session.status === "starting" || session.status === "active" || session.status === "callback_pending";
 
-function AccountPoolServerBrowser({ accessToken, environmentId }: { accessToken: string; environmentId: string }) {
-  const { t } = useTranslation();
+function AccountPoolServerBrowser({
+  accessToken,
+  environmentId,
+  expiresAt,
+}: {
+  accessToken: string;
+  environmentId: string;
+  expiresAt: string;
+}) {
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const [session, setSession] = useState<AccountPoolOAuthBrowserSession | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [externalAuthorization, setExternalAuthorization] = useState<AccountPoolAuthorizationDetails | null>(null);
   const queryKey = accountPoolQueryKeys.oauthBrowserSession(accessToken, session?.id ?? null);
   const sessionQueryOptions: UseQueryOptions<AccountPoolOAuthBrowserSession> = {
     queryKey,
@@ -120,15 +134,31 @@ function AccountPoolServerBrowser({ accessToken, environmentId }: { accessToken:
   const sessionQuery = useQuery(sessionQueryOptions);
   const current = sessionQuery.data ?? session;
   const active = current !== null && isBrowserSessionActive(current);
+  const browserUnavailable = busy || current?.status === "completed";
   const visibleError = error ?? (sessionQuery.error ? extractProxyErrorMessage(sessionQuery.error) : null);
 
   const startBrowser = async () => {
     setBusy(true);
     setError(null);
+    setExternalAuthorization(null);
     try {
       setSession(await startAccountPoolOAuthBrowserSession(accessToken, environmentId));
     } catch (startError) {
       setError(extractProxyErrorMessage(startError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const prepareExternalBrowser = async () => {
+    setBusy(true);
+    setError(null);
+    setExternalAuthorization(null);
+    setSession(null);
+    try {
+      setExternalAuthorization(await authorizeAccountPoolEnvironment(accessToken, environmentId));
+    } catch (authorizationError) {
+      setError(extractProxyErrorMessage(authorizationError));
     } finally {
       setBusy(false);
     }
@@ -151,7 +181,6 @@ function AccountPoolServerBrowser({ accessToken, environmentId }: { accessToken:
 
   return (
     <div className="grid gap-3" data-testid="account-pool-server-browser">
-      <p className="text-sm text-muted-foreground">{t("accountPool.create.serverBrowserHelp")}</p>
       {visibleError && (
         <p role="alert" className="break-words text-sm text-destructive">
           {visibleError}
@@ -163,31 +192,81 @@ function AccountPoolServerBrowser({ accessToken, environmentId }: { accessToken:
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          onClick={() => void prepareExternalBrowser()}
+          disabled={browserUnavailable || active}
+        >
+          <ExternalLink />
+          {t("accountPool.create.generateLocalBrowserLink")}
+        </Button>
         {active ? (
           <Button type="button" size="sm" variant="outline" onClick={() => void stopBrowser()} disabled={busy}>
             <Square />
             {t("accountPool.create.stopServerBrowser")}
           </Button>
         ) : (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void startBrowser()}
-            disabled={busy || current?.status === "completed"}
-          >
+          <Button type="button" size="sm" onClick={() => void startBrowser()} disabled={browserUnavailable}>
             <MonitorUp />
             {t("accountPool.create.openServerBrowser")}
           </Button>
         )}
       </div>
+      {externalAuthorization && <ExternalBrowserLink authorization={externalAuthorization} />}
       {active && current && (
-        <iframe
-          title={t("accountPool.create.serverBrowserTitle")}
-          src={getAccountPoolOAuthBrowserUrl(current.id)}
-          referrerPolicy="no-referrer"
-          className="h-[min(70vh,640px)] w-full rounded-md border bg-black"
-          data-testid="account-pool-server-browser-frame"
+        <>
+          <p className="text-sm text-muted-foreground">{t("accountPool.create.serverBrowserHelp")}</p>
+          <iframe
+            title={t("accountPool.create.serverBrowserTitle")}
+            src={getAccountPoolOAuthBrowserUrl(current.id)}
+            referrerPolicy="no-referrer"
+            className="h-[min(70vh,640px)] w-full rounded-md border bg-black"
+            data-testid="account-pool-server-browser-frame"
+          />
+        </>
+      )}
+      <p className="text-xs text-muted-foreground">
+        {t("accountPool.create.authorizationExpires", {
+          time: formatDateTime((externalAuthorization ?? current)?.expires_at ?? expiresAt, i18n.language),
+        })}
+      </p>
+    </div>
+  );
+}
+
+function ExternalBrowserLink({ authorization }: { authorization: AccountPoolAuthorizationDetails }) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4">
+      <p className="text-sm text-muted-foreground">{t("accountPool.create.localBrowserHelp")}</p>
+      <div className="flex items-center gap-2">
+        <Input
+          aria-label={t("accountPool.create.authorizationLink")}
+          value={authorization.authorization_url}
+          readOnly
+          className="font-mono text-xs"
         />
+        <CopyButton value={authorization.authorization_url} label={t("accountPool.create.copyAuthorizationLink")} />
+      </div>
+      <Button
+        type="button"
+        nativeButton={false}
+        size="sm"
+        render={<a href={authorization.authorization_url} target="_blank" rel="noopener noreferrer" />}
+      >
+        <ExternalLink />
+        {t("accountPool.create.openLocalBrowser")}
+      </Button>
+      <p className="text-xs text-muted-foreground">{t("accountPool.create.localBrowserCallbackHelp")}</p>
+      {authorization.ssh_command && (
+        <details>
+          <summary className="cursor-pointer text-sm">{t("accountPool.create.remoteBrowserCallback")}</summary>
+          <div className="mt-2 flex items-center gap-2">
+            <code className="break-all text-xs">{authorization.ssh_command}</code>
+            <CopyButton value={authorization.ssh_command} label={t("accountPool.create.copySshTunnelCommand")} />
+          </div>
+        </details>
       )}
     </div>
   );

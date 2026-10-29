@@ -36,7 +36,11 @@ const session = {
 
 const renderPanel = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  const view = (environmentId = "card-1", accessToken = "admin-token", authorizationUrl = authorization.authorization_url) => (
+  const view = (
+    environmentId = "card-1",
+    accessToken = "admin-token",
+    authorizationUrl = authorization.authorization_url,
+  ) => (
     <QueryClientProvider client={client}>
       <AccountPoolAuthorizationPanel
         authorization={{ ...authorization, authorization_url: authorizationUrl }}
@@ -62,13 +66,81 @@ describe("AccountPoolAuthorizationPanel server browser", () => {
     vi.useRealTimers();
   });
 
-  it("offers only the controlled server browser for browser OAuth", () => {
+  it("offers both local and server browsers without exposing a stale authorization link", () => {
     renderPanel();
 
     expect(screen.getByRole("button", { name: "Open server browser" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Generate local browser link" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Open authorization page" })).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(authorization.ssh_command)).not.toBeInTheDocument();
     expect(screen.queryByText(authorization.authorization_url)).not.toBeInTheDocument();
+  });
+
+  it("generates and copies a fresh external link with callback instructions", async () => {
+    const freshUrl = "https://auth.example.com/oauth?state=fresh";
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    postMock.mockReset().mockResolvedValue({ ...authorization, authorization_url: freshUrl });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
+
+    const link = await screen.findByRole("button", { name: "Open in this browser" });
+    expect(link).toHaveAttribute("href", freshUrl);
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(screen.getByDisplayValue(freshUrl)).toBeInTheDocument();
+    expect(screen.getByText(authorization.ssh_command)).toBeInTheDocument();
+    expect(postMock).toHaveBeenCalledWith("/account_pool/environments/card-1/authorize", {
+      accessToken: "admin-token",
+      headers: { "Idempotency-Key": expect.any(String) },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Copy authorization link" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(freshUrl));
+    expect(screen.queryByTitle("Server OAuth browser")).not.toBeInTheDocument();
+  });
+
+  it("shows external authorization failures and allows retry", async () => {
+    postMock.mockReset().mockRejectedValue(new Error("Authorization unavailable"));
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Authorization unavailable");
+    expect(screen.queryByRole("button", { name: "Open in this browser" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate local browser link" })).toBeEnabled();
+  });
+
+  it("removes the external link when starting a server browser and requires a fresh link after stopping", async () => {
+    postMock
+      .mockReset()
+      .mockResolvedValueOnce(authorization)
+      .mockResolvedValueOnce({ ...session, ticket: "ticket" })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ ...authorization, authorization_url: "https://auth.example.com/new" });
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
+    await screen.findByRole("button", { name: "Open in this browser" });
+    fireEvent.click(screen.getByRole("button", { name: "Open server browser" }));
+    await screen.findByTitle("Server OAuth browser");
+
+    expect(screen.queryByRole("button", { name: "Open in this browser" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate local browser link" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Stop server browser" }));
+    await waitFor(() => expect(screen.queryByTitle("Server OAuth browser")).not.toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
+    expect(await screen.findByRole("button", { name: "Open in this browser" })).toHaveAttribute(
+      "href",
+      "https://auth.example.com/new",
+    );
+  });
+
+  it("discards the external link when switching account or user", async () => {
+    postMock.mockReset().mockResolvedValue(authorization);
+    const { rerender, view } = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
+    await screen.findByRole("button", { name: "Open in this browser" });
+
+    rerender(view("card-2", "another-admin"));
+    expect(screen.queryByRole("button", { name: "Open in this browser" })).not.toBeInTheDocument();
   });
 
   it("embeds the ticket-free noVNC URL and stops the session on cancellation", async () => {
