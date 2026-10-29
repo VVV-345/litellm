@@ -10,13 +10,15 @@ import sys
 from pathlib import Path
 from typing import Final, Protocol, cast
 
+from release_platforms import parse_architectures
+
 REPOSITORY: Final = "ghcr.io/vvv-345/litellm-cliproxyapi"
 COMPONENTS: Final = ("litellm", "manager", "browser-worker", "cliproxyapi")
-ARCHITECTURES: Final = ("amd64", "arm64")
 ADAPTER: Final = Path(__file__).resolve().parents[1] / "account-pool/cliproxy-adapter"
 
 
 class Arguments(Protocol):
+    architectures: str
     revision: str
     version: str
     digests: Path
@@ -59,9 +61,9 @@ def adapter_provenance() -> dict[str, object]:
     return {"source_revision": commit, "patch_sha256": patch_hash, "managed_identity_version": 1}
 
 
-def component_manifest(args: Arguments, component: str) -> dict[str, object]:
+def component_manifest(args: Arguments, component: str, architectures: tuple[str, ...]) -> dict[str, object]:
     receipt: Final = read_object(args.digests / f"{component}.json")
-    if receipt.get("image") != component or receipt.get("platforms") != ["linux/amd64", "linux/arm64"]:
+    if receipt.get("image") != component or receipt.get("platforms") != [f"linux/{arch}" for arch in architectures]:
         raise ValueError(f"{component}: incorrect component or platforms")
     digest: Final = checked(receipt.get("digest"), r"sha256:[0-9a-f]{64}", f"{component} manifest digest")
     return {
@@ -70,7 +72,7 @@ def component_manifest(args: Arguments, component: str) -> dict[str, object]:
         "platforms": receipt["platforms"],
         "platform_digests": {
             f"linux/{arch}": platform_digest(args.digests, component, arch, args.revision)
-            for arch in ARCHITECTURES
+            for arch in architectures
         },
         **(adapter_provenance() if component == "cliproxyapi" else {"source_revision": args.revision}),
     }
@@ -78,12 +80,14 @@ def component_manifest(args: Arguments, component: str) -> dict[str, object]:
 
 def main() -> int:
     parser: Final = argparse.ArgumentParser()
+    parser.add_argument("--architectures", required=True)
     parser.add_argument("--revision", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--digests", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args: Final = cast(Arguments, parser.parse_args())
     try:
+        architectures: Final = parse_architectures(args.architectures)
         checked(args.revision, r"[0-9a-f]{40}", "product revision")
         checked(args.version, r"v[0-9]+\.[0-9]+(?:\.[0-9]+)?", "product version")
         manifest: Final = {
@@ -93,7 +97,7 @@ def main() -> int:
             "version": args.version,
             "deploy_tag": args.revision[:10],
             "versioned_tag": f"{args.version}-{args.revision[:10]}",
-            "images": {component: component_manifest(args, component) for component in COMPONENTS},
+            "images": {component: component_manifest(args, component, architectures) for component in COMPONENTS},
         }
         args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     except (OSError, ValueError) as error:

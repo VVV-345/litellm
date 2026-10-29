@@ -3,6 +3,10 @@ name: Publish deployment images
 on:
   workflow_call:
     inputs:
+      architectures:
+        description: 'amd64、arm64 或 amd64,arm64；留空使用仓库变量，未设置时为 arm64'
+        required: false
+        type: string
       source_ref:
         required: false
         type: string
@@ -12,6 +16,15 @@ on:
         type: string
   workflow_dispatch:
     inputs:
+      architectures:
+        description: '构建目标架构'
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - amd64
+          - amd64,arm64
       source_ref:
         description: '要构建的分支或完整 commit，留空使用当前工作流版本'
         required: false
@@ -47,6 +60,7 @@ jobs:
     name: Resolve deployment version
     runs-on: ubuntu-latest
     outputs:
+      architectures: ${{ steps.platforms.outputs.architectures }}
       deploy_tag: ${{ steps.version.outputs.deploy_tag }}
       revision: ${{ steps.version.outputs.revision }}
       release_version: ${{ steps.version.outputs.release_version }}
@@ -61,6 +75,12 @@ jobs:
           ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
           fetch-depth: 0
+      - id: platforms
+        name: Validate the selected build architectures
+        env:
+          ARCHITECTURES: ${{ inputs.architectures || vars.DEPLOY_ARCHITECTURES || 'arm64' }}
+        run: python deploy/release_platforms.py "$ARCHITECTURES" >> "$GITHUB_OUTPUT"
+
       - id: version
         name: Resolve next successful product version and immutable deployment tag
         shell: bash
@@ -176,51 +196,25 @@ jobs:
   build-and-publish:
     name: Build ${{ matrix.image }} (${{ matrix.arch }})
     needs: [version, verify-quota]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
+        image: [litellm, manager, browser-worker, cliproxyapi]
+        arch: ${{ fromJSON(needs.version.outputs.architectures) }}
         include:
           - image: litellm
             context: .
             file: Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: litellm
-            context: .
-            file: Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
           - image: manager
             context: account-pool
             file: account-pool/Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: manager
-            context: account-pool
-            file: account-pool/Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
           - image: browser-worker
             context: account-pool
             file: account-pool/browser-worker/Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: browser-worker
-            context: account-pool
-            file: account-pool/browser-worker/Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
           - image: cliproxyapi
             context: cliproxy-src
             file: cliproxy-src/Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: cliproxyapi
-            context: cliproxy-src
-            file: cliproxy-src/Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
     steps:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -325,7 +319,7 @@ jobs:
           retention-days: 1
 
   publish-manifest:
-    name: Publish ${{ matrix.image }} multi-arch SHA manifest
+    name: Publish ${{ matrix.image }} selected-platform SHA manifest
     needs: [version, build-and-publish]
     runs-on: ubuntu-latest
     strategy:
@@ -349,11 +343,15 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           DEPLOY_TAG: ${{ needs.version.outputs.deploy_tag }}
+          ARCHITECTURES: ${{ needs.version.outputs.architectures }}
         run: |
           ref="${IMAGE_REPOSITORY}:${IMAGE}-${DEPLOY_TAG}"
-          amd64_digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-amd64.json")"
-          arm64_digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-arm64.json")"
-          docker buildx imagetools create --dry-run "${IMAGE_REPOSITORY}@${amd64_digest}" "${IMAGE_REPOSITORY}@${arm64_digest}" > /tmp/proposed.json
+          sources=()
+          while IFS= read -r arch; do
+            digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-${arch}.json")"
+            sources+=("${IMAGE_REPOSITORY}@${digest}")
+          done < <(jq -r ".[]" <<< "$ARCHITECTURES")
+          docker buildx imagetools create --dry-run "${sources[@]}" > /tmp/proposed.json
           if docker buildx imagetools inspect "$ref" --raw > /tmp/existing.json 2>/tmp/inspect-error; then
             diff <(jq -S '.manifests | sort_by(.digest)' /tmp/proposed.json) <(jq -S '.manifests | sort_by(.digest)' /tmp/existing.json)
           else
@@ -361,13 +359,14 @@ jobs:
               cat /tmp/inspect-error >&2
               exit 1
             fi
-            docker buildx imagetools create --tag "$ref" "${IMAGE_REPOSITORY}@${amd64_digest}" "${IMAGE_REPOSITORY}@${arm64_digest}"
+            docker buildx imagetools create --tag "$ref" "${sources[@]}"
           fi
           docker buildx imagetools inspect "$ref" --raw > /tmp/published.json
           diff <(jq -S '.manifests | sort_by(.digest)' /tmp/proposed.json) <(jq -S '.manifests | sort_by(.digest)' /tmp/published.json)
           digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
           jq --arg image "$IMAGE" --arg digest "$digest" '{image: $image, digest: $digest, platforms: [.manifests[].platform | select(.os == "linux") | .os + "/" + .architecture] | unique | sort}' /tmp/published.json > "/tmp/image-digests/${IMAGE}.json"
-          jq -e '.platforms == ["linux/amd64", "linux/arm64"]' "/tmp/image-digests/${IMAGE}.json"
+          platforms="$(jq -c 'map("linux/" + .) | sort' <<< "$ARCHITECTURES")"
+          jq -e --argjson platforms "$platforms" '.platforms == $platforms' "/tmp/image-digests/${IMAGE}.json"
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: release-digest-${{ matrix.image }}
@@ -389,11 +388,14 @@ jobs:
           pattern: '*-digest-*'
           path: /tmp/image-digests
           merge-multiple: true
-      - name: Require all eight probes and four multi-arch manifests
+      - name: Require every selected platform probe and all four manifests
         env:
           REVISION: ${{ needs.version.outputs.revision }}
           RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
-        run: python deploy/release_manifest.py --revision "$REVISION" --version "$RELEASE_VERSION" --digests /tmp/image-digests --output /tmp/release-manifest.json
+          ARCHITECTURES: ${{ needs.version.outputs.architectures }}
+        run: |
+          architectures="$(jq -r 'join(",")' <<< "$ARCHITECTURES")"
+          python deploy/release_manifest.py --architectures "$architectures" --revision "$REVISION" --version "$RELEASE_VERSION" --digests /tmp/image-digests --output /tmp/release-manifest.json
       - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
           name: release-manifest-${{ needs.version.outputs.versioned_tag }}

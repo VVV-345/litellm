@@ -118,7 +118,9 @@ gh run list --repo VVV-345/litellm --commit FULL_COMMIT --limit 5
 gh run view RUN_ID --repo VVV-345/litellm --json status,conclusion,headSha,jobs
 ```
 
-`FULL_COMMIT`、`RUN_ID` 必须替换为本次核验值。核对 `Publish deployment images` 的 headSha 和结论；LiteLLM、Manager、Browser Worker 的 amd64/arm64 以及共享多架构 manifest 均完成后，记录前 10 位 TAG。文档更新、特性分支 push、拉取成功不能冒充发布验收
+`FULL_COMMIT`、`RUN_ID` 必须替换为本次核验值。核对 `Publish deployment images` 的 headSha 和结论；LiteLLM、Manager、Browser Worker、CLIProxyAPI 四个组件在本次所选架构上的构建、探测及 manifest 校验均完成后，记录前 10 位 TAG。文档更新、特性分支 push、拉取成功不能冒充发布验收
+
+2026-10-29 在现有 JumpServer“号池”连接实测 `lima-stbk-pool`：`uname -m` 和 Docker 均返回 `aarch64`，对应镜像平台 `linux/arm64`。当前默认构建 ARM64；工作流的 `architectures` 可选 `arm64`、`amd64` 或 `amd64,arm64`，push 默认值可通过仓库变量 `DEPLOY_ARCHITECTURES` 调整。换服务器时重新核对，确认发布清单包含目标架构后才能部署。历史双架构标签不改写、不删除
 
 ### 3.2 服务器身份、版本与空间
 

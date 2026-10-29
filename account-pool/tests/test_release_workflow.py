@@ -113,7 +113,7 @@ def test_formal_release_keeps_a_durable_non_overwritten_manifest_asset() -> None
     assert "updateRef" not in script
 
 
-def test_unified_package_builds_and_probes_all_four_components_on_both_platforms() -> None:
+def test_unified_package_builds_and_probes_all_four_components_on_selected_platforms() -> None:
     path: Final = Path(__file__).resolve().parents[2] / ".github/workflows/publish-deployment-images.yml"
     workflow: Final = JSON_MAP.validate_python(yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
     jobs: Final = JSON_MAP.validate_python(workflow["jobs"])
@@ -121,14 +121,17 @@ def test_unified_package_builds_and_probes_all_four_components_on_both_platforms
     strategy: Final = JSON_MAP.validate_python(build["strategy"])
     matrix: Final = JSON_MAP.validate_python(strategy["matrix"])
     entries: Final = STEP_LIST.validate_python(matrix["include"])
-    assert {(entry["image"], entry["arch"]) for entry in entries} == {
-        (component, arch)
-        for component in ("litellm", "manager", "browser-worker", "cliproxyapi")
-        for arch in ("amd64", "arm64")
+    assert matrix["arch"] == "${{ fromJSON(needs.version.outputs.architectures) }}"
+    assert set(STRING_LIST.validate_python(matrix["image"])) == {
+        "litellm", "manager", "browser-worker", "cliproxyapi"
     }
+    assert all("arch" not in entry for entry in entries)
+    assert build["runs-on"] == "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}"
+    assert {entry["image"] for entry in entries if "image" in entry} == set(matrix["image"])
     steps: Final = STEP_LIST.validate_python(build["steps"])
     image_build: Final = next(step for step in steps if step.get("id") == "build")
     options: Final = STRING_MAP.validate_python(image_build["with"])
+    assert options["platforms"] == "linux/${{ matrix.arch }}"
     assert "${{ env.IMAGE_REPOSITORY }}" in options["outputs"]
     assert STRING_MAP.validate_python(workflow["env"])["IMAGE_REPOSITORY"] == "ghcr.io/vvv-345/litellm-cliproxyapi"
     assert "ai.zlia.component=${{ matrix.image }}" in options["labels"]
@@ -150,3 +153,42 @@ def test_manager_expected_companion_pins_come_from_selected_product_source_metad
     labels = step["with"]["labels"]
     assert "ai.zlia.cliproxy-source-revision=${{ needs.version.outputs.cliproxy_commit }}" in labels
     assert "ai.zlia.cliproxy-patch-sha256=${{ needs.version.outputs.patch_sha256 }}" in labels
+
+
+def test_sha_manifest_uses_selected_architectures_and_preserves_immutable_tags() -> None:
+    path: Final = Path(__file__).resolve().parents[2] / ".github/workflows/publish-deployment-images.yml"
+    workflow: Final = JSON_MAP.validate_python(yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
+    jobs: Final = JSON_MAP.validate_python(workflow["jobs"])
+    manifest: Final = JSON_MAP.validate_python(jobs["publish-manifest"])
+    steps: Final = STEP_LIST.validate_python(manifest["steps"])
+    commands: Final = "\n".join(TypeAdapter(str).validate_python(step["run"]) for step in steps if "run" in step)
+    assert '${IMAGE}-${arch}.json' in commands
+    assert 'jq -r ".[]" <<< "$ARCHITECTURES"' in commands
+    assert '.platforms == $platforms' in commands
+    assert 'create --dry-run "${sources[@]}"' in commands
+    assert 'create --tag "$ref" "${sources[@]}"' in commands
+    assert "diff <(jq -S '.manifests | sort_by(.digest)' /tmp/proposed.json)" in commands
+    assert '/tmp/existing.json)' in commands
+    assert '/tmp/published.json)' in commands
+
+
+def test_workflow_exposes_architecture_selection_and_passes_it_to_all_gates() -> None:
+    path = Path(__file__).resolve().parents[2] / ".github/workflows/publish-deployment-images.yml"
+    workflow = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["architectures"]["options"] == [
+        "arm64", "amd64", "amd64,arm64"
+    ]
+    assert workflow["on"]["workflow_call"]["inputs"]["architectures"]["type"] == "string"
+    jobs = workflow["jobs"]
+    step = next(step for step in jobs["version"]["steps"] if step.get("id") == "platforms")
+    assert "inputs.architectures" in step["env"]["ARCHITECTURES"]
+    assert "vars.DEPLOY_ARCHITECTURES" in step["env"]["ARCHITECTURES"]
+    assert "'arm64'" in step["env"]["ARCHITECTURES"]
+    assert 'python deploy/release_platforms.py "$ARCHITECTURES"' in step["run"]
+    for job in ("publish-manifest", "release-manifest"):
+        step = next(step for step in jobs[job]["steps"] if "ARCHITECTURES" in step.get("env", {}))
+        assert step["env"]["ARCHITECTURES"] == "${{ needs.version.outputs.architectures }}"
+    release = next(step for step in jobs["release-manifest"]["steps"] if "run" in step)
+    assert '--architectures "$architectures"' in release["run"]
+    wrapper = yaml.load((path.parent / "publish-cliproxy-adapted-image.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
+    assert wrapper["jobs"]["publish"]["with"]["architectures"] == "${{ inputs.architectures }}"
