@@ -253,6 +253,48 @@ async def test_invalid_two_factor_text_never_echoes_secret_or_creates_tasks(tmp_
     assert "password" not in result.model_dump_json() and "bad!secret" not in result.model_dump_json()
 
 
+@pytest.mark.parametrize(
+    "content,supplier,message",
+    [
+        ("fixture@example.test----password----bad!secret", "openai_codex", "2FA 密钥必须是有效的 Base32 字符串"),
+        ("fixture@example.test----password----JBSWY3DPEHPK3PXP----extra", "openai_codex",
+         "2FA 格式应为：邮箱----供应商密码----2FA密钥，每行一个账号"),
+        ("fixture@example.test----password----JBSWY3DPEHPK3PXP", "anthropic_claude", "当前 2FA 格式仅支持 Codex 账号"),
+        ('{"platform":"openai","type":"oauth","credentials":{}}', "openai_codex",
+         "Sub2API 文件缺少 refresh_token，请重新导出完整 OAuth 凭据"),
+        ('{"refresh_token":"fixture-secret",', "openai_codex", "认证文件格式无效，请选择 CPA、Sub2API JSON 或 2FA 文本"),
+    ],
+)
+async def test_import_preserves_safe_format_error_in_preview_and_submit(tmp_path, content, supplier, message):
+    service, tasks, _, runtime, _, _ = setup_service(tmp_path)
+    request = file_request().model_copy(update={
+        "supplier": supplier, "proxy_profile_id": "onboarding-proxy",
+        "entries": (OnboardingEntry(label="export.txt", content=content),),
+    })
+    preview = await service.preview(request)
+    result = await service.submit(request)
+    assert preview == result.preview
+    assert preview[0].status == "invalid" and preview[0].message == message
+    assert not result.items and not tasks.rows and not runtime.provisioned
+    assert "fixture-secret" not in result.model_dump_json() and "bad!secret" not in result.model_dump_json()
+
+
+async def test_invalid_file_does_not_shift_expanded_accounts_or_create_a_task(tmp_path):
+    service, tasks, _, _, _, _ = setup_service(tmp_path)
+    accounts = [{**sub2api_fixture(), "credentials": {"refresh_token": f"fixture-{index}"}} for index in range(2)]
+    request = file_request().model_copy(update={"entries": (
+        OnboardingEntry(label="invalid.txt", content="fixture@example.test----password----invalid-key"),
+        OnboardingEntry(label="package.json", content=json.dumps({"accounts": accounts})),
+        OnboardingEntry(label="duplicate.json", content=json.dumps(accounts[0])),
+    )})
+    result = await service.submit(request)
+    assert [row.index for row in result.preview] == [0, 1, 2, 3]
+    assert [row.status for row in result.preview] == ["invalid", "valid", "valid", "duplicate"]
+    assert result.preview[0].message == "2FA 密钥必须是有效的 Base32 字符串"
+    assert [row.label for row in result.items] == ["import-1.json", "import-2.json"]
+    assert len(tasks.rows) == 2
+
+
 @pytest.mark.parametrize("count", [100, 101])
 def test_two_factor_export_header_does_not_count_as_an_account(count):
     from account_pool.credential_import import parse_two_factor_text

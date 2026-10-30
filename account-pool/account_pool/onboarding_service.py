@@ -89,16 +89,19 @@ def file_identity(entry: OnboardingEntry, supplier: str, secrets: EnvironmentSec
     return credential_identity(content, supplier, secrets).fingerprints
 
 
-def import_entries(request: OnboardingImport) -> tuple[OnboardingEntry, ...]:
-    def expand(entry: OnboardingEntry) -> tuple[OnboardingEntry, ...]:
+def import_entries(request: OnboardingImport) -> tuple[tuple[OnboardingEntry, ...], tuple[str | None, ...]]:
+    def expand(entry: OnboardingEntry) -> tuple[tuple[OnboardingEntry, str | None], ...]:
         if not entry.content or request.source != "auth_file" or len(entry.content.encode()) > 1024 * 1024:
-            return (entry,)
+            return ((entry, None),)
         try:
-            return expand_import_file(entry, request.supplier)
+            return tuple((item, None) for item in expand_import_file(entry, request.supplier))
+        except CredentialConflict as error:
+            return ((entry, str(error)),)
         except ValueError:
-            return (entry,)
+            return ((entry, "认证文件格式无效，请检查账号字段"),)
 
-    return tuple(item for entry in request.entries for item in expand(entry))
+    expanded: Final = tuple(item for entry in request.entries for item in expand(entry))
+    return tuple(entry for entry, _ in expanded), tuple(error for _, error in expanded)
 
 
 def target_view(target: OnboardingTarget, items: tuple[OnboardingItem, ...]) -> OnboardingTargetView:
@@ -165,10 +168,13 @@ class OnboardingService:
         return ("mailbox:" + self._secrets.derive(identity, SecretPurpose.CREDENTIAL_IDENTITY),)
 
     async def preview(self, request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
-        prepared: Final = request.model_copy(update={"entries": import_entries(request)})
-        return await self._preview(prepared)
+        entries, errors = import_entries(request)
+        prepared: Final = request.model_copy(update={"entries": entries})
+        return await self._preview(prepared, errors)
 
-    async def _preview(self, request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
+    async def _preview(
+        self, request: OnboardingImport, errors: tuple[str | None, ...] = ()
+    ) -> tuple[OnboardingPreview, ...]:
         if (
             len(request.entries) > 100
             or sum(len(entry.content.encode()) for entry in request.entries) > 8 * 1024 * 1024
@@ -181,6 +187,10 @@ class OnboardingService:
         }
 
         def inspect(index: int, entry: OnboardingEntry) -> tuple[OnboardingPreview, frozenset[str]]:
+            if errors and (message := errors[index]) is not None:
+                return OnboardingPreview(
+                    index=index, label=entry.label, status="invalid", message=message
+                ), frozenset()
             try:
                 fingerprints: Final = frozenset(self._fingerprints(request, entry))
                 return OnboardingPreview(
@@ -206,11 +216,12 @@ class OnboardingService:
         )
 
     async def submit(self, request: OnboardingImport) -> OnboardingImportResult:
-        prepared: Final = request.model_copy(update={"entries": import_entries(request)})
-        return await self._submit(prepared)
+        entries, errors = import_entries(request)
+        prepared: Final = request.model_copy(update={"entries": entries})
+        return await self._submit(prepared, errors)
 
-    async def _submit(self, request: OnboardingImport) -> OnboardingImportResult:
-        preview: Final = await self._preview(request)
+    async def _submit(self, request: OnboardingImport, errors: tuple[str | None, ...] = ()) -> OnboardingImportResult:
+        preview: Final = await self._preview(request, errors)
         for result in preview:
             if result.status != "valid":
                 continue
