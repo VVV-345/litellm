@@ -43,11 +43,18 @@ export const authFileTemplateFields = (template: AuthFileTemplate): Record<strin
 });
 
 export function mergeAuthFileTemplate(content: string, template: AuthFileTemplate): string {
+  const input = content.trimStart();
+  if (!input.startsWith("{") && !input.startsWith("[") && input.includes("----")) {
+    throw new Error("2FA 文本不适用认证模板，请取消认证模板后导入");
+  }
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
     throw new Error("认证文件必须是有效的 JSON 对象");
+  }
+  if (Array.isArray(parsed) && parsed.length > 0) {
+    throw new Error("认证模板仅支持单账号 JSON，请取消模板后导入整包");
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("认证文件必须是有效的 JSON 对象");
