@@ -248,6 +248,32 @@ describe("ProxyManagerPanel", () => {
     expect(await screen.findByText(/OpenAI API 已响应（HTTP 401）/)).toBeInTheDocument();
   });
 
+  it("clears the front binding for direct ISP and displays it after reload", async () => {
+    const user = userEvent.setup();
+    const direct = {
+      ...gateways[0],
+      isp_profile_id: "isp-1",
+      front_node_name: null,
+      current_node: "account-pool-isp-7891-test",
+    };
+    listGateways.mockResolvedValue([{ ...direct, front_node_name: "机场A" }]);
+    listNodes.mockResolvedValue([{ name: "机场A", proxy_type: "Shadowsocks" }]);
+    listIsps.mockResolvedValue([ispProfile]);
+    bindFront.mockImplementation(async () => {
+      listGateways.mockResolvedValue([direct]);
+      return direct;
+    });
+    renderPanel();
+    await user.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
+    await user.click(await screen.findByRole("combobox", { name: "机场前置：Clash 端口 7891" }));
+    await user.click(screen.getByRole("option", { name: "无前置，ISP 直连" }));
+    await waitFor(() => expect(bindFront).toHaveBeenCalledWith("token", 7891, null));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "机场前置：Clash 端口 7891" })).toHaveTextContent("无前置，ISP 直连"),
+    );
+    expect(screen.queryByText("ISP 链路未就绪，端口已阻断：ISP A")).not.toBeInTheDocument();
+  });
+
   it("shows a blocked gateway when its saved front node is missing", async () => {
     listGateways.mockResolvedValue([
       { ...gateways[0], isp_profile_id: "isp-1", front_node_name: "missing-airport", current_node: "REJECT" },

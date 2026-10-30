@@ -498,7 +498,7 @@ interface GatewayRowProps {
   disabled: boolean;
   onSelectNode: (nodeName: string) => void;
   onBindISP: (profileId: string) => void;
-  onBindFront: (nodeName: string) => void;
+  onBindFront: (nodeName: string | null) => void;
   onDelete: () => void;
 }
 
@@ -549,7 +549,7 @@ const GatewayRow = ({
   const selectedValue = gateway.isp_profile_id ? `isp:${gateway.isp_profile_id}` : selectedNodeValue;
   const chainBound = gateway.isp_profile_id != null;
   const frontAvailable =
-    gateway.front_node_name != null && nodeOptions.some((node) => node.name === gateway.front_node_name);
+    gateway.front_node_name == null || nodeOptions.some((node) => node.name === gateway.front_node_name);
   const chainReady = chainBound && boundISP?.enabled === true && frontAvailable;
   const currentNodeLabel = gateway.current_node
     ? t("accountPool.proxyGateways.currentNode", { node: gateway.current_node })
@@ -644,9 +644,10 @@ const GatewayRow = ({
         {gateway.isp_profile_id && (
           <div className="flex min-w-0 gap-1">
             <Select
-              value={gateway.front_node_name ?? undefined}
+              value={gateway.front_node_name == null ? "direct" : `node:${gateway.front_node_name}`}
               onValueChange={(value) => {
-                if (value) onBindFront(value);
+                if (value === "direct") onBindFront(null);
+                else if (value?.startsWith("node:")) onBindFront(value.slice(5));
               }}
               disabled={disabled}
             >
@@ -654,11 +655,12 @@ const GatewayRow = ({
                 className="w-full"
                 aria-label={t("accountPool.proxyGateways.selectFront", { name: gateway.name })}
               >
-                <SelectValue placeholder={t("accountPool.proxyGateways.selectFrontPlaceholder")} />
+                <SelectValue>{gateway.front_node_name ?? t("accountPool.proxyGateways.directISP")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="direct">{t("accountPool.proxyGateways.directISP")}</SelectItem>
                 {nodeOptions.map((node) => (
-                  <SelectItem key={node.name} value={node.name}>
+                  <SelectItem key={node.name} value={`node:${node.name}`}>
                     {node.name}
                   </SelectItem>
                 ))}

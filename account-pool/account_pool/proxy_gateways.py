@@ -582,14 +582,16 @@ class ProxyGatewayService:
             profile_id is None
             or profile is None
             or not self._isp_profile_active(profile, date.today())
-            or front_node_name is None
-            or front_node_name not in available_nodes
+            or (front_node_name is not None and front_node_name not in available_nodes)
         ):
             raise ClashError("gateway ISP chain is not active")
         chain_name: Final = self.isp_node_name(profile_id, port)
         try:
             selected_isp: Final = await self._controller.selector_current(self._selector_name(port))
-            selected_front: Final = await self._controller.selector_current(self.front_selector_name(port))
+            selected_front: Final = (
+                await self._controller.selector_current(self.front_selector_name(port))
+                if front_node_name is not None else None
+            )
         except ClashError as error:
             raise ClashError("gateway ISP chain is not active") from error
         if selected_isp != chain_name or selected_front != front_node_name:
@@ -661,8 +663,7 @@ class ProxyGatewayService:
             profile_bound
             and profile is not None
             and self._isp_profile_active(profile, today)
-            and front_node_name is not None
-            and front_node_name in available_nodes
+            and (front_node_name is None or front_node_name in available_nodes)
         )
         chain_name: Final = None if profile is None else self.isp_node_name(profile.id, port)
         updated_proxies: Final = tuple(
@@ -677,7 +678,8 @@ class ProxyGatewayService:
         chain_proxy: Final = (
             ()
             if not chain_active or profile is None or chain_name is None
-            else (self._isp_proxy_config(profile, chain_name, front_selector),)
+            # 显式 DIRECT 只直连 ISP 服务器，覆盖订阅自带的 dialer-proxy，目标请求仍经过 ISP。
+            else (self._isp_proxy_config(profile, chain_name, "DIRECT" if front_node_name is None else front_selector),)
         )
         available_choices: Final = [*sorted(available_nodes), "REJECT"]
         gateway_choices: Final = (
