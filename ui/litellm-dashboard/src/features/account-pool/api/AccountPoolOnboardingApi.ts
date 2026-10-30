@@ -50,7 +50,8 @@ export const onboardingStates: Record<OnboardingItem["state"], string> = {
 export function parseMailboxAccounts(text: string): OnboardingImport["entries"] {
   const input = text.replace(/^\uFEFF/, "").trim();
   if (!input.startsWith("{") && !input.startsWith("[") && input.includes("----")) {
-    const lines = input.split(/\r?\n/).filter((line) => line.trim());
+    const nonemptyLines = input.split(/\r?\n/).filter((line) => line.trim());
+    const lines = nonemptyLines[0]?.trim() === "卡密导出" ? nonemptyLines.slice(1) : nonemptyLines;
     if (lines.length > 100) throw new Error("每批最多导入 100 个账号");
     return lines.map((line) => {
       const fields = line.trim().split("----");

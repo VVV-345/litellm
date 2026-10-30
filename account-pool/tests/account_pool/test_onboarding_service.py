@@ -172,11 +172,12 @@ def sub2api_fixture():
 
 
 @pytest.mark.parametrize("wrapped", [False, True])
-async def test_sub2api_batch_normalizes_tokens_before_ownership_and_upload(tmp_path, wrapped):
+@pytest.mark.parametrize("filename", ["sub2.json", "sub2.txt"])
+async def test_sub2api_batch_normalizes_tokens_before_ownership_and_upload(tmp_path, wrapped, filename):
     service, _, _, _, cli, _ = setup_service(tmp_path)
     account = sub2api_fixture()
     content = json.dumps({"accounts": [account], "proxies": []} if wrapped else account)
-    request = file_request().model_copy(update={"entries": (OnboardingEntry(label="sub2.json", content=content),)})
+    request = file_request().model_copy(update={"entries": (OnboardingEntry(label=filename, content=content),)})
     result = await service.submit(request)
     assert result.preview[0].status == "valid"
     await service.run_once()
@@ -205,13 +206,14 @@ async def test_sub2api_single_upload_uses_the_same_normalization(tmp_path):
     assert json.loads(cli.upload_calls[0][2])["account_id"] == "fixture-account"
 
 
-async def test_two_factor_text_creates_encrypted_oauth_tasks_without_fake_auth_files(tmp_path):
+@pytest.mark.parametrize("prefix", ["", "卡密导出\n\n", "\ufeff \r\n 卡密导出 \r\n\r\n"])
+async def test_two_factor_text_creates_encrypted_oauth_tasks_without_fake_auth_files(tmp_path, prefix):
     service, tasks, _, _, cli, _ = setup_service(tmp_path)
     content = "first@example.test----fixture-password----JBSWY3DPEHPK3PXP\r\nsecond@example.test----other-password----JBSWY3DPEHPK3PXP"
     request = file_request().model_copy(
         update={
             "proxy_profile_id": "onboarding-proxy",
-            "entries": (OnboardingEntry(label="accounts.txt", content=content),),
+            "entries": (OnboardingEntry(label="accounts.txt", content=prefix + content),),
         }
     )
     result = await service.submit(request)
@@ -233,6 +235,8 @@ async def test_two_factor_text_creates_encrypted_oauth_tasks_without_fake_auth_f
     [
         "fixture@example.test----password----bad!secret",
         "fixture@example.test----password----JBSWY3DPEHPK3PXP----extra",
+        "卡密导出\n\nfixture@example.test----password----JBSWY3DPEHPK3PXP\ninvalid-account",
+        "fixture@example.test----password----JBSWY3DPEHPK3PXP\n卡密导出",
     ],
 )
 async def test_invalid_two_factor_text_never_echoes_secret_or_creates_tasks(tmp_path, content):
@@ -247,6 +251,21 @@ async def test_invalid_two_factor_text_never_echoes_secret_or_creates_tasks(tmp_
     assert result.preview[0].status == "invalid"
     assert not result.items and not runtime.provisioned
     assert "password" not in result.model_dump_json() and "bad!secret" not in result.model_dump_json()
+
+
+@pytest.mark.parametrize("count", [100, 101])
+def test_two_factor_export_header_does_not_count_as_an_account(count):
+    from account_pool.credential_import import parse_two_factor_text
+    from account_pool.credential_ownership import CredentialConflict
+
+    content = "卡密导出\n\n" + "\n".join(
+        f"fixture-{index}@example.test----password----JBSWY3DPEHPK3PXP" for index in range(count)
+    )
+    if count == 100:
+        assert len(parse_two_factor_text(content, "openai_codex")) == 100
+    else:
+        with pytest.raises(CredentialConflict):
+            parse_two_factor_text(content, "openai_codex")
 
 
 async def test_two_factor_import_requires_proxy_and_rejects_wrong_provider(tmp_path):

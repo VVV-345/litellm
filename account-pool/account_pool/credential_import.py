@@ -44,7 +44,8 @@ def validate_two_factor_entry(entry: OnboardingEntry, supplier: str) -> None:
 
 
 def parse_two_factor_text(content: str, supplier: str) -> tuple[OnboardingEntry, ...]:
-    lines: Final = tuple(line.strip() for line in content.lstrip("\ufeff").splitlines() if line.strip())
+    nonempty_lines: Final = tuple(line.strip() for line in content.lstrip("\ufeff").splitlines() if line.strip())
+    lines: Final = nonempty_lines[1:] if nonempty_lines and nonempty_lines[0] == "卡密导出" else nonempty_lines
     if not 1 <= len(lines) <= 100:
         raise CredentialConflict("每批最多导入 100 个账号")
 

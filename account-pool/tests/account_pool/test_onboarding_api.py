@@ -1,6 +1,7 @@
 """检查新接口的权限、凭据防回显及代理协议一致性。"""
 
 import httpx
+import pytest
 from account_pool.api import create_router
 from account_pool.domain import EnvironmentStatus, ProxyMode
 from fastapi import FastAPI
@@ -8,7 +9,8 @@ from test_account_pool import _record
 from test_onboarding_service import oauth_request, setup_service
 
 
-async def test_single_two_factor_upload_reuses_card_and_keeps_secrets_out_of_response(tmp_path):
+@pytest.mark.parametrize("prefix", ["", "卡密导出\n\n", "\ufeff \r\n 卡密导出 \r\n\r\n"])
+async def test_single_two_factor_upload_reuses_card_and_keeps_secrets_out_of_response(tmp_path, prefix):
     service, tasks, environments, _, cli, environment_service = setup_service(tmp_path)
     record = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
         update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "onboarding-proxy"}
@@ -26,7 +28,7 @@ async def test_single_two_factor_upload_reuses_card_and_keeps_secrets_out_of_res
                 files={
                     "file": (
                         "account.txt",
-                        b"fixture@example.test----fixture-password----JBSWY3DPEHPK3PXP",
+                        (prefix + "fixture@example.test----fixture-password----JBSWY3DPEHPK3PXP").encode(),
                         "text/plain",
                     )
                 },
