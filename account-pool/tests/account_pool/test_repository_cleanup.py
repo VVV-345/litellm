@@ -9,10 +9,11 @@ from uuid import UUID, uuid4
 
 import psycopg
 import pytest
-from account_pool.domain import ChannelKind, ModelCooldown, SupplierKind, utc_now
+from account_pool.domain import ChannelKind, EnvironmentStatus, ModelCooldown, SupplierKind, utc_now
 from account_pool.gateway_contracts import Lease
 from account_pool.gateway_repository import _release_lease, reserve_token_budget, settle_model_cooldowns
 from account_pool.repository import _delete_environment
+from test_account_pool import _record
 
 
 @dataclass
@@ -145,6 +146,68 @@ def test_model_cooldown_preserves_other_models_and_newer_concurrent_failures() -
     assert settle_model_cooldowns(failed, probe, 0, True, now + timedelta(seconds=62)) == (other,)
     repeated = settle_model_cooldowns(failed, active, 1, False, now)
     assert repeated == failed
+
+
+def test_repeated_model_timeouts_cool_across_minutes_and_ignore_stale_results() -> None:
+    account_id: Final = uuid4()
+    card_id: Final = uuid4()
+    started: Final = utc_now()
+    first_lease: Final = lease(card_id, account_id).model_copy(update={"started_at": started})
+    first: Final = settle_model_cooldowns((), first_lease, 0, False, started, timeout_failure=True)
+    assert first[0].consecutive_timeouts == 1
+    assert first[0].retry_at == started
+
+    second_started: Final = started + timedelta(minutes=30)
+    second_lease: Final = lease(card_id, account_id).model_copy(update={"started_at": second_started})
+    second: Final = settle_model_cooldowns(first, second_lease, 0, False, second_started, timeout_failure=True)
+    assert second[0].consecutive_timeouts == 2
+    assert second[0].retry_at == second_started
+
+    third_started: Final = second_started + timedelta(days=1)
+    third_lease: Final = lease(card_id, account_id).model_copy(update={"started_at": third_started})
+    third: Final = settle_model_cooldowns(second, third_lease, 0, False, third_started, timeout_failure=True)
+    assert third[0].consecutive_timeouts == 3
+    assert third[0].retry_at == third_started + timedelta(minutes=5)
+
+    stale_success: Final = lease(card_id, account_id).model_copy(
+        update={"started_at": third_started - timedelta(seconds=1)}
+    )
+    assert settle_model_cooldowns(third, stale_success, 0, True, third_started + timedelta(minutes=6)) == third
+
+    success_started: Final = third_started + timedelta(minutes=6)
+    success_lease: Final = lease(card_id, account_id).model_copy(update={"started_at": success_started})
+    reset: Final = settle_model_cooldowns(third, success_lease, 0, True, success_started, timeout_failure=False)
+    assert reset[0].consecutive_timeouts == 0
+    assert reset[0].retry_at == success_started
+    assert (
+        settle_model_cooldowns(
+            reset, third_lease, 0, False, success_started + timedelta(seconds=1), timeout_failure=True
+        )
+        == reset
+    )
+
+
+@pytest.mark.asyncio
+async def test_timeout_failure_persists_streak_without_an_active_cooldown() -> None:
+    request: Final = lease(uuid4(), uuid4())
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"id": request.account_id})
+
+    class CooldownConnection:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        async def execute(self, query: str, params: tuple[object, ...] = ()) -> ResultCursor:
+            statement: Final = " ".join(query.split())
+            self.statements.append(statement)
+            if statement.startswith("SELECT id, payload FROM account_pool_environments"):
+                return ResultCursor({"id": request.account_id, "payload": record.model_dump(mode="json")})
+            if statement.startswith("DELETE FROM account_pool_leases WHERE lease_id"):
+                return ResultCursor({"lease_id": request.lease_id})
+            return ResultCursor()
+
+    connection: Final = CooldownConnection()
+    await _release_lease(connection, request, 0, None, timeout_failure=True)
+    assert any("SET payload = jsonb_set" in statement for statement in connection.statements)
 
 
 @pytest.mark.asyncio

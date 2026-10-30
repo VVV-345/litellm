@@ -13,14 +13,23 @@ from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
 from account_pool.application.quota_state import routing_quota_state
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
+from account_pool.credential_import import (
+    expand_import_file,
+    normalize_auth_file,
+    parse_two_factor_text,
+    validate_two_factor_entry,
+)
 from account_pool.credential_ownership import CredentialConflict, credential_identity
 from account_pool.domain import (
     AuthorizationView,
     CreateEnvironmentRequest,
     EnvironmentRecord,
     EnvironmentStatus,
+    EnvironmentView,
+    ProxyMode,
     SupplierKind,
     UpdateEnvironmentRequest,
+    to_view,
     utc_now,
 )
 from account_pool.onboarding_models import (
@@ -69,14 +78,27 @@ def file_identity(entry: OnboardingEntry, supplier: str, secrets: EnvironmentSec
     if len(entry.content.encode()) > 1024 * 1024:
         raise CredentialConflict("单个文件不得超过 1 MiB")
     try:
-        values: Final = TypeAdapter(dict[str, JsonValue]).validate_json(entry.content)
+        content: Final = normalize_auth_file(entry.content.encode(), supplier)
+        values: Final = TypeAdapter(dict[str, JsonValue]).validate_json(content)
     except ValueError:
         raise CredentialConflict("认证文件必须是 JSON 对象") from None
     definition: Final = SupplierRegistry.default().get(SupplierKind(supplier))
     declared: Final = values.get("type") or values.get("provider")
     if declared not in (definition.auth_file_provider_key, supplier):
         raise CredentialConflict("文件供应商与所选供应商不一致，或缺少 type/provider 字段")
-    return credential_identity(entry.content.encode(), supplier, secrets).fingerprints
+    return credential_identity(content, supplier, secrets).fingerprints
+
+
+def import_entries(request: OnboardingImport) -> tuple[OnboardingEntry, ...]:
+    def expand(entry: OnboardingEntry) -> tuple[OnboardingEntry, ...]:
+        if not entry.content or request.source != "auth_file" or len(entry.content.encode()) > 1024 * 1024:
+            return (entry,)
+        try:
+            return expand_import_file(entry, request.supplier)
+        except ValueError:
+            return (entry,)
+
+    return tuple(item for entry in request.entries for item in expand(entry))
 
 
 def target_view(target: OnboardingTarget, items: tuple[OnboardingItem, ...]) -> OnboardingTargetView:
@@ -129,9 +151,13 @@ class OnboardingService:
         return OnboardingPayload.model_validate_json(self._cipher.open(row.item.id, row.ciphertext))
 
     def _fingerprints(self, request: OnboardingImport, entry: OnboardingEntry) -> tuple[str, ...]:
-        if request.source == "auth_file":
+        if entry.totp_secret:
+            validate_two_factor_entry(entry, request.supplier)
+            if request.proxy_profile_id is None or entry.content:
+                raise CredentialConflict("2FA 登录资料必须选择 OAuth 出站代理，且不能混入认证 Token")
+        elif request.source == "auth_file":
             return file_identity(entry, request.supplier, self._secrets)
-        if entry.content or not entry.mailbox_password:
+        elif entry.content or not entry.mailbox_password:
             raise CredentialConflict("OAuth 账号需要邮箱密码，不接受认证 JSON 内容")
         if entry.label.count("@") != 1 or any(char.isspace() for char in entry.label):
             raise CredentialConflict("邮箱格式不正确")
@@ -139,6 +165,15 @@ class OnboardingService:
         return ("mailbox:" + self._secrets.derive(identity, SecretPurpose.CREDENTIAL_IDENTITY),)
 
     async def preview(self, request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
+        prepared: Final = request.model_copy(update={"entries": import_entries(request)})
+        return await self._preview(prepared)
+
+    async def _preview(self, request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
+        if (
+            len(request.entries) > 100
+            or sum(len(entry.content.encode()) for entry in request.entries) > 8 * 1024 * 1024
+        ):
+            return (OnboardingPreview(index=0, label="本批次", status="invalid", message="每批最多 100 个账号、8 MiB"),)
         rows: Final = await self.repository.list()
         records: Final = await self._environments.list()
         known: Final = {key for row in rows for key in row.fingerprints} | {
@@ -149,7 +184,12 @@ class OnboardingService:
             try:
                 fingerprints: Final = frozenset(self._fingerprints(request, entry))
                 return OnboardingPreview(
-                    index=index, label=entry.label, status="valid", message="校验通过，提交后验证实际可用性"
+                    index=index,
+                    label=entry.label,
+                    status="valid",
+                    message="已识别 2FA 登录资料，导入后需完成 OAuth 授权"
+                    if entry.totp_secret
+                    else "校验通过，提交后验证实际可用性",
                 ), fingerprints
             except CredentialConflict as error:
                 return OnboardingPreview(
@@ -166,7 +206,11 @@ class OnboardingService:
         )
 
     async def submit(self, request: OnboardingImport) -> OnboardingImportResult:
-        preview: Final = await self.preview(request)
+        prepared: Final = request.model_copy(update={"entries": import_entries(request)})
+        return await self._submit(prepared)
+
+    async def _submit(self, request: OnboardingImport) -> OnboardingImportResult:
+        preview: Final = await self._preview(request)
         for result in preview:
             if result.status != "valid":
                 continue
@@ -175,7 +219,7 @@ class OnboardingService:
             now: Final = utc_now()
             state: Final = (
                 "queued"
-                if request.source == "auth_file"
+                if request.source == "auth_file" or entry.totp_secret
                 else "awaiting_mailbox"
                 if request.prepare_mailbox
                 else "standby"
@@ -183,9 +227,9 @@ class OnboardingService:
             item: Final = OnboardingItem(
                 id=item_id,
                 job_id=request.job_id,
-                source=request.source,
+                source="oauth" if entry.totp_secret else request.source,
                 supplier=request.supplier,
-                mailbox=request.mailbox if request.source == "oauth" else None,
+                mailbox="mail" if entry.totp_secret else request.mailbox if request.source == "oauth" else None,
                 label=entry.label,
                 state=state,
                 message="等待后台处理" if state == "queued" else "等待邮箱准备或启动授权",
@@ -195,7 +239,7 @@ class OnboardingService:
             )
             payload: Final = OnboardingPayload(
                 entry=entry,
-                mailbox_ready=not request.prepare_mailbox,
+                mailbox_ready=bool(entry.totp_secret) or not request.prepare_mailbox,
                 proxy_profile_id=request.proxy_profile_id,
             )
             await self.repository.insert(
@@ -254,6 +298,7 @@ class OnboardingService:
                 mailbox_password=payload.entry.mailbox_password,
                 supplier_password=payload.entry.supplier_password,
                 proposed_password=payload.proposed_password,
+                totp_secret=payload.entry.totp_secret,
             )
         )
 
@@ -271,6 +316,8 @@ class OnboardingService:
                     )
                 )
             if request.action in ("mailbox_ready", "generate_password"):
+                if self._payload(row).entry.totp_secret:
+                    return Failure(FailureCode.CONFLICT, "2FA 文件是供应商登录资料，不用于修改邮箱密码")
                 if row.item.source != "oauth" or row.item.state not in (
                     "awaiting_mailbox",
                     "standby",
@@ -324,6 +371,74 @@ class OnboardingService:
         )
         await self.repository.save(row.model_copy(update={"item": item}))
         return item
+
+    async def import_login_file(self, card_id: UUID, content: str) -> Result[EnvironmentView]:
+        async with self.repository.worker_lock() as acquired:
+            if not acquired:
+                return Failure(FailureCode.CONFLICT, "后台正在处理卡片，请稍后重试")
+            record: Final = await self._environments.get(card_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "卡片不存在")
+            if record.auth_file_name or record.credential_fingerprints:
+                return Failure(FailureCode.CONFLICT, "2FA 登录资料不能直接替换有效凭据，请使用空卡片或批量上号")
+            if not record.enabled or record.manual_cooldown or record.status is EnvironmentStatus.DELETING:
+                return Failure(FailureCode.CONFLICT, "卡片已停用、冷却或删除")
+            if record.proxy_mode is not ProxyMode.PROFILE or not record.proxy_profile_id:
+                return Failure(FailureCode.CONFLICT, "请先为卡片选择 OAuth 出站代理")
+            try:
+                entries: Final = parse_two_factor_text(content, record.supplier.value)
+            except CredentialConflict as error:
+                return Failure(FailureCode.INVALID, str(error))
+            if len(entries) != 1:
+                return Failure(FailureCode.INVALID, "单张卡片只能导入一个账号，多行文本请使用批量上号")
+            request: Final = OnboardingImport(
+                job_id=uuid5(card_id, "2fa-import"),
+                source="oauth",
+                supplier=record.supplier.value,
+                proxy_profile_id=record.proxy_profile_id,
+                prepare_mailbox=False,
+                entries=entries,
+            )
+            keys: Final = self._fingerprints(request, entries[0])
+            existing: Final = tuple(row for row in await self.repository.list() if row.item.card_id == card_id)
+            if existing:
+                if existing[0].fingerprints != keys or self._payload(existing[0]).entry != entries[0]:
+                    return Failure(FailureCode.CONFLICT, "该卡片已有不同的上号资料，请在原任务中继续")
+                return Success(to_view(record))
+            checked: Final = await self._preview(request)
+            if checked[0].status != "valid":
+                return Failure(FailureCode.CONFLICT, checked[0].message)
+            now: Final = utc_now()
+            item_id: Final = uuid5(request.job_id, "0")
+            item: Final = OnboardingItem(
+                id=item_id,
+                job_id=request.job_id,
+                source="oauth",
+                supplier=request.supplier,
+                mailbox="mail",
+                label=entries[0].label,
+                state="queued",
+                message="登录资料已保存，等待 OAuth 授权",
+                card_id=card_id,
+                created_at=now,
+                updated_at=now,
+            )
+            payload: Final = OnboardingPayload(
+                entry=entries[0], mailbox_ready=True, proxy_profile_id=record.proxy_profile_id
+            )
+            row: Final = StoredOnboarding(
+                item=item, ciphertext=self._cipher.seal(item_id, payload.model_dump_json()), fingerprints=keys
+            )
+            if not await self.repository.insert(row):
+                return Failure(FailureCode.CONFLICT, "账号已有上号任务，请在原任务中继续")
+            authorization: Final = await self._service.authorize_environment(
+                card_id, operation_id=f"onboarding:{item_id}", require_empty=True
+            )
+            if isinstance(authorization, Failure):
+                await self._save(row, "failed", "授权启动失败，登录资料已保存，请检查原卡片后重试")
+                return authorization
+            await self._save(row, "awaiting_authorization", "登录资料已保存，请完成登录和二次验证")
+            return Success(authorization.value.environment)
 
     async def targets(self) -> tuple[OnboardingTargetView, ...]:
         items: Final = tuple(row.item for row in await self.repository.list())
@@ -379,6 +494,8 @@ class OnboardingService:
         result_oauth: Final = (
             await self._service.create_environment(request, environment_id=row.item.card_id)
             if existing is None
+            else await self._service.authorize_environment(row.item.card_id, require_empty=True)
+            if payload.entry.totp_secret
             else await self._service.resume_onboarding_oauth(row.item.card_id)
         )
         await self._save(

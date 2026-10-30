@@ -5,16 +5,30 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { fetchDashboardBuildId } from "@/lib/http/client";
 import { confirmDiscardChanges } from "@/lib/useUnsavedChanges";
-import { isModuleLoadError, MODULE_ERROR_EVENT } from "@/lib/dashboardRecovery";
+import { canChunkReload, isModuleLoadError, MODULE_ERROR_EVENT, takeChunkReload } from "@/lib/dashboardRecovery";
+
+const recoveryMessage = (capped: boolean, newBuild: boolean): string => {
+  if (capped) return "dashboardRecovery.reloadLimited";
+  if (newBuild) return "dashboardRecovery.newVersion";
+  return "dashboardRecovery.moduleFailed";
+};
 
 export function updateDashboard() {
-  if (confirmDiscardChanges()) window.location.reload();
+  if (!canChunkReload()) return;
+  if (!confirmDiscardChanges()) return;
+  if (!takeChunkReload()) return;
+  window.location.reload();
 }
 
 export default function DashboardRecovery() {
   const { t } = useTranslation();
   const [newBuild, setNewBuild] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [capped, setCapped] = useState(() => !canChunkReload());
+  const reload = () => {
+    updateDashboard();
+    if (!canChunkReload()) setCapped(true);
+  };
   useEffect(() => {
     let lastCheck = -Infinity;
     let pending: AbortController | undefined;
@@ -92,16 +106,18 @@ export default function DashboardRecovery() {
   if (!newBuild && !failed) return null;
   return (
     <aside role="alert" className="fixed top-2 right-2 z-toast max-w-md rounded-lg border bg-background p-4 shadow-lg">
-      <p>{t(newBuild ? "dashboardRecovery.newVersion" : "dashboardRecovery.moduleFailed")}</p>
+      <p>{t(recoveryMessage(capped, newBuild))}</p>
       <p className="mt-1 text-sm text-muted-foreground">{t("dashboardRecovery.keepDraft")}</p>
-      <div className="mt-3 flex gap-2">
-        {failed && (
-          <Button variant="outline" onClick={updateDashboard}>
-            {t("dashboardRecovery.retry")}
-          </Button>
-        )}
-        <Button onClick={updateDashboard}>{t("dashboardRecovery.update")}</Button>
-      </div>
+      {!capped && (
+        <div className="mt-3 flex gap-2">
+          {failed && (
+            <Button variant="outline" onClick={reload}>
+              {t("dashboardRecovery.retry")}
+            </Button>
+          )}
+          <Button onClick={reload}>{t("dashboardRecovery.update")}</Button>
+        </div>
+      )}
     </aside>
   );
 }

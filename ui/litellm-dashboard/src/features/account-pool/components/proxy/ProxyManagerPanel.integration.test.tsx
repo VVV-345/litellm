@@ -184,7 +184,7 @@ describe("ProxyManagerPanel", () => {
     expect(refreshIspSubscription).toHaveBeenCalledWith("token");
   });
 
-  it("labels ISP sources and keeps subscription-managed profiles read-only", async () => {
+  it("edits subscription metadata without exposing provider-managed fields", async () => {
     const subscriptionProfile: AccountPoolISPProxy = {
       id: "subscription-1",
       name: "Subscription ISP",
@@ -205,8 +205,22 @@ describe("ProxyManagerPanel", () => {
     expect(await screen.findByText("来源：手动")).toBeInTheDocument();
     expect(screen.getByText("来源：订阅")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "编辑 ISP A" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "编辑 Subscription ISP" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "删除 Subscription ISP" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "编辑 Subscription ISP" }));
+    expect(screen.queryByLabelText("主机")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("用户名")).not.toBeInTheDocument();
+    expect(screen.getByText(/刷新订阅会覆盖启用状态/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText("名称"), { target: { value: "renamed subscription" } });
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+    await screen.findByText("ISP 配置已保存");
+    expect(updateIsp).toHaveBeenCalledWith("token", "subscription-1", {
+      name: "renamed subscription",
+      enabled: true,
+      clear_credentials: false,
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "删除 Subscription ISP" }));
+    await waitFor(() => expect(deleteIsp).toHaveBeenCalledWith("token", "subscription-1"));
+    confirm.mockRestore();
   });
 
   it("shows separate front selectors and reports an OpenAI 401 response for each ISP gateway", async () => {
@@ -284,6 +298,7 @@ describe("ProxyManagerPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     expect(await screen.findByText("ISP 链路未就绪，端口已阻断：ISP A")).toBeInTheDocument();
+    expect(screen.getByText("请选择可用的机场前置节点以恢复 ISP 链路，不会自动直连 ISP")).toBeVisible();
   });
 
   it("keeps ISP and configuration visible with port settings collapsed until opened", async () => {
@@ -695,10 +710,10 @@ describe("ProxyManagerPanel", () => {
     await i18n.changeLanguage("zh-CN");
     probeIsp.mockReset();
     listIsps.mockResolvedValue(
-      ["A", "B"].map((name) => ({
+      ["A", "Subscription", "B"].map((name) => ({
         id: name,
         name,
-        source: "manual",
+        source: name === "Subscription" ? "subscription" : "manual",
         protocol: "http",
         host: "proxy.test",
         port: 8080,
@@ -724,7 +739,42 @@ describe("ProxyManagerPanel", () => {
     expect(screen.getByRole("button", { name: "检测全部 ISP" })).toBeDisabled();
     await act(async () => pending.reject(new Error("unavailable")));
     expect(await screen.findByText("连通状态：超时")).toBeVisible();
-    expect(screen.getByText("连通状态：未检测")).toBeVisible();
-    expect(probeIsp).toHaveBeenNthCalledWith(2, "token", "B");
+    expect(screen.getAllByText("连通状态：未检测")).toHaveLength(2);
+    expect(probeIsp).toHaveBeenNthCalledWith(2, "token", "Subscription");
+    expect(probeIsp).toHaveBeenNthCalledWith(3, "token", "B");
+    expect(probeIsp).toHaveBeenCalledTimes(3);
+  });
+
+  it("explains unsupported subscription probes without claiming node connectivity", async () => {
+    listIsps.mockResolvedValue([
+      {
+        ...ispProfile,
+        source: "subscription",
+        protocol: null,
+        host: null,
+        port: null,
+        proxy_type: "vless",
+        last_probe: {
+          profile_id: "isp-1",
+          status: "error",
+          checked_at: "2026-10-24T00:00:00Z",
+          error: "subscription_requires_gateway",
+        },
+      },
+    ]);
+    renderPanel();
+    expect(await screen.findByText(/此订阅节点包含无法直接检测的协议或传输配置/)).toBeVisible();
+    expect(screen.getByText("连通状态：检测失败")).toBeVisible();
+    expect(screen.queryByText(/延迟 \d+ ms/)).not.toBeInTheDocument();
+  });
+
+  it("enables subscription probes and prevents deletion of bound subscription profiles", async () => {
+    listIsps.mockResolvedValue([{ ...ispProfile, source: "subscription", bound_ports: [7891] }]);
+    renderPanel();
+
+    await screen.findByText("来源：订阅");
+    expect(screen.getByRole("button", { name: "检测全部 ISP" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "检测 ISP A" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "删除 ISP A" })).toBeDisabled();
   });
 });

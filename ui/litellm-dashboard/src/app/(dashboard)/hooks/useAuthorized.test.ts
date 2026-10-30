@@ -305,12 +305,14 @@ describe("useAuthorized", () => {
     const token = createJwt(decodedPayload);
     document.cookie = `token=${token}; path=/;`;
 
-    renderHook(() => useAuthorized(), { wrapper });
+    const { result } = renderHook(() => useAuthorized(), { wrapper });
 
     await waitFor(() => {
       expect(clearTokenCookiesMock).toHaveBeenCalled();
     });
 
+    expect(result.current.accessToken).toBeNull();
+    expect(result.current.token).toBeNull();
     expect(replaceMock).toHaveBeenCalledWith("http://proxy.example/ui/login/");
     expect(checkTokenValidityMock).toHaveBeenCalledWith(token);
   });

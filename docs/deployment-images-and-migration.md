@@ -6,11 +6,11 @@
 | --- | --- | --- | --- |
 | LiteLLM | [VVV-345/litellm](https://github.com/VVV-345/litellm) | `ghcr.io/vvv-345/litellm` | `9c35172f3b8906b94cfeee666ac7c3571e4e8575` |
 | Manager | [VVV-345/litellm](https://github.com/VVV-345/litellm)，构建目录 `account-pool/` | `ghcr.io/vvv-345/account-pool-manager` | 主服务为 `9c35172f3b8906b94cfeee666ac7c3571e4e8575`；独立版本管理 worker 为 `d4b774ce2645f31ff77721335616b3b9245df906` |
-| CLIProxyAPI | [VVV-345/CLIProxyAPI](https://github.com/VVV-345/CLIProxyAPI) | `ghcr.io/vvv-345/cliproxyapi` | `bebf587f5a940af676f6e503065140d4991ae1f3` |
+| CLIProxyAPI | [VVV-345/CLIProxyAPI](https://github.com/VVV-345/CLIProxyAPI) 钉点 `b3c954b63df09156ac2ac52ad038b3dc3a20748f`，再加本仓库 `account-pool/cliproxy-adapter/settings-adaptation.patch` | `ghcr.io/vvv-345/cliproxyapi` | `managed-b3c954b63df0-b1d310d5c106` |
 
 Manager 主服务与版本管理 worker **共用 `account-pool-manager` 镜像仓库**，但保留两个运行容器。worker 在回退业务镜像时不能随业务容器一起替换；不创建第四种应用镜像。迁移当前状态时，两者还需分别使用上表所列版本，不能仅因镜像名相同就统一版本
 
-本仓库的 `.github/workflows/publish-deployment-images.yml` 在原生 `amd64` 和 `arm64` Runner 分别构建，然后在同一个提交前缀标签下发布多架构清单。手动运行工作流时用 `source_ref` 指定完整提交，不要用当前分支代替旧版。CLIProxyAPI 仓库有独立的双架构发布流程；当前使用的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 标签已包含两种架构
+本仓库的 `.github/workflows/publish-deployment-images.yml` 在原生 `amd64` 和 `arm64` Runner 分别构建，然后在同一个提交前缀标签下发布多架构清单。手动运行工作流时用 `source_ref` 指定完整提交，不要用当前分支代替旧版。托管安装 ID 不在官方镜像和 `sha-bebf587f5a940af676f6e503065140d4991ae1f3` 里。`.github/workflows/publish-cliproxy-adapted-image.yml` 只发布 `ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106`，不改 `latest`，也不改已有的 `sha-bebf587f5a940af676f6e503065140d4991ae1f3`。号池部署前要先等这个标签的 managed-identity 探测通过
 
 每次发布后执行 `docker buildx imagetools inspect ghcr.io/vvv-345/<镜像>:<标签>`，确认同时列出 `linux/amd64` 和 `linux/arm64`，记录顶层多架构清单 digest。部署时锁定已验证的标签和顶层 digest，不要直接使用 `latest`。能从 GHCR 拉取不代表数据库和配置已经兼容
 

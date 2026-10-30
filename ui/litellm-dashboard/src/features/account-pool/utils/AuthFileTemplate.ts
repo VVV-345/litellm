@@ -52,6 +52,7 @@ export function mergeAuthFileTemplate(content: string, template: AuthFileTemplat
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("认证文件必须是有效的 JSON 对象");
   }
+  if ("accounts" in parsed) throw new Error("认证模板仅支持单账号 JSON，请取消模板后导入整包");
   return JSON.stringify({
     ...parsed,
     ...(template.priority != null ? { priority: template.priority } : {}),

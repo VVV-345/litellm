@@ -81,6 +81,15 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
     }
 
 
+def test_proxy_policy_normalizes_app_server_originators() -> None:
+    policy: Final = AccountPolicy.model_validate({"codex": {"allow_app_server_clients": [" Codex_App ", "codex_app"]}})
+
+    assert policy.codex is not None
+    assert policy.codex.allow_app_server_clients == ("codex_app",)
+    with pytest.raises(ValueError, match="originators"):
+        AccountPolicy.model_validate({"codex": {"allow_app_server_clients": ["has space"]}})
+
+
 class _ManagerEnvironment(TypedDict):
     id: str
     version: int
@@ -732,6 +741,10 @@ def test_proxy_catalog_routes_preserve_admin_boundary_and_redact_secrets(role: L
         ("PUT", f"/proxy-isps/{identity}", {
             k: v for k, v in isp.items() if k not in {"id", "bound_ports", "credentials_configured", "last_probe"}
         }, isp),
+        ("PUT", f"/proxy-isps/{identity}", {"name": "renamed subscription", "enabled": False}, {
+            **isp, "source": "subscription", "protocol": None, "host": None, "port": None,
+            "proxy_type": "vless", "name": "renamed subscription", "enabled": False,
+        }),
         ("DELETE", f"/proxy-isps/{identity}", None, None),
         ("GET", "/proxy-gateways/configurations", None, [profile]),
         ("POST", "/proxy-gateways/configurations", {"name": "file", "content": "proxies: []"}, profile),

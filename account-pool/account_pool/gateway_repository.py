@@ -34,6 +34,8 @@ _SCHEMA: Final = (
         account_id uuid PRIMARY KEY, expires_at timestamptz NOT NULL
     )""",
 )
+_TIMEOUT_STREAK_THRESHOLD: Final = 3
+_TIMEOUT_STREAK_COOLDOWN_SECONDS: Final = 300
 
 
 class CooldownRepository(Protocol):
@@ -59,6 +61,7 @@ class LeaseRepository(CooldownRepository, Protocol):
         *,
         model_cooldown_seconds: int = 0,
         model_succeeded: bool = False,
+        timeout_failure: bool = False,
         clear_sessions: bool = False,
     ) -> None: ...
 
@@ -272,6 +275,7 @@ class PostgresLeaseRepository:
         *,
         model_cooldown_seconds: int = 0,
         model_succeeded: bool = False,
+        timeout_failure: bool = False,
         clear_sessions: bool = False,
     ) -> None:
         async with database_connection(self._database_url) as connection:
@@ -282,6 +286,7 @@ class PostgresLeaseRepository:
                 actual_tokens,
                 model_cooldown_seconds,
                 model_succeeded,
+                timeout_failure,
                 clear_sessions,
             )
 
@@ -293,6 +298,7 @@ async def _release_lease(
     actual_tokens: int | None,
     model_cooldown_seconds: int = 0,
     model_succeeded: bool = False,
+    timeout_failure: bool = False,
     clear_sessions: bool = False,
 ) -> None:
     environment: Final = await connection.execute(
@@ -304,10 +310,19 @@ async def _release_lease(
         "DELETE FROM account_pool_leases WHERE lease_id = %s RETURNING lease_id", (lease.lease_id,)
     )
     deleted_row: Final = await deleted.fetchone()
-    if deleted_row is not None and environment_row is not None and (model_cooldown_seconds or model_succeeded):
+    if (
+        deleted_row is not None
+        and environment_row is not None
+        and (model_cooldown_seconds or model_succeeded or timeout_failure)
+    ):
         record: Final = EnvironmentRecord.model_validate(environment_row["payload"])
         settled: Final = settle_model_cooldowns(
-            record.model_cooldowns, lease, model_cooldown_seconds, model_succeeded, utc_now()
+            record.model_cooldowns,
+            lease,
+            model_cooldown_seconds,
+            model_succeeded,
+            utc_now(),
+            timeout_failure=timeout_failure,
         )
         await connection.execute(
             "UPDATE account_pool_environments SET payload = jsonb_set(payload, '{model_cooldowns}', %s::jsonb) WHERE id = %s",
@@ -349,20 +364,49 @@ def settle_model_cooldowns(
     seconds: int,
     succeeded: bool,
     now: datetime,
+    *,
+    timeout_failure: bool = False,
 ) -> tuple[ModelCooldown, ...]:
     previous: Final = next((item for item in existing if item.model == lease.model), None)
-    retry_at: Final = now + timedelta(seconds=seconds)
+    previous_count: Final = previous.consecutive_timeouts if previous is not None else 0
+    previous_state_at: Final = previous.timeout_state_at if previous is not None else None
+    newer: Final = previous_state_at is None or lease.started_at >= previous_state_at
+    timeout_count: Final = (
+        previous_count + 1 if timeout_failure and newer else 0 if succeeded and newer else previous_count
+    )
+    timeout_state_at: Final = (
+        lease.started_at
+        if newer and (timeout_failure or succeeded and previous_state_at is not None)
+        else previous_state_at
+    )
+    timeout_delay: Final = (
+        _TIMEOUT_STREAK_COOLDOWN_SECONDS
+        if timeout_failure and newer and timeout_count >= _TIMEOUT_STREAK_THRESHOLD
+        else 0
+    )
+    cooldown_seconds: Final = max(seconds, timeout_delay)
+    retry_at: Final = now + timedelta(seconds=cooldown_seconds)
+    active_retry_at: Final = max(retry_at, previous.retry_at) if previous is not None else retry_at
+    preserve_stale: Final = previous is not None and (not newer or succeeded and previous.retry_at > lease.started_at)
+    if preserve_stale and not seconds:
+        return existing
+    updated_timeout_state: Final = timeout_state_at is not None
+    cooldown_reason: Final = previous.reason if previous is not None else "upstream_error"
     updated: Final = (
-        (ModelCooldown(model=lease.model, retry_at=max(retry_at, previous.retry_at) if previous else retry_at),)
-        if seconds
+        (
+            ModelCooldown(
+                model=lease.model,
+                retry_at=active_retry_at,
+                reason="consecutive_timeouts" if timeout_delay else cooldown_reason,
+                consecutive_timeouts=timeout_count,
+                timeout_state_at=timeout_state_at,
+            ),
+        )
+        if cooldown_seconds or updated_timeout_state or preserve_stale
         else ()
     )
     # 早于故障开始的并行成功请求不能清除较新的冷却。
-    retained: Final = tuple(
-        item
-        for item in existing
-        if item.model != lease.model or (succeeded and not seconds and item.retry_at > lease.started_at)
-    )
+    retained: Final = tuple(item for item in existing if item.model != lease.model)
     return (*retained, *updated)
 
 

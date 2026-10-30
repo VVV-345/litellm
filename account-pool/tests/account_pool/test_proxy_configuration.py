@@ -10,6 +10,7 @@ from typing import Final, cast
 from uuid import UUID, uuid4
 
 import pytest
+import yaml
 from account_pool.api import create_router
 from account_pool.clash import ClashController, ClashError, ClashProxyNode
 from account_pool.config import Settings
@@ -134,6 +135,29 @@ async def test_update_configuration_fetches_subscription_without_redirect(tmp_pa
 
     assert requested == ["https://example.test/subscription.yaml"]
     assert "downloaded" in config_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("key", ("proxies", "proxy-groups"))
+@pytest.mark.parametrize("invalid", (None, {"invalid": "mapping"}))
+async def test_update_configuration_rejects_non_list_node_entries_without_overwriting(
+    tmp_path: Path, key: str, invalid: object,
+) -> None:
+    config_path: Final = tmp_path / "config.yaml"
+    original: Final = "listeners: []\nproxies: []\nproxy-groups: []\n"
+    config_path.write_text(original, encoding="utf-8")
+    controller: Final = ConfigController()
+    service: Final = ProxyGatewayService(
+        _settings(str(config_path), (7891,)),
+        cast(ProxyProfileRepository, Profiles()),
+        cast(ClashController, controller),
+    )
+
+    with pytest.raises(ClashError, match="valid proxies and proxy-groups"):
+        await service.update_configuration(content=yaml.safe_dump({key: invalid}))
+
+    assert config_path.read_text(encoding="utf-8") == original
+    assert controller.reloaded_paths == []
 
 
 @pytest.mark.asyncio

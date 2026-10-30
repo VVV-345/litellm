@@ -53,6 +53,45 @@ def test_reset_policy_forwards_delete_and_returns_the_default_view() -> None:
     assert manager.calls == [("DELETE", f"/api/environments/{manager.card_id}/policy")]
 
 
+class _DetailManager(PolicyManager):
+    def __init__(self, detail: object) -> None:
+        super().__init__()
+        self.detail: Final = detail
+
+    async def request(
+        self, method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"], path: str, body: bytes | None
+    ) -> httpx.Response:
+        self.calls.append((method, path))
+        return httpx.Response(502, json={"detail": self.detail})
+
+
+def test_policy_save_forwards_a_short_operator_detail() -> None:
+    detail: Final = "当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效"
+    manager: Final = _DetailManager(detail)
+
+    with TestClient(_app("admin", manager)) as client:
+        response: Final = client.put(
+            f"/account_pool/environments/{manager.card_id}/policy",
+            json={"version": 1, "policy": {}},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == detail
+
+
+def test_policy_save_hides_non_string_upstream_details() -> None:
+    manager: Final = _DetailManager({"token": "secret"})
+
+    with TestClient(_app("admin", manager)) as client:
+        response: Final = client.put(
+            f"/account_pool/environments/{manager.card_id}/policy",
+            json={"version": 1, "policy": {}},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Account pool operation failed; refresh and retry"
+
+
 def test_reset_policy_requires_admin() -> None:
     manager: Final = PolicyManager()
 

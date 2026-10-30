@@ -229,6 +229,7 @@ export function AccountPoolOnboardingTasks({
                     [
                       ["mailbox_password", "邮箱密码"],
                       ["supplier_password", "供应商密码"],
+                      ["totp_secret", "2FA 密钥"],
                       ["proposed_password", "待确认的新密码"],
                     ] as const
                   ).map(([key, label]) => (
@@ -240,7 +241,10 @@ export function AccountPoolOnboardingTasks({
                       {secret?.[key] && <CopyButton value={secret[key]!} label={`复制${label}`} />}
                     </div>
                   ))}
-                  <p className="text-xs text-muted-foreground">显示 60 秒后自动隐藏。邮箱密码与供应商密码分别保存。</p>
+                  <p className="text-xs text-muted-foreground">
+                    显示 60 秒后自动隐藏。邮箱密码与供应商密码分别保存。2FA
+                    密钥用于你的验证器，登录和二次验证仍需人工完成。
+                  </p>
                   {["awaiting_mailbox", "standby", "disabled", "failed"].includes(selected.state) && (
                     <div className="space-y-3 border-t pt-3">
                       <p className="text-sm">在邮箱官方页面完成改密后，确认下方密码。生成建议密码不会自动修改邮箱。</p>

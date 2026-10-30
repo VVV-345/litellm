@@ -10,7 +10,7 @@ import httpx
 from pydantic import BaseModel, Field, TypeAdapter
 
 from account_pool.release_models import Commit, ReleaseCandidate, ReleaseImage, ReleasePair, RemoteReleaseImage
-from account_pool.release_runtime import REPOSITORIES
+from account_pool.release_runtime import COMPONENTS, PRODUCT_REPOSITORY, REPOSITORIES, DockerOperationError
 from account_pool.release_store import ReleaseError
 
 BRANCH: Final = "CLIProxyAPI分支"
@@ -78,7 +78,20 @@ class ReleaseCatalog:
     def latest(self, current: ReleasePair) -> ReleaseCandidate | None:
         try:
             return self._latest(current)
-        except (httpx.HTTPError, ValueError, OSError, ReleaseError):
+        except DockerOperationError:
+            raise
+        except httpx.HTTPStatusError as error:
+            category: Final = (
+                "auth"
+                if error.response.status_code in (401, 403)
+                else "missing"
+                if error.response.status_code == 404
+                else "network"
+            )
+            raise ReleaseError(f"phase=catalog component=github category={category}，检查新版本失败") from None
+        except httpx.HTTPError:
+            raise ReleaseError("phase=catalog component=github category=network，检查新版本失败") from None
+        except (ValueError, OSError, ReleaseError):
             # 远程返回和 Docker 错误可能含认证信息，只公开固定错误文案。
             raise ReleaseError("检查新版本失败，请检查 GitHub 发布记录及镜像仓库状态") from None
 
@@ -101,10 +114,22 @@ class ReleaseCatalog:
         images: Final = {image.service: image for image in current.images}
         if set(images) != set(REPOSITORIES):
             raise ReleaseError("当前版本缺少配套服务")
+        try:
+            first: Final = self._image(images["litellm"], head.commit.sha)
+        except DockerOperationError as error:
+            if error.category != "missing":
+                raise
+            return ReleaseCandidate(
+                commit=head.commit.sha,
+                images=(
+                    self._image(images["litellm"], head.commit.sha, legacy=True),
+                    self._image(images["account-pool"], head.commit.sha, legacy=True),
+                ),
+            )
         return ReleaseCandidate(
             commit=head.commit.sha,
             images=(
-                self._image(images["litellm"], head.commit.sha),
+                first,
                 self._image(images["account-pool"], head.commit.sha),
             ),
         )
@@ -119,17 +144,20 @@ class ReleaseCatalog:
         response.raise_for_status()
         return response.content
 
-    def _image(self, image: ReleaseImage, commit: str) -> RemoteReleaseImage:
+    def _image(self, image: ReleaseImage, commit: str, *, legacy: bool = False) -> RemoteReleaseImage:
         platform: Final = (
             self.runtime.run("image", "inspect", image.image_id, "--format", "{{.Os}}/{{.Architecture}}")
             .decode()
             .strip()
         )
         if not re.fullmatch(r"[a-z0-9_-]+/[a-z0-9_-]+", platform) or "unknown" in platform.split("/"):
-            raise ReleaseError("无法确定当前服务平台")
-        raw: Final = self.runtime.run(
-            "manifest", "inspect", "--verbose", REPOSITORIES[image.service] + ":" + commit[:10], timeout=30
+            raise DockerOperationError("catalog", COMPONENTS[image.service], "platform")
+        reference: Final = (
+            REPOSITORIES[image.service] + ":" + commit[:10]
+            if legacy
+            else PRODUCT_REPOSITORY + ":" + COMPONENTS[image.service] + "-" + commit[:10]
         )
+        raw: Final = self.runtime.run("manifest", "inspect", "--verbose", reference, timeout=30)
         parsed: Final = TypeAdapter[_Manifest | tuple[_Manifest, ...]](_Manifest | tuple[_Manifest, ...]).validate_json(
             raw
         )
@@ -140,10 +168,10 @@ class ReleaseCatalog:
             if item.descriptor.platform.os + "/" + item.descriptor.platform.architecture == platform
         )
         if len(matches) != 1:
-            raise ReleaseError("远程镜像没有唯一匹配的运行平台")
+            raise DockerOperationError("catalog", COMPONENTS[image.service], "platform")
         bodies: Final = tuple(body for body in (matches[0].schema_v2, matches[0].oci) if body is not None)
         if len(bodies) != 1:
-            raise ReleaseError("远程镜像缺少唯一配置")
+            raise DockerOperationError("catalog", COMPONENTS[image.service], "manifest")
         return RemoteReleaseImage(
             service=image.service, digest=matches[0].descriptor.digest, image_id=bodies[0].config.digest
         )

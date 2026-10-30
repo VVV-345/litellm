@@ -35,6 +35,7 @@ from account_pool.release_models import (
     RollbackCheck,
     RollbackInspection,
 )
+from account_pool.release_runtime import PRODUCT_REPOSITORY
 from account_pool.release_store import (
     DEFAULT_GUIDE,
     ReleaseDownloadError,
@@ -52,6 +53,8 @@ class ReleaseRuntime(Protocol):
     def image_users(self, pair: ReleasePair) -> tuple[str, ...]: ...
     def remove_images(self, pair: ReleasePair) -> None: ...
     def compose(self) -> bytes: ...
+    def product_configuration(self, pair: ReleasePair, configuration: bytes) -> bytes: ...
+    def manager_startup_check(self, pair: ReleasePair) -> RollbackCheck: ...
     def running_compose(self) -> bytes: ...
     def export(self, pair: ReleasePair, destination: Path) -> None: ...
     def fingerprint(self, pair: ReleasePair) -> str: ...
@@ -425,6 +428,7 @@ class ReleaseService:
                 ),
                 *compare_evidence(current, target),
                 *configuration_checks(configuration, target_config),
+                self.runtime.manager_startup_check(saved.pair),
                 RollbackCheck(
                     key="fingerprint",
                     title="备份结构记录",
@@ -722,7 +726,13 @@ class ReleaseService:
         if action.action == "delete":
             self._delete_backup(job, current, action.version_id)
             return
+        recovery_startup: Final = self.runtime.manager_startup_check(current)
+        if recovery_startup.status != "compatible":
+            raise ReleaseError("当前 Manager 不能作为安全恢复目标；请先准备并核验安全恢复版本。" + recovery_startup.detail)
         target, configuration = self._target(job, current)
+        startup: Final = self.runtime.manager_startup_check(target)
+        if startup.status != "compatible":
+            raise ReleaseError(startup.detail)
         if target.id == current.id:
             raise ReleaseError("目标版本已在运行")
         self.phase(job, "备份当前运行版本")
@@ -775,12 +785,17 @@ class ReleaseService:
     def _target(self, job: ReleaseJob, current: ReleasePair) -> tuple[ReleasePair, bytes]:
         action: Final = job.action
         if action.action == "deploy":
-            self.phase(job, "拉取新版本镜像")
-            return (
+            self.phase(job, "拉取新版本镜像并预检配套组件")
+            target: Final = (
                 self.runtime.pull_candidate(action.candidate)
                 if action.candidate
-                else self.runtime.pull(action.tag or ""),
-                self.runtime.compose(),
+                else self.runtime.pull(action.tag or "")
+            )
+            configuration: Final = self.runtime.compose()
+            return target, (
+                self.runtime.product_configuration(target, configuration)
+                if all(image.repository == PRODUCT_REPOSITORY for image in target.images)
+                else configuration
             )
         saved: Final = self.store.backup(action.version_id or "")
         if saved is None:

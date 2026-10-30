@@ -25,6 +25,7 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
+from account_pool.credential_import import is_two_factor_text
 from account_pool.domain import (
     ChannelKind,
     CreateDirectCredentialEnvironmentRequest,
@@ -62,6 +63,10 @@ from account_pool.settings import AccountPoolSettings, AccountPoolSettingsReposi
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _BEARER: Final = HTTPBearer(auto_error=False)
+_ISP_SUBSCRIPTION_CONFLICT_DETAILS: Final = (
+    "ISP subscription node identity is ambiguous; remove duplicate nodes before refreshing",
+    "ISP subscription node conflicts with an existing display name; rename it before refreshing",
+)
 T = TypeVar("T")
 
 
@@ -111,9 +116,9 @@ class ISPProfileUpdateRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str = Field(min_length=1, max_length=120)
-    protocol: Literal["http", "https", "socks5"]
-    host: str = Field(min_length=1, max_length=253)
-    port: int = Field(ge=1, le=65535)
+    protocol: Literal["http", "https", "socks5"] | None = None
+    host: str | None = Field(default=None, min_length=1, max_length=253)
+    port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=512, repr=False)
     password: str | None = Field(default=None, max_length=2048, repr=False)
     clear_credentials: bool = False
@@ -425,6 +430,11 @@ def create_router(
         content: Final = await file.read(16 * 1024 * 1024 + 1)
         if len(content) > 16 * 1024 * 1024:
             raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "auth file exceeds 16 MiB")
+        text: Final = content.decode("utf-8-sig", errors="replace")
+        if is_two_factor_text(text):
+            if onboarding_service is None:
+                raise HTTPException(503, "OAuth 上号服务不可用")
+            return _unwrap(await onboarding_service.import_login_file(card_id, text))
         return _unwrap(await service.upload_auth_file(card_id, filename, content, file.content_type, replace=replace))
 
     @router.get("/api/environments/{environment_id}/auth-file/download", dependencies=[Depends(require_manager)])
@@ -659,6 +669,8 @@ def create_router(
             try:
                 return await proxy_catalog.configure_isp_subscription(request.url)
             except (ClashError, ValueError) as error:
+                if str(error) in _ISP_SUBSCRIPTION_CONFLICT_DETAILS:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="ISP subscription import failed; check the URL and subscription content",
@@ -669,6 +681,8 @@ def create_router(
             try:
                 return await proxy_catalog.refresh_isp_subscription()
             except (ClashError, ValueError) as error:
+                if str(error) in _ISP_SUBSCRIPTION_CONFLICT_DETAILS:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                     detail="ISP subscription refresh failed; verify its URL and content",
@@ -706,6 +720,12 @@ def create_router(
                     enabled=request.enabled,
                 )
             except (ValueError, ClashError) as error:
+                if str(error) == "manual ISP connection fields are required":
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                        detail="manual ISP connection fields are required") from error
+                if str(error) == "ISP subscription node name already exists":
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT,
+                                        detail="ISP subscription node name already exists") from None
                 raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="ISP update failed; refresh and retry") from error
 
         @isp_router.delete("/api/proxy-isps/{profile_id}", dependencies=[Depends(require_manager)], status_code=204)
@@ -852,7 +872,7 @@ def create_router(
         result: Final = await service.submit_oauth_callback(callback, environment_id)
         if isinstance(result, AuthorizationPending):
             return HTMLResponse(
-                _callback_page("授权已接收", "账号凭据已保存，后台正在验证渠道启动。请关闭此页面并返回 LiteLLM 号池查看最新状态，无需重复授权。"),
+                _callback_page("授权已接收", "后台正在确认授权结果并验证渠道启动。请返回 LiteLLM 号池查看最新状态，等待验证完成后再使用账号。"),
                 status_code=status.HTTP_202_ACCEPTED,
                 headers={"Cache-Control": "no-store"},
             )

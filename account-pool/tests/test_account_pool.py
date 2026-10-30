@@ -2038,6 +2038,7 @@ async def test_callback_page_reports_accepted_while_channel_validation_is_pendin
     assert response.status_code == 202
     assert "授权已接收" in response.text
     assert "后台" in response.text
+    assert "账号凭据已保存" not in response.text
     assert "授权未完成" not in response.text
     assert response.headers["Cache-Control"] == "no-store"
     assert replay.status_code == 409

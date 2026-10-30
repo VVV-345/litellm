@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "cliproxyapi": {
+    "repository": "https://github.com/VVV-345/CLIProxyAPI.git",
+    "commit": "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
+  },
+  "cockpit": {
+    "repository": "https://github.com/jlcodes99/cockpit-tools.git",
+    "commit": "76fbea02ba8ab5a071205a0bfa59ef4db5cc64b4",
+    "license": "CC-BY-NC-SA-4.0",
+    "reused_file": "sidecars/cockpit-cliproxy/third_party/CLIProxyAPI/internal/runtime/executor/helps/managed_identity.go",
+    "reused_file_sha256": "37330aef72f90930e842244f209f2a7e4161fbff328e478bf94f574c0ccdf275"
+  },
+  "official_upstream_observed_head": "ceb045a129d43f805e93a5e4aef3a59b108f34f7",
+  "observed_date": "2026-10-23",
+  "patch": {
+    "file": "settings-adaptation.patch",
+    "sha256": "b1d310d5c106626ffe2177d7f2864fa540c08e1aebceeb6b049ef9e92c190e83"
+  }
+}

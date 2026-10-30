@@ -158,7 +158,7 @@ export function AccountPoolProviderPolicyFields({
             label: t("accountPool.policy.identity_fingerprint_mode"),
             description: t("accountPool.policy.identityFingerprintModeDescription"),
             value: codex.identity_fingerprint_mode,
-            options: ["off", "device", "session", "full"],
+            options: ["off", "managed", "device", "session", "full"],
             onChange: (next) => onCodexChange("identity_fingerprint_mode", next as Codex["identity_fingerprint_mode"]),
           })}
           {toggleField({

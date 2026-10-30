@@ -24946,18 +24946,15 @@ export interface components {
             /** Expires On */
             expires_on?: string | null;
             /** Host */
-            host: string;
+            host?: string | null;
             /** Name */
             name: string;
             /** Password */
             password?: string | null;
             /** Port */
-            port: number;
-            /**
-             * Protocol
-             * @enum {string}
-             */
-            protocol: "http" | "https" | "socks5";
+            port?: number | null;
+            /** Protocol */
+            protocol?: ("http" | "https" | "socks5") | null;
             /** Username */
             username?: string | null;
         };
@@ -28707,7 +28704,7 @@ export interface components {
              * @default off
              * @enum {string}
              */
-            identity_fingerprint_mode: "off" | "device" | "session" | "full";
+            identity_fingerprint_mode: "off" | "device" | "session" | "full" | "managed";
             /**
              * Responses Compact Enabled
              * @default false
@@ -37055,6 +37052,11 @@ export interface components {
              * @default
              */
             supplier_password: string;
+            /**
+             * Totp Secret
+             * @default
+             */
+            totp_secret: string;
         };
         /** OnboardingImport */
         OnboardingImport: {
@@ -37181,6 +37183,11 @@ export interface components {
             proposed_password?: string | null;
             /** Supplier Password */
             supplier_password: string;
+            /**
+             * Totp Secret
+             * @default
+             */
+            totp_secret: string;
         };
         /** OnboardingSupplierOption */
         OnboardingSupplierOption: {

@@ -28,6 +28,7 @@ class OnboardingEntry(BaseModel):
     content: str = Field(default="", max_length=1024 * 1024, repr=False)
     mailbox_password: str = Field(default="", max_length=1024, repr=False)
     supplier_password: str = Field(default="", max_length=1024, repr=False)
+    totp_secret: str = Field(default="", max_length=128, repr=False)
 
 
 class OnboardingImport(BaseModel):
@@ -104,6 +105,7 @@ class OnboardingSecrets(BaseModel):
     mailbox_password: str = Field(repr=False)
     supplier_password: str = Field(repr=False)
     proposed_password: str | None = Field(default=None, repr=False)
+    totp_secret: str = Field(default="", repr=False)
 
 
 class OnboardingTarget(BaseModel):

@@ -76,7 +76,8 @@ import { dashboardFetch as fetch } from "@/lib/http/dashboardFetch";
 import { resetDashboardSession } from "@/lib/cacheEvents";
 
 import { toast } from "@/lib/toast";
-import { clearTokenCookies, getCookie, storeLoginToken } from "@/utils/cookieUtils";
+import { expireUiSession, type SessionFailure } from "@/lib/sessionExpiry";
+import { getCookie, storeLoginToken } from "@/utils/cookieUtils";
 import { decodeToken } from "@/utils/jwtUtils";
 import { TagNewRequest, TagUpdateRequest, TagListResponse, TagInfoResponse } from "./tag_management/types";
 import { Team } from "./key_team_helpers/key_list";
@@ -107,6 +108,7 @@ import {
   registerAuthTokenGetter,
   registerBaseUrlGetter,
   registerErrorHandler,
+  registerSessionTokenGetter,
 } from "@/lib/http/runtime";
 import { serverRootPath, setServerRootPath } from "@/lib/serverRootPath";
 
@@ -357,25 +359,20 @@ export interface CredentialsResponse {
   credentials: CredentialItem[];
 }
 
-let lastErrorTime = 0;
-
-export const handleError = async (errorData: string | any) => {
-  const currentTime = Date.now();
-  if (currentTime - lastErrorTime > 60000) {
-    // 60000 milliseconds = 60 seconds
-    // Convert errorData to string if it isn't already
-    const errorString = typeof errorData === "string" ? errorData : JSON.stringify(errorData);
-    if (errorString.includes("Authentication Error - Expired Key")) {
-      toast.info("UI Session Expired. Logging out.");
-      lastErrorTime = currentTime;
-      clearTokenCookies();
-      const browserLocation = getWindowLocation();
-      if (browserLocation) {
-        window.location.href = browserLocation.pathname;
-      }
+const toSessionFailure = (errorData: string | SessionFailure | unknown): SessionFailure => {
+  if (typeof errorData === "string") return { message: errorData };
+  if (errorData !== null && typeof errorData === "object" && "message" in errorData) {
+    const failure = errorData as SessionFailure;
+    if (typeof failure.message === "string") {
+      return { message: failure.message, status: failure.status, sessionToken: failure.sessionToken };
     }
-    lastErrorTime = currentTime;
   }
+  return { message: JSON.stringify(errorData) };
+};
+
+export const handleError = async (errorData: string | SessionFailure | unknown) => {
+  if (!expireUiSession(toSessionFailure(errorData))) return;
+  toast.info("UI Session Expired. Logging out.");
 };
 
 export const getProviderCreateMetadata = async (): Promise<ProviderCreateInfo[]> => {
@@ -455,6 +452,7 @@ export const apiClient = createApiClient({
 registerBaseUrlGetter(getProxyBaseUrl);
 registerAuthHeaderNameGetter(getGlobalLitellmHeaderName);
 registerAuthTokenGetter(() => decodeToken(getCookie("token"))?.key ?? null);
+registerSessionTokenGetter(() => getCookie("token"));
 registerErrorHandler(handleError);
 
 export const makeModelGroupPublic = async (accessToken: string, modelGroups: string[]) => {

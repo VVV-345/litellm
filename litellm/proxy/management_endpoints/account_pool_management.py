@@ -38,6 +38,24 @@ ManagementRequest = Callable[
 ]
 
 
+_GENERIC_POOL_ERROR: Final = "Account pool operation failed; refresh and retry"
+_DETAIL_LIMIT: Final = 400
+
+
+def _operator_detail(content: bytes) -> str:
+    try:
+        payload: Final = TypeAdapter(dict[str, object]).validate_json(content)
+    except ValueError:
+        return _GENERIC_POOL_ERROR
+    detail: Final = payload.get("detail")
+    if not isinstance(detail, str):
+        return _GENERIC_POOL_ERROR
+    text: Final = " ".join(detail.split())
+    if not text or len(text) > _DETAIL_LIMIT or "Bearer " in text or "sk-" in text:
+        return _GENERIC_POOL_ERROR
+    return text
+
+
 def _upstream_sync_query(request_id: UUID | None, refresh: bool) -> str:
     query: Final = "&".join(
         value
@@ -68,7 +86,7 @@ def create_management_router(
                 raise HTTPException(
                     429, "GitHub API rate limit exceeded; retry later or configure this target's GitHub token"
                 )
-            raise HTTPException(response.status_code, "Account pool operation failed; refresh and retry")
+            raise HTTPException(response.status_code, _operator_detail(response.content))
         return response.content
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])

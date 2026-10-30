@@ -481,3 +481,13 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 前端使用 `vitest run` 定向运行 `AccountPoolAuthorizationPanel.integration.test.tsx`、`AccountPoolCreateDialog.integration.test.tsx` 和 `AccountPoolManagementApi.test.ts`，29 passed；修改文件 Ruff、ESLint 和 `git diff --check` 通过。OpenAPI 类型通过 `gen-api-types.mjs` 重新生成；`npm run build -- --webpack` 生产构建及构建内 TypeScript 检查通过。未运行全仓库 `make check`、独立全量类型检查或 GitHub 镜像发布
 
 Mac 本地测试更新为 `litellm-local-test:external-oauth-only` 和 `account-pool-local-test:external-oauth-only`。备份原 Compose、环境配置、代理配置和两库 dump，`pg_restore --list` 可读；未演练数据库恢复。实际 HTTP 检查确认两服务健康、鉴权后的环境读取正常、两层旧浏览器接口均为 404、普通回调保留，账号仍为 ready；挂载及秘密配置摘要一致。未重新授权现有账号，未做真实供应商 OAuth 登录，未推送或更新远程服务器
+
+### 2026-10-30 PR 范围收口与上游整合
+
+本轮暂缓 AdsPower 代理同步，在 `15a971946b` 撤出接口、页面入口、配置和说明，再整合目标分支 `563692c77a`。保留普通外部浏览器授权、服务器浏览器移除和 ISP 直连；授权待验证页面不再声称凭据已经保存
+
+统一镜像发布清单和 release-worker 预检同步为 LiteLLM、Manager、CLIProxyAPI 三个组件。保留架构选择、来源及 digest 校验、旧包回退和历史浏览器配置，不再要求浏览器镜像。原四组件发布器需先单独升级，旧浏览器容器需在业务升级前清理，操作边界见 `deploy/UPDATE_RUNBOOK.md`
+
+整合后的定向后端检查覆盖账号生命周期、代理网关、Compose、仓库清理、发布运行时、清单、工作流、备份、发布任务、自动更新及 LiteLLM 管理入口，569 passed。授权、创建卡片、代理管理和管理 API 的 4 个前端测试文件共 56 passed，测试类型检查通过。webpack 生产构建和源码 TypeScript 检查通过；变更 Python 文件 Ruff 通过，前端 ESLint 为 0 错误、17 警告，OpenAPI 类型已重新生成，差异检查通过
+
+三组件发布及授权提示的回归检查先复现失败后通过。未运行完整仓库检查、远程 CI、真实 OAuth 登录、ISP 出口及额度验收；没有部署或修改现有账号配置

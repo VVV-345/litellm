@@ -1,5 +1,7 @@
 import { notifyDashboardDataChanged } from "../cacheEvents";
+import type { SessionFailure } from "../sessionExpiry";
 import { cachedDashboardRequest } from "./responseCache";
+import { getSessionToken } from "./runtime";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH";
 
@@ -94,8 +96,8 @@ export interface ApiClientConfig {
   getBaseUrl: () => string;
   /** Resolves the auth header name at call time. Defaults to "Authorization". */
   getAuthHeaderName?: () => string;
-  /** Invoked with the derived message right before a non-2xx response throws. Fire-and-forget. */
-  onError?: (message: string) => void | Promise<void>;
+  /** Invoked with status and the session cookie from the start of the request. Fire-and-forget. */
+  onError?: (failure: SessionFailure) => void | Promise<void>;
   /** Injectable fetch implementation; defaults to the global. */
   fetchImpl?: typeof fetch;
 }
@@ -148,8 +150,13 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
     return response;
   };
 
+  const reportFailure = (message: string, status: number, sessionToken: string | null) => {
+    onError?.({ message, status, sessionToken });
+  };
+
   async function request<T = any>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
     const { accessToken, body, rawBody, query, headers: extraHeaders, signal } = options;
+    const sessionToken = getSessionToken();
 
     const url = appendQuery(`${getBaseUrl()}${path}`, query);
 
@@ -185,7 +192,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       } catch {
         message = raw || `HTTP ${response.status}`;
       }
-      onError?.(message);
+      reportFailure(message, response.status, sessionToken);
       throw new ApiError(message, response.status, errorBody);
     }
 
@@ -195,6 +202,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
 
   async function requestBlob(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<Blob> {
     const { accessToken, body, rawBody, query, headers: extraHeaders, signal } = options;
+    const sessionToken = getSessionToken();
     const url = appendQuery(`${getBaseUrl()}${path}`, query);
     const headers: Record<string, string> = {};
     if (rawBody === undefined) headers["Content-Type"] = "application/json";
@@ -213,7 +221,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       } catch {
         // Keep the plain response body when it is not JSON
       }
-      onError?.(message);
+      reportFailure(message, response.status, sessionToken);
       throw new ApiError(message, response.status, raw);
     }
     return response.blob();

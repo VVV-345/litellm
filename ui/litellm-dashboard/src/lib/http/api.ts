@@ -2,7 +2,7 @@ import createFetchClient, { type Middleware } from "openapi-fetch";
 import createQueryClient from "openapi-react-query";
 import type { paths } from "./schema";
 import { ApiError, deriveErrorMessage } from "./client";
-import { getAuthHeaderName, getAuthToken, getRequestBaseUrl, reportError } from "./runtime";
+import { getAuthHeaderName, getAuthToken, getRequestBaseUrl, getSessionToken, reportError } from "./runtime";
 import { resolveRequestUrl } from "./resolveApiBase";
 import { dashboardFetch } from "./dashboardFetch";
 
@@ -14,14 +14,19 @@ const BaseAwareRequest = function (url: string, init?: RequestInit): Request {
   return new globalThis.Request(target, init);
 } as unknown as typeof Request;
 
+const sessionByRequest = new Map<string, string | null>();
+
 const middleware: Middleware = {
-  onRequest({ request }) {
+  onRequest({ request, id }) {
+    sessionByRequest.set(id, getSessionToken());
     const token = getAuthToken();
     if (token) {
       request.headers.set(getAuthHeaderName(), `Bearer ${token}`);
     }
   },
-  async onResponse({ response }) {
+  async onResponse({ response, id }) {
+    const sessionToken = sessionByRequest.get(id) ?? null;
+    sessionByRequest.delete(id);
     if (response.ok) return response;
     const raw = await response.clone().text();
     let body: unknown = raw;
@@ -32,7 +37,7 @@ const middleware: Middleware = {
     } catch {
       message = raw || `HTTP ${response.status}`;
     }
-    reportError(message);
+    reportError({ message, status: response.status, sessionToken });
     throw new ApiError(message, response.status, body);
   },
 };

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import math
@@ -16,7 +17,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import httpx
 from openai.types.responses.response_create_params import ResponseInputParam
-from pydantic import JsonValue, TypeAdapter
+from pydantic import JsonValue, TypeAdapter, ValidationError
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse, StreamingResponse
 from starlette.types import Message, Send
@@ -30,8 +31,13 @@ from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.common_utils.sse_keepalive import wrap_passthrough_sse_bytes_with_keepalive_pings
 from litellm.proxy.management_endpoints.account_pool_failover import (
     RETRY_WINDOW_SECONDS,
+    Failure,
+    capacity_request_scoped_retry_after,
     classify_failure,
+    cooldown_exempt_upstream_code,
     failure_headers,
+    is_capacity_shed,
+    is_cloudflare_bot_block_response,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
@@ -57,6 +63,7 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
 from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
 from litellm.proxy.management_endpoints.account_pool_signature import (
+    SignatureLineage,
     safe_signature_recovery,
     signature_error,
     signature_recovery_message,
@@ -224,6 +231,8 @@ class Attempt:
         self.account_id: Final = lease.account_id
         self.key_id: Final = lease.key_id
         self.attempt_number: Final = lease.attempt
+        self.signature_retry_count = 0
+        self.signature_failure_reason: str | None = None
 
     async def send(self, message: Message) -> None:
         try:
@@ -281,10 +290,46 @@ async def report(control: GatewayControl, result: FinishRequest) -> None:
 
 async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
     try:
+        state: Final = attempt.stream_state
+        signature_reason: Final = (
+            ("output_started" if state.meaningful else state.signature_recovery_reason or "no_removable_state")
+            if state.signature_rejected else attempt.signature_failure_reason
+        )
+        signature_result: Final = signature_reason or (
+            ("recovered" if attempt.result.http_status < 400 else "retry_failed")
+            if attempt.signature_retry_count else None
+        )
+        if signature_result is not None:
+            detail: Final = (
+                f"signature_recovery: {signature_result}; signature_retry_count={attempt.signature_retry_count}; "
+                f"output_started={str(state.meaningful).lower()}; same_card=true"
+            )
+            attempt.outcome(
+                attempt.result.http_status, attempt.result.message,
+                detail=(detail + (f"; {attempt.result.detail}" if attempt.result.detail else ""))[:2000],
+            )
         if attempt.log is not None:
             attempt.result = await attempt.log.finish(attempt.result)
     finally:
         await report(control, attempt.result)
+
+
+def recorded_upstream_result(
+    failure: Failure,
+    headers: Mapping[str, str],
+    payload: Mapping[str, object],
+    status: int,
+    extracted_code: str | None,
+) -> tuple[int, str | None]:
+    exempt: Final = cooldown_exempt_upstream_code(status, payload)
+    if exempt is not None:
+        return 0, exempt
+    delay: Final = (
+        capacity_request_scoped_retry_after(headers, payload)
+        if is_capacity_shed(failure)
+        else retry_after(headers)
+    )
+    return delay, extracted_code
 
 
 def retry_allowed(resolution: Resolution, status: int) -> bool:
@@ -723,6 +768,17 @@ async def execute(
     )
     forward_session: Final = credential_session is not None and route.account.supplier != "openai_compatible"
     credential: Final = select_gateway_credential(route.account.credentials, credential_identity, route.account.api_key)
+    lineage: Final[object] = getattr(request.state, "account_pool_signature_lineage", None)
+    lineage_scope: Final = hashlib.sha256(json.dumps((
+        str(attempt.key_id), str(resolution.card_id), payload.get("model"), credential_session,
+        str(route.account.id), hashlib.sha256(credential.api_key.encode()).hexdigest(),
+    )).encode()).hexdigest() if credential_session else None
+    filtered: Final = lineage.clean(lineage_scope, payload) if isinstance(lineage, SignatureLineage) and lineage_scope else None
+    if filtered is not None:
+        return await execute(
+            request, filtered, route, resolution, client, attempt, next_id, seconds, deadline,
+            signature_recovered=signature_recovered, alternate_id=alternate_id, failover_ready=failover_ready,
+        )
     selected_client: Final = (
         client
         if credential.proxy_url is None
@@ -778,19 +834,21 @@ async def execute(
             )
             with attempt.timing.phase("upstream_headers"):
                 request.state.account_pool_upstream_attempted = True
+                if signature_recovered:
+                    attempt.signature_retry_count = 1
                 response: Final = await selected_client.send(upstream, stream=True)
             try:
                 cost_usd: Final = upstream_response_cost(response.headers)
                 attempt.record_cost(cost_usd)
                 if response.status_code >= 300:
                     error_payload, code = await upstream_error_payload(response, (credential.api_key,))
-                    if response.status_code == 400 and recovery_payload is not None and signature_error(error_payload):
+                    if response.status_code == 400 and isinstance(lineage, SignatureLineage) and lineage_scope:
+                        lineage.remember(lineage_scope, payload, error_payload)
+                    if (
+                        response.status_code == 400 and recovery_payload is not None and signature_error(error_payload)
+                        and asyncio.get_running_loop().time() < deadline
+                    ):
                         await response.aclose()
-                        attempt.outcome(
-                            400,
-                            "Retrying without incompatible thinking state",
-                            detail="signature_recovery: removed incompatible thinking state; retained complete conversation and paired client tools",
-                        )
                         return await execute(
                             request,
                             recovery_payload,
@@ -805,11 +863,7 @@ async def execute(
                             failover_ready=failover_ready,
                         )
                     if signature_error(error_payload):
-                        attempt.outcome(
-                            400,
-                            "Incompatible thinking history",
-                            detail=f"signature_recovery: {recovery_reason}; same_card=true",
-                        )
+                        attempt.signature_failure_reason = recovery_reason
                     if attempt.log is not None:
                         attempt.log.capture(json.dumps(error_payload).encode())
                         attempt.log.observe(error_payload)
@@ -852,16 +906,19 @@ async def execute(
                         and asyncio.get_running_loop().time() < deadline
                     )
                     retry: Final = retry_target is not None and retryable
+                    retry_after_seconds, reported_code = recorded_upstream_result(
+                        failure, response.headers, error_payload, public_status, code
+                    )
                     attempt.outcome(
                         public_status,
                         f"Upstream HTTP {response.status_code}",
                         stage="upstream",
-                        upstream_code=code,
+                        upstream_code=reported_code,
                         failure_reason=failure.reason,
                         retryable=retry,
                         switched_account=retry and retry_target != route.account.id,
                         next_account_id=str(retry_target) if retry and retry_target != route.account.id else None,
-                        retry_after_seconds=retry_after(response.headers),
+                        retry_after_seconds=retry_after_seconds,
                         model_cooldown_seconds=failure.cooldown_seconds,
                         cost_usd=cost_usd,
                     )
@@ -900,20 +957,29 @@ async def execute(
                             responses_api=request.url.path == "/v1/responses",
                             anthropic_messages=request.url.path == "/v1/messages",
                         )
+                        bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
                         try:
-                            await bootstrap.prepare(deadline)
+                            await bootstrap.prepare()
+                            if (
+                                bootstrap.buffer.tell() >= 65536
+                                and not bootstrap.state.meaningful and not bootstrap.state.terminal
+                            ):
+                                attempt.stream_state.signature_recovery_reason = "preflight_limit"
+                                bootstrap.state.signature_recovery_reason = "preflight_limit"
+                            if (
+                                bootstrap.state.failed and not bootstrap.state.meaningful
+                                and bootstrap.state.signature_rejected
+                                and isinstance(lineage, SignatureLineage) and lineage_scope
+                            ):
+                                lineage.remember_stream(lineage_scope, payload, bootstrap.buffer.getvalue())
                             if (
                                 bootstrap.state.failed
                                 and not bootstrap.state.meaningful
                                 and bootstrap.state.signature_rejected
+                                and asyncio.get_running_loop().time() < deadline
                             ):
                                 await bootstrap.close()
                                 await response.aclose()
-                                attempt.outcome(
-                                    400,
-                                    "Retrying without incompatible thinking state",
-                                    detail="signature_recovery: removed incompatible thinking state before output; retained complete conversation and paired client tools",
-                                )
                                 return await execute(
                                     request,
                                     recovery_payload,
@@ -940,12 +1006,6 @@ async def execute(
                                 alternate_id=alternate_id,
                                 failover_ready=failover_ready,
                             )
-                            if attempt.stream_state.signature_rejected:
-                                attempt.outcome(
-                                    attempt.result.http_status,
-                                    attempt.result.message,
-                                    detail="signature_recovery: output_started; same_card=true",
-                                )
                             return completed_with_history
                         finally:
                             await bootstrap.close()
@@ -963,13 +1023,6 @@ async def execute(
                         alternate_id=alternate_id,
                         failover_ready=failover_ready,
                     )
-                    if attempt.stream_state.signature_rejected:
-                        stream_reason: Final = "output_started" if attempt.stream_state.meaningful else recovery_reason
-                        attempt.outcome(
-                            attempt.result.http_status,
-                            attempt.result.message,
-                            detail=f"signature_recovery: {stream_reason}; same_card=true",
-                        )
                     return completed
                 else:
                     data: Final = await bounded_body(response, 32 * 1024 * 1024)
@@ -1151,8 +1204,14 @@ async def upstream_error_payload(
     secrets: tuple[str, ...],
 ) -> tuple[dict[str, JsonValue], str | None]:
     try:
-        data: Final = _JSON.validate_json(await bounded_body(response, 65536))
+        raw: Final = await bounded_body(response, 65536)
     except ValueError:
+        return {"error": {"message": f"Upstream HTTP {response.status_code}", "type": "upstream_error"}}, None
+    try:
+        data: Final = _JSON.validate_json(raw)
+    except ValidationError:
+        if response.status_code == 403 and is_cloudflare_bot_block_response(raw.decode("utf-8", "replace")):
+            return {"error_name": "browser_signature_banned"}, None
         return {"error": {"message": f"Upstream HTTP {response.status_code}", "type": "upstream_error"}}, None
     safe: Final = _safe_error_value(data, secrets)
     if not isinstance(safe, dict):
@@ -1312,10 +1371,19 @@ async def guarded_stream_response(
         responses_api=request.url.path == "/v1/responses",
         anthropic_messages=request.url.path == "/v1/messages",
     )
+    bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
     try:
         if prepared is None:
-            await bootstrap.prepare(deadline)
+            await bootstrap.prepare()
+            if (
+                bootstrap.buffer.tell() >= 65536
+                and not bootstrap.state.meaningful and not bootstrap.state.terminal
+            ):
+                attempt.stream_state.signature_recovery_reason = "preflight_limit"
+                bootstrap.state.signature_recovery_reason = "preflight_limit"
         if bootstrap.state.failed and not bootstrap.state.meaningful:
+            if bootstrap.state.signature_rejected:
+                attempt.signature_failure_reason = bootstrap.state.signature_recovery_reason
             if attempt.log is not None:
                 attempt.log.capture(bootstrap.buffer.getvalue())
             failure: Final = classify_failure(
@@ -1359,16 +1427,23 @@ async def guarded_stream_response(
                 and asyncio.get_running_loop().time() < deadline
             )
             retry: Final = retry_target is not None and retryable
+            retry_after_seconds, reported_code = recorded_upstream_result(
+                failure,
+                response.headers,
+                bootstrap.state.error_info,
+                bootstrap.state.error_status,
+                bootstrap.state.error_code,
+            )
             attempt.outcome(
                 bootstrap.state.error_status,
                 str(bootstrap.state.public_error()["message"]),
                 stage="response",
-                upstream_code=bootstrap.state.error_code,
+                upstream_code=reported_code,
                 failure_reason=failure.reason,
                 retryable=retry,
                 switched_account=retry and retry_target != route.account.id,
                 next_account_id=str(retry_target) if retry and retry_target != route.account.id else None,
-                retry_after_seconds=retry_after(response.headers),
+                retry_after_seconds=retry_after_seconds,
                 model_cooldown_seconds=failure.cooldown_seconds,
             )
             if retry:
@@ -1453,13 +1528,16 @@ async def stream_response(
             raise IncompleteStreamError("Upstream event stream ended before completion")
         if state.failed:
             failure: Final = classify_failure(state.error_status, state.error_info, response.headers)
+            retry_after_seconds, reported_code = recorded_upstream_result(
+                failure, response.headers, state.error_info, state.error_status, state.error_code
+            )
             attempt.outcome(
                 state.error_status,
                 str(state.public_error()["message"]),
                 stage="response",
-                upstream_code=state.error_code,
+                upstream_code=reported_code,
                 failure_reason=failure.reason,
-                retry_after_seconds=retry_after(response.headers),
+                retry_after_seconds=retry_after_seconds,
                 model_cooldown_seconds=failure.cooldown_seconds,
             )
         else:

@@ -678,6 +678,11 @@ const GatewayRow = ({
           </div>
         )}
       </div>
+      {chainBound && !frontAvailable && (
+        <p className="text-xs text-destructive" role="status">
+          {t("accountPool.proxyGateways.ispFrontRequired")}
+        </p>
+      )}
       {gateway.isp_profile_id && gatewayProbeQuery.data && (
         <div className="min-w-0 text-xs text-muted-foreground" aria-live="polite">
           <p>

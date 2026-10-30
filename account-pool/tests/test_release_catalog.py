@@ -126,8 +126,8 @@ class Docker:
         assert args[:3] == ("manifest", "inspect", "--verbose")
         assert timeout == 30
         assert args[3] in (
-            "ghcr.io/vvv-345/litellm:" + HEAD[:10],
-            "ghcr.io/vvv-345/account-pool-manager:" + HEAD[:10],
+            "ghcr.io/vvv-345/litellm-cliproxyapi:litellm-" + HEAD[:10],
+            "ghcr.io/vvv-345/litellm-cliproxyapi:manager-" + HEAD[:10],
         )
         if self.fail_service and self.fail_service in args[3]:
             raise ReleaseError("secret-registry-password")
@@ -137,7 +137,7 @@ class Docker:
             return json.dumps(self.entries).encode()
         if self.configs is not None:
             return json.dumps(
-                manifest("amd64", "d", self.configs[0] if "/litellm:" in args[3] else self.configs[1])
+                manifest("amd64", "d", self.configs[0] if ":litellm-" in args[3] else self.configs[1])
             ).encode()
         return json.dumps(
             [
@@ -271,7 +271,7 @@ def test_sanitizes_github_timeout(tmp_path: Path) -> None:
 
 
 def test_partial_registry_failure_returns_no_candidate_and_redacts_error(tmp_path: Path) -> None:
-    docker: Final = Docker(fail_service="account-pool-manager")
+    docker: Final = Docker(fail_service=":manager-")
     with pytest.raises(ReleaseError) as error:
         catalog(tmp_path, docker, GitHub()).latest(current_pair())
     assert "secret-registry-password" not in str(error.value)
@@ -283,3 +283,55 @@ def test_sanitizes_malformed_registry_output(tmp_path: Path, raw: bytes) -> None
     with pytest.raises(ReleaseError) as error:
         catalog(tmp_path, Docker(raw=raw), GitHub()).latest(current_pair())
     assert "secret-registry-password" not in str(error.value)
+
+
+def test_catalog_reads_unified_package_candidate_tags(tmp_path: Path) -> None:
+    class UnifiedDocker(Docker):
+        def __call__(self, *args, timeout=120):
+            if args[:2] == ("image", "inspect"):
+                return b"linux/amd64"
+            assert args[3] in (
+                "ghcr.io/vvv-345/litellm-cliproxyapi:litellm-" + HEAD[:10],
+                "ghcr.io/vvv-345/litellm-cliproxyapi:manager-" + HEAD[:10],
+            )
+            return json.dumps(manifest("amd64", "d", "e")).encode()
+
+    result = catalog(tmp_path, UnifiedDocker(), GitHub()).latest(current_pair())
+    assert result is not None and result.commit == HEAD
+
+
+def test_catalog_only_falls_back_to_legacy_on_first_missing_manifest(tmp_path):
+    class LegacyDocker(Docker):
+        def __call__(self, *args, timeout=120):
+            if args[:2] == ("image", "inspect"):
+                return b"linux/amd64"
+            if args[3] == "ghcr.io/vvv-345/litellm-cliproxyapi:litellm-" + HEAD[:10]:
+                raise ReleaseError("manifest unknown")
+            assert args[3] in (
+                "ghcr.io/vvv-345/litellm:" + HEAD[:10],
+                "ghcr.io/vvv-345/account-pool-manager:" + HEAD[:10],
+            )
+            return json.dumps(manifest("amd64", "d", "e")).encode()
+
+    assert catalog(tmp_path, LegacyDocker(), GitHub()).latest(current_pair()).commit == HEAD
+
+
+@pytest.mark.parametrize("github,category", ((GitHub(status=403), "auth"), (GitHub(fail=True), "network")))
+def test_github_failure_has_safe_phase_component_category(tmp_path, github, category):
+    with pytest.raises(ReleaseError) as error:
+        catalog(tmp_path, Docker(), github).latest(current_pair())
+    assert "phase=catalog component=github category=" + category in str(error.value)
+    assert "secret-registry-password" not in str(error.value)
+
+
+@pytest.mark.parametrize("component", ("litellm", "manager"))
+def test_catalog_platform_rejection_preserves_safe_component_diagnostics(tmp_path, component):
+    class PlatformDocker(Docker):
+        def __call__(self, *args, timeout=120):
+            if args[:2] == ("manifest", "inspect") and ":" + component + "-" in args[3]:
+                return json.dumps(manifest("arm64", "d", "e")).encode()
+            return super().__call__(*args, timeout=timeout)
+
+    with pytest.raises(ReleaseError) as error:
+        catalog(tmp_path, PlatformDocker(), GitHub()).latest(current_pair())
+    assert f"phase=catalog component={component} category=platform" in str(error.value)

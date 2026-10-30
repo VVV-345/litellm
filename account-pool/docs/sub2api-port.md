@@ -14,12 +14,18 @@
 
 `litellm/proxy/management_endpoints/account_pool_failover.py` 是可复用的纯分类入口，HTTP 和 SSE 共用 `classify_failure`，Router 和会话续接共用类型化失败标记。Manager 只接收内部 `FinishRequest.failure_reason`，不反向依赖 LiteLLM 包，不创建第二套调度器
 
+请求级容量等待对照 [c591412c42ab195dacdede9eb19f9cbfee221144](https://github.com/Wei-Shaw/sub2api/commit/c591412c42ab195dacdede9eb19f9cbfee221144) 的 `openAIRequestScopedRetryDelay`。采用的字段按序是 Retry-After、Retry-After-Ms、`error.headers.retry-after`、`response.error.headers.retry-after`，以及这两处的 `retry-after-ms`。第一正值向上取整，封顶为已有 `MAX_RETRY_DELAY_SECONDS`（8），写入已有 `FinishRequest.retry_after_seconds`
+
+Cloudflare 1010 对照 [e0fa4b94f9b962949da039c09e63968358324e26](https://github.com/Wei-Shaw/sub2api/commit/e0fa4b94f9b962949da039c09e63968358324e26)（合并 aa48a8bb）里 `ratelimit_service.go` 的 403 短路。`error_name` 为 browser_signature_banned，或 `cloudflare_error` 为真且 `code` / `error_code` 为 1010（可嵌套），在 `classify_failure` 中记为 `upstream_unavailable`、同卡、冷却 0。`Failure.retryable` 仍为真，但 403 不在 `retryable_statuses` 里，网关不据此再请求，也不换号。命中后 `upstream_code` 为 `cloudflare_1010`，`retry_after_seconds` 为 0，不走容量降载的 Retry-After。管理面 finish 不写 300 秒账号冷却，也不写模型冷却。纯文本只在 JSON 解析失败且含 `error code: 1010` 时命中。不移植 RateLimitService
+
 ## 本项目的适配规则
 
 | 情况 | 行为 |
 | --- | --- |
 | 明确额度耗尽、Codex 窗口用量达到 100%、429 返回重置时间 | 跳过同卡重试，按照已有额度切换开关选下一张授权卡片，保留上游 reset 冷却 |
 | 普通 429 | 按原有 `max_attempts` 先重试同卡，等待 Retry-After，不再一律先写 60 秒冷却 |
+| 容量降载（`upstream_unavailable`、同卡、冷却为 0） | 同卡重试，等待请求级 Retry-After 或 Retry-After-Ms，向上取整后封顶 8 秒 |
+| 403 且命中 Cloudflare 1010 或 browser_signature_banned | 记为 `upstream_unavailable`、同卡、冷却 0，但 403 不在可重试状态里，所以不发起下一次请求，也不换号。`upstream_code` 写成 `cloudflare_1010`，`retry_after_seconds` 写成 0。管理面 finish 不写 300 秒账号冷却，也不写模型冷却 |
 | 连接失败或已确认的临时上游错误 | 在安全边界内重试，同卡预算耗尽后按 `fallback_enabled` 换号 |
 | model_not_found、CLIProxyAPI auth_unavailable/auth_not_found/model_cooldown | 该卡当前不可用，避免消耗无意义的同卡重试，允许已有范围内换号 |
 | 上下文超限、内容或 cyber policy 拒绝 | 不换号，不把拒绝计为账号健康故障 |

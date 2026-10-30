@@ -37,3 +37,25 @@ class ProviderSpecificHeaderUtils:
                 matched_headers.update(scoped_header.get("extra_headers", {}))
 
         return matched_headers
+
+    @staticmethod
+    def forwarded_authorization(provider_specific_header: object, custom_llm_provider: str | None) -> str | None:
+        if custom_llm_provider is None or provider_specific_header is None:
+            return None
+        header: ProviderSpecificHeader | Sequence[ProviderSpecificHeader]
+        if isinstance(provider_specific_header, dict):
+            header = provider_specific_header
+        elif isinstance(provider_specific_header, Sequence) and not isinstance(provider_specific_header, (str, bytes)):
+            if not all(isinstance(item, dict) for item in provider_specific_header):
+                return None
+            header = provider_specific_header
+        else:
+            return None
+        try:
+            headers: Final = ProviderSpecificHeaderUtils.get_provider_specific_headers(header, custom_llm_provider)
+        except (AttributeError, TypeError):
+            return None
+        for key, value in headers.items():
+            if isinstance(key, str) and key.lower() == "authorization" and isinstance(value, str) and value:
+                return value
+        return None

@@ -4,12 +4,24 @@ account_pool_failover.py contains a Python adaptation of error classification an
 bounded retry decisions from Wei-Shaw/sub2api
 Source: https://github.com/Wei-Shaw/sub2api
 Revision: 698d142468ab15374bc22bd5247759e5b7352006
+Request-scoped capacity Retry-After: c591412c42ab195dacdede9eb19f9cbfee221144
 Original work: sub2api contributors, copyright retained by the original authors
 Adaptation date: 2026-10-15
 License: LGPL-3.0-or-later, without warranty
 
 The original Go implementation was adapted into pure Python classifications,
 with LiteLLM error envelopes and CLIProxyAPI unavailable-model compatibility
+c591412c42ab195dacdede9eb19f9cbfee221144 contributes the request-scoped
+capacity Retry-After and Retry-After-Ms delay
+The first positive value is rounded up and capped at the existing 8 second
+limit, then stored on FinishRequest.retry_after_seconds
+Cloudflare 1010 classification: e0fa4b94f9b962949da039c09e63968358324e26
+Merged as aa48a8bb
+The idea is the 403 short-circuit in ratelimit_service.go
+A matching 403 is upstream_unavailable, same-account, and cooldown 0
+It is not a capacity shed. FinishRequest stores upstream_code cloudflare_1010 and retry_after_seconds 0
+The manager does not write the 300 second 403 account cooldown or a model cooldown
+The Go RateLimitService is not ported
 The adapter does not copy the Go scheduler, database, authentication, or server
 The Python adapter source is distributed in the same package and can be replaced
 or modified without modifying the surrounding application

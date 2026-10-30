@@ -319,3 +319,65 @@ async def test_invalid_isp_request_does_not_echo_credentials(operation):
         )
     assert response.status_code == 422
     assert secret not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("extra,expected_status", [({}, "ok"), ({"tls": True}, "error"),
+    ({"transport": {"type": "ws"}}, "error"), ({"type": "vless", "uuid": "secret"}, "error"),
+    ({"type": "http", "tls": True}, "ok"), ({"type": "http", "tls": True, "sni": "custom.example"}, "error"),
+    ({"port": "1080"}, "error"), ({"port": 99999}, "error")])
+async def test_subscription_probe_supports_unbound_socks5_without_dropping_rich_options(extra, expected_status):
+    from account_pool.isp_probe import ISPProbe
+    from account_pool.proxy_catalog import ISPSubscriptionNodeProfile
+    from account_pool.proxy_catalog_service import ProxyCatalogService
+
+    config = {"name": "subscription", "type": "socks5", "server": "proxy.example", "port": 1080,
+              "username": "user@name", "password": "secret:/@", **extra}
+    profile = ISPSubscriptionNodeProfile(id=uuid4(), name="subscription", proxy_type=config["type"], config=config)
+    proxies = []
+
+    @asynccontextmanager
+    async def factory(proxy):
+        proxies.append(proxy)
+        def handler(request):
+            if request.url.host == "api.ipify.org":
+                return httpx.Response(200, json={"ip": "8.8.8.8"})
+            return httpx.Response(200, json={"success": True, "ip": "8.8.8.8", "country": "United States"})
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            yield client
+
+    class Repository:
+        def __init__(self):
+            self.saved = []
+
+        async def get_isp(self, identity):
+            return profile
+
+        async def save_isp_probe(self, result):
+            self.saved.append(result)
+            return result
+
+        async def list_isps(self):
+            return (profile,)
+
+        async def list_isp_bindings(self):
+            return ()
+
+        async def list_isp_probes(self):
+            return tuple(self.saved)
+
+    repository = Repository()
+    service = ProxyCatalogService(repository, probe=ISPProbe(client_factory=factory))
+    result = await service.probe_isp(profile.id)
+    assert result.status == expected_status
+    assert "secret" not in result.model_dump_json()
+    assert (await service.list_isps())[0].last_probe == result
+    assert profile.config == config
+    if expected_status == "ok":
+        scheme = "https" if extra.get("type") == "http" and extra.get("tls") else "socks5"
+        assert proxies == [f"{scheme}://user%40name:secret%3A%2F%40@proxy.example:1080"]
+        assert result.exit_ip == "8.8.8.8" and result.delay_ms is not None
+    else:
+        assert proxies == []
+        assert result.error == "subscription_requires_gateway"
+        assert result.exit_ip is None and result.delay_ms is None

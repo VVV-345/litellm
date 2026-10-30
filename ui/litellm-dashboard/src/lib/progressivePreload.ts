@@ -5,6 +5,7 @@ type Preload = () => unknown | Promise<unknown>;
 export interface PreloadTask {
   id: string;
   run: Preload;
+  critical?: boolean;
 }
 
 export interface PreloadProgress {
@@ -70,6 +71,7 @@ export async function runPreloadStages(
   const waitUntilVisible = options.waitForVisible ?? (() => waitForVisible(isVisible, options.signal));
   const yieldBetweenTasks = options.yieldBetweenTasks ?? (() => defaultYield(options.signal));
   let primary = emptyProgress(primaryTasks.length);
+  let criticalFailed = false;
   const backgroundTotal = backgroundBatches.reduce((total, batch) => total + batch.length, 0);
   let background = emptyProgress(backgroundTotal);
   let progress: PreloadStageProgress = { primary, background, stage: "primary" };
@@ -86,6 +88,7 @@ export async function runPreloadStages(
       await task.run();
     } catch (error) {
       failed = true;
+      if (task.critical !== false) criticalFailed = true;
       reportModuleLoadError(error);
     }
     if (options.signal?.aborted) return;
@@ -103,7 +106,7 @@ export async function runPreloadStages(
   };
 
   await Promise.all(primaryTasks.map((task) => runTask(task, "primary")));
-  if (options.signal?.aborted || primary.failed > 0) return progress;
+  if (options.signal?.aborted || criticalFailed) return progress;
   progress = { primary, background, stage: "background" };
   options.onProgress?.(progress);
 

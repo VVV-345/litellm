@@ -1,0 +1,27 @@
+name: Publish adapted CLIProxyAPI image
+
+on:
+  workflow_dispatch:
+    inputs:
+      architectures:
+        description: '构建目标架构'
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - amd64
+          - amd64,arm64
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  publish:
+    uses: ./.github/workflows/publish-deployment-images.yml
+    with:
+      architectures: ${{ inputs.architectures }}
+      source_ref: ${{ github.sha }}
+      version_bump: patch
+    secrets: inherit

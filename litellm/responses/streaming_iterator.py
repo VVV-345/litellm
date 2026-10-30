@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Final, Literal, Protocol, overload, runti
 
 import httpx
 from openai._streaming import SSEDecoder
+from pydantic import JsonValue, TypeAdapter
 from typing_extensions import TypeIs
 
 import litellm
@@ -28,6 +29,7 @@ from litellm.litellm_core_utils.llm_response_utils.get_api_base import get_api_b
 from litellm.litellm_core_utils.llm_response_utils.response_metadata import (
     update_response_metadata,
 )
+from litellm.litellm_core_utils.signature_recovery import merge_visible_history
 from litellm.litellm_core_utils.thread_pool_executor import executor
 from litellm.llms.base_llm.responses.transformation import BaseResponsesAPIConfig
 from litellm.responses.utils import ResponseAPILoggingUtils, ResponsesAPIRequestUtils
@@ -220,7 +222,18 @@ def _error_event_fields(error_obj: object) -> tuple[str, str | None, str | None]
 
 def _status_code_for_error_fields(error_type: str | None, error_code: str | None) -> int:
     fields: Final = tuple(field for field in (error_code, error_type) if field is not None)
-    if any(field.startswith("rate_limit") or field == "insufficient_quota" for field in fields):
+    if any(
+        field.startswith("rate_limit")
+        or field
+        in (
+            "insufficient_quota",
+            "quota_exceeded",
+            "usage_limit_reached",
+            "quota_exhausted",
+            "account_pool_quota_exhausted",
+        )
+        for field in fields
+    ):
         return 429
     return next(
         (_ERROR_CODE_HTTP_STATUS[field] for field in fields if field in _ERROR_CODE_HTTP_STATUS),
@@ -577,6 +590,11 @@ class BaseResponsesAPIStreamingIterator:
             model=self.model or "",
             llm_provider=self.custom_llm_provider or "",
             original_exception=mapped_exception,
+            response=httpx.Response(
+                status_code,
+                json={"error": {"message": error_message, "type": error_type, "code": error_code}},
+                request=mapped_exception.request,
+            ),
             generated_content=self._generated_content,
             is_pre_first_chunk=not self._yielded_first_chunk,
         )
@@ -2187,33 +2205,12 @@ class ManagedResponsesWebSocketHandler:
         Responses API message dicts suitable for the next turn's ``input``.
         """
         resp_obj: Final = completed_event.get("response", {})
-        if not isinstance(resp_obj, dict):
+        if not _is_json_object(resp_obj):
             return []
-        messages: Final[list[dict[str, object]]] = []
-        for item in resp_obj.get("output", []) or []:
-            if not isinstance(item, dict):
-                continue
-            item_type = item.get("type")
-            role = item.get("role", "assistant")
-            if item_type == "message":
-                content_parts = item.get("content") or []
-                text_parts = [
-                    p.get("text", "")
-                    for p in content_parts
-                    if isinstance(p, dict) and p.get("type") in ("output_text", "text")
-                ]
-                text = "".join(text_parts)
-                if text:
-                    messages.append(
-                        {
-                            "type": "message",
-                            "role": role,
-                            "content": [{"type": "output_text", "text": text}],
-                        }
-                    )
-            elif item_type == "function_call":
-                messages.append(item)
-        return messages
+        output: Final = resp_obj.get("output")
+        if not isinstance(output, list):
+            return []
+        return [dict(item) for item in TypeAdapter(list[JsonValue]).validate_python(output) if isinstance(item, dict)]
 
     @staticmethod
     def _input_to_messages(input_val: object) -> list[dict[str, object]]:
@@ -2329,6 +2326,13 @@ class ManagedResponsesWebSocketHandler:
             if param in response_params and response_params[param] is not None
         }
 
+    @staticmethod
+    def _merge_history(
+        prior: list[dict[str, object]], current: list[dict[str, object]]
+    ) -> list[dict[str, object]]:
+        adapter: Final = TypeAdapter(tuple[dict[str, JsonValue], ...])
+        return [dict(item) for item in merge_visible_history(adapter.validate_python(prior), adapter.validate_python(current))]
+
     def _apply_history(
         self,
         call_kwargs: dict[str, object],
@@ -2346,7 +2350,7 @@ class ManagedResponsesWebSocketHandler:
             )
             return
         if prior_history:
-            call_kwargs["input"] = prior_history + current_messages
+            call_kwargs["input"] = self._merge_history(prior_history, current_messages)
             verbose_logger.debug(
                 "ManagedResponsesWS: prepended %d history messages for previous_response_id=%s",
                 len(prior_history),
@@ -2467,7 +2471,7 @@ class ManagedResponsesWebSocketHandler:
         if not new_response_id:
             return
         output_msgs: Final = self._extract_output_messages(completed_event)
-        all_messages: Final = prior_history + current_messages + output_msgs
+        all_messages: Final = self._merge_history(prior_history, current_messages) + output_msgs
         self._store_history(new_response_id, all_messages)
         verbose_logger.debug(
             "ManagedResponsesWS: stored %d messages for response_id=%s",

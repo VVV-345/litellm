@@ -30,6 +30,7 @@ from account_pool.policies import (
     PolicyView,
     policy_capabilities,
     policy_validation_error,
+    public_policy_sync_error,
 )
 from account_pool.ports import EnvironmentRepository
 from account_pool.settings import (
@@ -158,8 +159,9 @@ def create_management_router(
             try:
                 await sync_policy(record, saved.policy)
             except Exception as error:
-                await _set_policy_runtime_status(policies, saved, "failed", "policy runtime synchronization failed")
-                raise HTTPException(status_code=502, detail="policy runtime synchronization failed") from error
+                message: Final = public_policy_sync_error(error) or "policy runtime synchronization failed"
+                await _set_policy_runtime_status(policies, saved, "failed", message)
+                raise HTTPException(status_code=502, detail=message) from error
             runtime_saved: Final = await _set_policy_runtime_status(policies, saved, "synced")
             return runtime_saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})
         return saved.model_copy(update={"capabilities": policy_capabilities(record.supplier)})

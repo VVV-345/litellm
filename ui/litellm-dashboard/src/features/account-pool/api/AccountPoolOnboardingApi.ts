@@ -48,7 +48,36 @@ export const onboardingStates: Record<OnboardingItem["state"], string> = {
 };
 
 export function parseMailboxAccounts(text: string): OnboardingImport["entries"] {
-  const values: unknown = JSON.parse(text);
+  const input = text.replace(/^\uFEFF/, "").trim();
+  if (!input.startsWith("{") && !input.startsWith("[") && input.includes("----")) {
+    const lines = input.split(/\r?\n/).filter((line) => line.trim());
+    if (lines.length > 100) throw new Error("每批最多导入 100 个账号");
+    return lines.map((line) => {
+      const fields = line.trim().split("----");
+      if (fields.length !== 3) throw new Error("2FA 格式或密钥无效");
+      const [email, password, key] = fields;
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
+        !password ||
+        !/^[A-Z2-7]{16,128}$/i.test(key.trim())
+      ) {
+        throw new Error("2FA 格式或密钥无效");
+      }
+      return {
+        label: email.trim(),
+        content: "",
+        mailbox_password: "",
+        supplier_password: password,
+        totp_secret: key.trim().toUpperCase(),
+      };
+    });
+  }
+  let values: unknown;
+  try {
+    values = JSON.parse(input);
+  } catch {
+    throw new Error("请提供账号 JSON 数组或邮箱----密码----2FA密钥文本");
+  }
   if (!Array.isArray(values) || values.length === 0 || values.length > 100) {
     throw new Error("请提供包含 1～100 个账号的 JSON 数组");
   }
@@ -67,6 +96,7 @@ export function parseMailboxAccounts(text: string): OnboardingImport["entries"] 
       content: "",
       mailbox_password: value.mailbox_password as string,
       supplier_password: supplierPassword,
+      totp_secret: "",
     };
   });
 }

@@ -71,6 +71,25 @@ const environment = {
 } as AccountPoolEnvironment;
 
 describe("AccountPoolCredentialsPanel", () => {
+  it("accepts a two-factor text upload and shows the pending authorization instead of claiming a token was imported", async () => {
+    const user = userEvent.setup();
+    listCredentials.mockResolvedValue([]);
+    uploadAuthFile.mockResolvedValue({ ...environment, status: "awaiting_authorization" });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: /上传认证文件/ }));
+    await user.selectOptions(screen.getByLabelText("目标卡片"), environment.id);
+    const file = new File(["fixture@example.test----password----JBSWY3DPEHPK3PXP"], "account.txt", {
+      type: "text/plain",
+    });
+    await user.upload(screen.getByLabelText("认证文件"), file);
+    await user.click(screen.getByRole("button", { name: "上传认证文件", exact: true }));
+    await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file, false));
+    expect(await screen.findByText(/登录资料已保存，尚未完成认证/)).toBeVisible();
+  });
   beforeEach(() => {
     void i18n.changeLanguage("zh-CN");
     vi.resetAllMocks();

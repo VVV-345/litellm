@@ -41,7 +41,7 @@ def test_missing_database_exec_permission_never_stops_business_containers(tmp_pa
         ReleaseSettings.model_validate({"token": "t" * 32, "root": tmp_path, "deployment": tmp_path.parent / "deploy"}),
         command,
     )
-    with pytest.raises(ReleaseError, match="EXEC denied"):
+    with pytest.raises(ReleaseError, match="phase=exec component=docker category=auth"):
         DockerReleaseDatabase(runtime).stop()
     assert not any(call[0] == "stop" for call in calls)
 
@@ -420,3 +420,15 @@ def test_failed_recovery_snapshot_is_retained_during_a_refresh(setup_data):
     database.data = b"latest"
     service.capture_database(saved)
     assert all((service.store.path(CURRENT.id) / item.filename).exists() for item in first.files)
+
+
+def test_unsafe_current_recovery_manager_blocks_deployment_before_any_mutation(setup_data):
+    service, runtime, clock, database = setup_data
+    job = queued(service, clock, action(service, "deploy", tag=NEW.commit))
+    runtime.unsafe_startup = CURRENT.id
+    service.run(job)
+    assert service.store.jobs()[0].status == "failed"
+    assert "安全恢复" in service.store.jobs()[0].message
+    assert runtime.running == CURRENT
+    assert runtime.events == ()
+    assert database.events == []

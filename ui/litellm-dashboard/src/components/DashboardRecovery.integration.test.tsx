@@ -70,6 +70,23 @@ it("uses a confirmed document reload for failed lazy modules instead of resettin
   unmount();
 });
 
+it("reloads a chunk failure only until the limit, then asks for a fresh login", async () => {
+  await i18n.changeLanguage("zh-CN");
+  sessionStorage.clear();
+  const reload = vi.fn();
+  const original = window.location;
+  Object.defineProperty(window, "location", { configurable: true, value: { ...original, reload } });
+  render(<DashboardRecovery />);
+  fireEvent(window, new ErrorEvent("error", { message: "ChunkLoadError: Loading chunk 42 failed" }));
+  fireEvent.click(await screen.findByRole("button", { name: "重试加载" }));
+  fireEvent.click(screen.getByRole("button", { name: "更新页面" }));
+  expect(reload).toHaveBeenCalledTimes(2);
+  expect(await screen.findByText("已达到重载上限。请从新页面重新登录。")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "重试加载" })).not.toBeInTheDocument();
+  Object.defineProperty(window, "location", { configurable: true, value: original });
+  sessionStorage.clear();
+});
+
 it("keeps the normal reset action for errors unrelated to module loading", async () => {
   await i18n.changeLanguage("zh-CN");
   const reset = vi.fn();

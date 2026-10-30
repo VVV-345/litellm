@@ -20,6 +20,7 @@ from account_pool.application.environments.contracts import (
     WaitForDirectCredentialOperation,
 )
 from account_pool.config import validate_proxy_profile_url
+from account_pool.credential_import import normalize_auth_file
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
 from account_pool.domain import (
     ChannelKind,
@@ -73,7 +74,8 @@ class EnvironmentAuthFiles:
                     FailureCode.CONFLICT, "该卡片已有凭证，一张卡片只能绑定一个凭证。如需替换，请使用“更换文件”"
                 )
             try:
-                identity: Final = credential_identity(content, record.supplier.value, self._secrets)
+                normalized: Final = normalize_auth_file(content, record.supplier.value)
+                identity: Final = credential_identity(normalized, record.supplier.value, self._secrets)
                 await self._ownership.claim(record.id, identity.fingerprints)
             except CredentialConflict as error:
                 return Failure(FailureCode.CONFLICT, str(error))
@@ -97,7 +99,7 @@ class EnvironmentAuthFiles:
             if claimed_upload is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             return await self.upload_auth_file_locked(
-                claimed_upload, filename, content, content_type, record.oauth_provider_state or record.oauth_state
+                claimed_upload, filename, normalized, content_type, record.oauth_provider_state or record.oauth_state
             )
 
     async def upload_auth_file_locked(

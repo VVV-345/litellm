@@ -78,6 +78,7 @@ def test_isp_subscription_parser_preserves_complete_top_level_mihomo_nodes() -> 
         "proxies: [unterminated",
         "x" * (2 * 1024 * 1024 + 1),
     ),
+    ids=("empty", "nested-provider", "duplicate", "selector", "invalid-yaml", "oversized"),
 )
 def test_isp_subscription_parser_rejects_invalid_documents_without_echoing_input(content: str) -> None:
     parser: Final = _subscription_parser()
@@ -469,3 +470,105 @@ async def test_expiry_check_deactivates_profiles_then_enforces_gateway_state() -
 
     assert deactivated == (profile_id,)
     assert gateways.checked == [date(2026, 10, 14)]
+
+
+@pytest.mark.asyncio
+async def test_subscription_metadata_actions_preserve_config_and_guard_bound_deletion() -> None:
+    import httpx
+    from account_pool.api import create_router
+    from account_pool.proxy_catalog import ISPSubscriptionNodeProfile
+    from fastapi import FastAPI
+
+    original: Final = ISPSubscriptionNodeProfile(
+        id=uuid4(), name="subscription", proxy_type="vless",
+        config={"type": "vless", "server": "edge.example", "port": 443,
+                "uuid": "private-secret", "reality-opts": {"public-key": "preserve-me"}},
+    )
+
+    class Repository:
+        def __init__(self) -> None:
+            self.profile = original
+            self.bound = True
+
+        async def get_isp(self, identity):
+            return self.profile if self.profile is not None and identity == self.profile.id else None
+
+        async def update_isp(self, profile):
+            self.profile = profile
+            return profile
+
+        async def list_isps(self):
+            return () if self.profile is None else (self.profile,)
+
+        async def list_isp_bindings(self):
+            return ((7891, original.id),) if self.bound else ()
+
+        async def list_isp_probes(self):
+            return ()
+
+        async def delete_isp(self, identity):
+            if self.bound or identity != original.id:
+                return False
+            self.profile = None
+            return True
+
+    repository: Final = Repository()
+    reconciled: list[date] = []
+
+    async def reconcile(today: date) -> None:
+        reconciled.append(today)
+
+    app: Final = FastAPI()
+    app.include_router(create_router(object(), "manager-test", proxy_catalog=ProxyCatalogService(
+        cast(ProxyCatalogRepository, repository), reconcile,
+    )))
+    headers: Final = {"Authorization": "Bearer manager-test"}
+    path: Final = f"/api/proxy-isps/{original.id}"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        unauthorized: Final = await client.put(path, json={"name": "renamed", "enabled": False})
+        updated: Final = await client.put(path, headers=headers, json={"name": "renamed", "enabled": False})
+        assert unauthorized.status_code == 401
+        assert updated.status_code == 200
+        assert updated.json()["name"] == "renamed" and updated.json()["enabled"] is False
+        assert updated.json()["source"] == "subscription"
+        assert "private-secret" not in updated.text and "preserve-me" not in updated.text
+        assert repository.profile.config == original.config
+        assert repository.profile.proxy_type == "vless"
+        assert reconciled == [date.today()]
+        rejected: Final = await client.put(path, headers=headers, json={
+            "name": "renamed", "enabled": False, "clear_credentials": True,
+        })
+        assert rejected.status_code == 409
+        assert repository.profile.config == original.config
+        bound: Final = await client.delete(path, headers=headers)
+        assert bound.status_code == 409 and repository.profile is not None
+        repository.bound = False
+        deleted: Final = await client.delete(path, headers=headers)
+        assert deleted.status_code == 204 and repository.profile is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ("protocol", "host", "port"))
+async def test_manual_isp_updates_still_require_connection_fields(missing: str) -> None:
+    import httpx
+    from account_pool.api import create_router
+    from fastapi import FastAPI
+
+    profile: Final = ISPProxyProfile(id=uuid4(), name="manual", protocol="http", host="proxy.test", port=8080)
+
+    class Repository:
+        async def get_isp(self, identity):
+            return profile
+
+        async def update_isp(self, updated):
+            pytest.fail("incomplete manual updates must not be persisted")
+
+    app: Final = FastAPI()
+    app.include_router(create_router(object(), "manager-test", proxy_catalog=ProxyCatalogService(
+        cast(ProxyCatalogRepository, Repository()),
+    )))
+    body: Final = {"name": "manual", "enabled": True, "protocol": "http", "host": "proxy.test", "port": 8080}
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response: Final = await client.put(f"/api/proxy-isps/{profile.id}",
+            headers={"Authorization": "Bearer manager-test"}, json={key: value for key, value in body.items() if key != missing})
+    assert response.status_code == 422

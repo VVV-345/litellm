@@ -33,6 +33,7 @@ export const useAccountPoolCredentials = (
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadCardId, setUploadCardId] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [pendingLogin, setPendingLogin] = useState(false);
   const [replaceCredential, setReplaceCredential] = useState<(typeof credentials)[number] | null>(null);
   const query = useQuery({
     queryKey: accountPoolQueryKeys.credentials(accessToken),
@@ -82,8 +83,14 @@ export const useAccountPoolCredentials = (
       }
       return uploadAccountPoolAuthFile(accessToken!, uploadCardId, uploadFile, replaceCredential !== null);
     },
-    onSuccess: () => {
-      toast.success(t(replaceCredential ? "accountPool.credentials.replaced" : "accountPool.credentials.uploaded"));
+    onSuccess: (environment) => {
+      const pending = environment.status === "awaiting_authorization";
+      setPendingLogin(pending);
+      toast.success(
+        pending
+          ? "登录资料已保存，请在 OAuth 上号任务中完成授权"
+          : t(replaceCredential ? "accountPool.credentials.replaced" : "accountPool.credentials.uploaded"),
+      );
       setUploadOpen(false);
       setUploadFile(null);
       setReplaceCredential(null);
@@ -92,6 +99,7 @@ export const useAccountPoolCredentials = (
     onError: (error: Error) => toast.fromError(error),
   });
   const openUpload = (credential: (typeof credentials)[number] | null) => {
+    setPendingLogin(false);
     uploadMutation.reset();
     setReplaceCredential(credential);
     setUploadFile(null);
@@ -161,6 +169,7 @@ export const useAccountPoolCredentials = (
     uploadCardId,
     setUploadCardId,
     uploadFile,
+    pendingLogin,
     setUploadFile,
     replaceCredential,
     uploadTargets,

@@ -1,8 +1,30 @@
 name: Publish deployment images
 
 on:
+  workflow_call:
+    inputs:
+      architectures:
+        description: 'amd64、arm64 或 amd64,arm64；留空使用仓库变量，未设置时为 arm64'
+        required: false
+        type: string
+      source_ref:
+        required: false
+        type: string
+      version_bump:
+        required: false
+        default: patch
+        type: string
   workflow_dispatch:
     inputs:
+      architectures:
+        description: '构建目标架构'
+        required: true
+        default: arm64
+        type: choice
+        options:
+          - arm64
+          - amd64
+          - amd64,arm64
       source_ref:
         description: '要构建的分支或完整 commit，留空使用当前工作流版本'
         required: false
@@ -31,17 +53,21 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: vvv-345
+  IMAGE_REPOSITORY: ghcr.io/vvv-345/litellm-cliproxyapi
 
 jobs:
   version:
     name: Resolve deployment version
     runs-on: ubuntu-latest
     outputs:
+      architectures: ${{ steps.platforms.outputs.architectures }}
       deploy_tag: ${{ steps.version.outputs.deploy_tag }}
       revision: ${{ steps.version.outputs.revision }}
       release_version: ${{ steps.version.outputs.release_version }}
       versioned_tag: ${{ steps.version.outputs.versioned_tag }}
+      cliproxy_commit: ${{ steps.pin.outputs.commit }}
+      cliproxy_tag: ${{ steps.pin.outputs.tag }}
+      patch_sha256: ${{ steps.pin.outputs.patch_sha256 }}
     steps:
       - name: Resolve the selected source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -49,6 +75,12 @@ jobs:
           ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
           fetch-depth: 0
+      - id: platforms
+        name: Validate the selected build architectures
+        env:
+          ARCHITECTURES: ${{ inputs.architectures || vars.DEPLOY_ARCHITECTURES || 'arm64' }}
+        run: python deploy/release_platforms.py "$ARCHITECTURES" >> "$GITHUB_OUTPUT"
+
       - id: version
         name: Resolve next successful product version and immutable deployment tag
         shell: bash
@@ -58,6 +90,12 @@ jobs:
           git tag --list > "$RUNNER_TEMP/successful-release-tags.txt"
           python deploy/release_version.py deploy/VERSION "$(git rev-parse HEAD)" \
             --tags-file "$RUNNER_TEMP/successful-release-tags.txt" --bump "$VERSION_BUMP" >> "$GITHUB_OUTPUT"
+
+      - id: pin
+        name: Verify the pinned adapter source and patch hash
+        run: |
+          python account-pool/cliproxy-adapter/image_ref.py >> "$GITHUB_OUTPUT"
+          echo "patch_sha256=$(jq -er '.patch.sha256' account-pool/cliproxy-adapter/sources.json)" >> "$GITHUB_OUTPUT"
 
   verify-quota:
     name: Verify quota switching and release compatibility
@@ -114,6 +152,9 @@ jobs:
             account-pool/tests/account_pool/test_upstream_sync.py \
             account-pool/tests/account_pool/test_settings.py \
             account-pool/tests/account_pool/test_policies.py \
+            account-pool/tests/account_pool/test_cliproxy_runtime_image.py \
+            account-pool/tests/account_pool/test_cliproxy_supplier_client.py \
+            account-pool/tests/account_pool/test_runtime_maintenance.py \
             account-pool/tests/account_pool/test_isp_profiles.py \
             account-pool/tests/account_pool/test_isp_probe.py \
             tests/test_litellm/test_dockerfile_non_root.py \
@@ -125,6 +166,7 @@ jobs:
             account-pool/tests/test_release_catalog.py \
             account-pool/tests/test_release_database.py \
             account-pool/tests/test_release_workflow.py \
+            account-pool/tests/test_release_manifest.py \
             account-pool/tests/test_releases.py \
             account-pool/tests/test_release_runtime.py
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -154,37 +196,49 @@ jobs:
   build-and-publish:
     name: Build ${{ matrix.image }} (${{ matrix.arch }})
     needs: [version, verify-quota]
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
+        image: [litellm, manager, cliproxyapi]
+        arch: ${{ fromJSON(needs.version.outputs.architectures) }}
         include:
           - image: litellm
             context: .
             file: Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: litellm
-            context: .
-            file: Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
-          - image: account-pool-manager
+          - image: manager
             context: account-pool
             file: account-pool/Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: account-pool-manager
-            context: account-pool
-            file: account-pool/Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
+          - image: cliproxyapi
+            context: cliproxy-src
+            file: cliproxy-src/Dockerfile
     steps:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           ref: ${{ needs.version.outputs.revision }}
           persist-credentials: false
+
+      - name: Check out the pinned CLIProxyAPI commit
+        if: matrix.image == 'cliproxyapi'
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          repository: VVV-345/CLIProxyAPI
+          ref: ${{ needs.version.outputs.cliproxy_commit }}
+          path: cliproxy-src
+          persist-credentials: false
+      - name: Set up uv for adapter application
+        if: matrix.image == 'cliproxyapi'
+        uses: ./.github/actions/setup-uv-with-retries
+        with:
+          version: '0.10.9'
+      - name: Install locked adapter dependencies
+        if: matrix.image == 'cliproxyapi'
+        working-directory: account-pool
+        run: uv sync --frozen --no-dev --no-editable
+      - name: Apply the verified adaptation patch
+        if: matrix.image == 'cliproxyapi'
+        run: account-pool/.venv/bin/python account-pool/cliproxy-adapter/apply.py cliproxy-src
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
@@ -203,13 +257,41 @@ jobs:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
           platforms: linux/${{ matrix.arch }}
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ env.IMAGE_REPOSITORY }},push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            ${{ matrix.image == 'cliproxyapi' && format('VERSION={0}', needs.version.outputs.cliproxy_tag) || '' }}
+            ${{ matrix.image == 'cliproxyapi' && format('COMMIT={0}', needs.version.outputs.cliproxy_commit) || '' }}
           labels: |
+            ai.zlia.component=${{ matrix.image }}
+            ai.zlia.cliproxy-source-revision=${{ needs.version.outputs.cliproxy_commit }}
+            ai.zlia.cliproxy-patch-sha256=${{ needs.version.outputs.patch_sha256 }}
+            ${{ matrix.image == 'cliproxyapi' && format('ai.zlia.source-revision={0}', needs.version.outputs.cliproxy_commit) || '' }}
+            ${{ matrix.image == 'cliproxyapi' && format('ai.zlia.patch-sha256={0}', needs.version.outputs.patch_sha256) || '' }}
+            ${{ matrix.image == 'cliproxyapi' && 'ai.zlia.managed-identity-version=1' || '' }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ needs.version.outputs.revision }}
             org.opencontainers.image.version=${{ needs.version.outputs.release_version }}
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
+
+      - id: probe
+        name: Probe the exact published platform digest
+        env:
+          IMAGE: ${{ matrix.image }}
+          ARCH: ${{ matrix.arch }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          REVISION: ${{ needs.version.outputs.revision }}
+        run: |
+          ref="${IMAGE_REPOSITORY}@${DIGEST}"
+          docker pull "$ref"
+          test "$(docker image inspect "$ref" --format '{{.Architecture}}')" = "$ARCH"
+          test "$(docker image inspect "$ref" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
+          test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.component"}}')" = "$IMAGE"
+          case "$IMAGE" in
+            litellm) docker run --rm --entrypoint python -e LITELLM_LOCAL_MODEL_COST_MAP=True "$ref" -c 'import litellm; import litellm.proxy.proxy_server; print("LiteLLM imports passed")' ;;
+            manager) docker run --rm --entrypoint python "$ref" -c 'from account_pool.app import create_app; print("Manager imports passed")' ;;
+            cliproxyapi) python3 account-pool/cliproxy-adapter/probe_managed_identity.py --image "$ref" ;;
+          esac
 
       - name: Record the built image digest
         shell: bash
@@ -217,11 +299,12 @@ jobs:
           IMAGE: ${{ matrix.image }}
           ARCH: ${{ matrix.arch }}
           DIGEST: ${{ steps.build.outputs.digest }}
+          REVISION: ${{ needs.version.outputs.revision }}
         run: |
           test -n "$DIGEST"
           mkdir -p /tmp/image-digests
-          printf '{"image":"%s","arch":"%s","digest":"%s"}\n' \
-            "$IMAGE" "$ARCH" "$DIGEST" > "/tmp/image-digests/${IMAGE}-${ARCH}.json"
+          printf '{"image":"%s","arch":"%s","digest":"%s","revision":"%s","probe":"passed"}\n' \
+            "$IMAGE" "$ARCH" "$DIGEST" "$REVISION" > "/tmp/image-digests/${IMAGE}-${ARCH}.json"
 
       - name: Upload the image digest
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
@@ -232,61 +315,148 @@ jobs:
           retention-days: 1
 
   publish-manifest:
-    name: Publish ${{ matrix.image }} multi-arch manifest
-    needs:
-      - version
-      - build-and-publish
+    name: Publish ${{ matrix.image }} selected-platform SHA manifest
+    needs: [version, build-and-publish]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        image:
-          - litellm
-          - account-pool-manager
+        image: [litellm, manager, cliproxyapi]
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Download image digests
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: build-digest-${{ matrix.image }}-*
           path: /tmp/image-digests
           merge-multiple: true
-
-      - name: Publish the shared version tag
-        shell: bash
+      - name: Publish only the verified SHA tag without replacing existing tags
         env:
           IMAGE: ${{ matrix.image }}
           DEPLOY_TAG: ${{ needs.version.outputs.deploy_tag }}
-          VERSIONED_TAG: ${{ needs.version.outputs.versioned_tag }}
+          ARCHITECTURES: ${{ needs.version.outputs.architectures }}
         run: |
-          image="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE}"
-          amd64_digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-amd64.json")"
-          arm64_digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-arm64.json")"
-          docker buildx imagetools create \
-            --tag "${image}:${DEPLOY_TAG}" \
-            --tag "${image}:${VERSIONED_TAG}" \
-            "${image}@${amd64_digest}" \
-            "${image}@${arm64_digest}"
-          docker buildx imagetools inspect "${image}:${DEPLOY_TAG}"
+          ref="${IMAGE_REPOSITORY}:${IMAGE}-${DEPLOY_TAG}"
+          sources=()
+          while IFS= read -r arch; do
+            digest="$(jq -er '.digest | select(type == "string" and startswith("sha256:"))' "/tmp/image-digests/${IMAGE}-${arch}.json")"
+            sources+=("${IMAGE_REPOSITORY}@${digest}")
+          done < <(jq -r ".[]" <<< "$ARCHITECTURES")
+          docker buildx imagetools create --dry-run "${sources[@]}" > /tmp/proposed.json
+          if docker buildx imagetools inspect "$ref" --raw > /tmp/existing.json 2>/tmp/inspect-error; then
+            diff <(jq -S '.manifests | sort_by(.digest)' /tmp/proposed.json) <(jq -S '.manifests | sort_by(.digest)' /tmp/existing.json)
+          else
+            if ! grep -Eiq 'not found|manifest unknown|MANIFEST_UNKNOWN' /tmp/inspect-error; then
+              cat /tmp/inspect-error >&2
+              exit 1
+            fi
+            docker buildx imagetools create --tag "$ref" "${sources[@]}"
+          fi
+          docker buildx imagetools inspect "$ref" --raw > /tmp/published.json
+          diff <(jq -S '.manifests | sort_by(.digest)' /tmp/proposed.json) <(jq -S '.manifests | sort_by(.digest)' /tmp/published.json)
+          digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')"
+          jq --arg image "$IMAGE" --arg digest "$digest" '{image: $image, digest: $digest, platforms: [.manifests[].platform | select(.os == "linux") | .os + "/" + .architecture] | unique | sort}' /tmp/published.json > "/tmp/image-digests/${IMAGE}.json"
+          platforms="$(jq -c 'map("linux/" + .) | sort' <<< "$ARCHITECTURES")"
+          jq -e --argjson platforms "$platforms" '.platforms == $platforms' "/tmp/image-digests/${IMAGE}.json"
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: release-digest-${{ matrix.image }}
+          path: /tmp/image-digests/${{ matrix.image }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  release-manifest:
+    name: Verify and record the complete three-component release
+    needs: [version, publish-manifest]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: ${{ needs.version.outputs.revision }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: '*-digest-*'
+          path: /tmp/image-digests
+          merge-multiple: true
+      - name: Require every selected platform probe and all four manifests
+        env:
+          REVISION: ${{ needs.version.outputs.revision }}
+          RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
+          ARCHITECTURES: ${{ needs.version.outputs.architectures }}
+        run: |
+          architectures="$(jq -r 'join(",")' <<< "$ARCHITECTURES")"
+          python deploy/release_manifest.py --architectures "$architectures" --revision "$REVISION" --version "$RELEASE_VERSION" --digests /tmp/image-digests --output /tmp/release-manifest.json
+      - uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
+        with:
+          name: release-manifest-${{ needs.version.outputs.versioned_tag }}
+          path: /tmp/release-manifest.json
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-version-alias:
+    name: Publish ${{ matrix.image }} successful version aliases
+    needs: [version, release-manifest]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [litellm, manager, cliproxyapi]
+    steps:
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-manifest-${{ needs.version.outputs.versioned_tag }}
+          path: /tmp
+      - name: Alias verified digests without moving existing versions
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSIONED_TAG: ${{ needs.version.outputs.versioned_tag }}
+          RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
+        run: |
+          digest="$(jq -er --arg component "$IMAGE" '.images[$component].digest' /tmp/release-manifest.json)"
+          for tag in "$VERSIONED_TAG" "$RELEASE_VERSION"; do
+            ref="${IMAGE_REPOSITORY}:${IMAGE}-${tag}"
+            if existing="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>/tmp/inspect-error)"; then
+              if [ "$existing" != "$digest" ]; then
+                echo "refusing to replace existing image tag $ref" >&2
+                exit 1
+              fi
+            else
+              if ! grep -Eiq 'not found|manifest unknown|MANIFEST_UNKNOWN' /tmp/inspect-error; then
+                cat /tmp/inspect-error >&2
+                exit 1
+              fi
+              docker buildx imagetools create --tag "$ref" "${IMAGE_REPOSITORY}@${digest}"
+            fi
+            test "$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')" = "$digest"
+          done
 
   create-git-tag:
-    name: Create immutable release Git tag
+    name: Publish the immutable Git release and durable manifest
     needs:
       - version
       - publish-manifest
+      - publish-version-alias
+      - summary
     permissions:
       contents: write
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-manifest-${{ needs.version.outputs.versioned_tag }}
+          path: /tmp
       - name: Create the versioned tag without moving existing refs
         uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
         env:
@@ -296,6 +466,12 @@ jobs:
           script: |
             const tag = process.env.TAG;
             const revision = process.env.REVISION;
+            const fs = require('fs');
+            const manifest = fs.readFileSync('/tmp/release-manifest.json');
+            const metadata = JSON.parse(manifest.toString('utf8'));
+            if (metadata.revision !== revision || metadata.versioned_tag !== tag) {
+              throw new Error('Release manifest identity mismatch');
+            }
 
             try {
               await github.rest.git.createRef({
@@ -316,91 +492,71 @@ jobs:
               }
             }
 
-  publish-version-alias:
-    name: Publish successful product version
-    needs:
-      - version
-      - create-git-tag
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        image:
-          - litellm
-          - account-pool-manager
-    steps:
-      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-      - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Alias the verified immutable manifest
-        env:
-          IMAGE: ${{ matrix.image }}
-          VERSIONED_TAG: ${{ needs.version.outputs.versioned_tag }}
-          RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
-        run: |
-          image="${REGISTRY}/${IMAGE_NAMESPACE}/${IMAGE}"
-          digest="$(docker buildx imagetools inspect "${image}:${VERSIONED_TAG}" --format '{{.Manifest.Digest}}')"
-          docker buildx imagetools create --tag "${image}:${RELEASE_VERSION}" "${image}@${digest}"
-          docker buildx imagetools inspect "${image}:${RELEASE_VERSION}"
-
-  clean-package-versions:
-    name: Retain recent package versions
-    needs: publish-version-alias
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        package:
-          - litellm
-          - account-pool-manager
-    steps:
-      - name: Retain the latest 20 versions of ${{ matrix.package }}
-        uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
-        with:
-          owner: ${{ env.IMAGE_NAMESPACE }}
-          package-name: ${{ matrix.package }}
-          package-type: container
-          min-versions-to-keep: 20
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ignore-versions: '^v[0-9]+\.[0-9]+(\.[0-9]+)?-.*$'
+            let release;
+            try {
+              release = (await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              })).data;
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              release = (await github.rest.repos.createRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag_name: tag,
+                target_commitish: revision,
+                name: tag,
+                draft: true,
+                body: 'Verified three-component release. See release-manifest.json for pinned image digests and provenance. No server deployment is performed',
+              })).data;
+            }
+            if (release.name !== tag || release.tag_name !== tag) {
+              throw new Error('Refusing to modify an unrelated GitHub release');
+            }
+            const asset = release.assets.find(item => item.name === 'release-manifest.json');
+            if (asset) {
+              const existing = await github.rest.repos.getReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                asset_id: asset.id,
+                headers: { accept: 'application/octet-stream' },
+              });
+              if (!Buffer.from(existing.data).equals(manifest)) {
+                throw new Error('Refusing to replace an existing release manifest');
+              }
+            } else {
+              await github.rest.repos.uploadReleaseAsset({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                name: 'release-manifest.json',
+                data: manifest,
+                headers: { 'content-type': 'application/json', 'content-length': manifest.length },
+              });
+            }
+            if (release.draft) {
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                draft: false,
+              });
+            }
 
   summary:
     name: Write deployment summary
-    needs:
-      - version
-      - build-and-publish
-      - publish-manifest
-      - create-git-tag
-      - publish-version-alias
-      - clean-package-versions
+    needs: [version, publish-version-alias]
     runs-on: ubuntu-latest
     steps:
-      - name: Set up Docker Buildx for digest reporting
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
-
-      - name: Log in to GitHub Container Registry for digest reporting
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Write image references
-        shell: bash
-        env:
-          DEPLOY_TAG: ${{ needs.version.outputs.deploy_tag }}
-          RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
-          VERSIONED_TAG: ${{ needs.version.outputs.versioned_tag }}
+          name: release-manifest-${{ needs.version.outputs.versioned_tag }}
+          path: /tmp
+      - name: Write verified image references
         run: |
           {
-            echo "## Deployment images"
-            echo "Product version: ${RELEASE_VERSION}; immutable build: ${VERSIONED_TAG}"
-            echo
-            echo "Use \`DEPLOY_TAG=${DEPLOY_TAG}\` on the server."
-            echo
-            echo "- \`ghcr.io/vvv-345/litellm:${DEPLOY_TAG}\`"
-            echo "- \`ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG}\`"
+            echo '## Published three-component release'
+            jq -r '"Product version: " + .version + "; immutable build: " + .versioned_tag, (.images | to_entries[] | "- " + .key + ": `" + .value.image + "@" + .value.digest + "`")' /tmp/release-manifest.json
+            echo 'Publication does not deploy or recreate any account containers. Historical packages and tags are unchanged.'
           } >> "$GITHUB_STEP_SUMMARY"

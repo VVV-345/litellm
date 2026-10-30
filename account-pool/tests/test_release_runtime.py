@@ -251,6 +251,14 @@ class Commands:
 
     def __call__(self, *args: str, timeout: int = 120) -> bytes:
         self.calls += (args,)
+        if args[0] == "cp":
+            data = io.BytesIO()
+            source = b"async def lifespan(app):\n yield\n"
+            with tarfile.open(fileobj=data, mode="w") as archive:
+                member = tarfile.TarInfo("app.py")
+                member.size = len(source)
+                archive.addfile(member, io.BytesIO(source))
+            return data.getvalue()
         if args[0] == "ps":
             return b"a" * 12 if args[-1].endswith("=litellm") else b"b" * 12
         if args[0] == "inspect":
@@ -382,6 +390,8 @@ def test_pinned_candidate_pull_checks_image_identity_before_deploy(tmp_path: Pat
 
     def command(*args, timeout=120):
         calls.append(args)
+        if args[:2] == ("image", "pull") and args[2].startswith("ghcr.io/vvv-345/litellm-cliproxyapi@"):
+            raise ReleaseError("manifest unknown")
         if args[:2] == ("image", "inspect"):
             return json.dumps(
                 [
@@ -411,7 +421,7 @@ def test_pinned_candidate_pull_checks_image_identity_before_deploy(tmp_path: Pat
     )
     with pytest.raises(ReleaseError, match="镜像身份"):
         runtime.pull_candidate(selected)
-    assert calls[0] == ("image", "pull", "ghcr.io/vvv-345/litellm@sha256:" + "1" * 64)
+    assert calls[1] == ("image", "pull", "ghcr.io/vvv-345/litellm@sha256:" + "1" * 64)
     assert not any(call[0] == "compose" for call in calls)
 
 
@@ -444,6 +454,8 @@ def test_pinned_pull_accepts_both_docker_image_stores_without_relaxing_revision(
     )
 
     def command(*args, timeout=120):
+        if args[:2] == ("image", "pull") and args[2].startswith("ghcr.io/vvv-345/litellm-cliproxyapi@"):
+            raise ReleaseError("manifest unknown")
         if args[:2] != ("image", "inspect"):
             return b""
         image = next(image for image in selected.images if args[2].endswith(image.digest))
@@ -762,6 +774,58 @@ def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
     assert not additive_manager_schema_upgrade(baseline, (*baseline, (catalog[0], catalog[1].replace(b"enabled boolean", b"enabled text"))))
 
 
+@pytest.mark.parametrize("change,allowed", (("isp", True), ("prisma", False), ("extra", False), ("modified", False)))
+def test_additive_upgrade_runtime_inspects_both_images(tmp_path: Path, change: str, allowed: bool) -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    settings: Final = ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy")
+    current: Final = DockerReleaseRuntime(settings, Commands()).current()
+    target: Final = image_pair(tuple(
+        image.model_copy(update={"image_id": "sha256:" + ("c" if image.service == "litellm" else "d") * 64})
+        for image in current.images
+    ))
+    old_schema: Final = tuple(
+        statement for statement in _SCHEMA if "subscription" not in statement and "front_bindings" not in statement
+    )
+    new_schema: Final = (
+        (*_SCHEMA, "CREATE TABLE account_pool_unreviewed (id uuid)") if change == "extra"
+        else tuple(statement.replace("enabled boolean", "enabled text") for statement in _SCHEMA)
+        if change == "modified" else _SCHEMA
+    )
+    archives: Final = {
+        current.images[0].image_id: {"schema.prisma": b"model A { id String @id }"},
+        current.images[1].image_id: {"account_pool/catalog.py": f"SQL = {old_schema!r}".encode()},
+        target.images[0].image_id: {
+            "schema.prisma": b"model B { id String @id }" if change == "prisma" else b"model A { id String @id }",
+        },
+        target.images[1].image_id: {"account_pool/catalog.py": f"SQL = {new_schema!r}".encode()},
+    }
+    containers: Final[dict[str, str]] = {}
+
+    def command(*args: str, timeout: int = 120) -> bytes:
+        if args[0] == "create":
+            assert args[3:7] == ("--network", "none", "--entrypoint", "/bin/true")
+            containers[args[2]] = args[-1]
+            return b""
+        if args[0] == "rm":
+            del containers[args[-1]]
+            return b""
+        assert args[0] == "cp"
+        name, _, path = args[1].partition(":")
+        assert path in ("/app/account_pool", "/app/schema.prisma")
+        output: Final = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w") as archive:
+            for filename, body in archives[containers[name]].items():
+                member: Final = tarfile.TarInfo(filename)
+                member.size = len(body)
+                archive.addfile(member, io.BytesIO(body))
+        return output.getvalue()
+
+    runtime: Final = DockerReleaseRuntime(settings, command)
+    assert runtime.is_additive_manager_schema_upgrade(current, target) is allowed
+    assert not containers
+
+
 def test_isp_probe_upgrade_allows_only_the_exact_additive_table() -> None:
     from account_pool.proxy_catalog_repository import _SCHEMA
 
@@ -778,3 +842,385 @@ def test_isp_probe_upgrade_allows_only_the_exact_additive_table() -> None:
     assert not additive_manager_schema_upgrade(baseline, (*target, (
         "unreviewed.py", b'SQL = "CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid PRIMARY KEY)"',
     )))
+
+
+def test_isp_subscription_probe_upgrade_from_existing_v17_catalog() -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    probe: Final = next(statement for statement in _SCHEMA if "account_pool_isp_subscription_probe_results" in statement)
+    catalog: Final = tuple(statement for statement in _SCHEMA if statement != probe)
+    baseline: Final = (("schema.prisma", b"model A { id String @id }"),
+                       ("catalog.py", f"SQL = {catalog!r}".encode()))
+    target: Final = (*baseline, ("probe.py", f"SQL = {probe!r}".encode()))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*target, (
+        "unreviewed.py", b'SQL = "CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid PRIMARY KEY)"',
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (baseline[0], target[-1]))
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("INCLUDING CONSTRAINTS", ""),
+    ("ON DELETE CASCADE", "ON DELETE RESTRICT"),
+    ("account_pool_isp_subscription_nodes", "account_pool_isp_profiles"),
+    ("PRIMARY KEY (profile_id)", "PRIMARY KEY (profile_id), extra text"),
+))
+def test_isp_subscription_probe_upgrade_rejects_unreviewed_table_changes(original: str, replacement: str) -> None:
+    from account_pool.proxy_catalog_repository import _SCHEMA
+
+    probe: Final = next(statement for statement in _SCHEMA if "account_pool_isp_subscription_probe_results" in statement)
+    catalog: Final = tuple(statement for statement in _SCHEMA if statement != probe)
+    baseline: Final = (("schema.prisma", b"model A { id String @id }"),
+                       ("catalog.py", f"SQL = {catalog!r}".encode()))
+    target: Final = (*baseline, ("probe.py", f"SQL = {probe.replace(original, replacement)!r}".encode()))
+    assert not additive_manager_schema_upgrade(baseline, target)
+
+
+PRODUCT_REPOSITORY = "ghcr.io/vvv-345/litellm-cliproxyapi"
+
+
+class ProductCommands:
+    def __init__(self, broken: str = "", problem: str = "") -> None:
+        self.calls = []
+        self.broken = broken
+        self.problem = problem
+
+    def __call__(self, *args: str, timeout: int = 120) -> bytes:
+        from account_pool.release_store import ReleaseError
+
+        self.calls.append((args, timeout))
+        if args == ("info", "--format", "{{.OSType}}/{{.Architecture}}"):
+            return b"linux/x86_64\n"
+        if args[:2] == ("image", "pull"):
+            assert timeout == 1800
+            if args[2].startswith(PRODUCT_REPOSITORY + ":" + self.broken + "-") and self.problem == "missing":
+                raise ReleaseError("manifest unknown: password=secret-value")
+            return b"downloaded"
+        if args[:2] == ("image", "inspect"):
+            component = (
+                {"1": "litellm", "2": "manager", "3": "browser-worker", "4": "cliproxyapi"}[args[2][-1]]
+                if "@" in args[2]
+                else next(
+                    name
+                    for name in ("browser-worker", "cliproxyapi", "manager", "litellm")
+                    if args[2].startswith(PRODUCT_REPOSITORY + ":" + name + "-")
+                )
+            )
+            char = {"litellm": "1", "manager": "2", "browser-worker": "3", "cliproxyapi": "4"}[component]
+            labels = {"org.opencontainers.image.revision": "a" * 40, "ai.zlia.component": component}
+            if component == "manager":
+                labels.update({"ai.zlia.cliproxy-source-revision": "b" * 40,
+                               "ai.zlia.cliproxy-patch-sha256": "c" * 64})
+                if self.problem == "expected-source":
+                    labels["ai.zlia.cliproxy-source-revision"] = "d" * 40
+                if self.problem == "expected-patch":
+                    labels["ai.zlia.cliproxy-patch-sha256"] = "e" * 64
+                if self.problem == "expected-missing":
+                    del labels["ai.zlia.cliproxy-source-revision"]
+            if component == "cliproxyapi":
+                labels.update(
+                    {
+                        "ai.zlia.source-revision": "b" * 40,
+                        "ai.zlia.patch-sha256": "c" * 64,
+                        "ai.zlia.managed-identity-version": "1",
+                    }
+                )
+            if component == self.broken and self.problem == "component":
+                labels["ai.zlia.component"] = "manager"
+            if component == self.broken and self.problem == "revision":
+                labels["org.opencontainers.image.revision"] = "b" * 40
+            if component == self.broken and self.problem == "identity":
+                labels["ai.zlia.managed-identity-version"] = "2"
+            return json.dumps(
+                [
+                    {
+                        "Id": "sha256:"
+                        + ("9" if component == self.broken and self.problem == "image-id" else char) * 64,
+                        "Size": 100,
+                        "Os": "linux",
+                        "Architecture": "arm64" if self.problem == "platform" else "amd64",
+                        "RepoTags": [args[2]],
+                        "RepoDigests": []
+                        if self.problem == "digest"
+                        else [PRODUCT_REPOSITORY + "@sha256:" + char * 64],
+                        "Config": {"Labels": labels},
+                    }
+                ]
+            ).encode()
+        raise AssertionError(args)
+
+
+def product_runtime(tmp_path: Path, command: ProductCommands) -> DockerReleaseRuntime:
+    return DockerReleaseRuntime(
+        ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy", reserve_bytes=0), command
+    )
+
+
+@pytest.mark.parametrize("worker", ("", "ghcr.io/vvv-345/account-pool-browser-worker:old"))
+def test_unified_release_pulls_active_components_without_changing_legacy_browser_setting(tmp_path: Path, worker: str) -> None:
+    command = ProductCommands("browser-worker", "missing")
+    runtime = product_runtime(tmp_path, command)
+    pair = runtime.pull("a" * 10)
+    assert pair.commit == "a" * 40
+    assert {image.repository for image in pair.images} == {PRODUCT_REPOSITORY}
+    assert len(pair.images) == 2
+    assert set(pair.model_dump()) == {"id", "commit", "images"}
+    configuration = json.dumps(
+        {
+            "services": {
+                "litellm": {},
+                "account-pool": {
+                    "environment": {
+                        "ACCOUNT_POOL_OAUTH_BROWSER_IMAGE": worker,
+                        "ACCOUNT_POOL_MANAGER_TOKEN": "keep-secret",
+                    }
+                },
+            }
+        }
+    ).encode()
+    resolved = json.loads(runtime.product_configuration(pair, configuration))
+    environment = resolved["services"]["account-pool"]["environment"]
+    assert environment["ACCOUNT_POOL_CLI_PROXY_IMAGE"] == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
+    assert environment["ACCOUNT_POOL_OAUTH_BROWSER_IMAGE"] == worker
+    assert environment["ACCOUNT_POOL_MANAGER_TOKEN"] == "keep-secret"
+    pulls = [args[2] for args, _ in command.calls if args[:2] == ("image", "pull")]
+    assert pulls == [
+        PRODUCT_REPOSITORY + ":" + component + "-" + "a" * 10
+        for component in ("litellm", "manager", "cliproxyapi")
+    ]
+    assert not any(args[0] in ("compose", "create", "restart") for args, _ in command.calls)
+
+
+@pytest.mark.parametrize(
+    "component,problem",
+    (
+        ("manager", "missing"),
+        ("cliproxyapi", "component"),
+        ("cliproxyapi", "revision"),
+        ("cliproxyapi", "identity"),
+        ("litellm", "platform"),
+        ("litellm", "digest"),
+    ),
+)
+def test_unified_release_rejects_incomplete_or_wrong_companion_before_apply(tmp_path, component, problem):
+    from account_pool.release_store import ReleaseError
+
+    command = ProductCommands(component, problem)
+    runtime = product_runtime(tmp_path, command)
+    with pytest.raises(ReleaseError) as error:
+        runtime.pull("a" * 10)
+    assert "secret-value" not in str(error.value)
+    assert not any(args[0] == "compose" for args, _ in command.calls)
+
+
+@pytest.mark.parametrize("component", ("manager", "browser-worker", "cliproxyapi"))
+def test_unified_image_cannot_impersonate_litellm(tmp_path: Path, component: str) -> None:
+    from account_pool.release_store import ReleaseError
+
+    runtime = product_runtime(tmp_path, ProductCommands())
+    with pytest.raises(ReleaseError, match="component"):
+        runtime.inspect_image(PRODUCT_REPOSITORY + ":" + component + "-" + "a" * 10, "litellm")
+
+
+@pytest.mark.parametrize(
+    "stderr,category",
+    (
+        (b"unauthorized token=secret-value", "auth"),
+        (b"dial tcp: i/o timeout secret-value", "network"),
+        (b"manifest unknown secret-value", "missing"),
+        (b"no matching manifest for linux/arm64 secret-value", "platform"),
+        (b"no space left on device secret-value", "disk"),
+    ),
+)
+def test_docker_failure_reports_safe_phase_component_category(tmp_path, monkeypatch, caplog, stderr, category):
+    import subprocess
+
+    from account_pool.release_store import ReleaseError
+
+    def failed(*args, **kwargs):
+        return subprocess.CompletedProcess(args[0], 1, stdout=b"", stderr=stderr)
+
+    monkeypatch.setattr(subprocess, "run", failed)
+    runtime = DockerReleaseRuntime(
+        ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy")
+    )
+    with pytest.raises(ReleaseError) as error:
+        runtime.run("image", "pull", PRODUCT_REPOSITORY + ":browser-worker-" + "a" * 10, timeout=1800)
+    assert "phase=pull" in str(error.value)
+    assert "component=browser-worker" in str(error.value)
+    assert "category=" + category in str(error.value)
+    assert "secret-value" not in str(error.value) + caplog.text
+
+
+def test_unified_service_target_uses_validated_companion_configuration(tmp_path: Path) -> None:
+    from account_pool.release_models import ReleaseAction, ReleaseImage, ReleaseJob
+    from account_pool.release_service import ReleaseService
+    from account_pool.release_store import ReleaseStore
+
+    class ConfigurationCommands(ProductCommands):
+        def __call__(self, *args, timeout=120):
+            if args[0] == "compose":
+                return b'{"services":{"litellm":{},"account-pool":{"environment":{"ACCOUNT_POOL_OAUTH_BROWSER_IMAGE":""}}}}'
+            return super().__call__(*args, timeout=timeout)
+
+    runtime = product_runtime(tmp_path, ConfigurationCommands())
+    service = ReleaseService(ReleaseStore(tmp_path), runtime, reserve_bytes=0)
+    job = ReleaseJob(
+        id="target-test",
+        action=ReleaseAction(action="deploy", tag="a" * 10, revision=0),
+        status="running",
+        phase="pending",
+        created_at=0,
+        updated_at=0,
+    )
+    target, configuration = service._target(
+        job,
+        image_pair(
+            tuple(
+                ReleaseImage(service=name, image_id="sha256:" + char * 64, repository=name, revision="b" * 40, size=0)
+                for name, char in (("litellm", "5"), ("account-pool", "6"))
+            )
+        ),
+    )
+    assert target.commit == "a" * 40
+    assert (
+        json.loads(configuration)["services"]["account-pool"]["environment"]["ACCOUNT_POOL_CLI_PROXY_IMAGE"]
+        == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
+    )
+
+
+@pytest.mark.parametrize("failure", ("unauthorized secret-value", "dial tcp timeout secret-value"))
+def test_unified_pull_does_not_fallback_on_auth_or_network_failure(tmp_path, failure):
+    from account_pool.release_store import ReleaseError
+
+    calls = []
+
+    def command(*args, timeout=120):
+        calls.append(args)
+        raise ReleaseError(failure)
+
+    runtime = product_runtime(tmp_path, command)
+    with pytest.raises(ReleaseError):
+        runtime.pull("a" * 10)
+    assert calls == [("image", "pull", PRODUCT_REPOSITORY + ":litellm-" + "a" * 10)]
+
+
+def test_unified_preflight_failure_discards_previous_companion_pins(tmp_path):
+    from account_pool.release_store import ReleaseError
+
+    command = ProductCommands()
+    runtime = product_runtime(tmp_path, command)
+    pair = runtime.pull("a" * 10)
+    command.broken, command.problem = "cliproxyapi", "missing"
+    with pytest.raises(ReleaseError):
+        runtime.pull("a" * 10)
+    with pytest.raises(ReleaseError, match="预检"):
+        runtime.product_configuration(pair, b'{"services":{"litellm":{},"account-pool":{}}}')
+
+
+def test_unified_discovery_uses_component_filters_without_reclassifying_companions(tmp_path):
+    ids = {"litellm": "1", "manager": "2"}
+
+    def command(*args, timeout=120):
+        if args[:2] == ("image", "ls"):
+            if args[2] != PRODUCT_REPOSITORY:
+                return b""
+            component = args[4].removeprefix("label=ai.zlia.component=")
+            return ("sha256:" + ids[component] * 64).encode()
+        component = "litellm" if args[2][-1] == "1" else "manager"
+        return ProductCommands()("image", "inspect", PRODUCT_REPOSITORY + ":" + component + "-" + "a" * 10)
+
+    result = product_runtime(tmp_path, command).discover()
+    assert len(result) == 1
+    assert {image.repository for image in result[0].images} == {PRODUCT_REPOSITORY}
+    assert {image.service for image in result[0].images} == {"litellm", "account-pool"}
+
+
+@pytest.mark.parametrize("matching", (True, False))
+def test_unified_pinned_candidate_checks_digest_identity_with_service_order_independent(tmp_path, matching):
+    from account_pool.release_models import ReleaseCandidate, RemoteReleaseImage
+    from account_pool.release_store import ReleaseError
+
+    command = ProductCommands("litellm", "" if matching else "image-id")
+    runtime = product_runtime(tmp_path, command)
+    candidate = ReleaseCandidate(
+        commit="a" * 40,
+        images=(
+            RemoteReleaseImage(service="account-pool", digest="sha256:" + "2" * 64, image_id="sha256:" + "2" * 64),
+            RemoteReleaseImage(service="litellm", digest="sha256:" + "1" * 64, image_id="sha256:" + "1" * 64),
+        ),
+    )
+    if matching:
+        result = runtime.pull_candidate(candidate)
+        assert result.commit == candidate.commit
+        assert {image.repository for image in result.images} == {PRODUCT_REPOSITORY}
+    else:
+        with pytest.raises(ReleaseError, match="identity"):
+            runtime.pull_candidate(candidate)
+    assert not any(args[0] == "compose" for args, _ in command.calls)
+
+
+def test_product_pair_cannot_mix_new_and_legacy_package(tmp_path):
+    from account_pool.release_store import ReleaseError
+
+    pair = product_runtime(tmp_path, ProductCommands()).pull("a" * 10)
+    legacy_manager = pair.images[1].model_copy(update={"repository": "ghcr.io/vvv-345/account-pool-manager"})
+    with pytest.raises(ReleaseError, match="配套"):
+        image_pair((pair.images[0], legacy_manager))
+
+
+def test_product_validation_failure_is_not_a_retryable_download(tmp_path):
+    from account_pool.release_store import ReleaseDownloadError, ReleaseError
+
+    with pytest.raises(ReleaseError) as error:
+        product_runtime(tmp_path, ProductCommands("cliproxyapi", "component")).pull("a" * 10)
+    assert not isinstance(error.value, ReleaseDownloadError)
+
+
+def test_unified_archive_without_registry_references_retains_component_identity(tmp_path):
+    def command(*args, timeout=120):
+        assert args[:2] == ("image", "inspect")
+        return json.dumps([{"Id": "sha256:" + "1" * 64, "Config": {"Labels": {
+            "org.opencontainers.image.revision": "a" * 40, "ai.zlia.component": "litellm",
+        }}}]).encode()
+
+    image = product_runtime(tmp_path, command).inspect_image("sha256:" + "1" * 64, "litellm")
+    assert image.repository == PRODUCT_REPOSITORY
+
+
+@pytest.mark.parametrize("source", (
+    b"async def lifespan(app):\n await _align_cliproxy_images(channel, records)\n yield\n",
+    b"async def lifespan(app):\n await channel.align_runtime_image(record)\n yield\n",
+    b"", b"not valid python !",
+))
+def test_apply_blocks_unsafe_or_unreadable_manager_startup_even_when_checks_disabled(tmp_path, source):
+    from account_pool.release_store import ReleaseError
+
+    class StartupCommands(Commands):
+        def __call__(self, *args, timeout=120):
+            if args[0] == "cp":
+                data = io.BytesIO()
+                with tarfile.open(fileobj=data, mode="w") as archive:
+                    member = tarfile.TarInfo("app.py")
+                    member.size = len(source)
+                    archive.addfile(member, io.BytesIO(source))
+                return data.getvalue()
+            return super().__call__(*args, timeout=timeout)
+
+    command = StartupCommands()
+    runtime = DockerReleaseRuntime(ReleaseSettings(token="t" * 32, root=tmp_path,
+        deployment=tmp_path.parent / "deploy", skip_compatibility_checks=True), command)
+    with pytest.raises(ReleaseError, match="启动"):
+        runtime.apply(runtime.current(), b'{"services":{"litellm":{},"account-pool":{}}}')
+    assert not any(call[0] == "compose" or call[:2] == ("image", "tag") for call in command.calls)
+
+
+@pytest.mark.parametrize("problem", ("expected-source", "expected-patch", "expected-missing"))
+def test_product_companion_provenance_must_match_selected_manager_pins(tmp_path, problem):
+    from account_pool.release_store import ReleaseError
+
+    command = ProductCommands("manager", problem)
+    with pytest.raises(ReleaseError, match="provenance"):
+        product_runtime(tmp_path, command).pull("a" * 10)
+    assert not any(args[0] == "compose" for args, _ in command.calls)

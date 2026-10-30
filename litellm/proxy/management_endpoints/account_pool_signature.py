@@ -1,11 +1,15 @@
 """识别签名拒绝并重建无工具副作用的完整请求，不生成签名或恢复上游隐藏状态。"""
 
-from collections.abc import Mapping
+import hashlib
+import re
+import time
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Final
 
 from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 
-from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+from litellm.litellm_core_utils.signature_recovery import recover_signature_history, visible_reasoning
 from litellm.llms.anthropic.common_utils import (
     is_anthropic_invalid_thinking_block_error,
 )
@@ -30,6 +34,71 @@ _HISTORY_FIELDS: Final = frozenset(
 )
 
 
+class SignatureLineage:
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self.clock: Final = clock
+        self.entries: Mapping[tuple[str, str], float] = MappingProxyType({})
+
+    def clean(self, scope: str, payload: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
+        history: Final = payload.get("input")
+        if not isinstance(history, list):
+            return None
+        rejected: Final = tuple(
+            index for index, item in enumerate(history)
+            if isinstance(item, dict) and item.get("type") == "reasoning"
+            and isinstance(ciphertext := item.get("encrypted_content"), str)
+            and self.entries.get((scope, hashlib.sha256(ciphertext.encode()).hexdigest()), 0) > self.clock()
+        )
+        if not rejected:
+            return None
+        return {**payload, "input": [
+            kept for index, item in enumerate(history)
+            if (kept := visible_reasoning(item) if index in rejected and isinstance(item, dict) else item) is not None
+        ]}
+
+    def remember(self, scope: str, payload: Mapping[str, JsonValue], error: JsonValue) -> None:
+        history: Final = payload.get("input")
+        if not isinstance(history, list) or not signature_error(error):
+            return
+        candidates: Final = tuple(
+            (index, ciphertext) for index, item in enumerate(history)
+            if isinstance(item, dict) and item.get("type") == "reasoning"
+            and isinstance(ciphertext := item.get("encrypted_content"), str) and ciphertext
+        )
+        param: Final = self._param(error)
+        matched: Final = re.fullmatch(r"input(?:\[(\d+)\]|\.(\d+))(?:\.encrypted_content)?", param) if param else None
+        selected: Final = tuple(
+            ciphertext for index, ciphertext in candidates
+            if matched is not None and index == int(matched.group(1) or matched.group(2))
+            or param is None and len(candidates) == 1
+        )
+        if len(selected) != 1:
+            return
+        now: Final = self.clock()
+        active: Final = tuple((key, expiry) for key, expiry in self.entries.items() if expiry > now)[-1023:]
+        self.entries = MappingProxyType({
+            **dict(active), (scope, hashlib.sha256(selected[0].encode()).hexdigest()): now + 3600,
+        })
+
+    def remember_stream(self, scope: str, payload: Mapping[str, JsonValue], data: bytes) -> None:
+        for line in data.splitlines():
+            self._remember_stream_line(scope, payload, line)
+
+    def _remember_stream_line(self, scope: str, payload: Mapping[str, JsonValue], line: bytes) -> None:
+        if not line.startswith(b"data:"):
+            return
+        try:
+            self.remember(scope, payload, _PAYLOAD.validate_json(line[5:].strip()))
+        except ValueError:
+            return
+
+    def _param(self, error: JsonValue) -> str | None:
+        if not isinstance(error, dict):
+            return None
+        param: Final = error.get("param")
+        return param if isinstance(param, str) else self._param(error.get("error", error.get("response")))
+
+
 def foreign_history_recovery(payload: Mapping[str, object], router: "Router") -> dict[str, JsonValue]:
     from litellm._logging import verbose_proxy_logger
     from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
@@ -49,7 +118,7 @@ def foreign_history_recovery(payload: Mapping[str, object], router: "Router") ->
     if recovered is None:
         return {}
     verbose_proxy_logger.info("Account pool signature recovery: foreign origin; request_id=%s", identity.request_id)
-    return {key: value for key, value in recovered.items() if key in ("input", "messages")}
+    return {key: value for key, value in recovered.items() if key in ("input", "messages", "tools")}
 
 
 def signature_error(error: JsonValue) -> bool:
@@ -83,5 +152,7 @@ def signature_recovery_message(reason: str | None) -> str:
         "unsupported_history": "会话包含尚未支持的消息或工具格式",
         "retry_exhausted": "已在同一卡片清理旧思考状态并重试一次，上游仍拒绝",
         "output_started": "本次响应已开始输出，为避免重复执行已停止重试",
+        "preflight_limit": "响应预读达到安全上限后才收到思考状态错误，当前响应不能安全重新执行",
+        "no_removable_state": "请求中没有可安全清理的旧思考状态，无法通过清理历史自动重试",
     }.get(category, "原会话的思考状态无法由当前上游验证")
-    return f"跨上游思考状态不兼容：{explanation}。请新建会话，或回到原中转站继续原会话。恢复原因：{reason or 'no_removable_state'}"
+    return f"思考状态校验失败：{explanation}。请新建会话，或回到原中转站继续原会话。恢复原因：{reason or 'no_removable_state'}"

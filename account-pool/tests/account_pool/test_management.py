@@ -369,7 +369,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     capabilities: Final = {item["name"]: item["status"] for item in first.json()["capabilities"]}
     assert capabilities["responses_compact"] == "gateway"
     assert "desktop_compact" not in capabilities
-    assert capabilities["identity"] == "gateway"
+    assert capabilities["identity"] == "metadata"
     assert capabilities["provider_settings"] == "gateway"
     assert capabilities["plan_expiry"] == "gateway"
     assert client.put(path, json={"version": 0, "policy": {}}).status_code == 409
@@ -431,11 +431,12 @@ def test_policy_versions_and_supplier_scope(management) -> None:
 
 
 @pytest.mark.parametrize(
-    ("sync_fails", "expected_status_code", "expected_runtime_status"),
-    ((False, 200, "synced"), (True, 502, "failed")),
+    ("sync_fails", "unsupported", "expected_status_code", "expected_runtime_status"),
+    ((False, False, 200, "synced"), (True, False, 502, "failed"), (False, True, 502, "failed")),
 )
 def test_policy_update_persists_runtime_synchronization_status(
     sync_fails: bool,
+    unsupported: bool,
     expected_status_code: int,
     expected_runtime_status: str,
 ) -> None:
@@ -444,6 +445,10 @@ def test_policy_update_persists_runtime_synchronization_status(
     policies: Final = MemoryPolicies()
 
     async def sync_policy(_: EnvironmentRecord, __: AccountPolicy) -> None:
+        if unsupported:
+            from account_pool.policies import ManagedIdentityUnavailableError
+
+            raise ManagedIdentityUnavailableError("CLIProxyAPI managed identity requires the compatible adapter build")
         if sync_fails:
             raise RuntimeError("runtime synchronization failed")
 
@@ -468,7 +473,14 @@ def test_policy_update_persists_runtime_synchronization_status(
     assert response.status_code == expected_status_code
     stored: Final = policies.records[record.id]
     assert stored.runtime_status == expected_runtime_status
-    assert stored.runtime_error == ("policy runtime synchronization failed" if sync_fails else None)
+    expected_error = (
+        "当前 CLIProxyAPI 不支持托管安装 ID，请先升级适配底层；配置已保存但尚未生效"
+        if unsupported
+        else "policy runtime synchronization failed" if sync_fails else None
+    )
+    assert stored.runtime_error == expected_error
+    if unsupported:
+        assert response.json()["detail"] == expected_error
     assert stored.runtime_updated_at is not None
 
 

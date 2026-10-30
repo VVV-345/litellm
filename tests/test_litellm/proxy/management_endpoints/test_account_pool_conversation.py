@@ -303,7 +303,6 @@ async def test_missing_or_unauthorized_history_does_not_cross_cards(pool, blocke
         {"extra_body": {"previous_response_id": "resp_unknown"}},
         {"conversation": "conv_server"},
         {"truncation": "auto"},
-        {"tools": [{"type": "web_search"}]},
         {"input": [{"role": "user", "content": [{"type": "input_file", "file_id": "file_A"}]}]},
         {"input": [{"role": "user", "content": "hello"}, {"type": "compaction", "encrypted_content": "state"}]},
         {
@@ -858,6 +857,9 @@ async def test_preempt_switches_fresh_depleted_origin_with_full_history(degraded
     from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
 
     router, (first, second) = degraded
+    initial = await Conversation.start(router, {"model": "shared", "input": [{"type": "message", "role": "user", "content": "first"}]})
+    parent = response(first, text="second")
+    await initial.complete(parent)
     snapshots.replace(
         {
             str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc())),
@@ -866,7 +868,7 @@ async def test_preempt_switches_fresh_depleted_origin_with_full_history(degraded
     )
     payload = {
         "model": "shared",
-        "previous_response_id": response(first).id,
+        "previous_response_id": parent.id,
         "input": [
             {"type": "message", "role": "user", "content": "first"},
             {"type": "message", "role": "assistant", "content": "second"},
@@ -908,22 +910,29 @@ async def test_preempt_switches_known_depleted_stale_snapshot(degraded):
     from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
 
     router, (first, second) = degraded
+    initial = await Conversation.start(router, {"model": "shared", "input": [{"role": "user", "content": "Original"}]})
+    parent = response(first, text="Answer")
+    await initial.complete(parent)
     snapshots.replace(
         {
             str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc() - timedelta(hours=2))),
             str(second): RoutingSnapshot(quota_switch_project=True),
         }
     )
-    payload = {"model": "shared", "previous_response_id": response(first).id, "input": [{"role": "user", "content": "Original"}, {"role": "assistant", "content": "Answer"}, {"role": "user", "content": "Continue"}]}
+    payload = {"model": "shared", "previous_response_id": parent.id, "input": [{"role": "user", "content": "Original"}, {"role": "assistant", "content": "Answer"}, {"role": "user", "content": "Continue"}]}
     conversation = await Conversation.start(router, payload)
     assert conversation is not None
     assert conversation.preempt(router, payload) is not None
 
 @pytest.mark.asyncio
 async def test_router_preempts_before_calling_depleted_origin(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
     from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
 
     router, (first, second) = degraded
+    initial = await Conversation.start(router, {"model": "shared", "input": [{"role": "user", "content": "Original"}]})
+    parent = response(first, text="Answer")
+    await initial.complete(parent)
     snapshots.replace(
         {
             str(first): RoutingSnapshot(quota_switch_project=True, quota=RoutingQuota(remaining_percent=0, observed_at=now_utc())),
@@ -941,7 +950,7 @@ async def test_router_preempts_before_calling_depleted_origin(degraded):
         original_function=provider,
         model="shared",
         input=[{"role": "user", "content": "Original"}, {"role": "assistant", "content": "Answer"}, {"role": "user", "content": "Continue"}],
-        previous_response_id=response(first).id,
+        previous_response_id=parent.id,
     )
 
     assert calls == [str(second)]
@@ -988,6 +997,7 @@ def test_missing_image_result_does_not_silently_drop_history() -> None:
 @pytest.mark.parametrize("preemptive", [True, False])
 async def test_quota_migration_preserves_image_tools_and_next_turn(degraded, window, preemptive):
     from datetime import timedelta
+
     from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuotaWindow, now_utc
     router, (first, second) = degraded
     png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
@@ -1074,7 +1084,12 @@ async def test_extra_body_server_state_is_not_replayed(degraded):
 @pytest.mark.asyncio
 async def test_old_cache_with_unsupported_item_cannot_migrate_as_complete_history(degraded):
     import time
-    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationRecord, ConversationStore
+
+    from litellm.proxy.management_endpoints.account_pool_conversation import (
+        Conversation,
+        ConversationRecord,
+        ConversationStore,
+    )
     router, (first, _) = degraded
     identity = pool_identity.get()
     store = ConversationStore(router.cache, "test-conversation-secret-" * 2)
@@ -1121,7 +1136,12 @@ async def test_stream_quota_error_before_output_migrates_complete_history(degrad
 @pytest.mark.asyncio
 async def test_old_cache_image_is_normalized_before_replay(degraded):
     import time
-    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationRecord, ConversationStore
+
+    from litellm.proxy.management_endpoints.account_pool_conversation import (
+        Conversation,
+        ConversationRecord,
+        ConversationStore,
+    )
     router, (first, second) = degraded
     png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII="
     previous = response(first).id
@@ -1153,6 +1173,7 @@ async def test_migration_preserves_opaque_logging_metadata(degraded):
 @pytest.mark.asyncio
 async def test_stream_preparation_cancellation_closes_source(degraded, monkeypatch):
     import asyncio
+
     from litellm.proxy.management_endpoints.account_pool_conversation import Conversation, ConversationStream
     monkeypatch.delattr(asyncio, "timeout", raising=False)
     router, _ = degraded
@@ -1177,6 +1198,7 @@ async def test_large_inline_image_migrates_but_is_not_claimed_as_cached(degraded
     import random
     import struct
     import zlib
+
     from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
     router, (first, second) = degraded
     def chunk(kind, data):
@@ -1196,3 +1218,117 @@ async def test_large_inline_image_migrates_but_is_not_claimed_as_cached(degraded
     await conversation.complete(completed)
     next_turn = await Conversation.start(router, {"model": "shared", "input": "Next", "previous_response_id": completed.id})
     assert not next_turn.can_replay(router, {})
+@pytest.mark.asyncio
+@pytest.mark.parametrize("full_replay", [False, True])
+async def test_reconnect_history_prefix_is_not_duplicated(degraded, full_replay):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    router, (first, _) = degraded
+    initial_items = [{"role": "user", "content": "1"}, {"role": "assistant", "content": "2"}]
+    initial = await Conversation.start(router, {"model": "shared", "input": initial_items})
+    parent = response(first, text="3")
+    await initial.complete(parent)
+    current = [*initial_items, {"type": "message", "role": "assistant", "content": "3"}] if full_replay else []
+    current.append({"role": "user", "content": "4"})
+    continued = await Conversation.start(router, {"model": "shared", "previous_response_id": parent.id, "input": current})
+    assert [item["content"] for item in continued.history] == ["1", "2", "3", "4"]
+
+
+@pytest.mark.parametrize("entry", [
+    {"type": "additional_tools", "tools": [{"type": "function", "name": "lookup"}]},
+    {"type": "agent_message", "content": [{"type": "input_text", "text": "Visible handoff"}]},
+    {"type": "configuration_update", "reasoning": {"effort": "high"}},
+    {"type": "compaction_trigger"},
+    {"type": "function_call_output", "call_id": "c1", "output": [{"type": "input_text", "text": "result"}]},
+])
+def test_codex_visible_history_portability(entry):
+    from litellm.proxy.management_endpoints.account_pool_conversation import visible_input
+    assert visible_input([{"role": "user", "content": "Continue"}, entry]) is not None
+
+
+@pytest.mark.parametrize("cached,current,expected", [
+    ([{"role": "user", "content": "1"}], [{"role": "user", "content": "1"}], ["1", "1"]),
+    ([{"role": "user", "content": str(i)} for i in range(1, 4)], [{"role": "user", "content": "1"}], ["1", "2", "3", "1"]),
+])
+def test_history_merge_preserves_deliberate_repeated_delta(cached, current, expected):
+    from litellm.litellm_core_utils.signature_recovery import merge_visible_history
+    assert [item["content"] for item in merge_visible_history(tuple(cached), tuple(current))] == expected
+
+
+@pytest.mark.parametrize(
+    "current,expected",
+    [
+        ([{"role": "user", "content": "1"}, {"role": "user", "content": "2"}], ["1", "2"]),
+        ([{"role": "user", "content": "1"}], ["1", "1"]),
+    ],
+)
+def test_single_item_reconnect_overlap_does_not_remove_a_repeated_delta(current, expected):
+    from litellm.litellm_core_utils.signature_recovery import merge_visible_history
+
+    cached = ({"role": "user", "content": "1"},)
+    assert [item["content"] for item in merge_visible_history(cached, tuple(current))] == expected
+
+
+@pytest.mark.asyncio
+async def test_missing_parent_with_assistant_is_not_complete(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    router, (first, _) = degraded
+    payload = {"model": "shared", "previous_response_id": response(first).id, "input": [
+        {"role": "user", "content": "Recent context"}, {"role": "assistant", "content": "Recent reply"},
+        {"role": "user", "content": "Next"},
+    ]}
+    conversation = await Conversation.start(router, payload)
+    assert conversation.history is None
+    assert not conversation.can_replay(router, payload)
+
+
+def test_web_search_declaration_does_not_block_visible_client_history():
+    from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
+    assert signature_recovery_reason({"input": [{"role": "user", "content": "Hello"}], "tools": [{"type": "web_search"}]}) is None
+    assert signature_recovery_reason({"input": [{"role": "user", "content": "Hello"}, {"type": "web_search_call", "id": "search"}]}) is not None
+
+
+@pytest.mark.parametrize("output", [
+    [{"type": "input_text", "text": "contents"}],
+    [{"type": "input_image", "image_url": "data:image/png;base64,eA=="}],
+    [{"type": "input_file", "filename": "readme.txt", "file_data": "data:text/plain;base64,eA=="}],
+])
+def test_visible_tool_output_arrays_preserve_tool_identity(output):
+    from litellm.litellm_core_utils.signature_recovery import signature_recovery_reason
+    from litellm.proxy.management_endpoints.account_pool_conversation import visible_input
+    history = [{"role": "user", "content": "Read"},
+               {"type": "function_call", "id": "tool-item", "call_id": "c1", "name": "read", "arguments": "{}"},
+               {"type": "function_call_output", "call_id": "c1", "output": output}]
+    visible = visible_input(history)
+    assert visible is not None
+    assert [dict(item) for item in visible] == history
+    assert signature_recovery_reason({"input": history}) is None
+
+
+def test_visible_history_rejects_unknown_items_without_dropping_them():
+    from litellm.proxy.management_endpoints.account_pool_conversation import visible_input
+    assert visible_input([{"role": "user", "content": "Keep"}, {"type": "unknown_server_action", "payload": "do not drop"}]) is None
+
+
+def test_visible_agent_message_keeps_text_without_opaque_ciphertext():
+    from litellm.proxy.management_endpoints.account_pool_conversation import visible_input
+    agent = {"type": "agent_message", "content": [
+        {"type": "input_text", "text": "Visible handoff"},
+        {"type": "encrypted_content", "encrypted_content": "old opaque ciphertext"},
+    ]}
+    visible = visible_input([{"role": "user", "content": "Keep"}, agent])
+    assert visible[1]["content"] == [{"type": "input_text", "text": "Visible handoff"}]
+
+
+@pytest.mark.asyncio
+async def test_compaction_can_rebuild_only_with_verified_complete_parent(degraded):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    router, (first, _) = degraded
+    initial = await Conversation.start(router, {"model": "shared", "input": "Original context"})
+    parent = response(first, text="Original reply")
+    await initial.complete(parent)
+    current = [{"type": "compaction", "encrypted_content": "opaque"}, {"role": "user", "content": "Next"}]
+    verified = await Conversation.start(router, {"model": "shared", "previous_response_id": parent.id, "input": current})
+    assert verified.can_replay(router, {})
+    assert [item["content"] for item in verified.history] == ["Original context", "Original reply", "Next"]
+    missing = await Conversation.start(router, {"model": "shared", "previous_response_id": response(first).id, "input": current})
+    assert not missing.can_replay(router, {})

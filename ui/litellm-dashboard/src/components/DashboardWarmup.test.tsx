@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { createDashboardQueryClient } from "@/lib/queryClient";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
 import { useDashboardReadiness } from "./DashboardReadinessContext";
@@ -7,7 +8,9 @@ import { registerResponseCache } from "@/lib/http/responseCache";
 import { registerAuthTokenGetter } from "@/lib/http/runtime";
 import { initialLogsRange, requestLogsQueryOptions, DEFAULT_LOGS_SORTING } from "./view_logs/log_filter_logic";
 
-const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {} }));
+const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {}, failModules: false }));
+const auth = vi.hoisted(() => ({ accessToken: "test", userID: "user", userRole: "Admin", token: "session" }));
+const initialAuth = { ...auth };
 
 vi.mock("@/app/(dashboard)/api-keys/page", () => ({}));
 vi.mock("@/app/(dashboard)/models-and-endpoints/page", () => ({}));
@@ -21,7 +24,10 @@ vi.mock("@/features/account-pool/preloadModules", () => {
   });
   return {
     ACCOUNT_POOL_MODULE_LOADERS: loaders,
-    preloadAccountPoolModules: () => Promise.all(loaders.map((load) => load())),
+    preloadAccountPoolModules: () => {
+      if (modules.failModules) return Promise.reject(new Error("ChunkLoadError: Loading chunk 9 failed"));
+      return Promise.all(loaders.map((load) => load()));
+    },
   };
 });
 vi.mock("@/components/view_logs", () => ({
@@ -42,7 +48,7 @@ const router = {
 };
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/contexts/AuthContext", () => ({
-  useAuth: () => ({ accessToken: "test", userID: "user", userRole: "Admin", token: "session" }),
+  useAuth: () => auth,
 }));
 vi.mock("@/contexts/PluginModeContext", () => ({ usePluginMode: () => ({ mode: "ai-gateway" }) }));
 
@@ -57,12 +63,14 @@ describe("dashboard warmup wiring", () => {
   const urls: URL[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>();
   beforeEach(() => {
+    Object.assign(auth, initialAuth);
     client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000, gcTime: Infinity } } });
     unregister = registerResponseCache(client);
     registerAuthTokenGetter(() => "test");
     urls.length = 0;
     modules.loaded.clear();
     modules.wait = async () => {};
+    modules.failModules = false;
     controller = new AbortController();
     fetch.mockReset().mockImplementation(async (input) => {
       const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
@@ -83,6 +91,84 @@ describe("dashboard warmup wiring", () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
   });
+
+  it("does not restart pending warmup when module switches have unchanged contents", async () => {
+    vi.useFakeTimers();
+    router.prefetch.mockClear();
+    const pending = Promise.withResolvers<void>();
+    modules.wait = () => pending.promise;
+    const page = (disabledPages: readonly string[]) => (
+      <QueryClientProvider client={client}>
+        <DashboardWarmup disabledPages={disabledPages}>
+          <ReadinessProbe />
+        </DashboardWarmup>
+      </QueryClientProvider>
+    );
+    const { rerender, unmount } = render(page(["agents"]));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    const initial = router.prefetch.mock.calls.length;
+    expect(initial).toBe(5);
+    rerender(page(["agents"]));
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    const repeated = router.prefetch.mock.calls.length - initial;
+    process.stdout.write(`warmup-dispatch-count initial=${initial} unchanged-rerender=${repeated}\n`);
+    expect(repeated).toBe(0);
+    pending.resolve();
+    await act(() => vi.runAllTimersAsync());
+    expect(screen.getByText("warm")).toBeInTheDocument();
+    expect(modules.loaded.size).toBe(12);
+    unmount();
+  });
+
+  it("does not dispatch warmup again when switching rendered content after completion", async () => {
+    vi.useFakeTimers();
+    router.prefetch.mockClear();
+    const page = (label: string) => (
+      <QueryClientProvider client={client}>
+        <DashboardWarmup disabledPages={["agents"]}>
+          <p>{label}</p>
+        </DashboardWarmup>
+      </QueryClientProvider>
+    );
+    const { rerender, unmount } = render(page("Keys page"));
+    await act(() => vi.runAllTimersAsync());
+    const initial = router.prefetch.mock.calls.length;
+    const requests = fetch.mock.calls.length;
+    rerender(page("Logs page"));
+    await act(() => vi.runAllTimersAsync());
+    expect(screen.getByText("Logs page")).toBeInTheDocument();
+    process.stdout.write(`warmup-navigation-count initial=${initial} page-switch=${router.prefetch.mock.calls.length - initial}\n`);
+    expect(router.prefetch).toHaveBeenCalledTimes(initial);
+    expect(fetch).toHaveBeenCalledTimes(requests);
+    unmount();
+  });
+
+  it.each(["accessToken", "userID", "userRole", "token", "disabledPages"] as const)(
+    "still restarts warmup when %s changes",
+    async (field) => {
+      vi.useFakeTimers();
+      router.prefetch.mockClear();
+      const pending = Promise.withResolvers<void>();
+      modules.wait = () => pending.promise;
+      const page = (disabledPages: readonly string[]) => (
+        <QueryClientProvider client={client}>
+          <DashboardWarmup disabledPages={disabledPages}>
+            <ReadinessProbe />
+          </DashboardWarmup>
+        </QueryClientProvider>
+      );
+      const { rerender, unmount } = render(page(["agents"]));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      const initial = router.prefetch.mock.calls.length;
+      if (field !== "disabledPages") auth[field] = `${auth[field]}-changed`;
+      rerender(page(field === "disabledPages" ? ["agents", "memory"] : ["agents"]));
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(router.prefetch).toHaveBeenCalledTimes(initial + 5);
+      unmount();
+      pending.resolve();
+      await act(() => vi.runAllTimersAsync());
+    },
+  );
 
   it("blocks the initial page while primary warmup starts without waiting for idle", async () => {
     vi.useFakeTimers();
@@ -206,8 +292,9 @@ describe("dashboard warmup wiring", () => {
     expect(fetch).toHaveBeenCalledTimes(count);
   });
 
-  it("keeps the initial page blocked and offers retry when a required preload fails", async () => {
+  it("reveals the page when only a data prefetch fails and still offers retry or a new login", async () => {
     fetch.mockRejectedValue(new Error("offline"));
+    const clear = vi.spyOn(await import("@/utils/cookieUtils"), "clearTokenCookies").mockImplementation(() => {});
     render(
       <QueryClientProvider client={client}>
         <DashboardWarmup>
@@ -215,8 +302,23 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(await screen.findByText("Dashboard content", {}, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重试加载" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重新登录" }));
+    expect(clear).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the initial page blocked and offers retry or a new login when a required module fails", async () => {
+    modules.failModules = true;
+    render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <p>Dashboard content</p>
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
     expect(await screen.findByRole("button", { name: "重试加载" }, { timeout: 10_000 })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新登录" })).toBeInTheDocument();
     expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
   });
 
@@ -240,7 +342,11 @@ describe("dashboard warmup wiring", () => {
     ).toEqual(["0"]);
   });
 
-  it("does not periodically refetch inactive pages after warmup completes", async () => {
+  it("keeps warmed pages available after fifteen minutes without background refetches", async () => {
+    unregister();
+    client.clear();
+    client = createDashboardQueryClient();
+    unregister = registerResponseCache(client);
     vi.useFakeTimers();
     const { unmount } = render(
       <QueryClientProvider client={client}>
@@ -249,11 +355,14 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    await act(() => vi.runAllTimersAsync());
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
     expect(urls.some((url) => url.pathname === "/logs/full/sessions")).toBe(true);
     const count = fetch.mock.calls.length;
-    await act(() => vi.advanceTimersByTimeAsync(10 * 60_000));
+    expect(client.getQueryCache().find({ queryKey: ["keys"], exact: false })).toBeDefined();
+    await act(() => vi.advanceTimersByTimeAsync(15 * 60_000));
     expect(fetch).toHaveBeenCalledTimes(count);
+    expect(client.getQueryCache().find({ queryKey: ["keys"], exact: false })).toBeDefined();
+    expect(client.getQueryCache().find({ queryKey: ["modelCostMap"], exact: false })).toBeDefined();
     unmount();
     vi.useRealTimers();
   });

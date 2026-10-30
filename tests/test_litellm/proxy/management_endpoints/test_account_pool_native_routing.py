@@ -707,7 +707,8 @@ async def test_model_switch_uses_native_encryption_boundary_without_expanding_ke
         router.discard()
 
 
-def test_foreign_signed_history_is_recovered_before_native_affinity_without_bypassing_scope():
+@pytest.mark.parametrize("with_additional_tools", [False, True])
+def test_foreign_signed_history_is_recovered_before_native_affinity_without_bypassing_scope(with_additional_tools):
     from litellm.proxy.management_endpoints.account_pool_signature import foreign_history_recovery
     from litellm.responses.utils import ResponsesAPIRequestUtils
 
@@ -726,10 +727,17 @@ def test_foreign_signed_history_is_recovered_before_native_affinity_without_bypa
         {"type": "function_call_output", "call_id": "c1", "output": "2"},
     ]
     try:
-        payload = {"model": model, "input": history}
+        tools = [{"type": "function", "name": "sum", "parameters": {"type": "object"}}]
+        payload = {
+            "model": model,
+            "input": [*history, {"type": "additional_tools", "tools": tools}] if with_additional_tools else history,
+            **({"tools": [{"type": "image_generation"}]} if with_additional_tools else {}),
+        }
         recovered = foreign_history_recovery(payload, router)
         assert recovered["input"] == [history[0], history[2], history[3]]
-        assert len(payload["input"]) == 4
+        assert len(payload["input"]) == (5 if with_additional_tools else 4)
+        if with_additional_tools:
+            assert recovered["tools"] == [{"type": "image_generation"}, *tools]
         assert foreign_history_recovery({**payload, "previous_response_id": "resp_old"}, router) == {}
         assert foreign_history_recovery({**payload, "input": history[:-1]}, router) == {}
         local = {**history[1], "id": ResponsesAPIRequestUtils._build_encrypted_item_id(str(card), "rs_old")}

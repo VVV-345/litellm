@@ -130,7 +130,7 @@ export function AccountPoolSortableCards<T extends { id: string; name: string }>
           {t("accountPool.dashboard.orderNotSaved")}
         </p>
       )}
-      <ul className="m-0 grid list-none grid-cols-1 items-start gap-4 p-0 md:grid-cols-2 2xl:grid-cols-3">
+      <ul className="m-0 grid list-none grid-cols-1 items-start gap-4 p-0 md:grid-cols-2">
         {!hydrated &&
           visible.map((card) => (
             <li key={card.id} aria-hidden="true" className="relative min-w-0 rounded-xl">

@@ -4,7 +4,8 @@ import base64
 import binascii
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 from typing import Final
 
 from pydantic import JsonValue, TypeAdapter
@@ -12,6 +13,8 @@ from pydantic import JsonValue, TypeAdapter
 from litellm.llms.anthropic.common_utils import strip_thinking_blocks_from_anthropic_messages
 
 _HISTORY: Final = TypeAdapter(list[dict[str, JsonValue]])
+_TOOLS: Final = TypeAdapter(list[JsonValue])
+_TOOL: Final = TypeAdapter(dict[str, JsonValue])
 _CALLS: Final = frozenset(("function_call", "custom_tool_call", "tool_use"))
 _RESULTS: Final = frozenset(("function_call_output", "custom_tool_call_output", "tool_result"))
 _CONTENT: Final = frozenset(
@@ -35,6 +38,33 @@ _DROPPABLE: Final = frozenset(("additional_tools", "configuration_update", "comp
 _THOUGHT_SEPARATOR: Final = "__thought__"
 _SIGNATURE_FIELDS: Final = frozenset(("thought_signature", "thoughtSignature"))
 _PROVIDER_SIGNATURE_FIELDS: Final = frozenset(("thought_signature", "thoughtSignature", "signature"))
+
+
+def merge_visible_history(
+    cached: tuple[Mapping[str, JsonValue], ...], current: tuple[Mapping[str, JsonValue], ...]
+) -> tuple[Mapping[str, JsonValue], ...]:
+    def normalized(item: Mapping[str, JsonValue]) -> dict[str, JsonValue]:
+        return {
+            key: value for key, value in item.items()
+            if key not in ("id", "status") and not (key == "type" and value == "message")
+        }
+
+    identified_single: Final = (
+        len(cached) == 1 and bool(current) and bool(cached[0].get("id"))
+        and cached[0].get("id") == current[0].get("id")
+    )
+    full_prefix: Final = (
+        len(cached) > 1 or identified_single or len(current) > len(cached)
+    ) and len(current) >= len(cached) and all(
+        normalized(left) == normalized(right)
+        and not (left.get("id") and right.get("id") and left.get("id") != right.get("id"))
+        for left, right in zip(cached, current)
+    )
+    return current if full_prefix else (*cached, *current)
+
+
+def portable_history_item(item: Mapping[str, JsonValue]) -> bool:
+    return _history_issue(dict(item), "input") is None
 
 
 def client_tool(tool: JsonValue) -> bool:
@@ -166,8 +196,22 @@ def visible_reasoning(item: Mapping[str, JsonValue]) -> dict[str, JsonValue] | N
 def _history_issue(item: JsonValue, path: str) -> str | None:
     if not isinstance(item, dict):
         return f"unsupported_history:{path}:invalid_item"
+    content_blocks: Final = item.get("output", item.get("content"))
+    if isinstance(content_blocks, list) and any(
+        isinstance(block, dict) and bool(block.get("file_id")) for block in content_blocks
+    ):
+        return f"server_item_reference:{path}"
     if item.get("type") == "image_generation_call":
         return None if image_history_message(item) is not None else f"image_result_unavailable:{path}"
+    if item.get("type") in ("function_call_output", "custom_tool_call_output"):
+        output: Final = item.get("output")
+        if not (
+            isinstance(output, str)
+            or isinstance(output, list) and all(
+                isinstance(block, dict) and block.get("type") in _CONTENT for block in output
+            )
+        ):
+            return f"unsupported_content:{path}.output"
     if item.get("type") in ("compaction", "context_compaction"):
         return f"encrypted_compaction:{path}"
     if item.get("type") == "additional_tools":
@@ -248,7 +292,9 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
         return "legacy_function_history"
     tools: Final = [] if payload.get("tools") is None else payload["tools"]
     if not isinstance(tools, list) or not all(
-        client_tool(tool) or "input" in payload and isinstance(tool, dict) and tool.get("type") == "image_generation"
+        client_tool(tool)
+        or "input" in payload and isinstance(tool, dict)
+        and tool.get("type") in ("image_generation", "web_search", "web_search_preview")
         for tool in tools
     ):
         return "server_or_unknown_tools"
@@ -287,7 +333,7 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     return None
 
 
-def _clean_agent_message(item: dict[str, JsonValue]) -> dict[str, JsonValue] | None:
+def visible_agent_message(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
     if item.get("type") != "agent_message":
         return item
     content: Final = item.get("content")
@@ -325,6 +371,37 @@ def _strip_thought_signatures(value: JsonValue) -> JsonValue:
         entry for entry in (_strip_signature_entry(key, item) for key, item in value.items()) if entry is not None
     )
     return {key: item for key, item in entries}
+
+
+def _tool_identity(tool: JsonValue) -> tuple[str, str]:
+    if not isinstance(tool, dict):
+        return "", ""
+    definition: Final = tool.get("function", tool.get("custom", tool))
+    name: Final = definition.get("name") if isinstance(definition, dict) else None
+    return str(tool.get("type") or "function"), name if isinstance(name, str) else ""
+
+
+def _merge_tool_definitions(
+    current: Sequence[JsonValue], additional: Sequence[JsonValue]
+) -> tuple[JsonValue, ...]:
+    existing: Final = frozenset(_tool_identity(tool) for tool in current)
+    additions: Final = MappingProxyType({_tool_identity(tool): tool for tool in additional})
+
+    def merged(tool: JsonValue) -> JsonValue:
+        extra: Final = additions.get(_tool_identity(tool))
+        if isinstance(tool, dict) and tool.get("type") == "namespace" and isinstance(extra, dict):
+            members: Final = tool.get("tools")
+            extra_members: Final = extra.get("tools")
+            if isinstance(members, list) and isinstance(extra_members, list):
+                return _TOOL.validate_python(MappingProxyType({
+                    **tool, "tools": _TOOLS.validate_python(_merge_tool_definitions(members, extra_members)),
+                }))
+        return tool
+
+    return (
+        *(merged(tool) for tool in current),
+        *(tool for identity, tool in additions.items() if identity not in existing),
+    )
 
 
 def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, JsonValue] | None:
@@ -368,7 +445,7 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
         for item in stripped
         if (cleaned_message := image_history_message(item) if item.get("type") == "image_generation_call"
             else visible_reasoning(item) if item.get("type") == "reasoning"
-            else _clean_agent_message(item)) is not None
+            else visible_agent_message(item)) is not None
     )
     cleaned_history: Final[list[JsonValue]] = [
         _strip_thought_signatures(
@@ -387,6 +464,9 @@ def recover_signature_history(payload: Mapping[str, JsonValue]) -> dict[str, Jso
         **{key: value for key, value in payload.items() if key != "thinking"},
         "messages" if "messages" in payload else "input": cleaned_history,
     }
-    if promoted is not None and not payload.get("tools"):
-        cleaned["tools"] = promoted
+    if promoted is not None:
+        current_tools: Final = payload.get("tools")
+        cleaned["tools"] = _TOOLS.validate_python(
+            _merge_tool_definitions(current_tools if isinstance(current_tools, list) else (), promoted)
+        )
     return cleaned if cleaned != payload else None

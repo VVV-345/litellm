@@ -48,6 +48,139 @@ from litellm.proxy.management_endpoints.account_pool_websocket import (
 _KEY: Final = "cpk_" + "test-only-" * 5
 
 
+@pytest.mark.parametrize("stream", [False, True])
+@pytest.mark.parametrize("internal", [False, True])
+def test_rejected_reasoning_lineage_skips_only_known_ciphertext_on_later_turns(stream, internal, monkeypatch):
+    captured = []
+
+    def upstream(request):
+        body = json.loads(request.content)
+        captured.append(body)
+        rejected = any(item.get("encrypted_content") == "old-rejected" for item in body["input"])
+        if not stream:
+            return httpx.Response(400, json={"error": {"code": "invalid_encrypted_content"}}) if rejected else httpx.Response(200, json={"id": "ok"})
+        event = {"type": "error", "error": {"code": "invalid_encrypted_content"}} if rejected else {"type": "response.completed", "response": {"id": "ok"}}
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=f"data: {json.dumps(event)}\n\n")
+
+    client, control = setup_gateway(upstream)
+    endpoint = "/v1/responses"
+    authorization = f"Bearer {_KEY}"
+    if internal:
+        from litellm.proxy.management_endpoints.account_pool_integration import (
+            INTERNAL_PREFIX,
+            PoolIdentity,
+            create_ticket,
+        )
+
+        monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+        class InternalControl(Control):
+            async def resolve(self, request):
+                assert request.trusted_card_id == self.resolution.card_id
+                return self.resolution
+
+        control = InternalControl(control.resolution)
+        app = FastAPI()
+        app.add_middleware(
+            AccountPoolGatewayMiddleware, control_factory=lambda _: control,
+            client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+        )
+        client = TestClient(app)
+        endpoint = INTERNAL_PREFIX + str(control.resolution.card_id) + endpoint
+        authorization = "Bearer " + create_ticket(PoolIdentity(key_hash="caller", request_id=uuid4()), control.resolution.card_id)
+    old = {"type": "reasoning", "encrypted_content": "old-rejected"}
+    new = {"type": "reasoning", "encrypted_content": "new-valid"}
+    base = {"model": "model-a", "stream": stream, "store": False, "input": [{"role": "user", "content": "Keep"}, old]}
+    headers = {"Authorization": authorization, "session-id": "lineage-session"}
+    with client:
+        assert client.post(endpoint, headers=headers, json=base).status_code == 200
+        assert client.post(endpoint, headers=headers, json={**base, "input": [*base["input"], new]}).status_code == 200
+        assert len(captured) == 3
+        assert captured[-1]["input"] == [{"role": "user", "content": "Keep"}, new]
+        assert client.post(endpoint, headers={**headers, "session-id": "different-session"}, json=base).status_code == 200
+    assert len(captured) == 5
+    assert captured[-2]["input"] == base["input"]
+
+
+@pytest.mark.parametrize("signed", [False, True])
+def test_gateway_slow_first_event_is_not_limited_by_retry_deadline(signed):
+    import time
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(0.08)
+            yield b'data: {"type":"response.output_text.delta","delta":"within request timeout"}\n\n'
+            yield b'data: {"type":"response.completed","response":{"id":"ok"}}\n\n'
+
+    client, _ = setup_gateway(lambda _: httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=SlowStream()), retry=True)
+
+    @client.app.middleware("http")
+    async def short_retry_budget(request, call_next):
+        request.state.account_pool_retry_deadline = time.time() + 0.04
+        return await call_next(request)
+
+    items = [{"role": "user", "content": "Keep"}]
+    if signed:
+        items.append({"type": "reasoning", "encrypted_content": "valid"})
+    with client:
+        result = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json={"model": "model-a", "stream": True, "input": items})
+    assert "within request timeout" in result.text
+
+
+@pytest.mark.parametrize("param,expected", [(None, None), ("input[1].encrypted_content", "second"), ("input.2.encrypted_content", "first")])
+def test_signature_lineage_records_only_uniquely_identified_ciphertext(param, expected):
+    from litellm.proxy.management_endpoints.account_pool_signature import SignatureLineage
+
+    lineage = SignatureLineage()
+    payload = {"input": [{"role": "user", "content": "Keep"},
+                         {"type": "reasoning", "encrypted_content": "first"},
+                         {"type": "reasoning", "encrypted_content": "second"},
+                         {"type": "compaction", "encrypted_content": "opaque compaction"}]}
+    lineage.remember("scope", payload, {"error": {"code": "invalid_encrypted_content", "param": param}})
+    cleaned = lineage.clean("scope", payload)
+    if expected is None:
+        assert cleaned is None
+        assert not lineage.entries
+    else:
+        assert [item["encrypted_content"] for item in cleaned["input"] if item.get("type") == "reasoning"] == [expected]
+        assert cleaned["input"][-1] == payload["input"][-1]
+        assert lineage.clean("other scope", payload) is None
+        assert "first" not in repr(lineage.entries)
+        assert "second" not in repr(lineage.entries)
+
+
+def test_signature_lineage_expires_and_bounds_hash_only_state():
+    from litellm.proxy.management_endpoints.account_pool_signature import SignatureLineage
+
+    clock = [0.0]
+    lineage = SignatureLineage(lambda: clock[0])
+    error = {"code": "invalid_encrypted_content"}
+    for index in range(1025):
+        lineage.remember("scope", {"input": [{"type": "reasoning", "encrypted_content": f"cipher-{index}"}]}, error)
+    assert len(lineage.entries) == 1024
+    assert lineage.clean("scope", {"input": [{"type": "reasoning", "encrypted_content": "cipher-0"}]}) is None
+    assert all(len(scope) == 5 and len(digest) == 64 for scope, digest in lineage.entries)
+    clock[0] = 3601.0
+    assert lineage.clean("scope", {"input": [{"type": "reasoning", "encrypted_content": "cipher-1024"}]}) is None
+
+
+def test_signature_lineage_without_session_does_not_skip_future_rejections():
+    captured = []
+
+    def upstream(request):
+        body = json.loads(request.content)
+        captured.append(body)
+        rejected = any(item.get("type") == "reasoning" for item in body["input"])
+        return httpx.Response(400, json={"error": {"code": "invalid_encrypted_content"}}) if rejected else httpx.Response(200, json={"id": "ok"})
+
+    client, _ = setup_gateway(upstream)
+    payload = {"model": "model-a", "input": [{"role": "user", "content": "Keep"}, {"type": "reasoning", "encrypted_content": "old"}]}
+    with client:
+        for _ in range(2):
+            assert client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}"}, json=payload).status_code == 200
+    assert len(captured) == 4
+    assert captured[0] == captured[2] == payload
+
+
 @pytest.mark.parametrize("reason", ["quota_exhausted", "model_unavailable", "subscription_expired"])
 def test_preflight_reports_typed_account_failure_without_upstream_attempt(reason: str) -> None:
     client, control = setup_gateway(lambda _: pytest.fail("preflight must not call upstream"))
@@ -471,6 +604,129 @@ def test_retry_after_beyond_remaining_budget_stops_without_sleeping_or_rotating(
     assert result.status_code == 503
     assert result.json()["error"]["code"] == "retry_deadline_exceeded"
     assert len(control.acquisitions) == 1
+    assert control.finished[0].retry_after_seconds == 300
+
+
+def test_cloudflare_1010_stays_on_the_same_account_without_cooldown() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return httpx.Response(
+            403,
+            json={"cloudflare_error": True, "code": 1010, "error_name": "browser_signature_banned"},
+            headers={"retry-after": "60"},
+        )
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 403
+    assert len(calls) == 1
+    assert len(control.acquisitions) == 1
+    assert control.acquisitions[0].account_id.hex in calls[0]
+    assert len(control.finished) == 1
+    finished: Final = control.finished[0]
+    assert finished.failure_reason == "upstream_unavailable"
+    assert finished.upstream_code == "cloudflare_1010"
+    assert finished.switched_account is False
+    assert finished.retryable is False
+    assert finished.model_cooldown_seconds == 0
+    assert finished.retry_after_seconds == 0
+
+
+def test_plain_text_cloudflare_1010_stays_on_the_same_account_without_cooldown() -> None:
+    calls: list[str] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.host)
+        return httpx.Response(403, content=b"\nError Code: 1010\n", headers={"retry-after": "60"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 403
+    assert len(calls) == 1
+    assert len(control.acquisitions) == 1
+    assert control.acquisitions[0].account_id.hex in calls[0]
+    finished: Final = control.finished[0]
+    assert finished.failure_reason == "upstream_unavailable"
+    assert finished.upstream_code == "cloudflare_1010"
+    assert finished.switched_account is False
+    assert finished.model_cooldown_seconds == 0
+    assert finished.retry_after_seconds == 0
+
+
+def test_plain_forbidden_403_stays_account_unavailable() -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(403, content=b"forbidden"), retry=True, max_attempts=2)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 403
+    assert control.finished[0].failure_reason == "account_unavailable"
+    assert control.finished[0].upstream_code != "cloudflare_1010"
+
+
+@pytest.mark.parametrize(
+    "headers,body,expected",
+    [
+        ({"retry-after": "6"}, {"error": {"code": "server_is_overloaded"}}, 6),
+        (
+            {},
+            {
+                "error": {"code": "server_is_overloaded"},
+                "response": {"error": {"headers": {"retry-after-ms": "7000"}}},
+            },
+            7,
+        ),
+        ({"retry-after": "60"}, {"error": {"code": "server_is_overloaded"}}, 8),
+    ],
+)
+def test_capacity_shed_retry_after_stays_on_the_same_account(monkeypatch, headers, body, expected) -> None:
+    slept: list[float] = []
+
+    async def instant(delay: float) -> None:
+        slept.append(delay)
+
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.asyncio.sleep",
+        instant,
+    )
+    calls: list[int] = []
+
+    def upstream(_: httpx.Request) -> httpx.Response:
+        calls.append(1)
+        if len(calls) == 1:
+            return httpx.Response(503, json=body, headers=headers)
+        return httpx.Response(200, json={"id": "ok"})
+
+    client, control = setup_gateway(upstream, retry=True, max_attempts=3)
+    with client:
+        result = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello"},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200
+    assert control.finished[0].retry_after_seconds == expected
+    assert control.finished[0].failure_reason == "upstream_unavailable"
+    assert control.finished[0].model_cooldown_seconds == 0
+    assert control.finished[0].switched_account is False
+    assert len(control.acquisitions) == 2
+    assert control.acquisitions[0].account_id == control.acquisitions[1].account_id
+    assert control.acquisitions[1].routing_reason == "same_account_retry"
+    assert slept == [float(expected)]
 
 
 def test_stream_quota_retains_upstream_reset_without_replaying_output() -> None:
@@ -2648,6 +2904,114 @@ def test_signature_recovery_is_once_on_same_card_before_output(stream: bool, rej
         assert response.status_code == (400 if reject_again else 200)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/v1/responses", "/v1/messages"])
+@pytest.mark.parametrize("accounting", [False, True])
+@pytest.mark.parametrize("case,stream", [
+    ("recovered", False), ("recovered", True),
+    ("retry_exhausted", False), ("retry_exhausted", True),
+    ("no_removable_state", False), ("no_removable_state", True),
+    ("output_started", True), ("preflight_limit", True),
+    ("retry_failed", False), ("retry_failed", True),
+])
+async def test_signature_diagnostics_match_observed_recovery(endpoint, accounting, case, stream) -> None:
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    captured = []
+    emitted = []
+    responses_api = endpoint == "/v1/responses"
+    visible = {"role": "user", "content": "synthetic visible history"}
+    history = [visible]
+    if case != "no_removable_state":
+        history.append(
+            {"type": "reasoning", "encrypted_content": "synthetic-secret"} if responses_api else
+            {"role": "assistant", "content": [
+                {"type": "thinking", "thinking": "synthetic-secret", "signature": "synthetic-signature"},
+                {"type": "text", "text": "previous answer"},
+            ]}
+        )
+    payload = {"model": "model-a", "stream": stream, "input" if responses_api else "messages": history}
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        captured.append(json.loads(request.content))
+        recovered = case == "recovered" and len(captured) == 2
+        other_failure = case == "retry_failed" and len(captured) == 2
+        code = "server_error" if other_failure else "thinking_signature_invalid"
+        if not stream:
+            return (
+                httpx.Response(200, json={"id": "synthetic-ok", "output": []}) if recovered else
+                httpx.Response(503 if other_failure else 400, json={"error": {"code": code}})
+            )
+        prefix = (
+            'data: {"type":"response.output_text.delta","delta":"visible"}\n\n' if responses_api else
+            'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"visible"}}\n\n'
+        ) if case == "output_started" else ""
+        if case == "preflight_limit":
+            prefix = ": " + "x" * 65536 + "\n\n"
+        event = (
+            {"type": "response.completed" if responses_api else "message_stop"} if recovered else
+            {"type": "error", "error": {"code": code}}
+        )
+        return httpx.Response(
+            200, headers={"content-type": "text/event-stream"},
+            content=prefix + "data: " + json.dumps(event) + "\n\n",
+        )
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    async def send(message):
+        emitted.append(message)
+
+    _, control = setup_gateway(upstream, max_attempts=3)
+    request = Request({
+        "type": "http", "path": endpoint, "method": "POST", "headers": [],
+        "query_string": b"", "asgi": {"spec_version": "2.4"},
+    }, receive)
+    request.state.account_pool_standard_accounting = accounting
+    selected = routes(control.resolution, "model-a", endpoint, Headers())
+    assert not isinstance(selected, Rejected)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        await forward(request, payload, _KEY, None, control.resolution, selected, control, client, send)
+
+    retried = case in ("recovered", "retry_exhausted", "retry_failed")
+    assert len(captured) == (2 if retried else 1)
+    assert len(control.acquisitions) == len(control.finished) == 1
+    field = "input" if responses_api else "messages"
+    assert all(body[field][0] == visible for body in captured)
+    if retried:
+        assert "synthetic-secret" not in json.dumps(captured[-1])
+        if not responses_api:
+            assert captured[-1][field][1]["content"] == [{"type": "text", "text": "previous answer"}]
+    body = b"".join(message.get("body", b"") for message in emitted).decode()
+    if case not in ("recovered", "retry_failed"):
+        errors = (
+            [json.loads(body)["error"]] if body.startswith("{") else
+            [json.loads(line[6:])["error"] for line in body.splitlines() if line.startswith("data: ")
+             and "error" in json.loads(line[6:])]
+        )
+        assert case in errors[-1]["message"]
+        assert "思考状态校验失败" in errors[-1]["message"]
+        assert "跨上游" not in errors[-1]["message"]
+        if case != "no_removable_state":
+            assert "no_removable_state" not in errors[-1]["message"]
+    detail = control.finished[0].detail
+    assert f"signature_recovery: {case};" in detail
+    assert f"signature_retry_count={int(retried)};" in detail
+    assert "same_card=true" in detail
+    if case != "recovered":
+        assert f"output_started={str(case == 'output_started').lower()}" in detail
+    assert "synthetic-secret" not in detail and "synthetic-signature" not in detail
+    if case == "preflight_limit":
+        assert "visible" not in body
+    assert control.finished[0].http_status == (
+        200 if case == "recovered" else 502 if case == "retry_failed" and stream else
+        503 if case == "retry_failed" else 400
+    )
+
+
 def test_native_messages_tool_stream_is_unchanged_and_never_replayed() -> None:
     captured = []
     frames = ('event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call-1","name":"run","input":{}}}\n\n'
@@ -2667,12 +3031,15 @@ def test_native_messages_tool_stream_is_unchanged_and_never_replayed() -> None:
     assert control.finished[0].http_status == 200
 
 
-@pytest.mark.parametrize("extra", [
-    {"tools": [{"type": "function"}]}, {"previous_response_id": "resp_old"},
-    {"messages": [{"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]}]},
-    {"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call", "content": "done"}]}]},
+@pytest.mark.parametrize("extra,reason", [
+    ({"tools": [{"type": "function"}]}, "server_or_unknown_tools"),
+    ({"previous_response_id": "resp_old"}, "server_state_required"),
+    ({"messages": [{"role": "assistant", "content": [{"type": "thinking", "signature": "old"}]}]},
+     "incomplete_history"),
+    ({"messages": [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call", "content": "done"}]}]},
+     "unpaired_tool_history"),
 ])
-def test_signature_error_does_not_replay_tool_or_partial_history(extra) -> None:
+def test_signature_error_does_not_replay_tool_or_partial_history(extra, reason) -> None:
     captured = []
     def upstream(request):
         captured.append(request)
@@ -2684,6 +3051,11 @@ def test_signature_error_does_not_replay_tool_or_partial_history(extra) -> None:
                 {"role": "assistant", "content": [{"type": "thinking", "signature": "old"}, {"type": "text", "text": "hi"}]}], **extra})
     assert response.status_code == 400
     assert len(captured) == len(control.acquisitions) == 1
+    assert len(control.finished) == 1
+    assert f"signature_recovery: {reason};" in control.finished[0].detail
+    assert "signature_retry_count=0;" in control.finished[0].detail
+    assert "output_started=false" in control.finished[0].detail
+    assert "same_card=true" in control.finished[0].detail
 
 
 @pytest.mark.parametrize("payload", [
@@ -2887,10 +3259,11 @@ def test_signature_recovery_promotes_codex_additional_tools_and_drops_control_it
         {**payload, "tools": [{"type": "function", "name": "kept", "parameters": {"type": "object"}}]}
     )
     assert kept is not None
-    assert kept["tools"] == [{"type": "function", "name": "kept", "parameters": {"type": "object"}}]
+    assert kept["tools"] == [{"type": "function", "name": "kept", "parameters": {"type": "object"}}, *tools]
 
 
-def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
+@pytest.mark.parametrize("image_tools", [[], [{"type": "image_generation"}]])
+def test_responses_signature_recovery_promotes_codex_additional_tools(image_tools) -> None:
     requests: list[dict[str, object]] = []
 
     def upstream(request: httpx.Request) -> httpx.Response:
@@ -2899,9 +3272,13 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
             return httpx.Response(400, json={"error": {"code": "thinking_signature_invalid"}})
         return httpx.Response(200, json={"id": "resp_success"})
 
-    tools = [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}]
+    tools = [
+        {"type": "function", "name": "exec_command", "parameters": {"type": "object"}},
+        {"type": "custom", "name": "apply_patch"},
+    ]
     payload = {
         "model": "model-a",
+        "tools": image_tools,
         "input": [
             {"type": "additional_tools", "role": "developer", "id": "at_1", "tools": tools},
             {"role": "user", "content": "hi"},
@@ -2916,7 +3293,7 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
     assert response.status_code == 200
     assert len(requests) == 2
     retried = requests[1]
-    assert retried["tools"] == tools
+    assert retried["tools"] == [*image_tools, *tools]
     assert all(item.get("type") != "additional_tools" for item in retried["input"])
     assert all(item.get("type") != "reasoning" for item in retried["input"])
     assert [item for item in retried["input"] if item.get("role") == "user"] == [
@@ -2924,6 +3301,29 @@ def test_responses_signature_recovery_promotes_codex_additional_tools() -> None:
         {"role": "user", "content": "continue"},
     ]
     assert "signature_recovery" in control.finished[0].detail
+
+
+def test_signature_recovery_merges_tools_without_overwriting_current_definitions() -> None:
+    from litellm.litellm_core_utils.signature_recovery import recover_signature_history
+
+    current = {"type": "function", "name": "exec_command", "description": "current"}
+    old = {**current, "description": "old"}
+    patch = {"type": "custom", "name": "apply_patch"}
+    namespace = {"type": "namespace", "name": "local", "description": "current namespace", "tools": [current]}
+    payload = {
+        "tools": [{"type": "image_generation"}, current, namespace],
+        "input": [
+            {"role": "user", "content": "Continue"},
+            {"type": "additional_tools", "tools": [old, patch, {**namespace, "tools": [old, patch]}]},
+        ],
+    }
+    recovered = recover_signature_history(payload)
+    assert recovered is not None
+    assert recovered["tools"] == [
+        {"type": "image_generation"}, current, {**namespace, "tools": [current, patch]}, patch,
+    ]
+    assert payload["tools"] == [{"type": "image_generation"}, current, namespace]
+    assert recovered["input"] == [{"role": "user", "content": "Continue"}]
 
 
 def test_signature_recovery_strips_gemini_thought_signatures() -> None:
@@ -3040,7 +3440,7 @@ def test_signature_recovery_reports_unknown_item_type() -> None:
             ],
             [],
         ),
-        ([], [{"type": "web_search"}]),
+        ([{"type": "web_search_call", "id": "search-1"}], [{"type": "web_search"}]),
         ([], [{"type": "mcp", "server_url": "https://example.com"}]),
         ([], [{"type": "namespace", "name": "hosted", "tools": [{"type": "web_search"}]}]),
     ],
@@ -3173,6 +3573,9 @@ def test_cross_site_signature_failure_explains_unrecoverable_history_without_exp
     assert control.finished[0].http_status == 400
     assert reason in control.finished[0].detail
     assert "input[2]" in control.finished[0].detail
+    assert "signature_retry_count=0;" in control.finished[0].detail
+    assert "output_started=false" in control.finished[0].detail
+    assert "same_card=true" in control.finished[0].detail
     public = json.loads(response.text.removeprefix("data: ")) if stream else response.json()
     assert public["error"]["code"] == "thinking_signature_invalid"
     assert reason in public["error"]["message"]

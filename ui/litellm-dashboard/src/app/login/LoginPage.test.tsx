@@ -59,7 +59,7 @@ vi.mock("@/hooks/useWorker", () => ({
 }));
 
 import { useUIConfig } from "@/app/(dashboard)/hooks/uiConfig/useUIConfig";
-import { getCookieFromDocument } from "@/utils/cookieUtils";
+import { clearTokenCookies, getCookieFromDocument } from "@/utils/cookieUtils";
 import { isJwtExpired } from "@/utils/jwtUtils";
 
 const createQueryClient = () =>
@@ -153,6 +153,7 @@ describe("LoginPage", () => {
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith("http://localhost:4000/sso/key/generate");
     });
+    expect(clearTokenCookies).toHaveBeenCalled();
   });
 
   it("should not call router when jwt is invalid and auto_redirect_to_sso is false", async () => {
@@ -182,6 +183,7 @@ describe("LoginPage", () => {
 
     expect(mockPush).not.toHaveBeenCalled();
     expect(mockReplace).not.toHaveBeenCalled();
+    expect(clearTokenCookies).toHaveBeenCalled();
   });
 
   it("should send user to dashboard when jwt is valid even if auto_redirect_to_sso is true", async () => {

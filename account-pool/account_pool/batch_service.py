@@ -19,10 +19,17 @@ from account_pool.domain import (
 )
 from account_pool.error_logs import ErrorLogService, LogStage
 from account_pool.gateway_repository import CooldownRepository
-from account_pool.policies import AccountPolicy, PolicyRepository, PolicyUpdate, PolicyView, policy_validation_error
+from account_pool.policies import (
+    AccountPolicy,
+    PolicyRepository,
+    PolicyUpdate,
+    PolicyView,
+    policy_validation_error,
+    public_policy_sync_error,
+)
 from account_pool.ports import EnvironmentRepository
-from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.service import EnvironmentService
+from account_pool.shared.result import Failure, FailureCode, Result, Success
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,11 +163,10 @@ class BatchService:
                 if self.sync_policy is not None:
                     try:
                         await self.sync_policy(record, policy_request)
-                    except Exception:
-                        await _set_policy_runtime_status(
-                            self.policies, current_policy, "failed", "policy runtime synchronization failed"
-                        )
-                        return Failure(FailureCode.UPSTREAM, "policy runtime synchronization failed")
+                    except Exception as error:
+                        message: Final = public_policy_sync_error(error) or "policy runtime synchronization failed"
+                        await _set_policy_runtime_status(self.policies, current_policy, "failed", message)
+                        return Failure(FailureCode.UPSTREAM, message)
                     await _set_policy_runtime_status(self.policies, current_policy, "synced")
                 return Success(BatchExecution("Policy already updated"))
             validation_error: Final = await policy_validation_error(record, policy_request, self.environments)
@@ -172,11 +178,12 @@ class BatchService:
             if policy is not None and self.sync_policy is not None:
                 try:
                     await self.sync_policy(record, policy.policy)
-                except Exception:
-                    await _set_policy_runtime_status(
-                        self.policies, policy, "failed", "policy runtime synchronization failed"
+                except Exception as saved_error:
+                    saved_message: Final = (
+                        public_policy_sync_error(saved_error) or "policy runtime synchronization failed"
                     )
-                    return Failure(FailureCode.UPSTREAM, "policy runtime synchronization failed")
+                    await _set_policy_runtime_status(self.policies, policy, "failed", saved_message)
+                    return Failure(FailureCode.UPSTREAM, saved_message)
                 await _set_policy_runtime_status(self.policies, policy, "synced")
             return (
                 Success(BatchExecution("Policy updated"))

@@ -45,6 +45,7 @@ export const AccountPoolCredentialsPanel = ({
     uploadCardId,
     setUploadCardId,
     uploadFile,
+    pendingLogin,
     setUploadFile,
     replaceCredential,
     uploadTargets,
@@ -463,7 +464,7 @@ export const AccountPoolCredentialsPanel = ({
                 id="account-pool-auth-file"
                 type="file"
                 className="sr-only"
-                accept=".json"
+                accept=".json,.txt,application/json,text/plain"
                 disabled={uploadMutation.isPending}
                 onChange={(event) => {
                   setUploadFile(event.target.files?.[0] ?? null);
@@ -481,6 +482,10 @@ export const AccountPoolCredentialsPanel = ({
                 {t("accountPool.credentials.chooseFile")}
               </Button>
               {uploadFile && <p className="min-w-0 break-all text-sm">{uploadFile.name}</p>}
+              <p className="text-xs text-muted-foreground">
+                自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。2FA 仅保存登录资料，需为空卡片配置代理并完成
+                OAuth，不能直接替换有效凭据。
+              </p>
             </div>
             {uploadMutation.isError && (
               <p role="alert" className="text-sm text-destructive">
@@ -509,6 +514,11 @@ export const AccountPoolCredentialsPanel = ({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {pendingLogin && (
+        <p role="status" className="text-sm">
+          登录资料已保存，尚未完成认证。请到“批量上号”的“OAuth 上号”任务中完成登录和二次验证。
+        </p>
+      )}
       {fieldsDialog && accessToken && (
         <AccountPoolAuthFileFieldsDialog
           key={`${accessToken}-${fieldsDialog.mode}-${fieldsDialog.targets.map((target) => target.id).join(",")}`}

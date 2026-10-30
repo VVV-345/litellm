@@ -6,11 +6,13 @@ import asyncio
 import ipaddress
 import logging
 import os
+import socket
 import tempfile
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from io import BytesIO
 from typing import Final, cast
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -159,8 +161,7 @@ class ProxyGatewayService:
         bindings: Final = dict(await self._catalog.list_isp_bindings())
         fronts: Final = dict(await self._catalog.list_front_bindings())
         available_nodes: Final = frozenset(node.name for node in await self.list_nodes())
-        for port in await self._registered_ports():
-            profile_id: Final = bindings.get(port)
+        for port, profile_id in ((port, bindings.get(port)) for port in await self._registered_ports()):
             profile: Final = None if profile_id is None else await self._catalog.get_isp(profile_id)
             await self._reconcile_gateway_chain(
                 port,
@@ -319,6 +320,12 @@ class ProxyGatewayService:
         bound_ports: Final = frozenset(port for port, _ in bindings)
         group_names: Final = frozenset(self.gateway_profile_id(port) for port in ports)
         front_names: Final = frozenset(self.front_selector_name(port) for port in ports)
+        proxy_value: Final = config.get("proxies", [])
+        group_value: Final = config.get("proxy-groups", [])
+        if not isinstance(proxy_value, list) or not isinstance(group_value, list):
+            raise ClashError("clash config does not contain valid proxies and proxy-groups")
+        configured_proxies: Final = cast(list[object], proxy_value)
+        configured_node_groups: Final = cast(list[object], group_value)
 
         def entry_name(item: object) -> object:
             return cast(dict[object, object], item).get("name") if isinstance(item, dict) else None
@@ -348,21 +355,20 @@ class ProxyGatewayService:
         managed_group_names: Final = group_names | front_names
         available: Final = tuple(
             name
-            for key in ("proxies", "proxy-groups")
-            for item in cast(list[object], config.get(key, []))
-            if isinstance(config.get(key, []), list)
-            and isinstance(item, dict)
-            and isinstance((name := entry_name(item)), str)
+            for entries in (configured_proxies, configured_node_groups)
+            for item in entries
+            if isinstance((name := entry_name(item)), str)
             and name not in managed_group_names
             and not name.startswith(("account-pool-isp-", "account-pool-front-"))
         )
         preserved_groups: Final = tuple(
             {
                 **(
-                    {"name": self._selector_name(port), "type": "select"}
+                    cast(dict[object, object], {"name": self._selector_name(port), "type": "select"})
                     if port in bound_ports
                     else group_templates.get(
-                        self._selector_name(port), {"name": self._selector_name(port), "type": "select"}
+                        self._selector_name(port),
+                        cast(dict[object, object], {"name": self._selector_name(port), "type": "select"}),
                     )
                 ),
                 "name": self._selector_name(port),
@@ -379,7 +385,7 @@ class ProxyGatewayService:
                         for group in named_entries(original_map.get("proxy-groups"), front_names)
                         if entry_name(group) == self.front_selector_name(port)
                     ),
-                    {"name": self.front_selector_name(port), "type": "select"},
+                    cast(dict[object, object], {"name": self.front_selector_name(port), "type": "select"}),
                 ),
                 "name": self.front_selector_name(port),
                 "type": "select",
@@ -395,9 +401,8 @@ class ProxyGatewayService:
         )
         config["proxies"] = tuple(
             item
-            for item in cast(list[object], config.get("proxies", []))
-            if isinstance(config.get("proxies", []), list)
-            and (name := entry_name(item)) is None
+            for item in configured_proxies
+            if (name := entry_name(item)) is None
             or isinstance(name, str) and not name.startswith("account-pool-isp-")
         )
 
@@ -434,24 +439,45 @@ class ProxyGatewayService:
             address: Final = ipaddress.ip_address(normalized_host)
         except ValueError:
             return
-        if address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_unspecified:
+        if not address.is_global or address.is_multicast:
             raise ClashError("subscription URL must not target a private address")
 
     @staticmethod
     async def _download_configuration(url: str) -> str:
+        original_url: Final = httpx.URL(url)
         try:
+            answers: Final = await asyncio.wait_for(
+                asyncio.get_running_loop().getaddrinfo(
+                    original_url.host,
+                    original_url.port or (443 if original_url.scheme == "https" else 80),
+                    type=socket.SOCK_STREAM,
+                ),
+                timeout=20.0,
+            )
+            addresses: Final = tuple(ipaddress.ip_address(answer[4][0]) for answer in answers)
+            if not addresses or any(not address.is_global or address.is_multicast for address in addresses):
+                raise ClashError("subscription URL must not target a private address")
+            # 固定已校验地址，保留原域名的 HTTP 路由及 TLS 证书校验，避免再次解析造成 DNS 重绑定。
+            pinned_url: Final = original_url.copy_with(host=str(addresses[0]))
             async with httpx.AsyncClient(timeout=20.0, trust_env=False, follow_redirects=False) as client:
-                response: Final = await client.get(url)
-        except httpx.HTTPError as error:
+                async with client.stream(
+                    "GET",
+                    pinned_url,
+                    headers={"Host": original_url.netloc.decode("ascii")},
+                    extensions={"sni_hostname": original_url.host},
+                ) as response:
+                    if 300 <= response.status_code < 400:
+                        raise ClashError("subscription URL redirects are not allowed")
+                    if response.status_code != 200:
+                        raise ClashError("proxy configuration download failed")
+                    with BytesIO() as content:
+                        async for chunk in response.aiter_bytes():
+                            if content.tell() + len(chunk) > _MAX_CONFIGURATION_BYTES:
+                                raise ClashError("proxy configuration is too large")
+                            _ = content.write(chunk)
+                        return content.getvalue().decode("utf-8")
+        except (httpx.HTTPError, OSError, TimeoutError) as error:
             raise ClashError("proxy configuration download failed") from error
-        if 300 <= response.status_code < 400:
-            raise ClashError("subscription URL redirects are not allowed")
-        if response.status_code != 200:
-            raise ClashError("proxy configuration download failed")
-        if len(response.content) > _MAX_CONFIGURATION_BYTES:
-            raise ClashError("proxy configuration is too large")
-        try:
-            return response.content.decode("utf-8")
         except UnicodeDecodeError as error:
             raise ClashError("proxy configuration must be UTF-8 YAML") from error
 
@@ -644,7 +670,7 @@ class ProxyGatewayService:
         try:
             with open(config_path, encoding="utf-8") as handle:
                 original: Final = handle.read()
-            config_value: Final = yaml.safe_load(original)
+            config_value: Final = cast(object, yaml.safe_load(original))
         except (OSError, yaml.YAMLError) as error:
             raise ClashError("clash configuration is unavailable") from error
         if not isinstance(config_value, dict):
@@ -667,12 +693,12 @@ class ProxyGatewayService:
         )
         chain_name: Final = None if profile is None else self.isp_node_name(profile.id, port)
         updated_proxies: Final = tuple(
-            item
+            cast(object, item)
             for item in proxies
             if not (
                 isinstance(item, dict)
-                and isinstance(item.get("name"), str)
-                and cast(str, item["name"]).startswith(chain_prefix)
+                and isinstance((name := cast(dict[object, object], item).get("name")), str)
+                and name.startswith(chain_prefix)
             )
         )
         chain_proxy: Final = (
@@ -689,21 +715,32 @@ class ProxyGatewayService:
             if profile_bound
             else available_choices
         )
-        existing_gateway: Final = next(
-            (item for item in groups if isinstance(item, dict) and item.get("name") == selector),
+        existing_gateway: Final[dict[object, object]] = next(
+            (
+                cast(dict[object, object], item)
+                for item in groups
+                if isinstance(item, dict) and cast(dict[object, object], item).get("name") == selector
+            ),
             {"name": selector, "type": "select"},
         )
-        existing_front: Final = next(
-            (item for item in groups if isinstance(item, dict) and item.get("name") == front_selector),
+        existing_front: Final[dict[object, object]] = next(
+            (
+                cast(dict[object, object], item)
+                for item in groups
+                if isinstance(item, dict) and cast(dict[object, object], item).get("name") == front_selector
+            ),
             {"name": front_selector, "type": "select"},
         )
-        gateway_base: Final = (
+        gateway_base: Final[dict[object, object]] = (
             {"name": selector, "type": "select"} if profile_bound else existing_gateway
         )
         updated_groups: Final = tuple(
-            item
+            cast(object, item)
             for item in groups
-            if not (isinstance(item, dict) and item.get("name") in {selector, front_selector})
+            if not (
+                isinstance(item, dict)
+                and cast(dict[object, object], item).get("name") in {selector, front_selector}
+            )
         ) + (
             {**gateway_base, "name": selector, "type": "select", "proxies": gateway_choices},
             {**existing_front, "name": front_selector, "type": "select", "proxies": available_choices},
@@ -889,13 +926,18 @@ class ProxyGatewayService:
                 await self._unregister_port(port)
                 await self._profiles.delete_gateway(profile_id)
             except Exception as error:
-                if self._catalog is not None:
-                    if isp_binding is not None:
-                        await self._catalog.bind_isp(port, isp_binding)
-                    if front_binding is not None:
-                        await self._catalog.bind_front_node(port, front_binding)
                 try:
-                    await self._register_port(port)
+                    # 绑定外键依赖端口登记；数据库补偿失败也不能阻止恢复原配置。
+                    if port not in await self._registered_ports():
+                        await self._register_port(port)
+                    if self._catalog is not None:
+                        if isp_binding is not None:
+                            await self._catalog.bind_isp(port, isp_binding)
+                        if front_binding is not None:
+                            await self._catalog.bind_front_node(port, front_binding)
+                except Exception:
+                    pass
+                try:
                     with open(config_path, encoding="utf-8") as handle:
                         removed_config: Final = handle.read()
                     await self._write_and_reload(config_path, original_config, removed_config)
@@ -941,13 +983,16 @@ class ProxyGatewayService:
             raise ClashError("clash config path is not configured")
         with open(config_path, encoding="utf-8") as handle:
             original: Final = handle.read()
-        config: Final = yaml.safe_load(original)
-        if not isinstance(config, dict):
+        config_value: Final = cast(object, yaml.safe_load(original))
+        if not isinstance(config_value, dict):
             raise ClashError("clash config must be a YAML object")
-        listeners: Final = config.get("listeners", [])
-        groups: Final = config.get("proxy-groups", [])
-        if not isinstance(listeners, list) or not isinstance(groups, list):
+        config: Final = cast(dict[object, object], config_value)
+        listener_value: Final = config.get("listeners", [])
+        group_value: Final = config.get("proxy-groups", [])
+        if not isinstance(listener_value, list) or not isinstance(group_value, list):
             raise ClashError("clash config does not contain listeners and proxy-groups")
+        listeners: Final = cast(list[object], listener_value)
+        groups: Final = cast(list[object], group_value)
         name: Final = self.gateway_profile_id(port)
         front_name: Final = self.front_selector_name(port)
         if add:
@@ -968,7 +1013,10 @@ class ProxyGatewayService:
             if not isinstance(choices, list) or any(not isinstance(choice, str) for choice in choices):
                 raise ClashError("clash gateway template has invalid choices")
             groups.append({**group, "name": name, "proxies": list(dict.fromkeys((*choices, "REJECT")))})
-            if not any(isinstance(item, dict) and item.get("name") == front_name for item in groups):
+            if not any(
+                isinstance(item, dict) and cast(dict[object, object], item).get("name") == front_name
+                for item in groups
+            ):
                 front_choices: Final = [node.name for node in await self.list_nodes()]
                 groups.append(
                     {"name": front_name, "type": "select", "proxies": [*front_choices, "REJECT"]}

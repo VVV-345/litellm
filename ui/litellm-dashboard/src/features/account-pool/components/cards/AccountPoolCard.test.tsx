@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCard } from "./AccountPoolCard";
-import type { PolicyView } from "../../api/AccountPoolManagementApi";
+import type { ErrorStats, PolicyView } from "../../api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway } from "../../utils/AccountPoolTypes";
 
 vi.mock("../../api/AccountPoolApi", () => ({
@@ -13,6 +13,7 @@ const renderCard = (
   overrides: Partial<AccountPoolEnvironment> = {},
   proxyGateway?: AccountPoolProxyGateway,
   policy?: PolicyView,
+  requestStats?: ErrorStats,
 ) => {
   const environment = {
     id: "env-claude-1",
@@ -44,6 +45,7 @@ const renderCard = (
   render(
     <AccountPoolCard
       environment={environment}
+      requestStats={requestStats}
       proxyGateway={proxyGateway}
       onConfigure={vi.fn()}
       onEnabledChange={vi.fn()}
@@ -54,6 +56,26 @@ const renderCard = (
     />,
   );
 };
+
+const createCostStats = (total_cost_usd: number | null, known_cost_requests: number): ErrorStats => ({
+  statistics_source: "litellm",
+  card_id: "env-claude-1",
+  account_id: "env-claude-1",
+  model: "claude-model",
+  total_requests: 1,
+  succeeded_requests: 1,
+  failed_requests: 0,
+  retried_requests: 0,
+  input_tokens: 100,
+  output_tokens: 50,
+  cache_read_input_tokens: 0,
+  cache_creation_input_tokens: 0,
+  cache_rate: null,
+  known_cost_requests,
+  total_cost_usd,
+  average_duration_ms: 100,
+  recent_errors: [],
+});
 
 describe("AccountPoolCard", () => {
   it("shows every Codex quota window with its own remaining meter and reset, including zero credits", () => {
@@ -206,15 +228,28 @@ describe("AccountPoolCard", () => {
     expect(screen.getByRole("link", { name: "独立配置 v4" }).getAttribute("href")).toMatch(/^\/ui\/policy-center\/?$/);
   });
 
-  it("shows the card spend", () => {
-    renderCard({ spend_usd: 12.34 });
+  it("shows the per-card token cost from LiteLLM request statistics", () => {
+    renderCard({ spend_usd: 0 }, undefined, undefined, createCostStats(12.34, 1));
 
-    expect(screen.getByText(/\$12\.34/)).toBeInTheDocument();
+    expect(screen.getByTestId("account-pool-card-env-claude-1")).toHaveTextContent("已用 $12.34");
   });
 
   it("shows positive sub-cent spend instead of rounding it to zero", () => {
-    renderCard({ spend_usd: 0.00042 });
+    renderCard({}, undefined, undefined, createCostStats(0.00042, 1));
 
-    expect(screen.getByText(/\$0\.00042/)).toBeInTheDocument();
+    expect(screen.getByTestId("account-pool-card-env-claude-1")).toHaveTextContent("已用 $0.00042");
+  });
+
+  it("does not show an environment spend as token cost when request cost is unknown", () => {
+    renderCard(
+      { spend_usd: 12.34 },
+      undefined,
+      undefined,
+      createCostStats(0, 0),
+    );
+
+    expect(screen.getByTestId("account-pool-card-env-claude-1")).toHaveTextContent("已用 暂无可信金额");
+    expect(screen.queryByText("已用 $12.34")).not.toBeInTheDocument();
+    expect(screen.queryByText("已用 $0.00")).not.toBeInTheDocument();
   });
 });

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import socket
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Final, cast
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 import yaml
 from account_pool.api import create_router
@@ -705,8 +707,26 @@ async def test_removing_gateway_cleans_chain_front_bindings_and_managed_config(t
 
 
 @pytest.mark.asyncio
-async def test_removing_last_gateway_restores_config_when_profile_deletion_fails(tmp_path: Path) -> None:
-    catalog: Final = FakeCatalog((), bindings={}, fronts={7891: "airport-a"})
+@pytest.mark.parametrize("compensation_fails", (False, True))
+async def test_removing_last_gateway_restores_config_when_profile_deletion_fails(
+    tmp_path: Path, compensation_fails: bool
+) -> None:
+    manual: Final = ISPProxyProfile(id=uuid4(), name="manual", protocol="http", host="isp.example", port=8080)
+
+    class ConstrainedCatalog(FakeCatalog):
+        async def bind_isp(self, port: int, profile_id: UUID) -> None:
+            if port not in service.ports:
+                raise RuntimeError("gateway foreign key violation")
+            if compensation_fails:
+                raise RuntimeError("binding restoration unavailable")
+            await super().bind_isp(port, profile_id)
+
+        async def bind_front_node(self, port: int, node_name: str | None) -> None:
+            if node_name is not None and port not in service.ports:
+                raise RuntimeError("gateway foreign key violation")
+            await super().bind_front_node(port, node_name)
+
+    catalog: Final = ConstrainedCatalog((manual,), bindings={7891: manual.id}, fronts={7891: "airport-a"})
     config_path: Final = tmp_path / "config.yaml"
     original_config: Final = {
         "listeners": [{"name": "gateway-7891", "port": 7891, "proxy": "clash-gateway-7891"}],
@@ -748,7 +768,8 @@ async def test_removing_last_gateway_restores_config_when_profile_deletion_fails
 
     assert config_path.read_text(encoding="utf-8") == original
     assert service.ports == (7891,)
-    assert catalog.fronts == {7891: "airport-a"}
+    assert catalog.bindings == ({} if compensation_fails else {7891: manual.id})
+    assert catalog.fronts == ({} if compensation_fails else {7891: "airport-a"})
 
 
 @pytest.mark.asyncio
@@ -1066,6 +1087,171 @@ async def test_isp_subscription_download_reuses_public_url_guards() -> None:
     with pytest.raises(ClashError):
         await cast(Callable[[str], Awaitable[str]], download)("http://127.0.0.1/private.yaml")
     assert requested == ["https://isp.example/subscription.yaml"]
+
+
+def _subscription_transport(
+    monkeypatch: pytest.MonkeyPatch, addresses: tuple[str, ...], response: httpx.Response | Exception
+) -> list[httpx.Request]:
+    requests: list[httpx.Request] = []
+    create_client: Final = httpx.AsyncClient
+
+    def resolve(host, port, *args, **kwargs):
+        return [
+            (socket.AF_INET6 if ":" in address else socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port))
+            for address in addresses
+        ]
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    def client(**kwargs) -> httpx.AsyncClient:
+        assert kwargs["trust_env"] is False
+        assert kwargs["follow_redirects"] is False
+        assert kwargs["timeout"] == 20.0
+        return create_client(**kwargs, transport=httpx.MockTransport(handle))
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    monkeypatch.setattr(httpx, "AsyncClient", client)
+    return requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "addresses",
+    (
+        ("127.0.0.1",), ("10.0.0.1",), ("169.254.169.254",), ("100.64.0.1",), ("224.0.0.1",),
+        ("::1",), ("fc00::1",), ("fe80::1",), ("ff02::1",),
+        ("8.8.8.8", "10.0.0.1"), ("2606:4700:4700::1111", "::1"),
+    ),
+)
+async def test_subscription_download_rejects_any_non_public_dns_answer(
+    monkeypatch: pytest.MonkeyPatch, addresses: tuple[str, ...]
+) -> None:
+    requests: Final = _subscription_transport(monkeypatch, addresses, httpx.Response(200, text="proxies: []"))
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    with pytest.raises(ClashError, match="private address"):
+        await service.fetch_isp_subscription("https://subscription.example/private-token")
+
+    assert requests == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme, address", (("http", "8.8.8.8"), ("https", "2606:4700:4700::1111")))
+async def test_subscription_download_pins_public_address_and_preserves_original_host(
+    monkeypatch: pytest.MonkeyPatch, scheme: str, address: str
+) -> None:
+    requests: Final = _subscription_transport(monkeypatch, (address,), httpx.Response(200, text="proxies: []"))
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    assert await service.fetch_isp_subscription(f"{scheme}://subscription.example:8443/token") == "proxies: []"
+    assert len(requests) == 1
+    assert requests[0].url.host == address
+    assert requests[0].url.port == 8443
+    assert requests[0].headers["host"] == "subscription.example:8443"
+    assert requests[0].extensions["sni_hostname"] == "subscription.example"
+
+
+class SubscriptionStream(httpx.AsyncByteStream):
+    def __init__(self, chunks: tuple[bytes, ...]) -> None:
+        self.chunks = chunks
+        self.consumed = 0
+        self.closed = False
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        for chunk in self.chunks:
+            self.consumed += 1
+            yield chunk
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_subscription_download_stops_stream_at_byte_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream: Final = SubscriptionStream((b"x" * 65536,) * 32 + (b"x", b"not read"))
+    _subscription_transport(monkeypatch, ("8.8.8.8",), httpx.Response(200, stream=stream))
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    with pytest.raises(ClashError, match="too large"):
+        await service.fetch_isp_subscription("https://subscription.example/token")
+
+    assert stream.consumed == 33
+    assert stream.closed
+
+
+@pytest.mark.asyncio
+async def test_subscription_download_rejects_redirect_without_reading_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream: Final = SubscriptionStream((b"not read",))
+    requests: Final = _subscription_transport(
+        monkeypatch, ("8.8.8.8",), httpx.Response(302, headers={"location": "http://127.0.0.1"}, stream=stream)
+    )
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    with pytest.raises(ClashError, match="redirects"):
+        await service.fetch_isp_subscription("https://subscription.example/token")
+
+    assert len(requests) == 1
+    assert stream.consumed == 0
+    assert stream.closed
+
+
+@pytest.mark.asyncio
+async def test_subscription_download_accepts_exact_byte_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    stream: Final = SubscriptionStream((b"x" * 65536,) * 32)
+    _subscription_transport(monkeypatch, ("8.8.8.8",), httpx.Response(200, stream=stream))
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    content: Final = await service.fetch_isp_subscription("http://subscription.example/token")
+
+    assert len(content) == 2097152
+    assert stream.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", (401, 404, 500))
+async def test_subscription_download_rejects_failed_status_without_reading_body(
+    monkeypatch: pytest.MonkeyPatch, status: int
+) -> None:
+    stream: Final = SubscriptionStream((b"private provider error",))
+    _subscription_transport(monkeypatch, ("8.8.8.8",), httpx.Response(status, stream=stream))
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    with pytest.raises(ClashError, match="^proxy configuration download failed$"):
+        await service.fetch_isp_subscription("https://subscription.example/token")
+
+    assert stream.consumed == 0
+    assert stream.closed
+
+
+@pytest.mark.asyncio
+async def test_subscription_download_sanitizes_transport_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    _subscription_transport(
+        monkeypatch, ("8.8.8.8",), httpx.ConnectError("https://subscription.example/private-token")
+    )
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    with pytest.raises(ClashError, match="^proxy configuration download failed$"):
+        await service.fetch_isp_subscription("https://subscription.example/private-token")
+
+
+@pytest.mark.asyncio
+async def test_subscription_download_sanitizes_dns_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    requests: Final = _subscription_transport(monkeypatch, (), httpx.Response(200, text="not read"))
+
+    def resolve(*args, **kwargs):
+        raise socket.gaierror("private DNS diagnostic")
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
+    service, _ = _service(_settings((7891,)), FakeController())
+
+    with pytest.raises(ClashError, match="^proxy configuration download failed$"):
+        await service.fetch_isp_subscription("https://subscription.example/private-token")
+
+    assert requests == []
 
 
 @dataclass(frozen=True)

@@ -125,6 +125,14 @@ ISP_SUBSCRIPTION_SCHEMA_ADDITIONS: Final = tuple(
 )
 
 
+ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_isp_subscription_probe_results ( "
+    b"LIKE account_pool_isp_probe_results INCLUDING DEFAULTS INCLUDING CONSTRAINTS, "
+    b"PRIMARY KEY (profile_id), FOREIGN KEY (profile_id) "
+    b"REFERENCES account_pool_isp_subscription_nodes(id) ON DELETE CASCADE )",
+)
+
+
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     return hashlib.sha256(
         b"\n".join(
@@ -239,7 +247,7 @@ def additive_manager_schema_upgrade(
     except SyntaxError:
         return False
     additions: Final = tuple(line for line in after.splitlines() if line not in before.splitlines())
-    if additions not in (
+    reviewed_additions: Final = (
         PROXY_CATALOG_SCHEMA_ADDITIONS,
         ISP_PROBE_SCHEMA_ADDITIONS,
         tuple(sorted((*PROXY_CATALOG_SCHEMA_ADDITIONS, *ISP_PROBE_SCHEMA_ADDITIONS))),
@@ -255,6 +263,11 @@ def additive_manager_schema_upgrade(
                 )
             )
         ),
+    )
+    if additions not in (
+        *reviewed_additions,
+        ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS,
+        *(tuple(sorted((*group, *ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS))) for group in reviewed_additions),
     ):
         return False
     return all(

@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from typing import Final, Protocol
 from uuid import UUID, uuid4
 
+from psycopg.errors import UniqueViolation
 from pydantic import JsonValue, TypeAdapter
 
 from account_pool.isp_subscription import MihomoISPNode
@@ -80,6 +81,13 @@ _SCHEMA: Final = (
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS account_pool_isp_subscription_probe_results (
+        LIKE account_pool_isp_probe_results INCLUDING DEFAULTS INCLUDING CONSTRAINTS,
+        PRIMARY KEY (profile_id),
+        FOREIGN KEY (profile_id) REFERENCES account_pool_isp_subscription_nodes(id) ON DELETE CASCADE
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS account_pool_proxy_gateway_isp_subscription_bindings (
         port integer PRIMARY KEY REFERENCES account_pool_proxy_gateways(port) ON DELETE CASCADE,
         isp_profile_id uuid NOT NULL REFERENCES account_pool_isp_subscription_nodes(id) ON DELETE RESTRICT
@@ -122,7 +130,7 @@ class ProxyCatalogRepository(Protocol):
 
     async def save_isps(self, profiles: tuple[ISPProxyInput, ...]) -> tuple[ISPProxyProfile, ...]: ...
 
-    async def update_isp(self, profile: ISPProxyProfile) -> ISPProxyProfile | None: ...
+    async def update_isp(self, profile: ISPProxyCatalogProfile) -> ISPProxyCatalogProfile | None: ...
 
     async def save_isp_probe(self, result: ISPProbeResult) -> ISPProbeResult: ...
 
@@ -204,7 +212,9 @@ class PostgresProxyCatalogRepository:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 "SELECT profile_id, status, checked_at, exit_ip, country, region, city, isp, delay_ms, error "
-                "FROM account_pool_isp_probe_results ORDER BY checked_at DESC, profile_id"
+                "FROM account_pool_isp_probe_results UNION ALL "
+                "SELECT profile_id, status, checked_at, exit_ip, country, region, city, isp, delay_ms, error "
+                "FROM account_pool_isp_subscription_probe_results ORDER BY checked_at DESC, profile_id"
             )
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
         return tuple(self._probe_from_row(row) for row in rows)
@@ -264,11 +274,12 @@ class PostgresProxyCatalogRepository:
         refreshed_at: Final = datetime.now(timezone.utc)
         async with database_connection(self._database_url) as connection:
             existing_cursor: Final = await connection.execute(
-                "SELECT id, name FROM account_pool_isp_subscription_nodes"
+                "SELECT id, name, proxy_type, config_ciphertext, enabled FROM account_pool_isp_subscription_nodes"
             )
             existing_rows: Final[Sequence[Mapping[str, object]]] = await existing_cursor.fetchall()
+            existing_profiles: Final = tuple(self._subscription_node_from_row(row) for row in existing_rows)
             node_identities: Final = tuple(
-                _subscription_node_identity(node, existing_rows) for node in nodes
+                _subscription_node_identity(node, existing_profiles) for node in nodes
             )
             await connection.execute(
                 """
@@ -307,8 +318,8 @@ class PostgresProxyCatalogRepository:
                 )
             await connection.execute(
                 "UPDATE account_pool_isp_subscription_nodes SET enabled = false "
-                "WHERE enabled AND NOT (name = ANY(%s))",
-                (list(node.name for node in nodes),),
+                "WHERE enabled AND NOT (id = ANY(%s))",
+                (list(identity for _, identity in node_identities),),
             )
             node_cursor: Final = await connection.execute(
                 "SELECT count(*) AS total, count(*) FILTER (WHERE enabled) AS enabled "
@@ -348,8 +359,23 @@ class PostgresProxyCatalogRepository:
                 )
         return records
 
-    async def update_isp(self, profile: ISPProxyProfile) -> ISPProxyProfile | None:
+    async def update_isp(self, profile: ISPProxyCatalogProfile) -> ISPProxyCatalogProfile | None:
         async with database_connection(self._database_url) as connection:
+            if isinstance(profile, ISPSubscriptionNodeProfile):
+                try:
+                    subscription_cursor: Final = await connection.execute(
+                        "UPDATE account_pool_isp_subscription_nodes SET name = %s, enabled = %s WHERE id = %s RETURNING *",
+                        (profile.name, profile.enabled, profile.id),
+                    )
+                except UniqueViolation as error:
+                    if (
+                        error.diag.table_name == "account_pool_isp_subscription_nodes"
+                        and error.diag.constraint_name == "account_pool_isp_subscription_nodes_name_key"
+                    ):
+                        raise ValueError("ISP subscription node name already exists") from None
+                    raise
+                subscription_row: Final = await subscription_cursor.fetchone()
+                return None if subscription_row is None else self._subscription_node_from_row(subscription_row)
             cursor: Final = await connection.execute(
                 """
                 UPDATE account_pool_isp_profiles
@@ -364,10 +390,15 @@ class PostgresProxyCatalogRepository:
         return None if row is None else self._isp_from_row(row)
 
     async def save_isp_probe(self, result: ISPProbeResult) -> ISPProbeResult:
+        profile: Final = await self.get_isp(result.profile_id)
+        table: Final = (
+            "account_pool_isp_subscription_probe_results" if isinstance(profile, ISPSubscriptionNodeProfile)
+            else "account_pool_isp_probe_results"
+        )
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
-                """
-                INSERT INTO account_pool_isp_probe_results
+                f"""
+                INSERT INTO {table}
                     (profile_id, status, checked_at, exit_ip, country, region, city, isp, delay_ms, error)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (profile_id) DO UPDATE SET
@@ -380,7 +411,7 @@ class PostgresProxyCatalogRepository:
                     isp = EXCLUDED.isp,
                     delay_ms = EXCLUDED.delay_ms,
                     error = EXCLUDED.error
-                WHERE account_pool_isp_probe_results.checked_at <= EXCLUDED.checked_at
+                WHERE {table}.checked_at <= EXCLUDED.checked_at
                 RETURNING *
                 """,
                 self._probe_parameters(result),
@@ -389,7 +420,7 @@ class PostgresProxyCatalogRepository:
             if written is not None:
                 return self._probe_from_row(written)
             latest: Final = await connection.execute(
-                "SELECT * FROM account_pool_isp_probe_results WHERE profile_id = %s", (result.profile_id,)
+                f"SELECT * FROM {table} WHERE profile_id = %s", (result.profile_id,)
             )
             row: Final = await latest.fetchone()
         if row is None:
@@ -492,7 +523,7 @@ class PostgresProxyCatalogRepository:
                 )
                 return
             subscription_profile_cursor: Final = await connection.execute(
-                "SELECT id FROM account_pool_isp_subscription_nodes WHERE id = %s AND enabled", (profile_id,)
+                "SELECT id FROM account_pool_isp_subscription_nodes WHERE id = %s", (profile_id,)
             )
             if await subscription_profile_cursor.fetchone() is None:
                 raise ValueError("ISP profile was not found or is unavailable")
@@ -721,14 +752,16 @@ class PostgresProxyCatalogRepository:
 
 def _subscription_node_identity(
     node: MihomoISPNode,
-    existing_rows: Sequence[Mapping[str, object]],
+    existing_profiles: tuple[ISPSubscriptionNodeProfile, ...],
 ) -> tuple[MihomoISPNode, UUID]:
-    existing_id: Final = next(
-        (
-            row["id"]
-            for row in existing_rows
-            if row.get("name") == node.name and isinstance(row.get("id"), UUID)
-        ),
-        None,
+    # 加密连接配置中的订阅原名不随本地显示名编辑变化，端口绑定始终沿用原 ID。
+    matches: Final = tuple(
+        profile.id for profile in existing_profiles if profile.config.get("name") == node.name
     )
-    return node, existing_id if isinstance(existing_id, UUID) else uuid4()
+    if len(matches) > 1:
+        raise ValueError("ISP subscription node identity is ambiguous; remove duplicate nodes before refreshing")
+    if matches:
+        return node, matches[0]
+    if any(profile.name == node.name for profile in existing_profiles):
+        raise ValueError("ISP subscription node conflicts with an existing display name; rename it before refreshing")
+    return node, uuid4()

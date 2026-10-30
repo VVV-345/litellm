@@ -11,13 +11,16 @@ from pathlib import Path
 from typing import Final, Protocol
 from uuid import UUID
 
+import yaml
+from pydantic import BaseModel, ConfigDict, TypeAdapter
+
 from account_pool.compose_renderer import (
     data_volume_name,
     render_cli_proxy_config,
     render_compose,
 )
 from account_pool.config import Settings
-from account_pool.domain import EnvironmentRecord
+from account_pool.domain import EnvironmentRecord, EnvironmentStatus
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 
@@ -146,6 +149,59 @@ class ComposeRuntime:
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
         await self._connect_control_plane(environment_id, self._settings.gateway_container)
+
+    async def align_runtime_image(
+        self, record: EnvironmentRecord, *, verify: Callable[[EnvironmentRecord], Awaitable[None]]
+    ) -> bool:
+        if record.enabled or record.status is not EnvironmentStatus.DISABLED:
+            raise ValueError("runtime update requires a disabled card")
+        if re.fullmatch(r"ghcr\.io/vvv-345/litellm-cliproxyapi@sha256:[0-9a-f]{64}", self._settings.cli_proxy_image) is None:
+            raise ValueError("runtime update requires a published unified-package digest")
+        compose_file: Final = self.environment_dir(record.id) / "compose.yaml"
+        if not compose_file.is_file():
+            raise ValueError("card compose file is missing")
+        current: Final = compose_file.read_text(encoding="utf-8")
+        if _compose_service_image(current) == self._settings.cli_proxy_image:
+            return False
+        desired: Final = _replace_compose_service_image(current, self._settings.cli_proxy_image)
+        running: Final = await self._is_running(record.id)
+        _write_private(compose_file, desired)
+        try:
+            await self._compose(record.id, "pull", "cli-proxy-api")
+        except (Exception, asyncio.CancelledError):
+            _write_private(compose_file, current)
+            raise
+        try:
+            await self._compose(record.id, "up", "-d", "--pull", "never", "--no-deps", "cli-proxy-api")
+            await verify(record)
+            if not running:
+                await self.set_running(record, False)
+        except (Exception, asyncio.CancelledError):
+            # 能力失败时恢复旧镜像和原运行状态；认证卷不删除、不重新播种。
+            _write_private(compose_file, current)
+            await asyncio.shield(self._restore_runtime(record, running))
+            raise
+        return True
+
+    async def _restore_runtime(self, record: EnvironmentRecord, running: bool) -> None:
+        await self._compose(record.id, "up", "-d", "--pull", "never", "--no-deps", "cli-proxy-api")
+        if not running:
+            await self.set_running(record, False)
+
+    async def _is_running(self, environment_id: UUID) -> bool:
+        compose_file: Final = self.environment_dir(environment_id) / "compose.yaml"
+        process: Final = await self._runner(
+            (
+                "docker", "compose", "--project-name", f"account-pool-{environment_id.hex}",
+                "--file", str(compose_file), "ps", "--all", "--format", "{{.State}}", "cli-proxy-api",
+            ),
+            self._docker_environment(),
+        )
+        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        state: Final = stdout.decode("utf-8", errors="replace").strip()
+        if process.returncode != 0 or state not in {"running", "exited", "created"}:
+            raise RuntimeError("card runtime state must be running, exited or created before maintenance")
+        return state == "running"
 
     async def write_volume_files(
         self,
@@ -311,6 +367,37 @@ class ComposeRuntime:
             raise ValueError("invalid account pool project name")
         await self._disconnect_control_plane(UUID(hex=slug), self._settings.manager_container)
         await self._disconnect_control_plane(UUID(hex=slug), self._settings.gateway_container)
+
+
+class _ComposeService(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    image: str
+
+
+class _ComposeDocument(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="allow")
+
+    services: dict[str, _ComposeService]
+
+
+def _compose_service_image(content: str) -> str:
+    document: Final = TypeAdapter(_ComposeDocument).validate_python(yaml.safe_load(content))
+    service: Final = document.services.get("cli-proxy-api")
+    if service is None or not service.image.strip():
+        raise ValueError("cli proxy compose image is missing")
+    return service.image
+
+
+def _replace_compose_service_image(content: str, image: str) -> str:
+    node = yaml.compose(content)
+    for key in ("services", "cli-proxy-api", "image"):
+        if not isinstance(node, yaml.MappingNode):
+            raise ValueError("cli proxy compose image is missing")
+        node = next((value for name, value in node.value if name.value == key), None)
+    if not isinstance(node, yaml.ScalarNode):
+        raise ValueError("cli proxy compose image is missing")
+    return content[: node.start_mark.index] + image + content[node.end_mark.index :]
 
 
 def _write_private(path: Path, content: str) -> None:

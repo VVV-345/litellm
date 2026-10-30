@@ -200,6 +200,19 @@ describe("progressive preloading", () => {
     expect(result.background.failed).toBe(0);
   });
 
+  it("does not block the site when a non-critical prefetch fails", async () => {
+    const laterTask = vi.fn();
+    const result = await runPreloadStages(
+      [{ id: "prefetch", run: () => Promise.reject(new Error("offline")), critical: false }],
+      [[{ id: "later", run: laterTask }]],
+      { yieldBetweenTasks: async () => {} },
+    );
+
+    expect(laterTask).toHaveBeenCalledOnce();
+    expect(result.stage).toBe("complete");
+    expect(result.primary).toEqual({ completed: 1, total: 1, failed: 1 });
+  });
+
   it("stops queued work after logout while a request is in flight", async () => {
     const controller = new AbortController();
     const pending = Promise.withResolvers<void>();

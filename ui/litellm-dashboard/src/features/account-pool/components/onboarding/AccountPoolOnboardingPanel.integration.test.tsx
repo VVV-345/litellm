@@ -69,6 +69,35 @@ beforeEach(() => {
 });
 
 describe("onboarding workflows", () => {
+  it("accepts two-factor text in file import and navigates to OAuth tasks after submission", async () => {
+    const user = userEvent.setup();
+    post.mockImplementation(async (path: string) =>
+      path.endsWith("/preview")
+        ? [{ index: 0, label: "fixture@example.test", status: "valid", message: "已识别 2FA 登录资料" }]
+        : { items: [{ ...item, state: "queued" }], preview: [] },
+    );
+    mount();
+    const input = await screen.findByLabelText("认证 JSON 文件（可多选）");
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.click(screen.getByRole("combobox", { name: "认证文件出站代理" }));
+    await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+    const content = "fixture@example.test----password----JBSWY3DPEHPK3PXP";
+    const file = new File([content], "accounts.txt", { type: "text/plain" });
+    Object.defineProperty(file, "text", { value: async () => content });
+    await user.upload(input, file);
+    await user.click(await screen.findByRole("button", { name: "导入有效项" }));
+    expect(await screen.findByRole("tab", { name: "OAuth 上号", selected: true })).toBeVisible();
+    expect(post).toHaveBeenCalledWith(
+      "/account_pool/onboarding/imports",
+      expect.objectContaining({
+        body: expect.objectContaining({
+          source: "auth_file",
+          proxy_profile_id: "proxy-us",
+          entries: [expect.objectContaining({ content })],
+        }),
+      }),
+    );
+  });
   it("allows optional node selection for JSON auth files and resets a stale preview when the node changes", async () => {
     const user = userEvent.setup();
     mount();
