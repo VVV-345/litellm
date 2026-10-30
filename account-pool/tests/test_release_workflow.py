@@ -123,7 +123,7 @@ def test_unified_package_builds_and_probes_all_four_components_on_selected_platf
     entries: Final = STEP_LIST.validate_python(matrix["include"])
     assert matrix["arch"] == "${{ fromJSON(needs.version.outputs.architectures) }}"
     assert set(STRING_LIST.validate_python(matrix["image"])) == {
-        "litellm", "manager", "browser-worker", "cliproxyapi"
+        "litellm", "manager", "cliproxyapi"
     }
     assert all("arch" not in entry for entry in entries)
     assert build["runs-on"] == "${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}"

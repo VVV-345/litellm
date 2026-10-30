@@ -21,7 +21,6 @@ from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
-from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
@@ -35,7 +34,6 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
-from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
 from account_pool.onboarding_repository import PostgresOnboardingRepository
 from account_pool.onboarding_service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
@@ -51,7 +49,6 @@ from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissin
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,
-    PostgresOAuthBrowserSessionRepository,
     PostgresProxyProfileRepository,
 )
 from account_pool.service import EnvironmentService
@@ -66,11 +63,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved: Final = settings or Settings()  # pyright: ignore[reportCallIssue]  # values come from environment
     environments: Final = PostgresEnvironmentRepository(resolved.database_url)
     profiles: Final = PostgresProxyProfileRepository(resolved.database_url)
-    browser_session_repository: Final = PostgresOAuthBrowserSessionRepository(resolved.database_url)
-    browser_sessions: Final = OAuthBrowserSessionService(
-        browser_session_repository,
-        fingerprint_key=resolved.secret_seed.encode("utf-8"),
-    )
     keys: Final = CardKeyService(PostgresCardKeyRepository(resolved.database_url))
     policies: Final = PostgresPolicyRepository(resolved.database_url)
     feedback_repository: Final = PostgresFeedbackRepository(resolved.database_url)
@@ -95,7 +87,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
     runtime: Final = channel
-    browser_runtime: Final = ComposeRuntime(resolved, secrets)
     controller: Final = (
         ClashController(resolved.clash_controller_url, resolved.clash_secret) if resolved.clash_controller_url else None
     )
@@ -177,7 +168,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await proxy_expiry_scheduler.run_once(date.today())
         except Exception as error:
             _LOGGER.warning("ISP startup reconciliation failed; periodic retry pending: %s", error.__class__.__name__)
-        await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
         records: Final = await environments.list()
         await _restore_control_plane_connections(channels, records)
         await service.refresh_auth_files()
@@ -205,9 +195,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         quota_refresh_task: Final = asyncio.create_task(quota_scheduler.run_until_cancelled(retry_stopped))
         quota_event_task: Final = asyncio.create_task(quota_trigger.run_until_cancelled(retry_stopped))
         auth_refresh_task: Final = asyncio.create_task(auth_refresh_scheduler.run_until_cancelled(retry_stopped))
-        browser_cleanup_task: Final = asyncio.create_task(
-            _reap_oauth_browser_sessions_until_cancelled(browser_sessions, browser_runtime, retry_stopped)
-        )
         proxy_expiry_task: Final = asyncio.create_task(proxy_expiry_scheduler.run_until_cancelled(retry_stopped))
         try:
             yield
@@ -221,7 +208,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             quota_refresh_task.cancel()
             quota_event_task.cancel()
             auth_refresh_task.cancel()
-            browser_cleanup_task.cancel()
             proxy_expiry_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
@@ -229,7 +215,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(quota_event_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
-            await asyncio.gather(browser_cleanup_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)
             try:
                 await retry_task
@@ -281,10 +266,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             litellm_upstream_sync=litellm_upstream_sync,
             quota_scheduler=quota_scheduler,
             auth_refresh_scheduler=auth_refresh_scheduler,
-            proxy_profiles=profiles,
             proxy_catalog=proxy_catalog,
-            browser_sessions=browser_sessions,
-            browser_runtime=browser_runtime,
             feedback=feedback,
         )
     )
@@ -333,23 +315,6 @@ async def _restore_control_plane_connections_until_cancelled(
             await _restore_control_plane_connections(channels, records)
         except Exception as error:
             _LOGGER.warning("Account pool network reconcile failed: %s", error.__class__.__name__)
-        try:
-            await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
-        except TimeoutError:
-            continue
-
-
-async def _reap_oauth_browser_sessions_until_cancelled(
-    sessions: OAuthBrowserSessionService,
-    runtime: ComposeRuntime,
-    stopped: asyncio.Event,
-    retry_seconds: float = 5.0,
-) -> None:
-    while not stopped.is_set():
-        try:
-            await cleanup_oauth_browser_sessions(sessions, runtime)
-        except Exception as error:
-            _LOGGER.warning("OAuth browser cleanup failed: %s", error.__class__.__name__)
         try:
             await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
         except TimeoutError:

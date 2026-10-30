@@ -894,7 +894,7 @@ class ProductCommands:
             return b"linux/x86_64\n"
         if args[:2] == ("image", "pull"):
             assert timeout == 1800
-            if self.broken and self.broken in args[2] and self.problem == "missing":
+            if args[2].startswith(PRODUCT_REPOSITORY + ":" + self.broken + "-") and self.problem == "missing":
                 raise ReleaseError("manifest unknown: password=secret-value")
             return b"downloaded"
         if args[:2] == ("image", "inspect"):
@@ -958,8 +958,8 @@ def product_runtime(tmp_path: Path, command: ProductCommands) -> DockerReleaseRu
 
 
 @pytest.mark.parametrize("worker", ("", "ghcr.io/vvv-345/account-pool-browser-worker:old"))
-def test_unified_release_pulls_all_components_and_pins_only_enabled_worker(tmp_path: Path, worker: str) -> None:
-    command = ProductCommands()
+def test_unified_release_pulls_active_components_without_changing_legacy_browser_setting(tmp_path: Path, worker: str) -> None:
+    command = ProductCommands("browser-worker", "missing")
     runtime = product_runtime(tmp_path, command)
     pair = runtime.pull("a" * 10)
     assert pair.commit == "a" * 40
@@ -982,14 +982,12 @@ def test_unified_release_pulls_all_components_and_pins_only_enabled_worker(tmp_p
     resolved = json.loads(runtime.product_configuration(pair, configuration))
     environment = resolved["services"]["account-pool"]["environment"]
     assert environment["ACCOUNT_POOL_CLI_PROXY_IMAGE"] == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
-    assert environment["ACCOUNT_POOL_OAUTH_BROWSER_IMAGE"] == (
-        PRODUCT_REPOSITORY + "@sha256:" + "3" * 64 if worker else ""
-    )
+    assert environment["ACCOUNT_POOL_OAUTH_BROWSER_IMAGE"] == worker
     assert environment["ACCOUNT_POOL_MANAGER_TOKEN"] == "keep-secret"
     pulls = [args[2] for args, _ in command.calls if args[:2] == ("image", "pull")]
     assert pulls == [
         PRODUCT_REPOSITORY + ":" + component + "-" + "a" * 10
-        for component in ("litellm", "manager", "browser-worker", "cliproxyapi")
+        for component in ("litellm", "manager", "cliproxyapi")
     ]
     assert not any(args[0] in ("compose", "create", "restart") for args, _ in command.calls)
 
@@ -997,8 +995,8 @@ def test_unified_release_pulls_all_components_and_pins_only_enabled_worker(tmp_p
 @pytest.mark.parametrize(
     "component,problem",
     (
-        ("browser-worker", "missing"),
-        ("browser-worker", "component"),
+        ("manager", "missing"),
+        ("cliproxyapi", "component"),
         ("cliproxyapi", "revision"),
         ("cliproxyapi", "identity"),
         ("litellm", "platform"),
@@ -1114,7 +1112,7 @@ def test_unified_preflight_failure_discards_previous_companion_pins(tmp_path):
     command = ProductCommands()
     runtime = product_runtime(tmp_path, command)
     pair = runtime.pull("a" * 10)
-    command.broken, command.problem = "browser-worker", "missing"
+    command.broken, command.problem = "cliproxyapi", "missing"
     with pytest.raises(ReleaseError):
         runtime.pull("a" * 10)
     with pytest.raises(ReleaseError, match="预检"):
@@ -1176,7 +1174,7 @@ def test_product_validation_failure_is_not_a_retryable_download(tmp_path):
     from account_pool.release_store import ReleaseDownloadError, ReleaseError
 
     with pytest.raises(ReleaseError) as error:
-        product_runtime(tmp_path, ProductCommands("browser-worker", "component")).pull("a" * 10)
+        product_runtime(tmp_path, ProductCommands("cliproxyapi", "component")).pull("a" * 10)
     assert not isinstance(error.value, ReleaseDownloadError)
 
 

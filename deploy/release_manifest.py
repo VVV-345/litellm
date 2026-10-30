@@ -1,4 +1,4 @@
-"""Create the four-component release manifest from verified build receipts."""
+"""Create the three-component release manifest from verified build receipts."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Final, Protocol, cast
 from release_platforms import parse_architectures
 
 REPOSITORY: Final = "ghcr.io/vvv-345/litellm-cliproxyapi"
-COMPONENTS: Final = ("litellm", "manager", "browser-worker", "cliproxyapi")
+COMPONENTS: Final = ("litellm", "manager", "cliproxyapi")
 ADAPTER: Final = Path(__file__).resolve().parents[1] / "account-pool/cliproxy-adapter"
 
 

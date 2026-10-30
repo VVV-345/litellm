@@ -200,7 +200,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [litellm, manager, browser-worker, cliproxyapi]
+        image: [litellm, manager, cliproxyapi]
         arch: ${{ fromJSON(needs.version.outputs.architectures) }}
         include:
           - image: litellm
@@ -209,9 +209,6 @@ jobs:
           - image: manager
             context: account-pool
             file: account-pool/Dockerfile
-          - image: browser-worker
-            context: account-pool
-            file: account-pool/browser-worker/Dockerfile
           - image: cliproxyapi
             context: cliproxy-src
             file: cliproxy-src/Dockerfile
@@ -293,7 +290,6 @@ jobs:
           case "$IMAGE" in
             litellm) docker run --rm --entrypoint python -e LITELLM_LOCAL_MODEL_COST_MAP=True "$ref" -c 'import litellm; import litellm.proxy.proxy_server; print("LiteLLM imports passed")' ;;
             manager) docker run --rm --entrypoint python "$ref" -c 'from account_pool.app import create_app; print("Manager imports passed")' ;;
-            browser-worker) docker run --rm --entrypoint python "$ref" -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(headless=True); print(b.version); b.close(); p.stop()' ;;
             cliproxyapi) python3 account-pool/cliproxy-adapter/probe_managed_identity.py --image "$ref" ;;
           esac
 
@@ -325,7 +321,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [litellm, manager, browser-worker, cliproxyapi]
+        image: [litellm, manager, cliproxyapi]
     steps:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -375,7 +371,7 @@ jobs:
           retention-days: 30
 
   release-manifest:
-    name: Verify and record the complete four-component release
+    name: Verify and record the complete three-component release
     needs: [version, publish-manifest]
     runs-on: ubuntu-latest
     steps:
@@ -410,7 +406,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [litellm, manager, browser-worker, cliproxyapi]
+        image: [litellm, manager, cliproxyapi]
     steps:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -512,7 +508,7 @@ jobs:
                 target_commitish: revision,
                 name: tag,
                 draft: true,
-                body: 'Verified four-component release. See release-manifest.json for pinned image digests and provenance. No server deployment is performed',
+                body: 'Verified three-component release. See release-manifest.json for pinned image digests and provenance. No server deployment is performed',
               })).data;
             }
             if (release.name !== tag || release.tag_name !== tag) {
@@ -560,7 +556,7 @@ jobs:
       - name: Write verified image references
         run: |
           {
-            echo '## Published four-component release'
+            echo '## Published three-component release'
             jq -r '"Product version: " + .version + "; immutable build: " + .versioned_tag, (.images | to_entries[] | "- " + .key + ": `" + .value.image + "@" + .value.digest + "`")' /tmp/release-manifest.json
             echo 'Publication does not deploy or recreate any account containers. Historical packages and tags are unchanged.'
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,4 @@
-"""发布清单必须有四个组件在所选架构上通过探测及固定补丁来源。"""
+"""发布清单必须有三个组件在所选架构上通过探测及固定补丁来源。"""
 
 import json
 import subprocess
@@ -11,7 +11,7 @@ import pytest
 ROOT: Final = Path(__file__).resolve().parents[2]
 SCRIPT: Final = ROOT / "deploy/release_manifest.py"
 REVISION: Final = "a" * 40
-COMPONENTS: Final = ("litellm", "manager", "browser-worker", "cliproxyapi")
+COMPONENTS: Final = ("litellm", "manager", "cliproxyapi")
 
 
 def _receipts(root: Path, architectures: tuple[str, ...] = ("arm64",)) -> None:

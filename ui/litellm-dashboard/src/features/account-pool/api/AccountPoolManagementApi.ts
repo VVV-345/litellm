@@ -1,9 +1,7 @@
 /** 本文件封装账号策略、供应商配置和额度管理请求。 */
 
 import { apiClient } from "@/components/networking";
-import { normalizeRootPath } from "@/lib/http/resolveApiBase";
 import type { components } from "@/lib/http/schema";
-import { serverRootPath } from "@/lib/serverRootPath";
 
 export type PolicyView = components["schemas"]["PolicyView"];
 export type AccountPoolRoutingStatus = components["schemas"]["AccountPoolRoutingStatus"];
@@ -60,8 +58,6 @@ interface AccountPoolDashboardStats {
 type BatchJob = components["schemas"]["BatchJob"];
 export type BatchAction = components["schemas"]["BatchRequest"]["action"];
 
-export type AccountPoolOAuthBrowserSession = components["schemas"]["AccountPoolOAuthBrowserSession"];
-type AccountPoolOAuthBrowserSessionStart = components["schemas"]["AccountPoolOAuthBrowserSessionStart"];
 
 export const createAccountPoolJobId = (): string => {
   const randomBytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
@@ -138,42 +134,6 @@ export const cancelAccountPoolOAuthSession = (accessToken: string, cardId: strin
     `/account_pool/environments/${encodeURIComponent(cardId)}/oauth-session`,
     { accessToken },
   );
-
-export const startAccountPoolOAuthBrowserSession = async (
-  accessToken: string,
-  cardId: string,
-): Promise<AccountPoolOAuthBrowserSession> => {
-  const { ticket, ...session } = await apiClient.post<AccountPoolOAuthBrowserSessionStart>(
-    `/account_pool/environments/${encodeURIComponent(cardId)}/oauth-browser-sessions`,
-    { accessToken },
-  );
-  try {
-    await apiClient.post<void>(`/account_pool/oauth-browser-sessions/${encodeURIComponent(session.id)}/browser`, {
-      accessToken: ticket,
-    });
-  } catch (error) {
-    await cancelAccountPoolOAuthBrowserSession(accessToken, session.id).catch(() => undefined);
-    throw error;
-  }
-  return session;
-};
-
-export const getAccountPoolOAuthBrowserSession = (accessToken: string, sessionId: string, signal?: AbortSignal) =>
-  apiClient.get<AccountPoolOAuthBrowserSession>(
-    `/account_pool/oauth-browser-sessions/${encodeURIComponent(sessionId)}`,
-    { accessToken, signal, cache: "no-store" },
-  );
-
-export const cancelAccountPoolOAuthBrowserSession = (accessToken: string, sessionId: string) =>
-  apiClient.delete<AccountPoolOAuthBrowserSession>(
-    `/account_pool/oauth-browser-sessions/${encodeURIComponent(sessionId)}`,
-    { accessToken },
-  );
-
-export const getAccountPoolOAuthBrowserUrl = (sessionId: string) => {
-  const path = `${normalizeRootPath(serverRootPath)}/account_pool/oauth-browser-sessions/${encodeURIComponent(sessionId)}/browser`;
-  return `${path}/vnc.html?autoconnect=true&resize=scale&path=${encodeURIComponent(`${path.slice(1)}/websockify`)}`;
-};
 
 export const deleteAccountPoolCredential = (
   accessToken: string,

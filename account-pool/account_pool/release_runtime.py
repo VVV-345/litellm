@@ -238,7 +238,7 @@ class DockerReleaseRuntime:
     def __init__(self, settings: ReleaseSettings, command: DockerCommand | None = None) -> None:
         self.settings: Final = settings
         self.command: Final = command
-        self._product_preflight: tuple[str, str, str] | None = None
+        self._product_preflight: tuple[str, str] | None = None
 
     def run(self, *args: str, timeout: int = 120) -> bytes:
         try:
@@ -802,7 +802,7 @@ class DockerReleaseRuntime:
         if shutil.disk_usage(self.settings.root).free < self.settings.reserve_bytes:
             raise DockerOperationError("preflight", "product", "disk")
         selected: Final = {COMPONENTS[image.service]: image for image in candidate.images} if candidate else {}
-        components: Final = ("litellm", "manager", "browser-worker", "cliproxyapi")
+        components: Final = ("litellm", "manager", "cliproxyapi")
         references: Final = tuple(
             PRODUCT_REPOSITORY
             + ("@" + selected[component].digest if component in selected else ":" + component + "-" + tag[:10])
@@ -839,7 +839,7 @@ class DockerReleaseRuntime:
             ):
                 raise ReleaseError(f"Docker phase=preflight component={component} category=identity，镜像身份不一致")
         manager_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[1].config["Labels"])
-        cliproxy_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[3].config["Labels"])
+        cliproxy_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[2].config["Labels"])
         if any(
             manager_labels.get("ai.zlia.cliproxy-" + suffix) != cliproxy_labels.get("ai.zlia." + suffix)
             for suffix in ("source-revision", "patch-sha256")
@@ -862,7 +862,7 @@ class DockerReleaseRuntime:
             < sum(image.size for image in pair.images) + self.settings.reserve_bytes
         ):
             raise DockerOperationError("preflight", "product", "disk")
-        self._product_preflight = (pair.id, self._product_digest(inspected[2]), self._product_digest(inspected[3]))
+        self._product_preflight = (pair.id, self._product_digest(inspected[2]))
         return pair
 
     def _download_product(self, reference: str, component: str, tag: str, platform: str) -> ImageInspection:
@@ -908,8 +908,8 @@ class DockerReleaseRuntime:
 
     def product_configuration(self, pair: ReleasePair, configuration: bytes) -> bytes:
         if self._product_preflight is None or self._product_preflight[0] != pair.id:
-            raise ReleaseError("尚未完成目标版本四组件预检，未替换服务")
-        _, browser, cliproxyapi = self._product_preflight
+            raise ReleaseError("尚未完成目标版本三组件预检，未替换服务")
+        _, cliproxyapi = self._product_preflight
         config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(configuration)
         services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(config["services"])
         manager: Final = services["account-pool"]
@@ -924,11 +924,6 @@ class DockerReleaseRuntime:
                         "environment": {
                             **environment,
                             "ACCOUNT_POOL_CLI_PROXY_IMAGE": cliproxyapi,
-                            **(
-                                {"ACCOUNT_POOL_OAUTH_BROWSER_IMAGE": browser}
-                                if environment.get("ACCOUNT_POOL_OAUTH_BROWSER_IMAGE")
-                                else {}
-                            ),
                         },
                     },
                 },

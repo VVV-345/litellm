@@ -102,7 +102,7 @@ docker image inspect "$(docker inspect -f '{{.Image}}' SOURCE_LITELLM)" > "$BACK
 
 ## 3. 镜像从 GHCR 拉，版本要锁定
 
-2026-10-29 调整发布配置：默认选择 `linux/arm64`，可通过工作流 `architectures` 输入选择 amd64、arm64 或两者，四个组件统一发布到 `ghcr.io/vvv-345/litellm-cliproxyapi`，准确标签和 digest 见该版本的 `release-manifest.json` 及 [统一镜像说明](UNIFIED_IMAGES.md)。迁移前必须确认该版本清单包含目标架构；只有 ARM64 的版本不能直接运行在 amd64 主机上。若需要改变已发布版本的架构集合，使用新提交发布，不覆盖原有不可变标签。下面的双架构地址和保留策略只描述历史版本，不代表当前发布规则；现有历史标签不自动清理
+2026-10-29 调整发布配置：默认选择 `linux/arm64`，可通过工作流 `architectures` 输入选择 amd64、arm64 或两者，当前三个组件（LiteLLM、Manager、CLIProxyAPI）统一发布到 `ghcr.io/vvv-345/litellm-cliproxyapi`，准确标签和 digest 见该版本的 `release-manifest.json` 及 [统一镜像说明](UNIFIED_IMAGES.md)。迁移前必须确认该版本清单包含目标架构；只有 ARM64 的版本不能直接运行在 amd64 主机上。若需要改变已发布版本的架构集合，使用新提交发布，不覆盖原有不可变标签。下面的双架构地址和保留策略只描述历史版本，不代表当前发布规则；现有历史标签不自动清理
 
 历史上，本仓库 `.github/workflows/publish-deployment-images.yml` 使用 commit 前 10 位作为 tag，为下列两个镜像发布 `linux/amd64`、`linux/arm64` 及共同的多架构 tag：
 

@@ -2,7 +2,7 @@
 
 本文件是本项目后续发布和上游更新的统一操作入口。先完成检查，再按对应更新类型执行；不要凭上一次记忆拼命令。实际机制见 `RELEASES.md`，首次安装见 `DEPLOY.md`，换服务器或数据迁移见 `MIGRATION.md`
 
-**适用范围：** LiteLLM、号池 Manager、独立 release-worker、受控浏览器 worker，以及 CLIProxyAPI / LiteLLM 上游源码更新。它们不是同一个更新操作
+**适用范围：** LiteLLM、号池 Manager、独立 release-worker，以及 CLIProxyAPI / LiteLLM 上游源码更新。它们不是同一个更新操作
 
 **完成标准：** 正确提交的镜像已经发布；凭据和配置有效；备份可验证；兼容性检查通过；实际运行镜像符合目标；健康、鉴权、账号网络正常。镜像构建成功、拉取成功、HTTP 200 均不能单独代表发布完成
 
@@ -48,7 +48,6 @@
 | 独立发布器 | 检查无运行任务后，只重建 `release-worker` | 业务发布不会替它升级 |
 | CLIProxyAPI 上游 | 页面上游更新的分析、审阅、晋升流程 | 不等于已替换每个账号的运行容器 |
 | LiteLLM 上游源码 | 对应独立上游工作流，兼容审阅后纳入本项目发布 | 不能直接用官方 latest 覆盖定制号池代码 |
-| OAuth 浏览器 worker | 固定 digest、兼容审阅和实际会话验证 | 不属于两个业务容器的发布；禁用状态不要顺手启用 |
 | 数据迁移 | 单独迁移与恢复方案 | 镜像回退不回放数据库，不恢复认证文件和外部日志 |
 
 ## 2. 凭据清单：三类 Token，分别检查
@@ -118,7 +117,7 @@ gh run list --repo VVV-345/litellm --commit FULL_COMMIT --limit 5
 gh run view RUN_ID --repo VVV-345/litellm --json status,conclusion,headSha,jobs
 ```
 
-`FULL_COMMIT`、`RUN_ID` 必须替换为本次核验值。核对 `Publish deployment images` 的 headSha 和结论；LiteLLM、Manager、Browser Worker、CLIProxyAPI 四个组件在本次所选架构上的构建、探测及 manifest 校验均完成后，记录前 10 位 TAG。文档更新、特性分支 push、拉取成功不能冒充发布验收
+`FULL_COMMIT`、`RUN_ID` 必须替换为本次核验值。核对 `Publish deployment images` 的 headSha 和结论；LiteLLM、Manager、CLIProxyAPI 三个组件在本次所选架构上的构建、探测及 manifest 校验均完成后，记录前 10 位 TAG。文档更新、特性分支 push、拉取成功不能冒充发布验收
 
 2026-10-29 在现有 JumpServer“号池”连接实测 `lima-stbk-pool`：`uname -m` 和 Docker 均返回 `aarch64`，对应镜像平台 `linux/arm64`。当前默认构建 ARM64；工作流的 `architectures` 可选 `arm64`、`amd64` 或 `amd64,arm64`，push 默认值可通过仓库变量 `DEPLOY_ARCHITECTURES` 调整。换服务器时重新核对，确认发布清单包含目标架构后才能部署。历史双架构标签不改写、不删除
 
@@ -204,7 +203,7 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 
 连接中断不等于任务停止。复用已打开终端，重新运行 `status` 读取任务，不盲目再提交 deploy。不得使用 `docker compose down -v`、卷清理、直接更改 active-pair 或伪造 schema_fingerprint。若已得到明确的运维确认并接受数据不兼容风险，只能通过 release-worker 的 `ACCOUNT_POOL_RELEASE_SKIP_COMPATIBILITY_CHECKS=true` 配置跳过 deploy/apply 的兼容性阻断；镜像身份、备份、人工确认、健康检查和失败恢复仍必须执行，确认响应与任务记录必须标明已绕过
 
-这条命令不部署 Browser Worker。若之前未启用，保持未启用；若本次明确要升级它，需要对应 GHCR `@sha256:`、会话兼容和独立验证，不把 tag 填进只接受 digest 的配置
+服务器内置 OAuth 浏览器已退役。升级前确认旧浏览器会话已结束，按旧 Compose 文件的确切项目名停止并清理其浏览器容器、临时卷和专用网络，勿清理账号环境及共享网络。新版本不再接管旧会话；历史会话表保留用于数据兼容，普通 OAuth 回调继续工作
 
 ## 6.1 网页端替换代理配置
 
@@ -297,7 +296,7 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 ```text
 日期/时区、执行人：
 对象：HOST / 网站 / Compose 项目 / 部署目录
-更新类型：业务 / 发布器 / CLIProxyAPI / LiteLLM 上游 / 浏览器 worker
+更新类型：业务 / 发布器 / CLIProxyAPI / LiteLLM 上游
 原 commit、镜像 ID：
 目标 commit、TAG、GHCR digest、Actions run：
 凭据：各消费端 SET/MISSING、只读校验结果、授权范围；不记明文
@@ -320,15 +319,15 @@ LiteLLM 和 CLIProxyAPI 的仓库、分支、权限、启用步骤及故障处�
 
 ## 统一镜像包的首次接管与回退
 
-统一包为 `ghcr.io/vvv-345/litellm-cliproxyapi`，候选标签为 `litellm-SHA10`、`manager-SHA10`、`browser-worker-SHA10`、`cliproxyapi-SHA10`。正式版本和完整来源、补丁、平台、digest 记录在发布工作流的 schema=2 审计清单中。该审计清单不替代 release-worker 已保存的两业务镜像 ReleasePair；旧备份、确认接口和数据库兼容门槛不变
+统一包为 `ghcr.io/vvv-345/litellm-cliproxyapi`，候选标签为 `litellm-SHA10`、`manager-SHA10`、`cliproxyapi-SHA10`。正式版本和完整来源、补丁、平台、digest 记录在发布工作流的 schema=2 审计清单中。该审计清单不替代 release-worker 已保存的两业务镜像 ReleasePair；旧备份、确认接口和数据库兼容门槛不变
 
-第一次从旧包升级时，必须先按第 5 节单独更新 release-worker。旧发布器不知道统一包和四组件预检，即便业务镜像已发布，直接提交旧版 `releasectl.py deploy SHA10` 也不能完成这次接管。先保存旧 worker 的完整镜像 digest、配置及挂载，只在无发布任务时更换 worker 为已验证的新包 `manager-SHA10` 或其 digest；保留令牌、Docker 登录目录、部署目录、备份目录、网络和 Socket Proxy。不要用整份新 Compose 覆盖服务器实际配置，不要同时替换业务、数据库或 Cockpit。`ACCOUNT_POOL_RELEASE_IMAGE` 可显式固定旧包或新包的完整引用，`ACCOUNT_POOL_RELEASE_IMAGE_TAG` 仅是新包 manager 标签的后缀
+从旧包或四组件发布器升级到当前三组件版本时，必须先按第 5 节单独更新 release-worker。旧包发布器不支持统一包，四组件发布器仍会强制拉取已经停用的浏览器镜像，即便业务镜像已发布，直接提交旧版 `releasectl.py deploy SHA10` 也不能完成这次接管。先保存旧 worker 的完整镜像 digest、配置及挂载，只在无发布任务时更换 worker 为已验证的新包 `manager-SHA10` 或其 digest；保留令牌、Docker 登录目录、部署目录、备份目录、网络和 Socket Proxy。不要用整份新 Compose 覆盖服务器实际配置，不要同时替换业务、数据库或 Cockpit。`ACCOUNT_POOL_RELEASE_IMAGE` 可显式固定旧包或新包的完整引用，`ACCOUNT_POOL_RELEASE_IMAGE_TAG` 仅是新包 manager 标签的后缀
 
-新发布器依次真实拉取四组件，核对 Docker 运行平台、镜像 digest、相同完整产品 commit、`ai.zlia.component`，以及 CLIProxyAPI 的来源 SHA、补丁 SHA256 和托管身份版本 1。只有新包第一个 LiteLLM manifest 明确缺失时，才允许读取旧的两个包；鉴权、网络、平台错误，以及其余配套组件缺失均停止，不能通过旧包掩盖失败。错误记录给出 `phase`、`component`、`category`，不保留可能包含令牌的 Docker 原始错误
+新发布器依次真实拉取三组件，核对 Docker 运行平台、镜像 digest、相同完整产品 commit、`ai.zlia.component`，以及 CLIProxyAPI 的来源 SHA、补丁 SHA256 和托管身份版本 1。只有新包第一个 LiteLLM manifest 明确缺失时，才允许读取旧的两个包；鉴权、网络、平台错误，以及其余配套组件缺失均停止，不能通过旧包掩盖失败。错误记录给出 `phase`、`component`、`category`，不保留可能包含令牌的 Docker 原始错误
 
-全部通过后，只为待切换 Manager 配置固定已验证的 CLIProxyAPI digest；浏览器 worker 仅在原配置启用时更新其默认 digest，空值继续禁用。不会重建账号卡片、改认证卷、启动浏览器任务或升级独立 release-worker。账号镜像受控维护仍需停用对应卡片、等待在途请求结束，再走维护入口。单独运行 Manager 且没有部署环境变量时，保留历史 CLIProxyAPI 默认值；统一部署模板从 `DEPLOY_TAG` 取得配套默认，不把后续发布永远绑定到某个版本号
+全部通过后，只为待切换 Manager 配置固定已验证的 CLIProxyAPI digest；不再拉取或更新浏览器 worker，旧浏览器镜像设置作为历史配置保留以便回退。不会重建账号卡片、改认证卷、启动浏览器任务或升级独立 release-worker。账号镜像受控维护仍需停用对应卡片、等待在途请求结束，再走维护入口。单独运行 Manager 且没有部署环境变量时，保留历史 CLIProxyAPI 默认值；统一部署模板从 `DEPLOY_TAG` 取得配套默认，不把后续发布永远绑定到某个版本号
 
-回退仍只导入已核验归档中的 LiteLLM 和 Manager，保留当前配置、数据及账号容器，不在线拉取四组件。首次接管前和完成后均需按第 7 节核对实际运行镜像、健康、鉴权、账号网络与真实上游调用。本轮源码和本地测试不代表上述服务器操作已执行
+回退仍只导入已核验归档中的 LiteLLM 和 Manager，保留当前配置、数据及账号容器，不在线拉取三组件。首次接管前和完成后均需按第 7 节核对实际运行镜像、健康、鉴权、账号网络与真实上游调用。本轮源码和本地测试不代表上述服务器操作已执行
 
 
 ### 旧 Manager 启动重建风险与安全恢复准备

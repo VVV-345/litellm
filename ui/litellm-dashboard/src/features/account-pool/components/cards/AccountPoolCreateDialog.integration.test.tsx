@@ -275,10 +275,10 @@ describe("AccountPoolCreateDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("requires the server browser for browser OAuth results and hides local login instructions", async () => {
+  it("offers fresh external authorization for browser OAuth results", async () => {
     renderDialog({ initialAuthorization: browserAuthorization as never });
 
-    expect(screen.getByRole("button", { name: /打开服务器浏览器|Open server browser/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /生成本机浏览器授权链接|Generate local browser link/i })).toBeEnabled();
     expect(screen.queryByDisplayValue(browserAuthorization.ssh_command)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /打开授权页面|Open authorization page/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-device-code")).not.toBeInTheDocument();
