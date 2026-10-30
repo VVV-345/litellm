@@ -18,7 +18,6 @@ from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
-from litellm.proxy.management_endpoints.account_pool_adspower import create_adspower_router
 from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus
@@ -1112,7 +1111,6 @@ def create_account_pool_router(
         return _validate_response(response, _GATEWAY_ISP_PROBE)
 
     router.include_router(create_proxy_catalog_router(management_request, _require_proxy_admin))
-    router.include_router(create_adspower_router(management_request, _require_proxy_admin))
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     router.include_router(create_feedback_router(management_request, _require_proxy_admin, feedback_multipart))
     router.include_router(create_model_test_router(management_request, _require_proxy_admin))

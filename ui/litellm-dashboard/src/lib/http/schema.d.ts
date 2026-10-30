@@ -700,40 +700,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/account_pool/adspower/profiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Profiles */
-        get: operations["list_profiles_account_pool_adspower_profiles_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/adspower/sync": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Sync */
-        post: operations["sync_account_pool_adspower_sync_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/account_pool/auth-files": {
         parameters: {
             query?: never;
@@ -24511,56 +24477,6 @@ export interface components {
             transport?: components["schemas"]["TransportPolicy"];
             xai?: components["schemas"]["XaiPolicy"] | null;
         };
-        /** AccountPoolAdsPowerProfile */
-        AccountPoolAdsPowerProfile: {
-            /** Credentials Configured */
-            credentials_configured: boolean;
-            /** Host */
-            host: string | null;
-            /** Id */
-            id: string;
-            /** Name */
-            name: string;
-            /** Port */
-            port: number | null;
-            /** Protocol */
-            protocol: ("http" | "https" | "socks5") | null;
-            /** Syncable */
-            syncable: boolean;
-        };
-        /** AccountPoolAdsPowerProfiles */
-        AccountPoolAdsPowerProfiles: {
-            /** Has More */
-            has_more: boolean;
-            /** Page */
-            page: number;
-            /** Profiles */
-            profiles: components["schemas"]["AccountPoolAdsPowerProfile"][];
-        };
-        /** AccountPoolAdsPowerSyncRequest */
-        AccountPoolAdsPowerSyncRequest: {
-            /** Profile Ids */
-            profile_ids: string[];
-        };
-        /** AccountPoolAdsPowerSyncResult */
-        AccountPoolAdsPowerSyncResult: {
-            /** Synced */
-            synced: components["schemas"]["AccountPoolAdsPowerSyncedProfile"][];
-        };
-        /** AccountPoolAdsPowerSyncedProfile */
-        AccountPoolAdsPowerSyncedProfile: {
-            /** Created */
-            created: boolean;
-            /**
-             * Isp Profile Id
-             * Format: uuid
-             */
-            isp_profile_id: string;
-            /** Name */
-            name: string;
-            /** Profile Id */
-            profile_id: string;
-        };
         /** AccountPoolAuthFileFieldsRequest */
         AccountPoolAuthFileFieldsRequest: {
             /** Fields */
@@ -45715,70 +45631,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NewModelGroupResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_profiles_account_pool_adspower_profiles_get: {
-        parameters: {
-            query?: {
-                page?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolAdsPowerProfiles"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    sync_account_pool_adspower_sync_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AccountPoolAdsPowerSyncRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolAdsPowerSyncResult"];
                 };
             };
             /** @description Validation Error */

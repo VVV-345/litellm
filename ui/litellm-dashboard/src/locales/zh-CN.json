@@ -6547,17 +6547,6 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "整个组可支出的总额。共享支出达到上限后，所有使用该组的密钥都会被拒绝"
   },
   "accountPool": {
-    "adspower": {
-      "help": "读取已配置主机上的 AdsPower 代理环境，每次可选择最多 20 个导入 ISP 列表。应用到端口前，现有账号继续使用原出口。",
-      "load": "读取 AdsPower 环境",
-      "sync": "同步选中代理",
-      "unsupported": "无可同步的代理",
-      "empty": "本页暂无环境",
-      "previous": "上一页",
-      "next": "下一页",
-      "synced": "已同步 {{count}} 个环境到 ISP 列表",
-      "applyHelp": "在端口设置中选择导入的 ISP，保留前置代理，再检查出口 IP。AdsPower 代理发生变化时会导入新条目，不会自动切换正在使用的账号。"
-    },
     "spendUsed": "已用 {{amount}}",
     "modelTest": {
       "title": "测试 {{name}} 的模型连接",
@@ -6678,7 +6667,7 @@
       "authorizationTitle": "完成账号授权",
       "authorizationCompleted": "账号授权已完成",
       "title": "创建号池环境",
-      "authorizationDescription": "使用本机浏览器或 AdsPower 完成授权。设备码授权请打开链接并输入设备码。授权完成后页面会自动刷新环境状态。",
+      "authorizationDescription": "使用本机浏览器完成授权。设备码授权请打开链接并输入设备码。授权完成后页面会自动刷新环境状态。",
       "description": "每个环境使用其渠道专属的隔离 Compose 网络。",
       "sshTunnelCommand": "SSH 隧道命令",
       "copySshTunnelCommand": "复制 SSH 命令",
@@ -6687,7 +6676,7 @@
       "generateLocalBrowserLink": "生成本机浏览器授权链接",
       "openLocalBrowser": "在当前浏览器打开",
       "copyAuthorizationLink": "复制授权链接",
-      "localBrowserHelp": "在本机浏览器中登录，或复制链接到 AdsPower 的指定环境。请使用与账号所选代理相同的出口；重新生成链接会替换本次授权。",
+      "localBrowserHelp": "在本机浏览器中登录，或复制链接到指定的浏览器。请使用与账号所选代理相同的出口；重新生成链接会替换本次授权。",
       "localBrowserCallbackHelp": "授权完成后需要回到本机回调地址。本机部署请先映射对应回调端口；远程部署请先建立下方 SSH 隧道。浏览器代理需放行 localhost 和 127.0.0.1。",
       "remoteBrowserCallback": "远程部署：回调连接设置",
       "authorizationExpires": "授权窗口有效期至 {{time}}",

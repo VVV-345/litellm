@@ -13,7 +13,6 @@ from uuid import UUID
 import uvicorn
 from fastapi import FastAPI
 
-from account_pool.adspower import AdsPowerClient, AdsPowerSyncService
 from account_pool.api import create_router
 from account_pool.batch_repository import PostgresBatchRepository
 from account_pool.batch_service import BatchService
@@ -82,11 +81,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     proxy_catalog_repository: Final = PostgresProxyCatalogRepository(
         resolved.database_url, ProxyCatalogCipher(secrets)
     )
-    adspower_client: Final = AdsPowerClient(
-        resolved.adspower_api_url,
-        "" if resolved.adspower_api_key is None else resolved.adspower_api_key.get_secret_value(),
-    )
-    adspower: Final = AdsPowerSyncService(adspower_client, proxy_catalog_repository)
     cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
@@ -240,14 +234,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await upstream_sync.close()
             await litellm_upstream_sync.close()
             await cooldown_client.close()
-            await adspower_client.close()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(
         create_router(
             service,
             resolved.manager_token,
-            adspower=adspower,
             keys=keys,
             logs=logs,
             environments=environments,

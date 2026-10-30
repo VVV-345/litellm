@@ -6547,17 +6547,6 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused"
   },
   "accountPool": {
-    "adspower": {
-      "help": "Read proxy settings from AdsPower on the configured host. Select up to 20 profiles to import into the ISP catalog. Existing account routes stay active until you apply an imported ISP to a port.",
-      "load": "Load AdsPower profiles",
-      "sync": "Sync selected proxies",
-      "unsupported": "No supported proxy",
-      "empty": "No profiles on this page",
-      "previous": "Previous",
-      "next": "Next",
-      "synced": "Synced {{count}} profile(s) to the ISP catalog",
-      "applyHelp": "Select the imported ISP in the port settings, keep the front proxy, then check the exit IP. Changed AdsPower proxies are imported as new entries so active accounts are not switched automatically."
-    },
     "spendUsed": "Used {{amount}}",
     "modelTest": {
       "title": "Test model connection for {{name}}",
@@ -6678,7 +6667,7 @@
       "authorizationTitle": "Complete account authorization",
       "authorizationCompleted": "Account authorization completed",
       "title": "Create account pool environment",
-      "authorizationDescription": "Authorize using your browser or AdsPower. For device authorization, open the link and enter the code. The page refreshes the environment status automatically after authorization completes.",
+      "authorizationDescription": "Authorize using your browser. For device authorization, open the link and enter the code. The page refreshes the environment status automatically after authorization completes.",
       "description": "Each environment uses an isolated Compose network for its channel.",
       "sshTunnelCommand": "SSH tunnel command",
       "copySshTunnelCommand": "Copy SSH tunnel command",
@@ -6687,7 +6676,7 @@
       "generateLocalBrowserLink": "Generate local browser link",
       "openLocalBrowser": "Open in this browser",
       "copyAuthorizationLink": "Copy authorization link",
-      "localBrowserHelp": "Sign in with your browser, or copy the link into an AdsPower profile. Use the same proxy exit as this account. Generating another link replaces this authorization.",
+      "localBrowserHelp": "Sign in with your browser, or copy the link into your preferred browser. Use the same proxy exit as this account. Generating another link replaces this authorization.",
       "localBrowserCallbackHelp": "Authorization must return to the local callback address. For a local deployment, map the callback port first. For a remote deployment, establish the SSH tunnel below. Bypass the browser proxy for localhost and 127.0.0.1.",
       "remoteBrowserCallback": "Remote deployment: callback connection",
       "authorizationExpires": "Authorization window expires {{time}}",

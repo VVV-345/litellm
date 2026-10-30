@@ -20,7 +20,6 @@ import type {
 } from "../../utils/AccountPoolTypes";
 import { useProxyGateways, useProxyGatewayISPProbe } from "../../hooks/useProxyGateways";
 import { ISPProxyCatalogPanel } from "./ISPProxyCatalogPanel";
-import { AdsPowerSyncPanel } from "./AdsPowerSyncPanel";
 
 interface ProxyManagerPanelProps {
   accessToken: string | null;
@@ -159,7 +158,6 @@ export const ProxyManagerPanel = ({
 
   return (
     <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
-      {accessToken && <AdsPowerSyncPanel key={accessToken} accessToken={accessToken} />}
       <ISPProxyCatalogPanel
         subscription={ispSubscription}
         subscriptionLoading={ispSubscriptionLoading}

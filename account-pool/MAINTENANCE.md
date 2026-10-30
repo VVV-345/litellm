@@ -472,7 +472,7 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 
 ## 2026-10-30 移除服务器内置 OAuth 浏览器
 
-基于 `bf9e0dd3b9` 清理授权面板的服务器浏览器入口、轮询与 iframe，删除 Manager 会话服务及仓库、Compose 工作器、LiteLLM HTTP/WebSocket 转发、专用镜像构建及配置。普通 OAuth 链接、设备码授权、三种回调、AdsPower 代理同步继续保留
+基于 `bf9e0dd3b9` 清理授权面板的服务器浏览器入口、轮询与 iframe，删除 Manager 会话服务及仓库、Compose 工作器、LiteLLM HTTP/WebSocket 转发、专用镜像构建及配置。普通 OAuth 链接、设备码授权、三种回调继续保留。PR 收口时暂缓 AdsPower 代理同步，相关实现可从提交 `8e20f34ce3` 恢复
 
 历史会话表 DDL 和固定旧版本的发布兼容规则保留，不删表或改变数据结构。使用 `manager_schema_contract` 比较起始提交与本次工作树的 Manager 源文件，结构契约完全一致。旧部署升级前应结束并清理旧浏览器会话资源，见更新手册
 
