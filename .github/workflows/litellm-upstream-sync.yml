@@ -108,7 +108,6 @@ jobs:
         run: |
           docker build -f Dockerfile -t upstream-litellm-check .
           docker build -f account-pool/Dockerfile -t upstream-manager-check account-pool
-          docker build -f account-pool/browser-worker/Dockerfile -t upstream-browser-check account-pool
   publish:
     needs: [prepare, validate]
     if: always() && needs.prepare.result == 'success'

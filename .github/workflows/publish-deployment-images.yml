@@ -179,16 +179,6 @@ jobs:
             file: account-pool/Dockerfile
             arch: arm64
             runner: ubuntu-24.04-arm
-          - image: account-pool-browser-worker
-            context: account-pool
-            file: account-pool/browser-worker/Dockerfile
-            arch: amd64
-            runner: ubuntu-latest
-          - image: account-pool-browser-worker
-            context: account-pool
-            file: account-pool/browser-worker/Dockerfile
-            arch: arm64
-            runner: ubuntu-24.04-arm
     steps:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -253,7 +243,6 @@ jobs:
         image:
           - litellm
           - account-pool-manager
-          - account-pool-browser-worker
     steps:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
@@ -339,7 +328,6 @@ jobs:
         image:
           - litellm
           - account-pool-manager
-          - account-pool-browser-worker
     steps:
       - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       - uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
@@ -368,7 +356,6 @@ jobs:
         package:
           - litellm
           - account-pool-manager
-          - account-pool-browser-worker
     steps:
       - name: Retain the latest 20 versions of ${{ matrix.package }}
         uses: actions/delete-package-versions@e5bc658cc4c965c472efe991f8beea3981499c55 # v5.0.0
@@ -408,8 +395,6 @@ jobs:
           RELEASE_VERSION: ${{ needs.version.outputs.release_version }}
           VERSIONED_TAG: ${{ needs.version.outputs.versioned_tag }}
         run: |
-          worker_image="${REGISTRY}/${IMAGE_NAMESPACE}/account-pool-browser-worker:${DEPLOY_TAG}"
-          worker_digest="$(docker buildx imagetools inspect "$worker_image" --format '{{.Manifest.Digest}}')"
           {
             echo "## Deployment images"
             echo "Product version: ${RELEASE_VERSION}; immutable build: ${VERSIONED_TAG}"
@@ -418,6 +403,4 @@ jobs:
             echo
             echo "- \`ghcr.io/vvv-345/litellm:${DEPLOY_TAG}\`"
             echo "- \`ghcr.io/vvv-345/account-pool-manager:${DEPLOY_TAG}\`"
-            echo "- \`ghcr.io/vvv-345/account-pool-browser-worker:${DEPLOY_TAG}\`"
-            echo "- Worker digest: \`${worker_digest}\`"
           } >> "$GITHUB_STEP_SUMMARY"

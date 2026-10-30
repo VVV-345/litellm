@@ -1,15 +1,12 @@
 """本模块只负责生成号池 CLIProxyAPI 配置及 Compose 描述，不执行 Docker 操作。"""
 
-import re
 from typing import Final
-from urllib.parse import urlsplit
 from uuid import UUID
 
 import yaml
 
-from account_pool.config import Settings, validate_proxy_profile_url
+from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord
-from account_pool.oauth_browser import OAuthBrowserSession
 
 
 def render_cli_proxy_config(management_key: str, gateway_key: str, *, proxy_url: str = "") -> str:
@@ -76,141 +73,6 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
             "environment": {"name": network_name, "driver": "bridge", "internal": False},
         },
         "volumes": {"cliproxy-data": {"name": volume_name}},
-    }
-    return yaml.safe_dump(compose, sort_keys=False, allow_unicode=False)
-
-
-def render_oauth_browser_compose(
-    session: OAuthBrowserSession,
-    settings: Settings,
-    *,
-    proxy_url: str,
-    authorization_url: str,
-    callback_token: str,
-    callback_port: int,
-    callback_path: str,
-) -> str:
-    image: Final = settings.oauth_browser_image
-    if image is None or re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", image) is None:
-        raise ValueError("OAuth browser image must be pinned by sha256 digest")
-    if not callback_token:
-        raise ValueError("OAuth browser callback token is required")
-
-    selected_proxy: Final = validate_proxy_profile_url(proxy_url)
-    authorization: Final = urlsplit(authorization_url)
-    if (
-        authorization.scheme != "https"
-        or authorization.hostname is None
-        or authorization.username is not None
-        or authorization.password is not None
-    ):
-        raise ValueError("OAuth authorization URL must be credential-free HTTPS")
-
-    session_slug: Final = session.id.hex
-    project_name: Final = f"account-pool-oauth-browser-{session_slug}"
-    compose: Final = {
-        "name": project_name,
-        "services": {
-            "browser": {
-                "image": image,
-                "init": True,
-                "read_only": True,
-                "user": "10001:10001",
-                "mem_limit": "1g",
-                "cpus": "2.0",
-                "pids_limit": 256,
-                "shm_size": "256m",
-                "security_opt": ["no-new-privileges:true"],
-                "cap_drop": ["ALL"],
-                "tmpfs": ["/tmp:rw,noexec,nosuid,size=128m"],
-                "environment": {
-                    "DISPLAY": ":99",
-                    "CHROME_PROXY": "http://egress-relay:8080",
-                    "CALLBACK_RELAY_URL": "http://callback-relay:8092/callback",
-                    "OAUTH_AUTHORIZATION_URL": authorization_url,
-                    "OAUTH_CALLBACK_LISTEN_PORT": str(callback_port),
-                    "OAUTH_CALLBACK_LISTEN_PATH": callback_path,
-                },
-                "networks": {"browser": {"aliases": ["browser"]}},
-                "depends_on": {
-                    "callback-relay": {"condition": "service_healthy"},
-                    "egress-relay": {"condition": "service_healthy"},
-                },
-                "healthcheck": {
-                    "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "browser"],
-                    "interval": "2s",
-                    "timeout": "5s",
-                    "retries": 20,
-                    "start_period": "5s",
-                },
-                "restart": "no",
-            },
-            "callback-relay": {
-                "image": image,
-                "command": ["callback-relay"],
-                "read_only": True,
-                "user": "10001:10001",
-                "mem_limit": "64m",
-                "cpus": "0.25",
-                "pids_limit": 32,
-                "security_opt": ["no-new-privileges:true"],
-                "cap_drop": ["ALL"],
-                "tmpfs": ["/tmp:rw,noexec,nosuid,size=8m"],
-                "environment": {
-                    "CALLBACK_TOKEN": callback_token,
-                    "MANAGER_CALLBACK_URL": (
-                        f"http://{settings.manager_container}:8091/internal/oauth-browser-sessions/"
-                        f"{session.id}/callback"
-                    ),
-                },
-                "networks": {
-                    "browser": None,
-                    "control": {"aliases": [f"oauth-browser-{session_slug}-callback"]},
-                },
-                "healthcheck": {
-                    "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "callback-relay"],
-                    "interval": "2s",
-                    "timeout": "5s",
-                    "retries": 10,
-                },
-                "restart": "no",
-            },
-            "egress-relay": {
-                "image": image,
-                "command": ["egress-relay"],
-                "read_only": True,
-                "user": "10001:10001",
-                "mem_limit": "64m",
-                "cpus": "0.25",
-                "pids_limit": 32,
-                "security_opt": ["no-new-privileges:true"],
-                "cap_drop": ["ALL"],
-                "tmpfs": ["/tmp:rw,noexec,nosuid,size=8m"],
-                "environment": {"PROXY_URL": selected_proxy},
-                "extra_hosts": ["host.docker.internal:host-gateway"],
-                "networks": ["browser", "egress"],
-                "healthcheck": {
-                    "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "egress-relay"],
-                    "interval": "2s",
-                    "timeout": "5s",
-                    "retries": 10,
-                },
-                "restart": "no",
-            },
-        },
-        "networks": {
-            "browser": {
-                "name": f"{project_name}-browser",
-                "driver": "bridge",
-                "internal": True,
-            },
-            "egress": {
-                "name": f"{project_name}-egress",
-                "driver": "bridge",
-                "internal": False,
-            },
-            "control": {"external": True, "name": settings.control_network},
-        },
     }
     return yaml.safe_dump(compose, sort_keys=False, allow_unicode=False)
 

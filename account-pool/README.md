@@ -22,7 +22,6 @@ LiteLLM 负责管理员鉴权和页面 API。Manager 通过受限 Docker Socket 
 
 复制 `.env.example` 中的变量到部署环境。`ACCOUNT_POOL_MANAGER_TOKEN` 至少 32 个字符，LiteLLM 与 Manager 必须配置相同值。`ACCOUNT_POOL_CALLBACK_PORT` 需要在服务器 SSH 可访问的回环地址监听，Manager 对外发布时只绑定回环地址。用户创建环境后会得到如下隧道命令：
 
-`ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 默认留空。只有在远程 GHCR 构建、digest 固定和真实 Docker 验收完成后，才填入 `ghcr.io/vvv-345/account-pool-browser-worker:<tag>@sha256:<digest>`；Manager 不接受未带 digest 的浏览器镜像
 
 ```bash
 ssh -N -L 1455:127.0.0.1:8091 user@example.com
@@ -71,7 +70,7 @@ AdsPower 的环境代理可以从页面手动导入 ISP 列表，配置和操作
 
 CLIProxyAPI 账号共用 `ProxyGatewayService` 登记的代理名单。比如配置 7891 到 7910 共 20 个端口后，多张卡片可以选择同一个 7891。代理设置里更换 7891 的 Clash 节点，该端口上的所有账号随之使用同一出口；已有连接可能继续使用原节点，新连接使用更新后的节点
 
-Manager 发起的授权请求从最新账号记录读取同一代理地址；等待授权期间换端口后，下一次轮询使用新端口。受控浏览器 worker 仅通过会话专用 egress relay 访问该代理，代理不可用时不回退直连。浏览器 worker 默认不启用，真实 Docker 和 OAuth 验收另行记录
+Manager 发起的授权请求从最新账号记录读取同一代理地址；等待授权期间换端口后，下一次轮询使用新端口。授权链接由使用者在本机浏览器或 AdsPower 环境打开，回调方式见上文
 
 Clash 在 Docker 宿主机运行时，`ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.internal`；Manager 和账号容器均设置宿主机地址映射。Clash 的监听地址必须允许 Docker 网络访问，代理端口和控制器端口只向受信任的网络开放。Clash 在其他主机上时，填所有账号容器和 Manager 都可访问的主机名或 IP
 
@@ -121,7 +120,7 @@ NewAPI 使用卡片 Key 接入 LiteLLM 公共模型入口，配置方法和当�
 
 ## 上游更新与模块说明
 
-两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署与浏览器工作器也有独立说明
+两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署也有独立说明
 
 
 ### 续聊故障恢复与额度自动恢复

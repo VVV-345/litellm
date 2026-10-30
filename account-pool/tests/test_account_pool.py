@@ -4800,3 +4800,18 @@ async def test_event_quota_refresh_waits_for_inflight_refresh(tmp_path: Path) ->
     lock.release()
     assert await pending is True
     assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_app_factory_preserves_health_and_callback_without_server_browser(tmp_path: Path) -> None:
+    from account_pool.app import create_app
+
+    app: Final = create_app(_settings(tmp_path))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager") as client:
+        health: Final = await client.get("/health")
+        retired: Final = await client.post(f"/api/environments/{uuid4()}/oauth-browser-sessions")
+        callback: Final = await client.get("/auth/callback")
+
+    assert health.status_code == 200
+    assert retired.status_code == 404
+    assert callback.status_code == 422

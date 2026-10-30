@@ -425,7 +425,7 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 
 ## 上游更新与模块说明
 
-两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署与浏览器工作器也有独立说明
+两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署也有独立说明
 ## 2026-10-20 额度判定与策略中心
 
 本轮先修额度可用性，再把分散的设置有损收口到策略中心。全部改动落在 `CLIProxyAPI分支`，按包提交，便于单独回退。
@@ -468,3 +468,16 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 
 - 完整的 `test_account_pool_*.py` 按批次跑完：gateway、accounting、full_logs、observability、model_test、protocols 共 331 passed、1 skipped；onboarding、releases、failover、feedback 共 36 passed；native 与 endpoints 96 passed；reconciler、quota_failover、integration、conversation、session 140 passed
 - 仓库根目录存在未跟踪的 `.dsh-term.png`、`.tmp_session.jsonl` 与 `ui/litellm-dashboard/%SystemDrive%/`，未纳入版本控制
+
+
+## 2026-10-30 移除服务器内置 OAuth 浏览器
+
+基于 `bf9e0dd3b9` 清理授权面板的服务器浏览器入口、轮询与 iframe，删除 Manager 会话服务及仓库、Compose 工作器、LiteLLM HTTP/WebSocket 转发、专用镜像构建及配置。普通 OAuth 链接、设备码授权、三种回调、AdsPower 代理同步继续保留
+
+历史会话表 DDL 和固定旧版本的发布兼容规则保留，不删表或改变数据结构。使用 `manager_schema_contract` 比较起始提交与本次工作树的 Manager 源文件，结构契约完全一致。旧部署升级前应结束并清理旧浏览器会话资源，见更新手册
+
+本次验证：`PYTHONPATH=account-pool LITELLM_LOCAL_MODEL_COST_MAP=True .venv/bin/python -m pytest tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py account-pool/tests/test_account_pool.py account-pool/tests/account_pool/test_compose_renderer.py account-pool/tests/account_pool/test_repository_cleanup.py account-pool/tests/test_release_runtime.py account-pool/tests/test_release_workflow.py -q`，325 passed；包含新增应用工厂装配测试、旧接口 404 和普通回调 pending 202 行为
+
+前端使用 `vitest run` 定向运行 `AccountPoolAuthorizationPanel.integration.test.tsx`、`AccountPoolCreateDialog.integration.test.tsx` 和 `AccountPoolManagementApi.test.ts`，29 passed；修改文件 Ruff、ESLint 和 `git diff --check` 通过。OpenAPI 类型通过 `gen-api-types.mjs` 重新生成；`npm run build -- --webpack` 生产构建及构建内 TypeScript 检查通过。未运行全仓库 `make check`、独立全量类型检查或 GitHub 镜像发布
+
+Mac 本地测试更新为 `litellm-local-test:external-oauth-only` 和 `account-pool-local-test:external-oauth-only`。备份原 Compose、环境配置、代理配置和两库 dump，`pg_restore --list` 可读；未演练数据库恢复。实际 HTTP 检查确认两服务健康、鉴权后的环境读取正常、两层旧浏览器接口均为 404、普通回调保留，账号仍为 ready；挂载及秘密配置摘要一致。未重新授权现有账号，未做真实供应商 OAuth 登录，未推送或更新远程服务器

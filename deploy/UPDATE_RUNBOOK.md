@@ -2,7 +2,7 @@
 
 本文件是本项目后续发布和上游更新的统一操作入口。先完成检查，再按对应更新类型执行；不要凭上一次记忆拼命令。实际机制见 `RELEASES.md`，首次安装见 `DEPLOY.md`，换服务器或数据迁移见 `MIGRATION.md`
 
-**适用范围：** LiteLLM、号池 Manager、独立 release-worker、受控浏览器 worker，以及 CLIProxyAPI / LiteLLM 上游源码更新。它们不是同一个更新操作
+**适用范围：** LiteLLM、号池 Manager、独立 release-worker，以及 CLIProxyAPI / LiteLLM 上游源码更新。它们不是同一个更新操作
 
 **完成标准：** 正确提交的镜像已经发布；凭据和配置有效；备份可验证；兼容性检查通过；实际运行镜像符合目标；健康、鉴权、账号网络正常。镜像构建成功、拉取成功、HTTP 200 均不能单独代表发布完成
 
@@ -48,7 +48,6 @@
 | 独立发布器 | 检查无运行任务后，只重建 `release-worker` | 业务发布不会替它升级 |
 | CLIProxyAPI 上游 | 页面上游更新的分析、审阅、晋升流程 | 不等于已替换每个账号的运行容器 |
 | LiteLLM 上游源码 | 对应独立上游工作流，兼容审阅后纳入本项目发布 | 不能直接用官方 latest 覆盖定制号池代码 |
-| OAuth 浏览器 worker | 固定 digest、兼容审阅和实际会话验证 | 不属于两个业务容器的发布；禁用状态不要顺手启用 |
 | 数据迁移 | 单独迁移与恢复方案 | 镜像回退不回放数据库，不恢复认证文件和外部日志 |
 
 ## 2. 凭据清单：三类 Token，分别检查
@@ -118,7 +117,7 @@ gh run list --repo VVV-345/litellm --commit FULL_COMMIT --limit 5
 gh run view RUN_ID --repo VVV-345/litellm --json status,conclusion,headSha,jobs
 ```
 
-`FULL_COMMIT`、`RUN_ID` 必须替换为本次核验值。核对 `Publish deployment images` 的 headSha 和结论；LiteLLM、Manager、Browser Worker 的 amd64/arm64 以及共享多架构 manifest 均完成后，记录前 10 位 TAG。文档更新、特性分支 push、拉取成功不能冒充发布验收
+`FULL_COMMIT`、`RUN_ID` 必须替换为本次核验值。核对 `Publish deployment images` 的 headSha 和结论；LiteLLM、Manager 的 amd64/arm64 以及共享多架构 manifest 均完成后，记录前 10 位 TAG。文档更新、特性分支 push、拉取成功不能冒充发布验收
 
 ### 3.2 服务器身份、版本与空间
 
@@ -202,7 +201,7 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 
 连接中断不等于任务停止。复用已打开终端，重新运行 `status` 读取任务，不盲目再提交 deploy。不得使用 `docker compose down -v`、卷清理、直接更改 active-pair 或伪造 schema_fingerprint。若已得到明确的运维确认并接受数据不兼容风险，只能通过 release-worker 的 `ACCOUNT_POOL_RELEASE_SKIP_COMPATIBILITY_CHECKS=true` 配置跳过 deploy/apply 的兼容性阻断；镜像身份、备份、人工确认、健康检查和失败恢复仍必须执行，确认响应与任务记录必须标明已绕过
 
-这条命令不部署 Browser Worker。若之前未启用，保持未启用；若本次明确要升级它，需要对应 GHCR `@sha256:`、会话兼容和独立验证，不把 tag 填进只接受 digest 的配置
+服务器内置 OAuth 浏览器已退役。升级前确认旧浏览器会话已结束，按旧 Compose 文件的确切项目名停止并清理其浏览器容器、临时卷和专用网络，勿清理账号环境及共享网络。新版本不再接管旧会话；历史会话表保留用于数据兼容，普通 OAuth 回调继续工作
 
 ## 6.1 网页端替换代理配置
 
@@ -295,7 +294,7 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 ```text
 日期/时区、执行人：
 对象：HOST / 网站 / Compose 项目 / 部署目录
-更新类型：业务 / 发布器 / CLIProxyAPI / LiteLLM 上游 / 浏览器 worker
+更新类型：业务 / 发布器 / CLIProxyAPI / LiteLLM 上游
 原 commit、镜像 ID：
 目标 commit、TAG、GHCR digest、Actions run：
 凭据：各消费端 SET/MISSING、只读校验结果、授权范围；不记明文
