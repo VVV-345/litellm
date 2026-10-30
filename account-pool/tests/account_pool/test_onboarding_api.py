@@ -9,6 +9,60 @@ from test_account_pool import _record
 from test_onboarding_service import oauth_request, setup_service
 
 
+@pytest.mark.parametrize("filename", ["account.json", "account.txt", "account.TXT"])
+@pytest.mark.parametrize("format", ["cpa", "sub2api"])
+async def test_single_json_content_upload_normalizes_downstream_filename(tmp_path, filename, format):
+    import json
+    from email import policy
+    from email.parser import BytesParser
+
+    from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
+    from account_pool.secrets import EnvironmentSecretDeriver
+    from test_account_pool import FakeCLIProxy
+    from test_onboarding_service import sub2api_fixture
+
+    uploaded = []
+
+    def upstream(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"files": []})
+        message = BytesParser(policy=policy.default).parsebytes(
+            b"Content-Type: " + request.headers["content-type"].encode() + b"\r\n\r\n" + request.content
+        )
+        part = next(message.iter_parts())
+        if not part.get_filename().lower().endswith(".json"):
+            return httpx.Response(400, json={"error": "file must be .json"})
+        uploaded.append((part.get_filename(), part.get_content_type(), json.loads(part.get_payload(decode=True))))
+        return httpx.Response(200, json={"status": "ok"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as transport:
+        proxy = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=transport)
+
+        class UploadClient(FakeCLIProxy):
+            async def upload_auth_file(self, record, name, content, content_type):
+                await proxy.upload_auth_file(record, name, content, content_type)
+                await super().upload_auth_file(record, name, content, content_type)
+
+        onboarding, _, environments, _, _, service = setup_service(tmp_path, UploadClient())
+        record = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+        await environments.save(record)
+        app = FastAPI()
+        app.include_router(create_router(service, "manager-test", onboarding_service=onboarding))
+        content = sub2api_fixture() if format == "sub2api" else {"type": "codex", "refresh_token": "fixture-refresh"}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/auth-files", headers={"Authorization": "Bearer manager-test"},
+                data={"card_id": str(record.id)}, files={"file": (filename, json.dumps(content), "text/plain")},
+            )
+        assert response.status_code == 200
+        assert response.json()["status"] == "ready"
+        assert (await environments.get(record.id)).auth_file_name == "account.json"
+        assert uploaded[0][0:2] == ("account.json", "application/json")
+        assert uploaded[0][2]["refresh_token"] == "fixture-refresh"
+        assert uploaded[0][2]["type"] == "codex" and "credentials" not in uploaded[0][2]
+        assert "fixture-refresh" not in response.text
+
+
 @pytest.mark.parametrize("prefix", ["", "卡密导出\n\n", "\ufeff \r\n 卡密导出 \r\n\r\n"])
 async def test_single_two_factor_upload_reuses_card_and_keeps_secrets_out_of_response(tmp_path, prefix):
     service, tasks, environments, _, cli, environment_service = setup_service(tmp_path)
