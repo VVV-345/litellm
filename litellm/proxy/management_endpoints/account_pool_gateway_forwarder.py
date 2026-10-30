@@ -959,13 +959,10 @@ async def execute(
                         )
                         bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
                         try:
-                            await bootstrap.prepare()
-                            if (
-                                bootstrap.buffer.tell() >= 65536
-                                and not bootstrap.state.meaningful and not bootstrap.state.terminal
-                            ):
-                                attempt.stream_state.signature_recovery_reason = "preflight_limit"
-                                bootstrap.state.signature_recovery_reason = "preflight_limit"
+                            await bootstrap.prepare(deadline)
+                            if bootstrap.limit_reason is not None:
+                                attempt.stream_state.signature_recovery_reason = bootstrap.limit_reason
+                                bootstrap.state.signature_recovery_reason = bootstrap.limit_reason
                             if (
                                 bootstrap.state.failed and not bootstrap.state.meaningful
                                 and bootstrap.state.signature_rejected
@@ -1374,13 +1371,10 @@ async def guarded_stream_response(
     bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
     try:
         if prepared is None:
-            await bootstrap.prepare()
-            if (
-                bootstrap.buffer.tell() >= 65536
-                and not bootstrap.state.meaningful and not bootstrap.state.terminal
-            ):
-                attempt.stream_state.signature_recovery_reason = "preflight_limit"
-                bootstrap.state.signature_recovery_reason = "preflight_limit"
+            await bootstrap.prepare(deadline)
+            if bootstrap.limit_reason is not None:
+                attempt.stream_state.signature_recovery_reason = bootstrap.limit_reason
+                bootstrap.state.signature_recovery_reason = bootstrap.limit_reason
         if bootstrap.state.failed and not bootstrap.state.meaningful:
             if bootstrap.state.signature_rejected:
                 attempt.signature_failure_reason = bootstrap.state.signature_recovery_reason

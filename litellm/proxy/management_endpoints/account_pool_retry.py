@@ -20,7 +20,7 @@ from starlette.types import Message, Send
 from litellm.litellm_core_utils.signature_recovery import client_tool, signature_recovery_reason
 from litellm.proxy.common_utils.sse_keepalive import SSE_COMMENT_PING_BYTES, coerce_keepalive_interval
 from litellm.proxy.management_endpoints.account_pool_failover import MAX_RETRY_DELAY_SECONDS
-from litellm.proxy.management_endpoints.account_pool_stream import EventStream
+from litellm.proxy.management_endpoints.account_pool_stream import _MAX_EVENT, EventStream
 
 _RESULT: Final = TypeVar("_RESULT")
 _ERROR: Final = TypeAdapter(dict[str, JsonValue])
@@ -213,15 +213,16 @@ class StreamBootstrap:
         self.buffer: Final = io.BytesIO()
         self.pending: asyncio.Task[bytes] | None = None
         self.overflow: bytes = b""
+        self.limit_reason: str | None = None
 
     def capture(self, chunk: bytes) -> None:
-        remaining: Final = 65536 - self.buffer.tell()
+        remaining: Final = min(65536, _MAX_EVENT - self.buffer.tell())
         prefix: Final = chunk[:remaining]
         self.overflow = chunk[remaining:]
         self.buffer.write(prefix)
         for frame in self.state.feed(prefix):
             self.state.observe(frame)
-            if self.state.terminal:
+            if self.state.meaningful or self.state.terminal:
                 break
 
     async def next_chunk(self) -> bytes:
@@ -246,11 +247,21 @@ class StreamBootstrap:
         return True
 
     async def prepare(self, deadline: float = float("inf")) -> None:
-        while self.buffer.tell() < 65536 and not self.state.meaningful and not self.state.terminal:
+        while not self.state.meaningful and not self.state.terminal:
+            if self.buffer.tell() >= _MAX_EVENT:
+                self.limit_reason = "preflight_limit"
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                self.limit_reason = "preflight_timeout"
+                return
+            if self.overflow:
+                self.capture(self.overflow)
+                continue
             self.pending = asyncio.create_task(self.next_chunk())
             done, _ = await asyncio.wait((self.pending,), timeout=max(0, deadline - asyncio.get_running_loop().time()))
             if not done:
-                raise TimeoutError("Pre-output retry deadline exhausted")
+                self.limit_reason = "preflight_timeout"
+                return
             if not self.capture_pending():
                 return
 
