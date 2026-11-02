@@ -4816,3 +4816,47 @@ async def test_app_factory_preserves_health_and_callback_without_server_browser(
     assert health.status_code == 200
     assert retired.status_code == 404
     assert callback.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["always", "missing", "never"])
+async def test_provision_honors_configured_image_pull_policy(tmp_path: Path, policy: str) -> None:
+    settings: Final = Settings(**{**_settings(tmp_path).model_dump(), "cli_proxy_pull_policy": policy})
+    runner: Final = RecordingDockerRunner()
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=runner)
+    record: Final = _record(status=EnvironmentStatus.PROVISIONING, auth_file_name=None)
+
+    await runtime.provision(record)
+
+    compose: Final = next(arguments for arguments, _ in runner.calls if arguments[:2] == ("docker", "compose"))
+    assert compose[compose.index("--pull") + 1] == policy
+
+
+@pytest.mark.asyncio
+async def test_failed_creation_retry_returns_failure_instead_of_in_progress(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.ERROR, auth_file_name=None).model_copy(update={
+        "operation_id": "failed-creation", "oauth_authorization_url": None,
+        "last_error": "pull access denied for test-image; password=private-value",
+    })
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+
+    result: Final = await service.create_environment(CreateEnvironmentRequest(name="Retry", operation_id="failed-creation"))
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.UPSTREAM
+    assert "pull access denied" in result.message
+    assert "private-value" not in result.message
+    assert await service._repository.list() == (record,)
+
+
+@pytest.mark.asyncio
+async def test_running_creation_retry_remains_conflict(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.PROVISIONING, auth_file_name=None).model_copy(update={
+        "operation_id": "running-creation", "oauth_authorization_url": None,
+    })
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+
+    result: Final = await service.create_environment(CreateEnvironmentRequest(name="Retry", operation_id="running-creation"))
+
+    assert isinstance(result, Failure) and result.code is FailureCode.CONFLICT
+    assert await service._repository.list() == (record,)

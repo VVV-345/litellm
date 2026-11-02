@@ -131,6 +131,9 @@ class EnvironmentProvisioning:
         if request.operation_id is not None:
             existing: Final = await self._find_by_operation_id(request.operation_id)
             if existing is not None:
+                if existing.status is EnvironmentStatus.ERROR:
+                    detail: Final = _safe_error(RuntimeError(existing.last_error or "environment provisioning failed"))
+                    return Failure(FailureCode.UPSTREAM, f"environment operation failed: {detail}")
                 if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
                     return Success(self._authorization_view(existing))
                 return Failure(FailureCode.CONFLICT, "environment operation is still in progress")

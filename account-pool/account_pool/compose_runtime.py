@@ -90,7 +90,7 @@ class ComposeRuntime:
         _write_private(environment_dir / "compose.yaml", selected_compose)
         await self._create_data_volume(record.id)
         await self._write_data_volume(record.id, selected_config)
-        await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
+        await self._compose(record.id, "up", "-d", "--pull", self._settings.cli_proxy_pull_policy, "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
 
     async def _create_data_volume(self, environment_id: UUID) -> None:

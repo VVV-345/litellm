@@ -3,7 +3,7 @@
 import ipaddress
 import re
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     docker_command_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
     cli_proxy_user: str = Field(default="65532:65532", pattern=r"^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$")
     cli_proxy_image: str = DEFAULT_CLI_PROXY_IMAGE
+    cli_proxy_pull_policy: Literal["always", "missing", "never"] = "always"
     upstream_sync_github_token: SecretStr | None = None
     upstream_sync_current_tag: str = Field(
         default="v7.2.146", pattern=r"^v[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$"
