@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final
 from uuid import UUID, uuid4
@@ -36,6 +37,7 @@ class EnvironmentDeletion:
     _ownership: CredentialOwnership
     _persist_cleanup_progress: PersistCleanupProgressOperation
     _repository: EnvironmentRepository
+    _cleanup_browser: Callable[[UUID], Awaitable[None]] | None = None
 
     async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Result[None]:
         lock: Final = await self._lock_for(environment_id)
@@ -111,6 +113,8 @@ class EnvironmentDeletion:
             if deleting_with_directory is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
             try:
+                if self._cleanup_browser is not None:
+                    await self._cleanup_browser(environment_id)
                 await self._repository.delete(environment_id)
                 await self._ownership.retain(environment_id)
             except Exception as error:

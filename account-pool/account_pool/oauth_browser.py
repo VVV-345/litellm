@@ -119,6 +119,8 @@ class OAuthBrowserSessionRepository(Protocol):
 
     async def mark_cleaned(self, session_id: UUID) -> bool: ...
 
+    async def list_for_environment(self, environment_id: UUID) -> tuple[OAuthBrowserSession, ...]: ...
+
 
 class OAuthBrowserRuntime(Protocol):
     async def start_oauth_browser(
@@ -262,6 +264,16 @@ class OAuthBrowserSessionService:
 
     async def mark_cleaned(self, session_id: UUID) -> bool:
         return await self._repository.mark_cleaned(session_id)
+
+    async def cleanup_environment(self, environment_id: UUID, runtime: OAuthBrowserRuntime) -> None:
+        # 调用方持有环境归属锁；先撤销票据再清运行资源，失败时保留会话记录供重试。
+        for session in await self._repository.list_for_environment(environment_id):
+            await self._repository.transition(
+                session.id, (OAuthBrowserSessionStatus.STARTING, OAuthBrowserSessionStatus.ACTIVE,
+                             OAuthBrowserSessionStatus.CALLBACK_PENDING), OAuthBrowserSessionStatus.CANCELLED,
+            )
+            await runtime.remove_oauth_browser(session.id)
+            await self._repository.mark_cleaned(session.id)
 
     def proxy_binding_matches(self, session: OAuthBrowserSession, proxy_profile_id: str, proxy_url: str) -> bool:
         try:

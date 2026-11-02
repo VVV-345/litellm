@@ -3697,6 +3697,32 @@ async def test_delete_environment_can_retry_after_runtime_failure(tmp_path: Path
 
 
 @pytest.mark.asyncio
+async def test_delete_retains_card_until_owned_browser_cleanup_succeeds(tmp_path: Path) -> None:
+    record = _record(status=EnvironmentStatus.READY)
+    repository, runtime, cli = MemoryRepository(record), FakeRuntime(), FakeCLIProxy()
+    attempts = []
+
+    async def cleanup(environment_id: UUID) -> None:
+        attempts.append(environment_id)
+        if len(attempts) == 1:
+            raise RuntimeError("browser cleanup unavailable")
+
+    service = EnvironmentService(
+        settings=_settings(tmp_path), repository=repository, runtime=runtime, cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli), cleanup_browser=cleanup,
+    )
+    result = await service.delete_environment(record.id)
+    assert isinstance(result, Failure)
+    pending = await repository.get(record.id)
+    assert pending is not None and pending.status is EnvironmentStatus.DELETING
+    assert "browser cleanup" in pending.last_error
+    await service.reconcile_pending_deletions()
+    assert await repository.get(record.id) is None
+    assert attempts == [record.id, record.id]
+
+
+@pytest.mark.asyncio
 async def test_cancel_oauth_reports_a_conflict_when_the_state_change_loses_cas(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     repository: Final = RejectingVersionRepository(record)

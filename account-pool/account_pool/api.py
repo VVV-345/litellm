@@ -26,6 +26,7 @@ from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.credential_import import is_two_factor_text
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import (
     AuthorizationFlow,
     ChannelKind,
@@ -33,6 +34,7 @@ from account_pool.domain import (
     CreateEnvironmentRequest,
     CreateVertexEnvironmentRequest,
     EnvironmentRecord,
+    EnvironmentStatus,
     OAuthCallback,
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
@@ -320,8 +322,10 @@ def create_router(
     browser_runtime: OAuthBrowserRuntime | None = None,
     feedback: FeedbackService | None = None,
     quota_reset: QuotaResetService | None = None,
+    ownership: CredentialOwnership | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
+    browser_operations: Final = ownership or CredentialOwnership()
 
     def require_manager(
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
@@ -342,7 +346,7 @@ def create_router(
 
         async def current_binding(session: OAuthBrowserSession) -> bool:
             record: Final = await environments.get(session.environment_id)
-            if record is None or record.proxy_profile_id != session.proxy_profile_id:
+            if record is None or record.status is EnvironmentStatus.DELETING or record.proxy_profile_id != session.proxy_profile_id:
                 return False
             proxy_url: Final = await proxy_profiles.get_url(session.proxy_profile_id)
             return proxy_url is not None and browser_sessions.proxy_binding_matches(
@@ -363,18 +367,19 @@ def create_router(
             response: Response,
         ) -> OAuthBrowserSessionStartView:
             await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
-            record: Final = await environments.get(environment_id)
-            if record is None:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="environment not found")
-            if record.proxy_profile_id is None:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="a proxy profile is required")
-            if record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="browser OAuth is not available")
-            proxy_url: Final = await proxy_profiles.get_url(record.proxy_profile_id)
-            if proxy_url is None:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the selected proxy is unavailable")
+            async with browser_operations.operation(environment_id):
+                record: Final = await environments.get(environment_id)
+                if record is None or record.status is EnvironmentStatus.DELETING:
+                    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="environment not found")
+                if record.proxy_profile_id is None:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="a proxy profile is required")
+                if record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="browser OAuth is not available")
+                proxy_url: Final = await proxy_profiles.get_url(record.proxy_profile_id)
+                if proxy_url is None:
+                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the selected proxy is unavailable")
 
-            started: Final = await browser_sessions.start(environment_id, record.proxy_profile_id, proxy_url)
+                started: Final = await browser_sessions.start(environment_id, record.proxy_profile_id, proxy_url)
             if isinstance(started, Failure):
                 raise HTTPException(status_code=_status_for(started.code), detail=started.message)
             grant: Final = started.value
@@ -393,25 +398,27 @@ def create_router(
                 if authorization.flow is not AuthorizationFlow.BROWSER_OAUTH:
                     await cleanup_failed_start(grant.session.id)
                     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="browser OAuth is not available")
-                authorized_record: Final = await environments.get(environment_id)
-                callback_target: Final = (
-                    None if authorized_record is None else service.oauth_callback_target(authorized_record)
-                )
-                if callback_target is None or not await current_binding(grant.session):
-                    await cleanup_failed_start(grant.session.id)
-                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the proxy binding changed")
-                await browser_runtime.start_oauth_browser(
-                    grant.session,
-                    proxy_url=proxy_url,
-                    authorization_url=str(authorization.authorization_url),
-                    callback_token=grant.callback_token,
-                    callback_port=callback_target[0],
-                    callback_path=callback_target[1],
-                )
-                active: Final = await browser_sessions.activate(grant.session.id)
-                if active is None:
-                    await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
-                    raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OAuth browser session ended")
+                async with browser_operations.operation(environment_id):
+                    authorized_record: Final = await environments.get(environment_id)
+                    callback_target: Final = (
+                        None if authorized_record is None else service.oauth_callback_target(authorized_record)
+                    )
+                    if callback_target is None or not await current_binding(grant.session):
+                        await cleanup_failed_start(grant.session.id)
+                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="the proxy binding changed")
+                    await browser_runtime.start_oauth_browser(
+                        grant.session,
+                        proxy_url=proxy_url,
+                        authorization_url=str(authorization.authorization_url),
+                        callback_token=grant.callback_token,
+                        callback_port=callback_target[0],
+                        callback_path=callback_target[1],
+                    )
+                    active: Final = await browser_sessions.activate(grant.session.id)
+                    if active is None:
+                        await browser_runtime.remove_oauth_browser(grant.session.id)
+                        await cleanup_oauth_browser_sessions(browser_sessions, browser_runtime)
+                        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="OAuth browser session ended")
             except asyncio.CancelledError:
                 await browser_sessions.transition(grant.session.id, OAuthBrowserSessionStatus.FAILED)
                 await asyncio.shield(cleanup_oauth_browser_sessions(browser_sessions, browser_runtime))

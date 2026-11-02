@@ -484,6 +484,15 @@ class PostgresOAuthBrowserSessionRepository:
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
         return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
 
+    async def list_for_environment(self, environment_id: UUID) -> tuple[OAuthBrowserSession, ...]:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT payload FROM account_pool_oauth_browser_sessions WHERE environment_id = %s "
+                "AND COALESCE((payload->>'cleanup_pending')::boolean, true)", (environment_id,),
+            )
+            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
+        return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
+
     async def mark_cleaned(self, session_id: UUID) -> bool:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(

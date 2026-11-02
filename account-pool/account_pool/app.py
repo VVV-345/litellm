@@ -119,6 +119,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         fetch_subscription=proxy_gateways.fetch_isp_subscription,
     )
     proxy_expiry_scheduler: Final = ISPExpiryScheduler(proxy_catalog, proxy_gateways)
+    async def cleanup_browser(environment_id: UUID) -> None:
+        await browser_sessions.cleanup_environment(environment_id, browser_runtime)
+
     service: Final = EnvironmentService(
         settings=resolved,
         repository=environments,
@@ -132,6 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         global_settings=settings_repository,
         policies=policies,
         ownership=ownership,
+        cleanup_browser=cleanup_browser,
     )
     batch_service: Final = BatchService(
         batches,
@@ -302,6 +306,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_runtime=browser_runtime,
             feedback=feedback,
             quota_reset=quota_reset,
+            ownership=ownership,
         )
     )
     return app

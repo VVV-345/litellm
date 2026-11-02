@@ -101,6 +101,7 @@ class EnvironmentService:
         global_settings: AccountPoolSettingsRepository | None = None,
         policies: PolicyRepository | None = None,
         ownership: CredentialOwnership | None = None,
+        cleanup_browser: Callable[[UUID], Awaitable[None]] | None = None,
         direct_credential_validation_timeout_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
         direct_credential_validation_interval_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
     ) -> None:
@@ -199,6 +200,7 @@ class EnvironmentService:
             delete_environment=self.delete_environment,
         )
         self._deletion_operations: Final = EnvironmentDeletion(
+            _cleanup_browser=cleanup_browser,
             _channel=self._channel,
             _lock_for=self._lock_for,
             _log_event=self._log_event,

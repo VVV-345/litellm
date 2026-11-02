@@ -16,7 +16,7 @@ from account_pool.api import create_router
 from account_pool.domain import AuthorizationView, EnvironmentRecord, EnvironmentStatus, OAuthCallback, to_view, utc_now
 from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionService, OAuthBrowserSessionStatus
 from account_pool.ports import ProxyProfileRepository
-from account_pool.result import Success
+from account_pool.result import Failure, Success
 from account_pool.service import EnvironmentService
 from fastapi import FastAPI
 from test_account_pool import MemoryRepository, _record
@@ -56,6 +56,9 @@ class MemoryBrowserSessions:
 
     async def get(self, session_id: UUID) -> OAuthBrowserSession | None:
         return self.sessions.get(session_id)
+
+    async def list_for_environment(self, environment_id: UUID) -> tuple[OAuthBrowserSession, ...]:
+        return tuple(s for s in self.sessions.values() if s.environment_id == environment_id and s.cleanup_pending)
 
     async def consume_ticket(
         self,
@@ -259,6 +262,7 @@ def _client(tmp_path: Path, *, profile_url: str | None = PROXY_URL, callback_res
     )
     runtime: Final = BrowserRuntime()
     manager_service: Final = BrowserManagerService(callback_result)
+    manager_service.environments = environments
     profiles: Final = Profiles(profile_url)
     app: Final = FastAPI()
     app.include_router(
@@ -563,3 +567,37 @@ async def test_callback_response_is_sent_before_worker_is_removed(tmp_path: Path
     assert response.status_code == 204
     assert removed_before_response == []
     assert UUID(session_id) in runtime.removed
+
+
+@pytest.mark.asyncio
+async def test_delete_browser_cleanup_is_scoped_and_rejects_delayed_activation(tmp_path: Path) -> None:
+    client, first, repo, runtime, _, _ = _client(tmp_path)
+    service = OAuthBrowserSessionService(repo, fingerprint_key=b"fixture-key")
+    one = await service.start(first, "profile-current", PROXY_URL)
+    two = await service.start(uuid4(), "profile-current", PROXY_URL)
+    assert not isinstance(one, Failure) and not isinstance(two, Failure)
+    await service.cleanup_environment(first, runtime)
+    assert runtime.removed == [one.value.session.id]
+    assert await service.activate(one.value.session.id) is None
+    assert (await service.get(two.value.session.id)).cleanup_pending
+    await service.cleanup_environment(first, runtime)
+    assert runtime.removed == [one.value.session.id]
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_deleted_card_cannot_start_browser_after_delayed_authorization(tmp_path: Path) -> None:
+    client, environment_id, repository, runtime, service, _ = _client(tmp_path)
+    service.authorization_gate = asyncio.Event()
+    async with client:
+        task = asyncio.create_task(client.post(
+            f"/api/environments/{environment_id}/oauth-browser-sessions",
+            headers={"Authorization": f"Bearer {MANAGER_TOKEN}"},
+        ))
+        await asyncio.wait_for(service.authorization_started.wait(), 5)
+        await service.environments.delete(environment_id)
+        service.authorization_gate.set()
+        response = await asyncio.wait_for(task, 5)
+    assert response.status_code == 409
+    assert runtime.started == []
+    assert all(s.status is OAuthBrowserSessionStatus.FAILED for s in repository.sessions.values())
