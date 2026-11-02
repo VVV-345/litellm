@@ -36,7 +36,8 @@ _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
 
 
-def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard() -> None:
+@pytest.mark.parametrize("action,extra", [("quota-reset", {"recover": True}), ("access-token-fallback", {})])
+def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard(action, extra) -> None:
     calls = []
     def handle(request: httpx.Request) -> httpx.Response:
         calls.append(request)
@@ -44,18 +45,40 @@ def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard
     def factory() -> AccountPoolManagerClient:
         return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
             client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
-    payload = {"model": "gpt-6-astra", "recover": True, "confirmed": True}
+    payload = {"model": "gpt-6-astra", "confirmed": True, **extra}
     with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
-        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/quota-reset/verify", json=payload)
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/{action}/verify", json=payload)
         assert response.status_code == 200
         assert response.json()["restored"] is False
-    assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/quota-reset/verify"
+    assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/{action}/verify"
     assert json.loads(calls[0].content) == payload
     assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
     with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
-        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/quota-reset/verify", json=payload)
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/{action}/verify", json=payload)
         assert response.status_code == 403
     assert len(calls) == 1
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/{action}/verify", json={**payload, "confirmed": False})
+        assert response.status_code == 422
+    assert len(calls) == 1
+
+
+def test_credential_refresh_proxy_requires_confirmation_version_and_admin():
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200,json={"saved":True,"reason":"saved","status":{"last_result":"saved"}})
+    def factory():
+        return AccountPoolManagerClient("http://manager.test",_MANAGER_TOKEN,client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    path = f"/account_pool/environments/{_ENVIRONMENT_ID}/credentials/refresh"
+    payload = {"version":4,"confirmed":True}
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(path,json=payload)
+        assert response.status_code == 200 and response.json()["saved"] is True
+        assert client.post(path,json={"version":4,"confirmed":False}).status_code == 422
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER),factory)) as client:
+        assert client.post(path,json=payload).status_code == 403
+    assert len(calls) == 1 and json.loads(calls[0].content) == payload
 
 
 class _BrowserWebSocket:
@@ -148,6 +171,7 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
 
     assert policy.codex is not None
     assert policy.codex.responses_compact_enabled is True
+    assert policy.codex.allow_valid_access_after_refresh_failure is False
     assert set(policy.codex.model_dump()) == {
         "identity_fingerprint_mode",
         "cli_only",
@@ -156,6 +180,7 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
         "responses_compact_enabled",
         "identity_confuse",
         "disable_codex_cloaking",
+        "allow_valid_access_after_refresh_failure",
     }
 
 

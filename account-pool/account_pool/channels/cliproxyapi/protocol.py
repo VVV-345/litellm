@@ -8,7 +8,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from account_pool.domain import ModelCooldown, ProviderEndpointFailure
+from account_pool.domain import AccessTokenFallbackStatus, CredentialRefreshStatus, ModelCooldown, ProviderEndpointFailure
 from account_pool.providers.usage.contracts import QuotaObservation
 
 
@@ -69,6 +69,9 @@ class _ModelState(BaseModel):
 
 class _AuthFile(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
+
+    access_token_fallback: AccessTokenFallbackStatus = Field(default_factory=AccessTokenFallbackStatus)
+    credential_refresh: CredentialRefreshStatus = Field(default_factory=CredentialRefreshStatus)
 
     name: str
     auth_index: str | None = None

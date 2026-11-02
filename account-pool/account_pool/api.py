@@ -20,6 +20,7 @@ from psycopg import Error as DatabaseError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 
+from account_pool.access_token_fallback import AccessTokenFallbackService, create_access_token_fallback_router
 from account_pool.batch_models import BatchJob, BatchRequest
 from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
@@ -27,6 +28,7 @@ from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.credential_import import is_two_factor_text
 from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_refresh import CredentialRefreshService, create_credential_refresh_router
 from account_pool.domain import (
     AuthorizationFlow,
     ChannelKind,
@@ -322,6 +324,8 @@ def create_router(
     browser_runtime: OAuthBrowserRuntime | None = None,
     feedback: FeedbackService | None = None,
     quota_reset: QuotaResetService | None = None,
+    access_token_fallback: AccessTokenFallbackService | None = None,
+    credential_refresh: CredentialRefreshService | None = None,
     ownership: CredentialOwnership | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
@@ -333,6 +337,11 @@ def create_router(
         supplied: Final = "" if credentials is None else credentials.credentials
         if not hmac.compare_digest(supplied, manager_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
+
+    if access_token_fallback is not None:
+        router.include_router(create_access_token_fallback_router(access_token_fallback, require_manager))
+    if credential_refresh is not None:
+        router.include_router(create_credential_refresh_router(credential_refresh, require_manager))
 
     if quota_reset is not None:
         router.include_router(create_quota_reset_router(quota_reset, require_manager))

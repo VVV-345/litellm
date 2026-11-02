@@ -11,8 +11,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.channels.cliproxyapi.protocol import APICallResponse, AuthFile, AuthFilesResponse
 from account_pool.channels.cliproxyapi.transport import CLIProxyTransport
-from account_pool.credential_ownership import credential_identity
-from account_pool.domain import EnvironmentRecord, utc_now
+from account_pool.credential_ownership import CredentialIdentity, credential_identity
+from account_pool.credential_refresh import CredentialRefreshResult
+from account_pool.domain import (
+    AccessTokenFallbackStatus,
+    AccessTokenFallbackVerification,
+    EnvironmentRecord,
+    ModelQuotaSnapshot,
+    QuotaSnapshot,
+    utc_now,
+)
 from account_pool.providers.usage.codex import parse_codex_usage_quota
 from account_pool.quota_reset_models import ResetObservation, ResetOperation, ResetReply, ResetVerification
 from account_pool.shared.secrets import EnvironmentSecretDeriver
@@ -23,7 +31,7 @@ _ROOT: Final = "https://chatgpt.com/backend-api/wham/"
 class _VerificationCapability(BaseModel):
     model_config = ConfigDict(strict=True)
     supported: Literal[True]
-    version: Literal[1]
+    version: int = Field(ge=1, le=1)
     token_refresh: Literal[False]
 
 
@@ -84,9 +92,56 @@ class CodexResetClient:
         except (httpx.HTTPError, ValueError):
             return ResetVerification(passed=False, restored=False, reason="verification_uncertain")
 
+    async def refresh_credentials(self, record: EnvironmentRecord) -> CredentialRefreshResult:
+        transport: Final = CLIProxyTransport(self.http, self.secrets)
+        _, credential = await self._credential(record, transport)
+        response: Final = await transport.request(record, "POST", "/v0/management/codex/credential-refresh", json={
+            "name":record.auth_file_name,"auth_index":record.auth_index,
+            "token_fingerprint":hashlib.sha256(credential.access_token.encode()).hexdigest(),
+        })
+        return CredentialRefreshResult.model_validate_json(response.content)
+
+    async def access_quota(self, record: EnvironmentRecord) -> tuple[QuotaSnapshot, tuple[ModelQuotaSnapshot, ...]]:
+        body: Final = await self._call(record, "GET", "usage")
+        parsed: Final = parse_codex_usage_quota(body, utc_now())
+        if parsed is None:
+            raise ValueError("供应商未返回可核对额度")
+        return parsed.quota.model_copy(update={"source": "provider_api", "refresh_status": "complete", "refresh_attempted_at": parsed.quota.observed_at}), parsed.model_quotas
+
+    async def access_fallback_status(self, record: EnvironmentRecord) -> AccessTokenFallbackStatus:
+        selected, _ = await self._credential(record, CLIProxyTransport(self.http, self.secrets))
+        return selected.access_token_fallback
+
+    async def verify_access_fallback(self, record: EnvironmentRecord, model: str) -> AccessTokenFallbackVerification:
+        transport: Final = CLIProxyTransport(self.http, self.secrets)
+        capability: Final = await transport.request(record, "GET", "/v0/management/codex/access-token-fallback")
+        _VerificationCapability.model_validate_json(capability.content)
+        _, credential = await self._credential(record, transport)
+        response: Final = await transport.request(record, "POST", "/v0/management/codex/access-token-fallback", json={
+            "name": record.auth_file_name, "auth_index": record.auth_index, "model": model,
+            "token_fingerprint": hashlib.sha256(credential.access_token.encode()).hexdigest(),
+        })
+        return AccessTokenFallbackVerification.model_validate_json(response.content)
+
     async def _credential(
         self, record: EnvironmentRecord, transport: CLIProxyTransport
     ) -> tuple[AuthFile, _Credential]:
+        selected, content = await self._download_credential(record, transport)
+        identity: Final = credential_identity(content, record.supplier.value, self.secrets)
+        if set(identity.fingerprints) != set(record.credential_fingerprints):
+            raise ValueError("凭据已变化，请先核对卡片绑定")
+        credential: Final = _Credential.model_validate_json(content)
+        if "$TOKEN$" in credential.access_token:
+            raise ValueError("不能使用令牌模板")
+        return selected, credential
+
+    async def read_credential_identity(self, record: EnvironmentRecord) -> CredentialIdentity:
+        _, content = await self._download_credential(record, CLIProxyTransport(self.http, self.secrets))
+        return credential_identity(content, record.supplier.value, self.secrets)
+
+    async def _download_credential(
+        self, record: EnvironmentRecord, transport: CLIProxyTransport
+    ) -> tuple[AuthFile, bytes]:
         files_response: Final = await transport.request(record, "GET", "/v0/management/auth-files")
         files: Final = AuthFilesResponse.model_validate_json(files_response.content)
         selected: Final = next((item for item in files.files if item.name == record.auth_file_name), None)
@@ -98,13 +153,7 @@ class CodexResetClient:
             "/v0/management/auth-files/download",
             params={"name": selected.name},
         )
-        identity: Final = credential_identity(response.content, record.supplier.value, self.secrets)
-        if set(identity.fingerprints) != set(record.credential_fingerprints):
-            raise ValueError("凭据已变化，请先核对卡片绑定")
-        credential: Final = _Credential.model_validate_json(response.content)
-        if "$TOKEN$" in credential.access_token:
-            raise ValueError("不能使用令牌模板")
-        return selected, credential
+        return selected, response.content
 
     async def _call(
         self, record: EnvironmentRecord, method: str, endpoint: str, operation: ResetOperation | None = None

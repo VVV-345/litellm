@@ -14,6 +14,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI
 
+from account_pool.access_token_fallback import AccessTokenFallbackService
 from account_pool.api import create_router
 from account_pool.batch_repository import PostgresBatchRepository
 from account_pool.batch_service import BatchService
@@ -26,6 +27,7 @@ from account_pool.clash import ClashController
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
 from account_pool.feedback import FeedbackService
@@ -306,7 +308,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_runtime=browser_runtime,
             feedback=feedback,
             quota_reset=quota_reset,
+            access_token_fallback=AccessTokenFallbackService(environments, policies, CodexResetClient(reset_http, secrets), ownership, leases),
             ownership=ownership,
+            credential_refresh=CredentialRefreshService(environments, ownership, CodexResetClient(reset_http, secrets)),
         )
     )
     return app

@@ -231,9 +231,44 @@ class AccountPoolModelCooldown(BaseModel):
     reason: str = "upstream_error"
 
 
+class AccountPoolAccessTokenFallbackStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    enabled: bool = False
+    active: bool = False
+    reason: str = "not_needed"
+    expires_at: datetime | None = None
+    verified_models: tuple[str, ...] = ()
+    failure_source: str | None = None
+
+
+class AccountPoolCredentialRefreshStatus(BaseModel):
+    access_expires_at: datetime | None = None
+    next_refresh_at: datetime | None = None
+    schedule_reason: str = "unavailable"
+    last_attempt_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_result: str = "unknown"
+    running: bool = False
+    save_pending: bool = False
+
+
+class AccountPoolCredentialRefreshResult(BaseModel):
+    saved: bool
+    reason: str
+    status: AccountPoolCredentialRefreshStatus = Field(default_factory=AccountPoolCredentialRefreshStatus)
+
+
+class AccountPoolRefreshCredentialRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    version: int = Field(ge=0)
+    confirmed: Literal[True]
+
+
 class AccountPoolEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    access_token_fallback: AccountPoolAccessTokenFallbackStatus = Field(default_factory=AccountPoolAccessTokenFallbackStatus)
+    credential_refresh: AccountPoolCredentialRefreshStatus = Field(default_factory=AccountPoolCredentialRefreshStatus)
     id: UUID
     version: int = Field(ge=0)
     desired_state: str | None = None
@@ -526,6 +561,19 @@ class AccountPoolResetVerification(BaseModel):
     passed: bool
     restored: bool
     reason: str
+
+
+class AccountPoolVerifyAccessTokenFallback(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(min_length=1, max_length=100)
+    confirmed: Literal[True]
+
+
+class AccountPoolAccessTokenFallbackVerification(BaseModel):
+    passed: bool
+    restored: bool
+    reason: str
+    expires_at: datetime | None = None
 
 
 class AccountPoolResetVerificationRecord(BaseModel):
@@ -1021,6 +1069,18 @@ def create_account_pool_router(
         response: Final = await _manager_request(client_factory, "POST", f"/api/environments/{environment_id}/refresh")
         return _validate_response(response, _ENVIRONMENT)
 
+    @router.post("/environments/{environment_id}/credentials/refresh", response_model=AccountPoolCredentialRefreshResult)
+    async def refresh_credentials(
+        environment_id: UUID,
+        request: AccountPoolRefreshCredentialRequest,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolCredentialRefreshResult:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,"POST",f"/api/environments/{environment_id}/credentials/refresh",request.model_dump_json().encode(),
+        )
+        return _validate_response(response,TypeAdapter(AccountPoolCredentialRefreshResult))
+
     @router.get("/environments/{environment_id}/quota-reset", response_model=AccountPoolResetStatus)
     async def quota_reset_status(
         environment_id: UUID,
@@ -1074,6 +1134,19 @@ def create_account_pool_router(
             request.model_dump_json().encode(),
         )
         return _validate_response(response, TypeAdapter(AccountPoolResetVerification))
+
+    @router.post("/environments/{environment_id}/access-token-fallback/verify", response_model=AccountPoolAccessTokenFallbackVerification)
+    async def verify_access_token_fallback(
+        environment_id: UUID,
+        request: AccountPoolVerifyAccessTokenFallback,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolAccessTokenFallbackVerification:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "POST", f"/api/environments/{environment_id}/access-token-fallback/verify",
+            request.model_dump_json().encode(),
+        )
+        return _validate_response(response, TypeAdapter(AccountPoolAccessTokenFallbackVerification))
 
     @router.put("/environments/{environment_id}", response_model=AccountPoolEnvironment)
     async def update_environment(

@@ -56,7 +56,7 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
-from account_pool.policies import ManagedIdentityUnavailableError
+from account_pool.policies import ManagedIdentityUnavailableError, PolicyRuntimeRejected
 from account_pool.providers.usage.contracts import ProviderQuotaError, ProviderQuotaRefresh, QuotaObservation
 from account_pool.providers.usage.signals import parse_quota as parse_quota_snapshot
 from account_pool.shared.secrets import EnvironmentSecretDeriver
@@ -310,7 +310,9 @@ class HttpCLIProxyClient:
         )
         # 只有 CPA 明确给出更新的成功模型证据，才把聚合认证错误限制在失败模型。
         credential_revoked: Final = upstream_code in ("refresh_token_invalidated", "refresh_token_reused", "invalid_api_key")
-        authentication_blocked: Final = authentication_failed and (
+        fallback: Final = auth_file.access_token_fallback
+        fallback_active: Final = any(fallback.usable_for(model, now) for model in enabled_models)
+        authentication_blocked: Final = authentication_failed and not fallback_active and (
             credential_revoked or auth_file.error_scope != "model"
         )
         overload_elapsed: Final = (
@@ -343,7 +345,7 @@ class HttpCLIProxyClient:
         automatically_cooling: Final = (
             auth_file.disabled
             or authentication_blocked
-            or (auth_file.unavailable and not model_aggregate and not overload_elapsed and not quota_recovered)
+            or (auth_file.unavailable and not fallback_active and not model_aggregate and not overload_elapsed and not quota_recovered)
             or (cooldown_until is not None and cooldown_until > now)
         )
         status: Final = (
@@ -357,6 +359,8 @@ class HttpCLIProxyClient:
             await self._ownership.retain(record.id, credential.fingerprints)
         return record.model_copy(
             update={
+                "access_token_fallback": fallback,
+                "credential_refresh": auth_file.credential_refresh,
                 "auth_file_name": auth_file.name,
                 "auth_index": auth_file.auth_index,
                 "credential_fingerprints": () if credential is None else credential.fingerprints,
@@ -671,6 +675,17 @@ class HttpCLIProxyClient:
     async def get_config_yaml(self, record: EnvironmentRecord) -> str:
         response: Final = await self._request(record, "GET", "/v0/management/config.yaml")
         return response.text
+
+    async def require_access_token_fallback(self, record: EnvironmentRecord) -> None:
+        try:
+            response: Final = await self._request(record, "GET", "/v0/management/codex/access-token-fallback")
+            capability: Final = _JSON_OBJECT_ADAPTER.validate_json(response.content)
+        except (ValueError, httpx.HTTPError) as error:
+            raise PolicyRuntimeRejected("运行时尚不支持已验证访问令牌降级；配置未生效") from error
+        version: Final = capability.get("version")
+        if (capability.get("supported") is not True or type(version) is not int or version != 1
+                or capability.get("token_refresh") is not False):
+            raise PolicyRuntimeRejected("运行时尚不支持已验证访问令牌降级；配置未生效")
 
     async def require_managed_identity(self, record: EnvironmentRecord) -> None:
         try:

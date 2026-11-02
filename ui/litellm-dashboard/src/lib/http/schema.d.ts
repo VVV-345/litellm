@@ -946,6 +946,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/access-token-fallback/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Access Token Fallback */
+        post: operations["verify_access_token_fallback_account_pool_environments__environment_id__access_token_fallback_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/auth-file": {
         parameters: {
             query?: never;
@@ -1042,6 +1059,23 @@ export interface paths {
         put?: never;
         /** Authorize Environment */
         post: operations["authorize_environment_account_pool_environments__environment_id__authorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/credentials/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Credentials */
+        post: operations["refresh_credentials_account_pool_environments__environment_id__credentials_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -24634,6 +24668,44 @@ export interface components {
             transport?: components["schemas"]["TransportPolicy"];
             xai?: components["schemas"]["XaiPolicy"] | null;
         };
+        /** AccountPoolAccessTokenFallbackStatus */
+        AccountPoolAccessTokenFallbackStatus: {
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Failure Source */
+            failure_source?: string | null;
+            /**
+             * Reason
+             * @default not_needed
+             */
+            reason: string;
+            /**
+             * Verified Models
+             * @default []
+             */
+            verified_models: string[];
+        };
+        /** AccountPoolAccessTokenFallbackVerification */
+        AccountPoolAccessTokenFallbackVerification: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Passed */
+            passed: boolean;
+            /** Reason */
+            reason: string;
+            /** Restored */
+            restored: boolean;
+        };
         /** AccountPoolAuthFileFieldsRequest */
         AccountPoolAuthFileFieldsRequest: {
             /** Fields */
@@ -24792,6 +24864,45 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** AccountPoolCredentialRefreshResult */
+        AccountPoolCredentialRefreshResult: {
+            /** Reason */
+            reason: string;
+            /** Saved */
+            saved: boolean;
+            status?: components["schemas"]["AccountPoolCredentialRefreshStatus"];
+        };
+        /** AccountPoolCredentialRefreshStatus */
+        AccountPoolCredentialRefreshStatus: {
+            /** Access Expires At */
+            access_expires_at?: string | null;
+            /** Last Attempt At */
+            last_attempt_at?: string | null;
+            /**
+             * Last Result
+             * @default unknown
+             */
+            last_result: string;
+            /** Last Success At */
+            last_success_at?: string | null;
+            /** Next Refresh At */
+            next_refresh_at?: string | null;
+            /**
+             * Running
+             * @default false
+             */
+            running: boolean;
+            /**
+             * Save Pending
+             * @default false
+             */
+            save_pending: boolean;
+            /**
+             * Schedule Reason
+             * @default unavailable
+             */
+            schedule_reason: string;
+        };
         /** AccountPoolCredentialRequest */
         AccountPoolCredentialRequest: {
             /** Api Key */
@@ -24867,6 +24978,7 @@ export interface components {
         };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
+            access_token_fallback?: components["schemas"]["AccountPoolAccessTokenFallbackStatus"];
             /**
              * Authorization Flow
              * @default browser_oauth
@@ -24897,6 +25009,7 @@ export interface components {
             cooldown_until: string | null;
             /** Created At */
             created_at: string;
+            credential_refresh?: components["schemas"]["AccountPoolCredentialRefreshStatus"];
             /**
              * Desired Configuration Version
              * @default 0
@@ -25580,6 +25693,16 @@ export interface components {
             /** Window Minutes */
             window_minutes: number;
         };
+        /** AccountPoolRefreshCredentialRequest */
+        AccountPoolRefreshCredentialRequest: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Version */
+            version: number;
+        };
         /** AccountPoolResetObservation */
         AccountPoolResetObservation: {
             /** Available */
@@ -26131,6 +26254,16 @@ export interface components {
              * Format: date-time
              */
             verification_at: string;
+        };
+        /** AccountPoolVerifyAccessTokenFallback */
+        AccountPoolVerifyAccessTokenFallback: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Model */
+            model: string;
         };
         /** AccountPoolVerifyReset */
         AccountPoolVerifyReset: {
@@ -29017,6 +29150,11 @@ export interface components {
              * @default []
              */
             allow_app_server_clients: string[];
+            /**
+             * Allow Valid Access After Refresh Failure
+             * @default false
+             */
+            allow_valid_access_after_refresh_failure: boolean;
             /**
              * Cli Only
              * @default false
@@ -46630,6 +46768,41 @@ export interface operations {
             };
         };
     };
+    verify_access_token_fallback_account_pool_environments__environment_id__access_token_fallback_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolVerifyAccessTokenFallback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAccessTokenFallbackVerification"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_auth_file_account_pool_environments__environment_id__auth_file_delete: {
         parameters: {
             query?: never;
@@ -46813,6 +46986,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_credentials_account_pool_environments__environment_id__credentials_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolRefreshCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolCredentialRefreshResult"];
                 };
             };
             /** @description Validation Error */

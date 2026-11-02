@@ -16,6 +16,7 @@ from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import (
+    utc_now,
     DirectAPIKeyCredentialRequest,
     EnvironmentConfiguration,
     EnvironmentRecord,
@@ -196,6 +197,7 @@ class CLIProxyAPIChannel:
         return GatewayEnvironment(
             id=record.id,
             routable=record.status.value == "ready"
+            and (record.access_token_fallback.failure_source != "refresh" or any(record.access_token_fallback.usable_for(model, utc_now()) for model in record.enabled_models))
             and (self._ownership is None or bool(record.credential_fingerprints))
             and record.enabled
             and not record.manual_cooldown
@@ -203,7 +205,7 @@ class CLIProxyAPIChannel:
             and not record.configuration_pending
             and record.desired_configuration_version <= record.observed_configuration_version,
             concurrency_limit=record.concurrency_limit,
-            enabled_models=record.enabled_models,
+            enabled_models=tuple(model for model in record.enabled_models if record.access_token_fallback.failure_source != "refresh" or record.access_token_fallback.usable_for(model, utc_now())),
             api_base=f"http://cliproxy-{record.id.hex}:8317/v1",
             api_key=self._secrets.derive(record.id, SecretPurpose.GATEWAY),
             custom_llm_provider="openai",
