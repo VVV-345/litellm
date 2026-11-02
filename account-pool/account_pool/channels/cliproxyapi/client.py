@@ -311,6 +311,11 @@ class HttpCLIProxyClient:
             }
             or (auth_file.status_message or "").strip().lower() == "unauthorized"
         )
+        # 只有 CPA 明确给出更新的成功模型证据，才把聚合认证错误限制在失败模型。
+        credential_revoked: Final = upstream_code in ("refresh_token_invalidated", "refresh_token_reused", "invalid_api_key")
+        authentication_blocked: Final = authentication_failed and (
+            credential_revoked or auth_file.error_scope != "model"
+        )
         overload_elapsed: Final = (
             auth_file.next_retry_after is not None
             and auth_file.next_retry_after <= now
@@ -340,7 +345,7 @@ class HttpCLIProxyClient:
         )
         automatically_cooling: Final = (
             auth_file.disabled
-            or authentication_failed
+            or authentication_blocked
             or (auth_file.unavailable and not model_aggregate and not overload_elapsed and not quota_recovered)
             or (cooldown_until is not None and cooldown_until > now)
         )
@@ -377,7 +382,10 @@ class HttpCLIProxyClient:
                 "cooldown_until": cooldown_until,
                 "automatic_cooldown": automatically_cooling,
                 "status": status,
-                "last_error": "上游认证失效，请重新认证" if authentication_failed else None,
+                "last_error": (
+                    "上游暂无可用凭据，请核对调度状态" if authentication_blocked and upstream_code == "auth_unavailable"
+                    else "上游认证失效，请重新认证" if authentication_blocked else None
+                ),
             }
         )
 

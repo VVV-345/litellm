@@ -1,3 +1,17 @@
+diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
+index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..d1fc89d554491fd93573e640c678d8406554787e 100644
+--- a/internal/api/handlers/management/auth_files.go
++++ b/internal/api/handlers/management/auth_files.go
+@@ -346,6 +346,9 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
+ 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
+ 	entry["quota"] = quotaObservationPayloadForProvider(auth.Provider, auth.Quota)
+ 	entry["model_states"] = modelAvailabilityPayload(auth.ModelStates)
++	if coreauth.ModelScopedAuthenticationError(auth) {
++		entry["error_scope"] = "model"
++	}
+ 	if modelQuotas := modelQuotaObservationPayload(auth.Provider, auth.ModelStates); len(modelQuotas) > 0 {
+ 		entry["model_quotas"] = modelQuotas
+ 	}
 diff --git a/internal/api/handlers/management/auth_files_fields.go b/internal/api/handlers/management/auth_files_fields.go
 index bbe12e5418a273a00f39df24030dacf1e09d21b9..30a218f9f2f1dcfe2b29da2273cb4398440fe12b 100644
 --- a/internal/api/handlers/management/auth_files_fields.go
@@ -1526,6 +1540,80 @@ index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb
  }
  
  // addConfigHeadersToAttrs adds header configuration to auth attributes.
+diff --git a/sdk/cliproxy/auth/error_scope.go b/sdk/cliproxy/auth/error_scope.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..eafe8d812f7ff5331bf1a06f6d11cbe414088d3f
+--- /dev/null
++++ b/sdk/cliproxy/auth/error_scope.go
+@@ -0,0 +1,27 @@
++// 仅以晚于聚合错误的成功模型状态证明错误属于模型，未知来源保持保守处理。
++package auth
++
++import "reflect"
++
++func ModelScopedAuthenticationError(a *Auth) bool {
++	if a == nil || a.Disabled || a.Status != StatusError || a.Unavailable || !a.NextRetryAfter.IsZero() || a.LastError == nil || a.Quota.Reason == "credential_quota" {
++		return false
++	}
++	switch a.LastError.Code {
++	case "refresh_token_invalidated", "refresh_token_reused", "invalid_api_key":
++		return false
++	}
++	matched, healthy := false, false
++	for _, state := range a.ModelStates {
++		if state == nil {
++			continue
++		}
++		if state.LastError != nil && reflect.DeepEqual(state.LastError, a.LastError) && state.StatusMessage == a.StatusMessage {
++			matched = true
++		}
++		if state.Status == StatusActive && !state.Unavailable && state.LastError == nil && !state.UpdatedAt.IsZero() && !state.UpdatedAt.Before(a.UpdatedAt) {
++			healthy = true
++		}
++	}
++	return matched && healthy
++}
+diff --git a/sdk/cliproxy/auth/error_scope_test.go b/sdk/cliproxy/auth/error_scope_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..19deb7b84f89871155ecfe84bc0eed907f76afe4
+--- /dev/null
++++ b/sdk/cliproxy/auth/error_scope_test.go
+@@ -0,0 +1,35 @@
++// 验证模型聚合错误需要更新的成功模型证据，不能覆盖独立凭据失效。
++package auth
++
++import (
++	"context"
++	"testing"
++)
++
++func TestModelScopedAuthenticationError(t *testing.T) {
++	m := NewManager(nil, nil, nil)
++	ctx := WithSkipPersist(context.Background())
++	a := &Auth{ID: "scope-fixture", Provider: "codex", Status: StatusActive}
++	if _, err := m.Register(ctx, a); err != nil {
++		t.Fatal(err)
++	}
++	m.MarkResult(ctx, Result{AuthID: a.ID, Provider: "codex", Model: "model-a", Error: &Error{Code: "unauthorized", HTTPStatus: 401, Message: "unauthorized"}})
++	before, _ := m.GetByID(a.ID)
++	if ModelScopedAuthenticationError(before) {
++		t.Fatal("failure alone cannot establish scope")
++	}
++	m.MarkResult(ctx, Result{AuthID: a.ID, Provider: "codex", Model: "model-b", Success: true})
++	after, _ := m.GetByID(a.ID)
++	if !ModelScopedAuthenticationError(after) {
++		t.Fatal("healthy newer model should establish model scope")
++	}
++	after.LastError = &Error{Code: "refresh_token_invalidated", HTTPStatus: 401, Message: "revoked"}
++	if ModelScopedAuthenticationError(after) {
++		t.Fatal("must retain credential invalidation")
++	}
++	after.LastError = before.LastError
++	after.Unavailable = true
++	if ModelScopedAuthenticationError(after) {
++		t.Fatal("must retain independent unavailable")
++	}
++}
 diff --git a/sdk/cliproxy/auth/quota_recovery.go b/sdk/cliproxy/auth/quota_recovery.go
 new file mode 100644
 index 0000000000000000000000000000000000000000..632b599bc4e62148fb51422a513d52f1684add37

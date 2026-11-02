@@ -80,6 +80,7 @@ class _AuthFile(BaseModel):
     unavailable: bool = False
     status: str | None = None
     status_message: str | None = None
+    error_scope: str | None = None
     next_retry_after: datetime | None = None
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)

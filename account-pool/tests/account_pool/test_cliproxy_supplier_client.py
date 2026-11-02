@@ -248,7 +248,27 @@ async def test_authentication_error_blocks_false_available_credentials(code: str
         snapshot: Final = await proxy.read_account(record, SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX))
     assert snapshot.automatic_cooldown is (status == "error")
     assert snapshot.status == (EnvironmentStatus.COOLING_DOWN if status == "error" else EnvironmentStatus.READY)
-    assert snapshot.last_error == ("上游认证失效，请重新认证" if status == "error" else None)
+    expected_error = "上游暂无可用凭据，请核对调度状态" if code == "auth_unavailable" and not plain else "上游认证失效，请重新认证"
+    assert snapshot.last_error == (expected_error if status == "error" else None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope,code,ready", [("model", "unauthorized", True), ("credential", "unauthorized", False), (None, "unauthorized", False), ("model", "refresh_token_invalidated", False)])
+async def test_scoped_authentication_error_does_not_block_verified_healthy_model(scope, code, ready):
+    record = _record().model_copy(update={"auth_file_name": "selected.json", "enabled_models": ("model-a", "model-b")})
+    async def handler(request):
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200, json={"files": [{
+                "name": "selected.json", "provider": "codex", "status": "error", "unavailable": False,
+                "status_message": json.dumps({"error": {"code": code}}), "error_scope": scope,
+                "model_states": {"model-a": {"unavailable": True, "next_retry_after": "2099-01-01T00:00:00Z"}, "model-b": {"unavailable": False}},
+            }]})
+        return httpx.Response(200, json={"models": [{"id": "model-a"}, {"id": "model-b"}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        snapshot = await HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http).read_account(record)
+    assert (snapshot.status == EnvironmentStatus.READY) is ready
+    assert (snapshot.last_error is None) is ready
+    assert [item.model for item in snapshot.model_cooldowns] == ["model-a"]
 
 
 @pytest.mark.asyncio
