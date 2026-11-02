@@ -75,23 +75,126 @@ index 16368fd5344ec298a3ba880329aec72303ce8474..9ecb69dabcbf3242e0a46ee67a377869
 +		})
 +	}
 +}
+diff --git a/internal/api/handlers/management/quota_recovery.go b/internal/api/handlers/management/quota_recovery.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a0dbcef705765cf0b33609d5f5eb93e91b3dc50
+--- /dev/null
++++ b/internal/api/handlers/management/quota_recovery.go
+@@ -0,0 +1,29 @@
++// 管理侧单卡验证入口，固定最小提示词，不接受令牌、目标 URL 或额外请求头。
++package management
++
++import (
++	"net/http"
++
++	"github.com/gin-gonic/gin"
++)
++
++func (h *Handler) VerifyCodexQuota(c *gin.Context) {
++	var request struct {
++		Name             string `json:"name" binding:"required"`
++		AuthIndex        string `json:"auth_index" binding:"required"`
++		Model            string `json:"model" binding:"required,max=100"`
++		Recover          bool   `json:"recover"`
++		TokenFingerprint string `json:"token_fingerprint" binding:"required,len=64"`
++	}
++	if c.ShouldBindJSON(&request) != nil || h.authManager == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification request"})
++		return
++	}
++	for _, a := range h.authManager.List() {
++		if a.FileName == request.Name && a.Index == request.AuthIndex && a.Provider == "codex" {
++			c.JSON(http.StatusOK, h.authManager.VerifyCodexQuota(c.Request.Context(), a.ID, request.Model, request.Recover, request.TokenFingerprint))
++			return
++		}
++	}
++	c.JSON(http.StatusConflict, gin.H{"error": "credential binding changed"})
++}
+diff --git a/internal/api/handlers/management/quota_recovery_test.go b/internal/api/handlers/management/quota_recovery_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..53595f8d4d6ec82c5b965a05b3ddde1305b9b300
+--- /dev/null
++++ b/internal/api/handlers/management/quota_recovery_test.go
+@@ -0,0 +1,60 @@
++// 验证使用真实 Codex HTTP 执行器和正常调度器，供应商由本地 HTTP 服务替代。
++package management
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"sync/atomic"
++	"testing"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
++	runtime "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
++	auth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
++)
++
++func TestQuotaRecoveryRealExecutorThenNormalSelection(t *testing.T) {
++	var calls atomic.Int32
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls.Add(1)
++		if r.URL.Path != "/responses" || r.Header.Get("Authorization") != "Bearer fixture-access" {
++			t.Errorf("unexpected request %s", r.URL.Path)
++			w.WriteHeader(400)
++			return
++		}
++		w.Header().Set("Content-Type", "text/event-stream")
++		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture-response\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-6-astra\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n"))
++	}))
++	defer upstream.Close()
++	cfg := &config.Config{}
++	manager := auth.NewManager(nil, nil, nil)
++	manager.SetConfig(cfg)
++	manager.SetCooldownStateStore(auth.NewFileCooldownStateStore(t.TempDir()))
++	manager.RegisterExecutor(runtime.NewCodexAutoExecutor(cfg))
++	entry := &auth.Auth{ID: "local-quota-integration", Provider: "codex", Status: auth.StatusError, StatusMessage: "unauthorized", Unavailable: true, LastError: &auth.Error{HTTPStatus: 401}, Attributes: map[string]string{"base_url": upstream.URL}, Metadata: map[string]any{"access_token": "fixture-access"}}
++	if _, err := manager.Register(context.Background(), entry); err != nil {
++		t.Fatal(err)
++	}
++	registry.GetGlobalRegistry().RegisterClient(entry.ID, "codex", []*registry.ModelInfo{{ID: "gpt-6-astra", Object: "model", OwnedBy: "openai"}})
++	defer registry.GetGlobalRegistry().UnregisterClient(entry.ID)
++	result := manager.VerifyCodexQuota(context.Background(), entry.ID, "gpt-6-astra", true)
++	if !result.Passed || !result.Restored {
++		t.Fatalf("verification: %+v", result)
++	}
++	payload := []byte(`{"model":"gpt-6-astra","input":"Reply with exactly OK.","stream":true,"store":false}`)
++	stream, err := manager.ExecuteStream(context.Background(), []string{"codex"}, exec.Request{Model: "gpt-6-astra", Payload: payload}, exec.Options{Stream: true, SourceFormat: translator.FormatOpenAIResponse})
++	if err != nil {
++		t.Fatalf("normal selector still blocked: %v", err)
++	}
++	for chunk := range stream.Chunks {
++		if chunk.Err != nil {
++			t.Fatal(chunk.Err)
++		}
++	}
++	if calls.Load() != 2 {
++		t.Fatalf("calls=%d; expected one verification and one normal inference", calls.Load())
++	}
++}
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go
-index fef08895bc42519fcabe795052410c3d6ccd8854..0f902b155cb73cf11b010c8eeee1f0afb05253a4 100644
+index fef08895bc42519fcabe795052410c3d6ccd8854..36f3210fa88d33b172a26e82eefb677afbd237d1 100644
 --- a/internal/api/server_management.go
 +++ b/internal/api/server_management.go
-@@ -27,6 +27,7 @@ func (s *Server) registerManagementRoutes() {
+@@ -27,6 +27,9 @@ func (s *Server) registerManagementRoutes() {
  	mgmt := s.engine.Group("/v0/management")
  	mgmt.Use(s.managementAvailabilityMiddleware(), s.mgmt.Middleware())
  	{
 +		mgmt.GET("/codex/managed-identity", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"supported": true, "version": 1}) })
++		mgmt.GET("/codex/quota-verification", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"supported": true, "version": 1, "token_refresh": false}) })
++		mgmt.POST("/codex/quota-verification", s.mgmt.VerifyCodexQuota)
  		mgmt.GET("/config", s.mgmt.GetConfig)
  		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
  		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
 diff --git a/internal/api/server_test.go b/internal/api/server_test.go
-index 8eb33721ff8f0c209353046c843f2c2220887463..112646a02e26a4df56abc3c56ff066ca797e9984 100644
+index 8eb33721ff8f0c209353046c843f2c2220887463..f480637cf3a007e4dcc6c68d23e7e5419a85c6b2 100644
 --- a/internal/api/server_test.go
 +++ b/internal/api/server_test.go
-@@ -1521,6 +1521,28 @@ func TestNewServerWithoutPluginHostLeavesHandlerInterceptorsDisabled(t *testing.
+@@ -1521,6 +1521,41 @@ func TestNewServerWithoutPluginHostLeavesHandlerInterceptorsDisabled(t *testing.
  	}
  }
  
@@ -113,6 +216,19 @@ index 8eb33721ff8f0c209353046c843f2c2220887463..112646a02e26a4df56abc3c56ff066ca
 +		}
 +		if response.Code != http.StatusOK || response.Body.String() != `{"supported":true,"version":1}` {
 +			t.Fatalf("capability status=%d body=%s", response.Code, response.Body.String())
++		}
++	}
++}
++
++func TestQuotaRecoveryManagementRequiresAuth(t *testing.T) {
++	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
++	server := newTestServer(t)
++	for _, method := range []string{http.MethodGet, http.MethodPost} {
++		request := httptest.NewRequest(method, "/v0/management/codex/quota-verification", nil)
++		response := httptest.NewRecorder()
++		server.engine.ServeHTTP(response, request)
++		if response.Code != http.StatusUnauthorized {
++			t.Fatalf("unauthorized %s status=%d", method, response.Code)
 +		}
 +	}
 +}
@@ -1410,3 +1526,377 @@ index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb
  }
  
  // addConfigHeadersToAttrs adds header configuration to auth attributes.
+diff --git a/sdk/cliproxy/auth/quota_recovery.go b/sdk/cliproxy/auth/quota_recovery.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..632b599bc4e62148fb51422a513d52f1684add37
+--- /dev/null
++++ b/sdk/cliproxy/auth/quota_recovery.go
+@@ -0,0 +1,192 @@
++// 单卡额度恢复使用现有 Codex 执行器验证，不调用刷新、重试或备用账号。
++package auth
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"reflect"
++	"strings"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
++	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
++	"github.com/tidwall/gjson"
++)
++
++type QuotaVerification struct {
++	Passed   bool   `json:"passed"`
++	Restored bool   `json:"restored"`
++	Reason   string `json:"reason"`
++}
++
++func (m *Manager) VerifyCodexQuota(ctx context.Context, authID, model string, recover bool, expected ...string) QuotaVerification {
++	snapshot, ok := m.GetByID(authID)
++	if !ok || snapshot.Provider != "codex" || snapshot.Disabled || snapshot.Status == StatusDisabled || strings.TrimSpace(model) == "" {
++		return QuotaVerification{Reason: "blocked"}
++	}
++	if len(expected) > 0 {
++		digest := sha256.Sum256([]byte(authAccessToken(snapshot)))
++		if hex.EncodeToString(digest[:]) != expected[0] || snapshot.Attributes["api_key"] != "" {
++			return QuotaVerification{Reason: "credential_changed"}
++		}
++	}
++	executor, ok := m.Executor("codex")
++	if !ok {
++		return QuotaVerification{Reason: "unsupported"}
++	}
++	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
++	defer cancel()
++	payload, _ := json.Marshal(map[string]any{"model": model, "instructions": "Reply with exactly OK.", "input": []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "input_text", "text": "Reply with exactly OK."}}}}, "stream": true, "store": false, "tools": []any{}, "reasoning": map[string]any{"effort": "low"}})
++	// 直接复用正常 HTTP 模型执行器，不经过会在 401 自动 Refresh 的重试编排。
++	stream, err := executor.ExecuteStream(ctx, snapshot.Clone(), exec.Request{Model: model, Payload: payload}, exec.Options{Stream: true, SourceFormat: translator.FormatOpenAIResponse, OriginalRequest: payload})
++	if err != nil {
++		if statusCodeFromError(err) == 401 {
++			return QuotaVerification{Reason: "authentication_failed"}
++		}
++		return QuotaVerification{Reason: "inference_failed"}
++	}
++	if stream == nil || stream.Chunks == nil {
++		return QuotaVerification{Reason: "incomplete"}
++	}
++	buffer := []byte{}
++	complete := false
++	for !complete {
++		select {
++		case <-ctx.Done():
++			return QuotaVerification{Reason: "timeout"}
++		case chunk, open := <-stream.Chunks:
++			if !open {
++				return QuotaVerification{Reason: "incomplete"}
++			}
++			if chunk.Err != nil {
++				if statusCodeFromError(chunk.Err) == 401 {
++					return QuotaVerification{Reason: "authentication_failed"}
++				}
++				return QuotaVerification{Reason: "inference_failed"}
++			}
++			buffer = append(buffer, chunk.Payload...)
++			if len(buffer) > 512*1024 {
++				return QuotaVerification{Reason: "response_limit"}
++			}
++			for _, line := range bytes.Split(buffer, []byte("\n")) {
++				if !bytes.HasPrefix(line, []byte("data:")) {
++					continue
++				}
++				body := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
++				if !gjson.ValidBytes(body) {
++					continue
++				}
++				event := gjson.GetBytes(body, "type").String()
++				if event == "error" || event == "response.failed" || event == "response.incomplete" {
++					return QuotaVerification{Reason: "inference_failed"}
++				}
++				if event == "response.completed" && gjson.GetBytes(body, "response.status").String() == "completed" {
++					text := ""
++					for _, item := range gjson.GetBytes(body, "response.output").Array() {
++						for _, part := range item.Get("content").Array() {
++							if part.Get("type").String() == "output_text" {
++								text += part.Get("text").String()
++							}
++						}
++					}
++					if strings.TrimSpace(text) != "OK" {
++						return QuotaVerification{Reason: "unexpected_reply"}
++					}
++					complete = true
++				}
++			}
++		}
++	}
++	if !recover {
++		return QuotaVerification{Passed: true, Reason: "verified"}
++	}
++	return m.commitQuotaVerification(ctx, snapshot, model)
++}
++
++func recoverableQuotaError(err *Error, message string) bool {
++	if err != nil {
++		if err.StatusCode() == 401 || err.Code == "unauthorized" {
++			return true
++		}
++		// HTTP 429 也可能是独立的容量或速率限制，不能仅凭状态码清除。
++		switch err.Code {
++		case "usage_limit_reached", "insufficient_quota", "quota_exceeded", "quota_exhausted":
++			return true
++		default:
++			return false
++		}
++	}
++	return message == "" || message == "unauthorized"
++}
++
++func (m *Manager) commitQuotaVerification(ctx context.Context, before *Auth, model string) QuotaVerification {
++	m.configCooldownMu.Lock()
++	defer m.configCooldownMu.Unlock()
++	m.mu.Lock()
++	current := m.auths[before.ID]
++	if current == nil || current.Generation != before.Generation || current.RegistrationEpoch != before.RegistrationEpoch ||
++		current.Disabled || current.Status == StatusDisabled || !reflect.DeepEqual(current.Metadata, before.Metadata) ||
++		!reflect.DeepEqual(current.Attributes, before.Attributes) || current.ProxyURL != before.ProxyURL {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "state_changed"}
++	}
++	if !recoverableQuotaError(current.LastError, current.StatusMessage) ||
++		current.Unavailable && current.LastError == nil && current.StatusMessage == "" && !current.Quota.Exceeded ||
++		current.Quota.Exceeded && current.Quota.Reason != "quota" && current.Quota.Reason != "credential_quota" {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "independent_block"}
++	}
++	key := canonicalModelKey(model)
++	if state := current.ModelStates[key]; state != nil && (state.Status == StatusDisabled || !recoverableQuotaError(state.LastError, state.StatusMessage) || state.Unavailable && state.LastError == nil && !state.Quota.Exceeded || state.Quota.Exceeded && state.Quota.Reason != "quota" && state.Quota.Reason != "credential_quota") {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "independent_block"}
++	}
++	if m.cooldownStore == nil {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "persistence_unavailable"}
++	}
++	now := time.Now()
++	next := current.Clone()
++	next.Status = StatusActive
++	next.StatusMessage = ""
++	next.LastError = nil
++	next.Unavailable = false
++	next.NextRetryAfter = time.Time{}
++	next.Quota = QuotaState{}
++	if next.ModelStates == nil {
++		next.ModelStates = make(map[string]*ModelState)
++	}
++	next.ModelStates[key] = &ModelState{Status: StatusActive, UpdatedAt: now}
++	next.Generation++
++	next.UpdatedAt = now
++	records := []CooldownStateRecord{}
++	for id, a := range m.auths {
++		if id == next.ID {
++			a = next
++		}
++		records = append(records, m.cooldownStateRecordsForAuthLocked(a, now)...)
++	}
++	// 只提交冷却元数据；不调用 token Store.Save，不改写认证文件正文。
++	if err := m.cooldownStore.Save(ctx, records); err != nil {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "persistence_failed"}
++	}
++	m.auths[next.ID] = next
++	m.mu.Unlock()
++	if m.scheduler != nil {
++		m.scheduler.upsertAuth(next.Clone())
++	}
++	models, epoch := registry.GetGlobalRegistry().GetModelsAndEpochForClient(next.ID)
++	projections := make([]registry.ClientModelProjection, 0, len(models))
++	for _, item := range models {
++		if item != nil {
++			projections = append(projections, m.clientModelProjectionForAuth(next, item.ID, now))
++		}
++	}
++	registry.GetGlobalRegistry().ApplyClientModelProjections(next.ID, epoch, next.Generation, projections)
++	return QuotaVerification{Passed: true, Restored: true, Reason: "restored"}
++}
+diff --git a/sdk/cliproxy/auth/quota_recovery_test.go b/sdk/cliproxy/auth/quota_recovery_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..89e3a3ca53919862b4b9436c7247c29577f0a5dc
+--- /dev/null
++++ b/sdk/cliproxy/auth/quota_recovery_test.go
+@@ -0,0 +1,170 @@
++// 单卡恢复测试只使用模拟执行器，确认失败无副作用且成功不触碰其他凭据。
++package auth
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"fmt"
++	"reflect"
++	"strings"
++	"testing"
++	"time"
++
++	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++)
++
++type quotaRecoveryExecutor struct {
++	compactTestExecutor
++	failure   error
++	during    func()
++	refreshes int
++	payload   []byte
++}
++
++func (e *quotaRecoveryExecutor) Identifier() string { return "codex" }
++func (e *quotaRecoveryExecutor) Refresh(_ context.Context, a *Auth) (*Auth, error) {
++	e.refreshes++
++	return a, nil
++}
++func (e *quotaRecoveryExecutor) ExecuteStream(_ context.Context, a *Auth, r exec.Request, o exec.Options) (*exec.StreamResult, error) {
++	e.calls++
++	if a.ID != "quota-first" || r.Model != "gpt-6-astra" || o.SourceFormat.String() != "openai-response" {
++		return nil, errors.New("wrong binding")
++	}
++	if e.during != nil {
++		e.during()
++	}
++	if e.failure != nil {
++		return nil, e.failure
++	}
++	chunks := make(chan exec.StreamChunk, 1)
++	payload := e.payload
++	if payload == nil {
++		payload = []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
++	}
++	chunks <- exec.StreamChunk{Payload: payload}
++	close(chunks)
++	return &exec.StreamResult{Chunks: chunks}, nil
++}
++
++func TestQuotaRecoveryPreservesUnknown429AndModelQuotaReasons(t *testing.T) {
++	for _, mode := range []string{"overload", "model-quota", "model-wait"} {
++		t.Run(mode, func(t *testing.T) {
++			m, _ := quotaRecoveryFixture(t)
++			a := m.auths["quota-first"]
++			switch mode {
++			case "overload":
++				a.LastError = &Error{HTTPStatus: 429, Code: "server_is_overloaded"}
++			case "model-quota":
++				a.ModelStates["gpt-6-astra"].Quota = QuotaState{Exceeded: true, Reason: "independent_throttle"}
++			case "model-wait":
++				a.ModelStates["gpt-6-astra"].LastError = nil
++			}
++			before := a.Clone()
++			result := m.VerifyCodexQuota(context.Background(), a.ID, "gpt-6-astra", true)
++			after, _ := m.GetByID(a.ID)
++			if result.Restored || result.Reason != "independent_block" || !reflect.DeepEqual(before, after) {
++				t.Fatalf("independent block removed: %+v", result)
++			}
++		})
++	}
++}
++
++func TestQuotaRecoveryInvalidStreamNeverChangesState(t *testing.T) {
++	for _, payload := range []string{"", "data: {\"type\":\"response.incomplete\"}\n\n", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n", strings.Repeat("x", 512*1024+1)} {
++		m, e := quotaRecoveryFixture(t)
++		e.payload = []byte(payload)
++		before, _ := m.GetByID("quota-first")
++		result := m.VerifyCodexQuota(context.Background(), before.ID, "gpt-6-astra", true)
++		after, _ := m.GetByID(before.ID)
++		if result.Passed || result.Restored || e.refreshes != 0 || !reflect.DeepEqual(before, after) {
++			t.Fatalf("invalid stream accepted: %+v", result)
++		}
++	}
++}
++
++type failedQuotaRecoveryStore struct{ recordingCooldownStateStore }
++
++func (*failedQuotaRecoveryStore) Save(context.Context, []CooldownStateRecord) error {
++	return errors.New("fixture persistence failure")
++}
++
++func TestQuotaRecoveryPersistenceFailureAndFingerprint(t *testing.T) {
++	m, e := quotaRecoveryFixture(t)
++	before, _ := m.GetByID("quota-first")
++	m.cooldownStore = &failedQuotaRecoveryStore{}
++	bad := m.VerifyCodexQuota(context.Background(), before.ID, "gpt-6-astra", true, strings.Repeat("0", 64))
++	if bad.Reason != "credential_changed" || e.calls != 0 {
++		t.Fatalf("wrong fingerprint dispatched: %+v", bad)
++	}
++	result := m.VerifyCodexQuota(context.Background(), before.ID, "gpt-6-astra", true, fmt.Sprintf("%x", sha256.Sum256([]byte("fixture-access"))))
++	after, _ := m.GetByID(before.ID)
++	if !result.Passed || result.Restored || result.Reason != "persistence_failed" || !reflect.DeepEqual(before, after) {
++		t.Fatalf("persistence failure exposed recovered state: %+v", result)
++	}
++}
++
++func TestQuotaRecoveryFailureNeverRefreshesOrChangesState(t *testing.T) {
++	m, e := quotaRecoveryFixture(t)
++	before, _ := m.GetByID("quota-first")
++	e.failure = compactTestStatusError{code: 401, msg: "unauthorized"}
++	result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", true)
++	after, _ := m.GetByID("quota-first")
++	if result.Passed || result.Restored || result.Reason != "authentication_failed" || e.refreshes != 0 || !reflect.DeepEqual(before, after) {
++		t.Fatalf("unexpected result: %+v", result)
++	}
++}
++
++func TestQuotaRecoverySuccessClearsOnlyProvenStateWithoutTokenWrites(t *testing.T) {
++	m, e := quotaRecoveryFixture(t)
++	second, _ := m.GetByID("quota-second")
++	result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", true)
++	first, _ := m.GetByID("quota-first")
++	afterSecond, _ := m.GetByID("quota-second")
++	if !result.Passed || !result.Restored || first.Unavailable || first.StatusMessage != "" || e.refreshes != 0 {
++		t.Fatalf("unexpected result: %+v, %+v", result, first)
++	}
++	if first.Metadata["access_token"] != "fixture-access" || !reflect.DeepEqual(second, afterSecond) || !first.ModelStates["gpt-6-luna"].Unavailable {
++		t.Fatal("unrelated state changed")
++	}
++}
++
++func TestQuotaRecoveryProbeOnlyAndConcurrentChangeNeverRestore(t *testing.T) {
++	for _, mode := range []string{"probe", "disabled", "race"} {
++		t.Run(mode, func(t *testing.T) {
++			m, e := quotaRecoveryFixture(t)
++			if mode == "disabled" {
++				m.mu.Lock()
++				m.auths["quota-first"].Disabled = true
++				m.mu.Unlock()
++			}
++			if mode == "race" {
++				e.during = func() { m.mu.Lock(); m.auths["quota-first"].Generation++; m.mu.Unlock() }
++			}
++			result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", mode != "probe")
++			first, _ := m.GetByID("quota-first")
++			if result.Restored || first.StatusMessage != "unauthorized" || (mode == "disabled" && e.calls != 0) {
++				t.Fatalf("state was bypassed: %+v", result)
++			}
++		})
++	}
++}
++
++func quotaRecoveryFixture(t *testing.T) (*Manager, *quotaRecoveryExecutor) {
++	t.Helper()
++	m := NewManager(nil, nil, nil)
++	e := &quotaRecoveryExecutor{}
++	m.RegisterExecutor(e)
++	m.cooldownStore = &recordingCooldownStateStore{}
++	for _, id := range []string{"quota-first", "quota-second"} {
++		_, err := m.Register(context.Background(), &Auth{ID: id, Provider: "codex", Status: StatusError, StatusMessage: "unauthorized", Unavailable: true, LastError: &Error{HTTPStatus: 401, Code: "unauthorized"}, Metadata: map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh"}, ModelStates: map[string]*ModelState{
++			"gpt-6-astra": {Status: StatusError, Unavailable: true, NextRetryAfter: time.Now().Add(time.Hour), LastError: &Error{HTTPStatus: 401}},
++			"gpt-6-luna":  {Status: StatusError, Unavailable: true, NextRetryAfter: time.Now().Add(time.Hour), LastError: &Error{HTTPStatus: 429}},
++		}})
++		if err != nil {
++			t.Fatal(err)
++		}
++	}
++	return m, e
++}

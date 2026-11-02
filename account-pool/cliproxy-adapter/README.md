@@ -1,6 +1,6 @@
 # 卡片设置底层适配
 
-本目录只保存固定源码版本、来源、窄补丁和应用入口，不保存另一份账号池引擎。保留现有 LiteLLM 入口、选卡、鉴权、预算、计费和重试，当前默认镜像没有改变
+本目录只保存固定源码版本、来源、窄补丁和应用入口，不保存另一份账号池引擎。保留现有 LiteLLM 入口、选卡、鉴权、预算、计费和重试。默认构建引用随补丁哈希更新，现有卡片不会自动换镜像
 
 `sources.json` 记录本轮从 GitHub 获取后固定的提交。后续不要用移动的 latest 构建标签替代提交号；更新版本要重新验证补丁与兼容性。许可和复用文件见 [NOTICE.md](NOTICE.md)，本次仅用于个人非商业自用
 
@@ -25,6 +25,20 @@ python account-pool/cliproxy-adapter/probe_managed_identity.py --binary ./clipro
 容器镜像的验收与二进制相同，把 `--binary` 换成 `--image IMAGE_REF`。探测等待真实 HTTP 响应，不把 Docker 发布端口的 TCP 监听视为应用就绪。仅对连接重置、拒绝或超时做有界就绪重试；HTTP 返回后仍必须通过未授权 401 和授权后 `supported=true, version=1` 两道门禁。产品重试仍是 `request-retry: 0`、`max-retry-credentials: 1`，不要改成上游示例的 3 和 0
 
 安装档案位于认证目录的 `.codex-managed-identity/<scope>.json`，备份和迁移认证卷时一并保留；删掉它会重新生成安装身份，不会改变供应商账号身份
+
+## 单卡额度验证与恢复
+
+新增受管理鉴权保护的 `GET /v0/management/codex/quota-verification`，能力响应必须为 `supported=true, version=1, token_refresh=false`。同路径 POST 只接受认证文件名、auth_index、已启用模型、当前 access token 的 SHA-256 和显式 recover 标志。Manager 对旧镜像或不匹配能力返回 `runtime_upgrade_required`，不会回退到普通探测或刷新 Token
+
+验证固定发送最小 OK 提示词，复用该卡 Codex HTTP 执行器，不刷新、不重试、不切卡。必须收到完整 `response.completed` 且正文为 OK 才算通过；200、额度增加、空流、错误帧或超限响应都不表示恢复。仅在用户选择恢复、凭据和状态快照未变化时清理已验证的认证或额度阻断，保留手动禁用、未知错误和其他模型阻断，只持久化 cooldown store，不改写认证文件
+
+Manager 的兑换记录持久化原兑换 ID，结果不明确时只能核对同一次兑换。选择最早到期的适用券；兑换成功与推理验证、号池恢复分别显示。CPA 成功后还要通过 Manager 数据库快照、在途租约和独立运行时冷却检查，才报告恢复。本地测试使用模拟供应商和专用 PostgreSQL，不代表线上账号已经恢复
+
+```sh
+go test ./sdk/cliproxy/auth ./internal/api/handlers/management ./internal/api -run 'Test(QuotaRecovery|ManagementManagedIdentityCapabilityRequiresAuth)' -count=1
+```
+
+新能力需要发布配套镜像并按下文受控流程更新目标卡之后才生效。发布架构仍由现有工作流参数选择，未固定为单架构；本地 commit 不会发布、部署或再消费线上重置券
 
 ## 受控单卡更新
 

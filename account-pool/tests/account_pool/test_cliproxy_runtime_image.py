@@ -115,7 +115,7 @@ def test_probe_times_out_when_tcp_accepts_but_http_never_becomes_ready() -> None
 def test_adapted_image_pin_is_the_deployment_default() -> None:
     pin: Final = _IMAGE_REF.load_pin(_ADAPTER)
     assert pin.reference == DEFAULT_CLI_PROXY_IMAGE
-    assert pin.reference == "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-b1d310d5c106"
+    assert pin.reference == "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-f32051450f9e"
     assert "bebf587" not in pin.reference
     assert "eceasy" not in pin.reference
     for relative in (
