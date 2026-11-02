@@ -96,6 +96,7 @@ const AccountPoolModelTestDialog = dynamic(
     ),
   { loading: ModuleLoading },
 );
+const AccountPoolQuotaResetDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolQuotaResetDialog").then((module) => module.AccountPoolQuotaResetDialog));
 
 const PAGE_SIZE = 24;
 const POOL_TABS = [
@@ -131,6 +132,7 @@ export default function AccountPoolPage() {
   const searchParams = useSearchParams();
   const requestedTab = searchParams?.get("tab") ?? "dashboard";
   const [testEnvironment, setTestEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -288,6 +290,7 @@ export default function AccountPoolPage() {
           onManageKey={handleManageKey}
           onViewLogs={handleViewLogs}
           onTest={setTestEnvironment}
+          onQuotaReset={setResetEnvironment}
           tags={policyView?.policy?.tags}
           group={policyView?.policy?.group}
           policy={policyView}
@@ -665,6 +668,7 @@ export default function AccountPoolPage() {
           onClose={() => setTestEnvironment(null)}
         />
       )}
+      {resetEnvironment && accessToken && <AccountPoolQuotaResetDialog key={resetEnvironment.id} accessToken={accessToken} environment={resetEnvironment} onClose={() => setResetEnvironment(null)} />}
       {configEnvironment && (
         <RuntimeConfigDialog
           key={configEnvironment.id}

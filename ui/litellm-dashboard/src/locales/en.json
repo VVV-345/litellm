@@ -6548,6 +6548,36 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused"
   },
   "accountPool": {
+    "quotaReset": {
+      "title": "Quota reset and verification · {{name}}",
+      "action": "Reset and verify quota",
+      "notice": "Quota queries only read provider state. Resetting spends an available reset credit. Neither action refreshes OAuth tokens or touches other cards.",
+      "available": "Available resets: {{count}}",
+      "eligible": "A suitable credit and used quota window are available",
+      "ineligible": "No suitable credit, no reset needed, or query not completed",
+      "query": "Query quota",
+      "confirm": "I confirm this applies only to {{name}} and may spend a credit; uncertain results reuse the original redemption",
+      "reset": "Reset quota",
+      "reconcile": "Reconcile original redemption",
+      "identity": "Redemption ID",
+      "after": "Available resets after check: {{count}}",
+      "verifyNotice": "Verification spends a small amount of model quota using the existing token without OAuth refresh. Routing is restored only if you select the recovery option and verification succeeds.",
+      "recover": "Restore proven stale blocks after verification; preserve manual and independent blocks",
+      "verify": "Verify inference",
+      "restored": "Pool routing restored",
+      "passed": "Inference passed; pool routing not restored",
+      "failed": "Inference failed; pool routing not restored",
+      "error": "Operation incomplete. Check the original result; do not create another redemption or spend another credit.",
+      "close": "Close",
+      "result": {
+        "prepared": "Awaiting redemption confirmation",
+        "uncertain": "Uncertain result; reconcile the original redemption ID",
+        "reset": "Reset {{count}} quota windows; inference and routing still require verification",
+        "nothing_to_reset": "Nothing to reset; routing not restored",
+        "no_credit": "No available credit; routing not restored",
+        "already_redeemed": "Redemption already handled; this does not confirm routing recovery"
+      }
+    },
     "spendUsed": "Used {{amount}}",
     "modelTest": {
       "title": "Test model connection for {{name}}",

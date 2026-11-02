@@ -3,6 +3,7 @@
 const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
 
 export const accountPoolQueryKeys = {
+  quotaReset: (accessToken: string, id: string) => [...ACCOUNT_POOL_ROOT, "quota-reset", accessToken, id] as const,
   all: ACCOUNT_POOL_ROOT,
   feedbackRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback", accessToken] as const,
   feedback: (accessToken: string, filter: { status: string; q: string; limit: number; offset: number }) =>

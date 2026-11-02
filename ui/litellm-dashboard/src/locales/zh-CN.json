@@ -6548,6 +6548,36 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "整个组可支出的总额。共享支出达到上限后，所有使用该组的密钥都会被拒绝"
   },
   "accountPool": {
+    "quotaReset": {
+      "title": "额度重置与验证 · {{name}}",
+      "action": "额度重置与验证",
+      "notice": "额度查询只读取供应商状态；额度重置会消耗一次可用次数。两者均不刷新 OAuth Token，也不操作其他卡片。",
+      "available": "可用重置次数：{{count}}",
+      "eligible": "有适用的次数和已使用的额度窗口，可申请重置",
+      "ineligible": "当前无适用次数、无须重置或尚未完成查询",
+      "query": "查询额度",
+      "confirm": "我确认仅操作 {{name}}，兑换会消耗次数；结果不明时只核对原次兑换",
+      "reset": "重置额度",
+      "reconcile": "核对原次兑换",
+      "identity": "兑换身份",
+      "after": "复查可用次数：{{count}}",
+      "verifyNotice": "调用验证会消耗少量模型额度，使用现有 Token，不执行 OAuth 刷新。验证成功不代表自动恢复路由；需要恢复时请勾选下面的选项。",
+      "recover": "验证成功后恢复已证实过时的阻断（保留手动禁用、冷却及其他独立阻断）",
+      "verify": "验证调用",
+      "restored": "号池路由已恢复",
+      "passed": "调用验证通过，号池路由未恢复",
+      "failed": "调用验证失败，未恢复号池路由",
+      "error": "操作未完成。请查询原操作结果，不要另建兑换身份或重复扣券。",
+      "close": "关闭",
+      "result": {
+        "prepared": "待确认兑换",
+        "uncertain": "兑换结果不明确，请保留原兑换身份核对",
+        "reset": "已重置 {{count}} 个额度窗口；调用及路由仍需验证",
+        "nothing_to_reset": "无须重置，未恢复路由",
+        "no_credit": "没有可用次数，未恢复路由",
+        "already_redeemed": "该兑换已处理；不能据此认定路由已恢复"
+      }
+    },
     "spendUsed": "已用 {{amount}}",
     "modelTest": {
       "title": "测试 {{name}} 的模型连接",

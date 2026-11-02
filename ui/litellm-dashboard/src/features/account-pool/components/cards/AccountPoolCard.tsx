@@ -43,6 +43,7 @@ interface AccountPoolCardProps {
   onDelete: (environment: AccountPoolEnvironment) => void;
   onManageKey: (environment: AccountPoolEnvironment) => void;
   onTest?: (environment: AccountPoolEnvironment) => void;
+  onQuotaReset?: (environment: AccountPoolEnvironment) => void;
   onViewLogs?: (environment: AccountPoolEnvironment) => void;
   requestStats?: ErrorStats;
   tags?: string[];
@@ -63,6 +64,7 @@ const AccountPoolCardComponent = ({
   onManageKey,
   onViewLogs,
   onTest,
+  onQuotaReset,
   requestStats,
   tags = [],
   group,
@@ -330,6 +332,7 @@ const AccountPoolCardComponent = ({
             )}
         </div>
         {environment.supplier === "openai_codex" && <AccountPoolCardQuota environment={environment} />}
+        {environment.supplier === "openai_codex" && onQuotaReset && <Button variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>{t("accountPool.quotaReset.action")}</Button>}
         <p className="border-t border-border pt-2 text-xs text-muted-foreground">
           路由策略、权重和优先级在 LiteLLM 模型设置中管理
         </p>
