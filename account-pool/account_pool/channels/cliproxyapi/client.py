@@ -32,6 +32,7 @@ from account_pool.channels.cliproxyapi.provider_requests import (
     _upstream_code,
 )
 from account_pool.channels.cliproxyapi.quota_state import (
+    merge_model_quotas,
     _merge_quota_snapshots,
 )
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
@@ -281,20 +282,16 @@ class HttpCLIProxyClient:
             ModelQuotaSnapshot(model=model, quota=selected_supplier.quota_parser(observation))
             for model, observation in sorted(auth_file.model_quotas.items())
         )
-        model_quotas: Final = (
+        model_quotas = merge_model_quotas(record.model_quotas, (
             refreshed_quota.model_quotas
             if refreshed_quota is not None and refreshed_quota.model_quotas
             else passive_model_quotas
             if passive_model_quotas
-            else record.model_quotas
-        )
+            else ()
+        ))
         if refreshed_quota is not None and refreshed_quota.quota.refresh_status == "complete":
             observed = datetime.now(timezone.utc)
             quota = quota.model_copy(update={"observed_at": observed})
-            model_quotas = tuple(
-                item.model_copy(update={"quota": item.quota.model_copy(update={"observed_at": observed})})
-                for item in model_quotas
-            )
         now: Final = datetime.now().astimezone()
         model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
         model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)

@@ -10,7 +10,7 @@ from typing import Final
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator
 
-from account_pool.domain import QuotaSnapshot, QuotaWindow
+from account_pool.domain import ModelQuotaSnapshot, QuotaSnapshot, QuotaWindow
 from account_pool.providers.usage.common import (
     _first_bool,
     _first_datetime,
@@ -54,6 +54,7 @@ class _CodexAdditionalRateLimit(BaseModel):
 
     limit_name: str | None = None
     metered_feature: str | None = None
+    model: str | None = Field(default=None, validation_alias=AliasChoices("model", "model_id"))
     rate_limit: _CodexRateLimit | None = None
 
 
@@ -177,6 +178,7 @@ def parse_codex_usage_quota(
     additional: Final = tuple(
         window
         for limit in usage.additional_rate_limits
+        if not limit.model
         for window in _codex_rate_limit_windows(_codex_additional_prefix(limit), limit.rate_limit, observed_at)
     )
     detailed_reset_credits: Final = _codex_reset_credit_count(reset_credits_body, observed_at)
@@ -224,7 +226,14 @@ def parse_codex_usage_quota(
             subscription_active_until=active_until,
             reset_credits_available=reset_credits,
             windows=(*standard, *code_review, *additional),
-        )
+        ),
+        model_quotas=tuple(
+            ModelQuotaSnapshot(model=limit.model, quota=QuotaSnapshot(
+                observed_at=observed_at, source="provider_api", refresh_status="complete",
+                windows=_codex_rate_limit_windows("", limit.rate_limit, observed_at),
+            ))
+            for limit in usage.additional_rate_limits if limit.model and limit.rate_limit is not None
+        ),
     )
 
 

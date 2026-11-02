@@ -54,7 +54,7 @@ def recovered_record(
         or record.auth_file_disabled
         or record.status not in (EnvironmentStatus.READY, EnvironmentStatus.COOLING_DOWN)
         or record.configuration_pending
-        or record.cooldown_until is not None
+        or (record.cooldown_until is not None and record.cooldown_until > utc_now())
         or record.desired_configuration_version != record.observed_configuration_version
         or record.last_error not in (None, "上游认证失效，请重新认证")
         or any(
@@ -67,6 +67,7 @@ def recovered_record(
         update={
             "status": EnvironmentStatus.READY,
             "automatic_cooldown": False,
+            "cooldown_until": None,
             "last_error": None,
             "version": record.version + 1,
             "updated_at": utc_now(),
@@ -84,8 +85,17 @@ def recovered_record(
                     "reset_credits_available": quota.reset_credits_available,
                 }
             ),
-            "model_cooldowns": tuple(item for item in record.model_cooldowns if item.reason != "rate_limit"),
-            "model_quotas": model_quotas or record.model_quotas,
+            "model_cooldowns": tuple(
+                item for item in record.model_cooldowns if item.model != model or item.reason != "rate_limit"
+            ),
+            # 成功探针只证伪当前模型的旧零额度，其他模型的未知/有效限制必须保留。
+            "model_quotas": tuple(
+                item for item in record.model_quotas
+                if (quota is None or item.model != model) and not any(fresh.model == item.model for fresh in model_quotas)
+            ) + model_quotas + (
+                (ModelQuotaSnapshot(model=model, quota=QuotaSnapshot(observed_at=utc_now(), source="provider_api")),)
+                if quota is not None and not any(item.model == model for item in model_quotas) else ()
+            ),
         }
     )
 
@@ -121,6 +131,12 @@ class QuotaResetService:
                 observation: Final = await self.upstream.observe(record)
             except (ValueError, httpx.HTTPError, TimeoutError):
                 return ResetVerification(passed=True, restored=False, reason="quota_check_failed")
+            if any(
+                window.remaining_percent <= 0
+                for snapshot in (observation.quota, *(item.quota for item in observation.model_quotas if item.model == model))
+                for window in snapshot.windows
+            ):
+                return ResetVerification(passed=True, restored=False, reason="quota_not_recovered")
             # CPA 成功不等于号池恢复；数据库必须仍为验证前快照，且没有独立运行时阻断。
             restored: Final = await self.environments.restore_verified(
                 record, model, observation.quota, observation.model_quotas

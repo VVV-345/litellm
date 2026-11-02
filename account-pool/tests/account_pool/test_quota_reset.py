@@ -224,7 +224,7 @@ async def test_failed_quota_recheck_does_not_report_manager_recovery():
     assert service.environments.record == record
 
 
-def test_recovery_projection_clears_all_rate_limit_cooldowns():
+def test_recovery_projection_clears_only_verified_model_rate_limit_cooldown():
     _, record, _, _ = setup_service()
     other = ModelCooldown(model="other", reason="rate_limit", retry_at=utc_now() + timedelta(days=1))
     selected = ModelCooldown(model="model-a", reason="rate_limit", retry_at=utc_now() + timedelta(days=1))
@@ -239,12 +239,12 @@ def test_recovery_projection_clears_all_rate_limit_cooldowns():
     )
     result = recovered_record(blocked, "model-a")
     assert result.status == EnvironmentStatus.READY
-    assert result.model_cooldowns == (timeouts,)
+    assert result.model_cooldowns == (other, timeouts)
     assert result.credential_fingerprints == blocked.credential_fingerprints
     assert not result.automatic_cooldown and result.last_error is None
 
 
-def test_recovered_record_clears_every_rate_limit_cooldown_and_writes_model_quotas() -> None:
+def test_recovered_record_preserves_other_models_and_writes_observed_model_quotas() -> None:
     now: Final = utc_now()
     record = _record().model_copy(
         update={
@@ -272,7 +272,36 @@ def test_recovered_record_clears_every_rate_limit_cooldown_and_writes_model_quot
     recovered = recovered_record(record, "model-a", quota, model_quotas)
 
     assert recovered is not None
-    # 上游兑换是账号级的，整卡所有 rate_limit 冷却都必须失效，其它原因的冷却保留。
-    assert tuple(item.model for item in recovered.model_cooldowns) == ("model-c",)
+    assert tuple(item.model for item in recovered.model_cooldowns) == ("model-b", "model-c")
     assert recovered.model_quotas == model_quotas
     assert recovered.quota.windows == quota.windows
+
+
+def test_recovery_expires_old_card_deadline_but_preserves_future_block():
+    _, record, _, _ = setup_service()
+    old = record.model_copy(update={"cooldown_until": utc_now() - timedelta(seconds=1)})
+    restored = recovered_record(old, "model-a")
+    assert restored is not None and restored.cooldown_until is None
+    assert recovered_record(record.model_copy(update={"cooldown_until": utc_now() + timedelta(hours=1)}), "model-a") is None
+
+
+def test_selected_model_cache_invalidated_only_after_verification_and_other_cache_preserved():
+    _, record, _, _ = setup_service()
+    empty = QuotaSnapshot(windows=(QuotaWindow(name="5h", remaining_percent=0, used_percent=100, window_minutes=300),))
+    models = (ModelQuotaSnapshot(model="model-a", quota=empty), ModelQuotaSnapshot(model="model-b", quota=empty))
+    record = record.model_copy(update={"model_quotas": models})
+    result = recovered_record(record, "model-a", QuotaSnapshot(observed_at=utc_now()))
+    assert result.model_quotas[0] == models[1]
+    assert result.model_quotas[1].model == "model-a"
+    assert result.model_quotas[1].quota.windows == ()
+    assert result.model_quotas[1].quota.observed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_fresh_exhausted_model_cannot_be_reported_restored():
+    service, record, _, upstream = setup_service()
+    empty = QuotaSnapshot(observed_at=utc_now(), windows=(QuotaWindow(name="5h", remaining_percent=0, used_percent=100, window_minutes=300),))
+    upstream.observation = upstream.observation.model_copy(update={"model_quotas": (ModelQuotaSnapshot(model="model-a", quota=empty),)})
+    result = await service.verify(record.id, "model-a", True)
+    assert result.passed and not result.restored and result.reason == "quota_not_recovered"
+    assert service.environments.record == record

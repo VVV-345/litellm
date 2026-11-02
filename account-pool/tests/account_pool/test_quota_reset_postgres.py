@@ -112,7 +112,7 @@ async def test_postgres_verified_restore_preserves_concurrent_or_independent_blo
     assert restored == (blocker == "none")
     if restored:
         assert after.status is EnvironmentStatus.READY
-        assert after.model_cooldowns == (other,)
+        assert after.model_cooldowns == (sibling, other)
         assert after.model_quotas == model_quotas
         assert after.credential_fingerprints == before.credential_fingerprints
         assert after.quota.windows == fresh.windows
