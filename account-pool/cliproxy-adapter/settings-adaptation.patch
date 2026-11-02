@@ -1,3 +1,70 @@
+diff --git a/internal/api/handlers/management/api_tools.go b/internal/api/handlers/management/api_tools.go
+index 29f00100c2cf64484df19841afeab0e645975cc4..358adc0161741d2b8360c6751e12ade9a26f0b82 100644
+--- a/internal/api/handlers/management/api_tools.go
++++ b/internal/api/handlers/management/api_tools.go
+@@ -192,7 +192,7 @@ func (h *Handler) executeAPICall(
+ 			return apiCallResponse{}, errRequest
+ 		}
+ 		if result.StatusCode == http.StatusUnauthorized && usedToken && forceRefreshAvailable && !forcedRefresh {
+-			refreshed, errRefresh := h.authManager.RefreshAuth(ctx, auth.ID)
++			refreshed, errRefresh := h.authManager.RefreshAuthAfterUnauthorized(ctx, auth.ID, tokenValueForAuth(auth))
+ 			if errRefresh != nil {
+ 				return apiCallResponse{}, fmt.Errorf("refresh credential after unauthorized response: %w", errRefresh)
+ 			}
+diff --git a/internal/api/handlers/management/api_tools_test.go b/internal/api/handlers/management/api_tools_test.go
+index 066b6bd3b0aaa06b0624154cb012ba0334ab3948..a8f6dd25b68511c2fcec4ad186346f3ae66edf54 100644
+--- a/internal/api/handlers/management/api_tools_test.go
++++ b/internal/api/handlers/management/api_tools_test.go
+@@ -23,7 +23,7 @@ func (f managementRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, e
+ 	return f(req)
+ }
+ 
+-type managementRefreshExecutor struct{}
++type managementRefreshExecutor struct{ calls int }
+ 
+ func (*managementRefreshExecutor) Identifier() string { return "test-refresh" }
+ 
+@@ -35,7 +35,8 @@ func (*managementRefreshExecutor) ExecuteStream(context.Context, *coreauth.Auth,
+ 	return nil, nil
+ }
+ 
+-func (*managementRefreshExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
++func (e *managementRefreshExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
++	e.calls++
+ 	auth.Metadata["access_token"] = "new-token"
+ 	auth.Metadata["key"] = "new-token"
+ 	return auth, nil
+@@ -447,3 +448,30 @@ func TestAuthByIndexDistinguishesSharedAPIKeysAcrossProviders(t *testing.T) {
+ 		t.Fatalf("authByIndex(compat) returned %q, want %q", gotCompat.ID, compatAuth.ID)
+ 	}
+ }
++
++func TestExecuteAPICallReusesRefreshForStaleRequest(t *testing.T) {
++	manager := coreauth.NewManager(nil, nil, nil)
++	exec := &managementRefreshExecutor{}
++	manager.RegisterExecutor(exec)
++	auth, err := manager.Register(context.Background(), &coreauth.Auth{ID: "stale-request", Provider: exec.Identifier(), Metadata: map[string]any{"access_token": "old-token", "refresh_token": "synthetic-refresh"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	client := &http.Client{Transport: managementRoundTripFunc(func(req *http.Request) (*http.Response, error) {
++		status := http.StatusUnauthorized
++		if req.Header.Get("Authorization") == "Bearer new-token" {
++			status = http.StatusOK
++		}
++		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("synthetic")), Request: req}, nil
++	})}
++	h := &Handler{authManager: manager}
++	for i := 0; i < 2; i++ {
++		result, err := h.executeAPICall(context.Background(), client, auth, http.MethodGet, "https://synthetic.invalid/usage", "", map[string]string{"Authorization": "Bearer $TOKEN$"}, "")
++		if err != nil || result.StatusCode != 200 {
++			t.Fatalf("request failed: %v", err)
++		}
++	}
++	if exec.calls != 1 {
++		t.Fatalf("stale management request rotated twice: %d", exec.calls)
++	}
++}
 diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
 index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..d1fc89d554491fd93573e640c678d8406554787e 100644
 --- a/internal/api/handlers/management/auth_files.go
@@ -1704,6 +1771,748 @@ index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..ca97d8e7e5c00f479db773eb9089a890
  func TestExtractAccessToken(t *testing.T) {
  	t.Parallel()
  
+diff --git a/sdk/cliproxy/auth/auto_refresh_loop.go b/sdk/cliproxy/auth/auto_refresh_loop.go
+index b4217b31636627b64f50941a6b1c8223d281183e..2e59d26f867ec84c149521c703354b46566a315a 100644
+--- a/sdk/cliproxy/auth/auto_refresh_loop.go
++++ b/sdk/cliproxy/auth/auto_refresh_loop.go
+@@ -339,6 +339,12 @@ func nextRefreshCheckAt(now time.Time, auth *Auth, interval time.Duration) (time
+ 	if auth == nil {
+ 		return time.Time{}, false
+ 	}
++	if auth.refreshSavePending {
++		if auth.NextRefreshAfter.After(now) {
++			return auth.NextRefreshAfter, true
++		}
++		return now, true
++	}
+ 	if hasUnauthorizedAuthFailure(auth) {
+ 		return time.Time{}, false
+ 	}
+diff --git a/sdk/cliproxy/auth/conductor_lifecycle.go b/sdk/cliproxy/auth/conductor_lifecycle.go
+index d14b66155b7e51e282dd336edda2c6daaaf8d5c3..9a2740dd0a3822cbce9cd3b851e52d2b25a77044 100644
+--- a/sdk/cliproxy/auth/conductor_lifecycle.go
++++ b/sdk/cliproxy/auth/conductor_lifecycle.go
+@@ -76,6 +76,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+ 	if auth.ID == "" {
+ 		auth.ID = uuid.NewString()
+ 	}
++	lock := m.authRefreshLock(auth.ID)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
+ 	now := time.Now()
+ 	if auth.Generation == 0 {
+ 		auth.Generation = 1
+@@ -122,6 +125,16 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+ 
+ // Update replaces an existing auth entry and notifies hooks.
+ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
++	if auth == nil || auth.ID == "" {
++		return nil, nil
++	}
++	lock := m.authRefreshLock(auth.ID)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
++	return m.updateAuth(ctx, auth)
++}
++
++func (m *Manager) updateAuth(ctx context.Context, auth *Auth) (*Auth, error) {
+ 	if auth == nil || auth.ID == "" {
+ 		return nil, nil
+ 	}
+@@ -135,6 +148,11 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 		m.mu.Unlock()
+ 		return nil, nil
+ 	}
++	if shouldSkipPersist(ctx) && existing.refreshConsumedCredential == refreshCredentialFingerprint(auth) && !sameRefreshCredential(existing, auth) {
++		current := existing.Clone()
++		m.mu.Unlock()
++		return current, nil
++	}
+ 	if m.authEpochs == nil {
+ 		m.authEpochs = make(map[string]uint64)
+ 	}
+@@ -154,6 +172,22 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 		auth.Index = existing.Index
+ 		auth.indexAssigned = existing.indexAssigned
+ 	}
++	if existing.refreshSavePending && sameRefreshCredential(existing, auth) {
++		auth.refreshSavePending = true
++	}
++	if sameRefreshCredential(existing, auth) {
++		auth.refreshConsumedCredential = existing.refreshConsumedCredential
++	}
++	if auth.refreshSavePending && auth.Generation < existing.Generation {
++		auth.Disabled = existing.Disabled
++		auth.Status = existing.Status
++		auth.StatusMessage = existing.StatusMessage
++		auth.Unavailable = existing.Unavailable
++		auth.LastError = existing.LastError
++		auth.Quota = existing.Quota.Clone()
++		auth.NextRetryAfter = existing.NextRetryAfter
++		auth.ModelStates = existing.Clone().ModelStates
++	}
+ 	auth.Success = existing.Success
+ 	auth.Failed = existing.Failed
+ 	auth.recentRequests = existing.recentRequests
+@@ -192,12 +226,24 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 		m.scheduler.upsertAuth(authClone.Clone())
+ 	}
+ 	m.queueRefreshReschedule(auth.ID)
+-	_ = m.persist(ctx, auth)
++	errPersist := m.persist(ctx, auth)
++	if auth.refreshSavePending && !shouldSkipPersist(ctx) {
++		m.mu.Lock()
++		if current := m.auths[auth.ID]; current != nil {
++			current.refreshSavePending = errPersist != nil
++			if errPersist != nil {
++				current.NextRefreshAfter = time.Now().Add(refreshFailureBackoff)
++			}
++			auth = current.Clone()
++		}
++		m.mu.Unlock()
++		m.queueRefreshReschedule(auth.ID)
++	}
+ 	m.hook.OnAuthUpdated(ctx, auth.Clone())
+ 	if cooldownStateChanged {
+ 		m.persistCooldownStates(context.Background())
+ 	}
+-	return auth.Clone(), nil
++	return auth.Clone(), errPersist
+ }
+ 
+ // Remove deletes an auth from runtime state without persisting.
+@@ -211,6 +257,9 @@ func (m *Manager) Remove(ctx context.Context, id string) {
+ 		return
+ 	}
+ 	_ = ctx
++	lock := m.authRefreshLock(id)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
+ 
+ 	m.mu.Lock()
+ 	existing := m.auths[id]
+diff --git a/sdk/cliproxy/auth/conductor_refresh.go b/sdk/cliproxy/auth/conductor_refresh.go
+index aedd26f3a789c0dda6a047d84458c1d25e7174ee..bcd025b5c945cfac1abb60bbf4205921c11fe329 100644
+--- a/sdk/cliproxy/auth/conductor_refresh.go
++++ b/sdk/cliproxy/auth/conductor_refresh.go
+@@ -2,9 +2,12 @@ package auth
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"net/http"
++	"reflect"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -115,6 +118,9 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
+ 	if a == nil {
+ 		return false
+ 	}
++	if a.refreshSavePending {
++		return !now.Before(a.NextRefreshAfter)
++	}
+ 	if hasUnauthorizedAuthFailure(a) {
+ 		return false
+ 	}
+@@ -341,7 +347,45 @@ func (m *Manager) markRefreshPending(id string, now time.Time) bool {
+ }
+ 
+ type authRefreshLock struct {
+-	mu sync.Mutex
++	mu       sync.Mutex
++	commitMu sync.Mutex
++}
++
++var ErrRefreshPersistence = errors.New("refreshed credentials retained in memory; persistence pending")
++
++func (m *Manager) authRefreshLock(id string) *authRefreshLock {
++	lock, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
++	return lock.(*authRefreshLock)
++}
++
++func sameRefreshCredential(a, b *Auth) bool {
++	if a == nil || b == nil || a.RegistrationEpoch != b.RegistrationEpoch || a.Provider != b.Provider {
++		return false
++	}
++	for _, key := range []string{"access_token", "accessToken", "refresh_token", "refreshToken", "id_token", "account_id", "token"} {
++		if !reflect.DeepEqual(a.Metadata[key], b.Metadata[key]) {
++			return false
++		}
++	}
++	return true
++}
++
++func refreshCredentialFingerprint(auth *Auth) string {
++	raw, _ := json.Marshal([]string{auth.Provider, authAccessToken(auth), authMetadataString(auth, "refresh_token"), authMetadataString(auth, "refreshToken")})
++	return fmt.Sprintf("%x", sha256.Sum256(raw))
++}
++
++func (m *Manager) persistRefreshedAuth(ctx context.Context, auth *Auth) (*Auth, error) {
++	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
++	defer cancel()
++	saveCtx = context.WithValue(saveCtx, skipPersistContextKey{}, false)
++	auth.refreshSavePending = true
++	saved, err := m.updateAuth(saveCtx, auth)
++	if err != nil {
++		log.Warn("refreshed credential persistence pending")
++		return saved, ErrRefreshPersistence
++	}
++	return saved, nil
+ }
+ 
+ func authAccessToken(auth *Auth) string {
+@@ -415,7 +459,7 @@ func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, e
+ 	}
+ 	log.Debugf("unauthorized response for %s (%s), refreshing credentials before fallback", auth.Provider, auth.ID)
+ 	refreshed, errRefresh := m.refreshAuthForRequest(ctx, auth.ID, authAccessToken(auth))
+-	if errRefresh != nil || refreshed == nil {
++	if (errRefresh != nil && !errors.Is(errRefresh, ErrRefreshPersistence)) || refreshed == nil {
+ 		log.Debugf("credential refresh before fallback failed for %s (%s): %v", auth.Provider, auth.ID, errRefresh)
+ 		return auth, false
+ 	}
+@@ -423,7 +467,7 @@ func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, e
+ }
+ 
+ func (m *Manager) refreshAuth(ctx context.Context, id string) {
+-	_, _ = m.refreshAuthForRequest(ctx, id, "")
++	_, _ = m.refreshAuthCoordinated(ctx, id, "", true)
+ }
+ 
+ // RefreshAuth forces one provider credential refresh and persists the result.
+@@ -431,10 +475,18 @@ func (m *Manager) RefreshAuth(ctx context.Context, id string) (*Auth, error) {
+ 	return m.refreshAuthForRequest(ctx, id, "")
+ }
+ 
++func (m *Manager) RefreshAuthAfterUnauthorized(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
++	return m.refreshAuthForRequest(ctx, id, failedAccessToken)
++}
++
+ // refreshAuthForRequest performs a synchronous credential refresh for the given auth.
+ // failedAccessToken lets concurrent callers reuse a refresh that already replaced the
+ // access token that produced the unauthorized response.
+ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
++	return m.refreshAuthCoordinated(ctx, id, failedAccessToken, false)
++}
++
++func (m *Manager) refreshAuthCoordinated(ctx context.Context, id, failedAccessToken string, background bool) (*Auth, error) {
+ 	if m == nil {
+ 		return nil, errors.New("auth manager is nil")
+ 	}
+@@ -446,17 +498,13 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		return nil, errors.New("auth id is empty")
+ 	}
+ 
+-	lockValue, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
+-	lock, _ := lockValue.(*authRefreshLock)
+-	if lock == nil {
+-		lock = &authRefreshLock{}
+-		m.refreshLocks.Store(id, lock)
+-	}
++	started := time.Now()
++	lock := m.authRefreshLock(id)
+ 	lock.mu.Lock()
+ 	defer lock.mu.Unlock()
+ 
+ 	m.mu.RLock()
+-	auth := m.auths[id]
++	auth := m.auths[id].Clone()
+ 	var exec ProviderExecutor
+ 	if auth != nil {
+ 		// Use the same effective provider key as request execution so OpenAI-compat
+@@ -468,11 +516,44 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		return nil, errors.New("auth or executor not found")
+ 	}
+ 
++	if auth.refreshSavePending {
++		lock.commitMu.Lock()
++		defer lock.commitMu.Unlock()
++		current, ok := m.GetByID(id)
++		if !ok {
++			return nil, errors.New("auth removed during refresh")
++		}
++		if !current.refreshSavePending {
++			return current, nil
++		}
++		current.NextRefreshAfter = time.Time{}
++		return m.persistRefreshedAuth(ctx, current)
++	}
++	if auth.Disabled || auth.Status == StatusDisabled {
++		return nil, errors.New("auth is disabled")
++	}
++	if auth.LastRefreshedAt.After(started) {
++		return auth, nil
++	}
++	if background {
++		candidate := auth.Clone()
++		candidate.NextRefreshAfter = time.Time{}
++		if !m.shouldRefresh(candidate, time.Now()) {
++			return auth, nil
++		}
++	}
++
+ 	// Another request may already have refreshed this credential.
+ 	if failedAccessToken != "" {
+ 		if currentToken := authAccessToken(auth); currentToken != "" && currentToken != failedAccessToken {
+ 			return auth.Clone(), nil
+ 		}
++		if hasUnauthorizedAuthFailure(auth) {
++			return nil, errors.New("credential refresh already rejected; reauthentication required")
++		}
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
+ 	}
+ 
+ 	cloned := auth.Clone()
+@@ -482,12 +563,21 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		return nil, err
+ 	}
+ 	log.Debugf("refreshed %s, %s, %v", auth.Provider, auth.ID, err)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
++	current, ok := m.GetByID(id)
++	if !ok {
++		return nil, errors.New("auth removed during refresh")
++	}
++	if !sameRefreshCredential(auth, current) {
++		return current, errors.New("credential changed during refresh; stale result discarded")
++	}
+ 	now := time.Now()
+ 	if err != nil {
+ 		unauthorized := isUnauthorizedError(err)
+ 		shouldReschedule := false
+ 		m.mu.Lock()
+-		if current := m.auths[id]; current != nil {
++		if current := m.auths[id]; current != nil && !current.Disabled && current.Status != StatusDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
+ 			current.Generation++
+ 			current.UpdatedAt = now
+ 			current.LastError = refreshErrorFromError(err)
+@@ -514,25 +604,43 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 	if updated == nil {
+ 		updated = cloned
+ 	}
+-	// Preserve runtime created by the executor during Refresh.
+-	// If executor didn't set one, fall back to the previous runtime.
+-	if updated.Runtime == nil {
+-		updated.Runtime = auth.Runtime
+-	}
+-	updated.LastRefreshedAt = now
+-	updated.NextRefreshAfter = time.Time{}
+-	updated.LastError = nil
+-	updated.StatusMessage = ""
+-	updated.Unavailable = false
+-	if updated.Status == StatusError {
+-		updated.Status = StatusActive
+-	}
+-	updated.UpdatedAt = now
+-	_ = clearUnauthorizedModelStates(updated, now)
+-	if m.shouldRefresh(updated, now) {
+-		updated.NextRefreshAfter = now.Add(refreshIneffectiveBackoff)
+-	}
+-	saved, errUpdate := m.Update(ctx, updated)
++	merged := current.Clone()
++	merged.refreshConsumedCredential = refreshCredentialFingerprint(auth)
++	if merged.Metadata == nil {
++		merged.Metadata = make(map[string]any)
++	}
++	for key, value := range updated.Metadata {
++		if !reflect.DeepEqual(value, auth.Metadata[key]) {
++			merged.Metadata[key] = value
++		}
++	}
++	if updated.Runtime != nil {
++		merged.Runtime = updated.Runtime
++	}
++	if updated.Storage != nil {
++		merged.Storage = updated.Storage
++	}
++	merged.LastRefreshedAt = now
++	merged.NextRefreshAfter = time.Time{}
++	if !merged.Disabled && merged.Status != StatusDisabled {
++		if hasUnauthorizedAuthFailure(merged) && reflect.DeepEqual(current.LastError, auth.LastError) {
++			merged.LastError = nil
++			merged.StatusMessage = ""
++			merged.Unavailable = false
++			if merged.Status == StatusError {
++				merged.Status = StatusActive
++			}
++		}
++		if reflect.DeepEqual(current.ModelStates, auth.ModelStates) {
++			_ = clearUnauthorizedModelStates(merged, now)
++		}
++	}
++	merged.UpdatedAt = now
++	if m.shouldRefresh(merged, now) {
++		merged.NextRefreshAfter = now.Add(refreshIneffectiveBackoff)
++	}
++	updated = merged
++	saved, errUpdate := m.persistRefreshedAuth(ctx, updated)
+ 	targetAuth := saved
+ 	if targetAuth == nil {
+ 		targetAuth = updated
+@@ -549,7 +657,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		registry.GetGlobalRegistry().ApplyClientModelProjections(id, regEpoch, targetAuth.Generation, projections)
+ 	}
+ 	if errUpdate != nil {
+-		log.Debugf("persist refreshed auth %s (%s) failed: %v", auth.Provider, auth.ID, errUpdate)
++		return saved, errUpdate
+ 	}
+ 	if saved != nil {
+ 		return saved, nil
+diff --git a/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go b/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
+index 8ccae636a530e61e81bb6f0f87570d13e3e1907c..cac139d7c05fe4e648d6108121e38356c0bbd577 100644
+--- a/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
++++ b/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
+@@ -56,7 +56,8 @@ func TestManager_RefreshAuthUnauthorizedFailureStopsAutoRefreshRetry(t *testing.
+ 		ID:       "unauthorized-refresh",
+ 		Provider: "codex",
+ 		Metadata: map[string]any{
+-			"email": "x@example.com",
++			"email":                    "x@example.com",
++			"refresh_interval_seconds": 60,
+ 		},
+ 	}
+ 	if _, errRegister := manager.Register(ctx, auth); errRegister != nil {
+diff --git a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
+index 37451925076ee1e16b5a79f92f5d597f51b3190f..155a00f5d885fcbdfd004c903c4370a07b1a90a8 100644
+--- a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
++++ b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
+@@ -2,9 +2,11 @@ package auth
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"net/http"
+ 	"sync"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+ 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+@@ -334,3 +336,319 @@ func TestManager_Execute_UnauthorizedRefreshThenRetryStillFailsFallsBackOnce(t *
+ 		t.Fatalf("Execute calls = %v, want [primary, primary, backup]", got)
+ 	}
+ }
++
++type refreshPersistenceStore struct {
++	fail   bool
++	stored *Auth
++}
++
++func (s *refreshPersistenceStore) List(context.Context) ([]*Auth, error) { return nil, nil }
++func (s *refreshPersistenceStore) Delete(context.Context, string) error  { return nil }
++func (s *refreshPersistenceStore) Save(ctx context.Context, a *Auth) (string, error) {
++	if ctx.Err() != nil {
++		return "", ctx.Err()
++	}
++	if s.fail {
++		return "", errors.New("synthetic secret must not appear")
++	}
++	s.stored = a.Clone()
++	return a.ID, nil
++}
++
++type refreshPersistenceExecutor struct {
++	ProviderExecutor
++	calls   int
++	during  func()
++	failure error
++}
++
++func (e *refreshPersistenceExecutor) Identifier() string { return "synthetic-refresh" }
++func (e *refreshPersistenceExecutor) Refresh(ctx context.Context, a *Auth) (*Auth, error) {
++	e.calls++
++	if e.during != nil {
++		e.during()
++	}
++	if e.failure != nil {
++		return nil, e.failure
++	}
++	a.Metadata["access_token"] = "synthetic-new-access"
++	a.Metadata["refresh_token"] = "synthetic-new-refresh"
++	a.Metadata["expired"] = time.Now().Add(time.Hour).Format(time.RFC3339)
++	return a, nil
++}
++func newRefreshPersistenceFixture(t *testing.T) (*Manager, *refreshPersistenceStore, *refreshPersistenceExecutor, *Auth) {
++	t.Helper()
++	setRefreshLeadFactory(t, "synthetic-refresh", func() *time.Duration { lead := 10 * time.Minute; return &lead })
++	store := &refreshPersistenceStore{}
++	exec := &refreshPersistenceExecutor{}
++	manager := NewManager(store, nil, nil)
++	manager.RegisterExecutor(exec)
++	a, err := manager.Register(context.Background(), &Auth{ID: "synthetic-auth", Provider: exec.Identifier(), Status: StatusActive, Metadata: map[string]any{"access_token": "synthetic-old-access", "refresh_token": "synthetic-old-refresh"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return manager, store, exec, a
++}
++func TestRefreshPersistenceRetriesSaveOnly(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	rotated, err := m.RefreshAuth(context.Background(), a.ID)
++	if err == nil {
++		t.Error("save failure hidden")
++	}
++	if err != nil && err.Error() != "refreshed credentials retained in memory; persistence pending" {
++		t.Errorf("unsafe/unclassified storage error: %v", err)
++	}
++	current, _ := m.GetByID(a.ID)
++	if rotated == nil || current.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Fatal("rotated pair lost")
++	}
++	if hasUnauthorizedAuthFailure(current) {
++		t.Fatal("storage failure marked unauthorized")
++	}
++	now := time.Now().Add(2 * refreshFailureBackoff)
++	if !m.shouldRefresh(current, now) {
++		t.Error("pending save not due")
++	}
++	next, scheduled := nextRefreshCheckAt(now, current, time.Second)
++	if !scheduled || next.After(now) {
++		t.Error("pending save unscheduled")
++	}
++	s.fail = false
++	if _, err = m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if e.calls != 1 {
++		t.Errorf("OAuth refresh repeated: %d", e.calls)
++	}
++	if s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Error("latest pair not saved")
++	}
++}
++func TestRefreshPersistenceSurvivesCallerCancellation(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	e.during = cancel
++	if _, err := m.RefreshAuth(ctx, a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Fatal("completed rotation lost on caller cancellation")
++	}
++}
++func TestRefreshPersistenceConcurrentChange(t *testing.T) {
++	for _, change := range []string{"import", "disable", "remove", "reregister", "quota"} {
++		for _, failure := range []bool{false, true} {
++			name := change + map[bool]string{false: "_success", true: "_error"}[failure]
++			t.Run(name, func(t *testing.T) {
++				m, s, e, a := newRefreshPersistenceFixture(t)
++				if failure {
++					e.failure = &Error{HTTPStatus: 401, Code: "unauthorized", Message: "synthetic invalid"}
++				}
++				e.during = func() {
++					current, _ := m.GetByID(a.ID)
++					switch change {
++					case "import":
++						current.Metadata["access_token"] = "synthetic-imported"
++						current.Metadata["refresh_token"] = "synthetic-imported-refresh"
++					case "disable":
++						current.Disabled = true
++						current.Status = StatusDisabled
++					case "remove":
++						m.Remove(context.Background(), a.ID)
++						return
++					case "reregister":
++						m.Remove(context.Background(), a.ID)
++						_, err := m.Register(context.Background(), current)
++						if err != nil {
++							t.Fatal(err)
++						}
++						return
++					case "quota":
++						current.Quota = QuotaState{Exceeded: true, Reason: "credential_quota", NextRecoverAt: time.Now().Add(time.Hour)}
++						current.Unavailable = true
++						current.Status = StatusError
++						current.LastError = &Error{HTTPStatus: 429, Code: "quota"}
++					}
++					if _, err := m.Update(context.Background(), current); err != nil {
++						t.Fatal(err)
++					}
++				}
++				_, _ = m.RefreshAuth(context.Background(), a.ID)
++				current, exists := m.GetByID(a.ID)
++				if change == "remove" {
++					if exists {
++						t.Fatal("removed auth resurrected")
++					}
++					return
++				}
++				if !exists {
++					t.Fatal("auth lost")
++				}
++				switch change {
++				case "import":
++					if current.Metadata["access_token"] != "synthetic-imported" || s.stored.Metadata["refresh_token"] != "synthetic-imported-refresh" || hasUnauthorizedAuthFailure(current) {
++						t.Fatal("stale refresh overwrote import")
++					}
++				case "reregister":
++					if current.Metadata["access_token"] != "synthetic-old-access" || hasUnauthorizedAuthFailure(current) {
++						t.Fatal("stale refresh crossed registration epoch")
++					}
++				case "disable":
++					if !current.Disabled || current.Status != StatusDisabled {
++						t.Fatal("manual disable lost")
++					}
++					if !failure && s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++						t.Fatal("disabled auth lost rotated pair")
++					}
++				case "quota":
++					if !current.Quota.Exceeded || !current.Unavailable || current.LastError == nil || current.LastError.HTTPStatus != 429 {
++						t.Fatal("concurrent quota state lost")
++					}
++				}
++			})
++		}
++	}
++}
++func TestRefreshPersistenceUpdateReportsFailure(t *testing.T) {
++	m, s, _, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	if _, err := m.Update(context.Background(), a); err == nil {
++		t.Fatal("Update swallowed persistence failure")
++	}
++}
++
++func TestRefreshPersistenceWatcherDoesNotAcknowledgePendingSave(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	current, _ := m.GetByID(a.ID)
++	if _, err := m.Update(WithSkipPersist(context.Background()), current); err != nil {
++		t.Fatal(err)
++	}
++	s.fail = false
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if e.calls != 1 {
++		t.Fatal("watcher acknowledged a save that never happened")
++	}
++}
++func TestRefreshPersistenceQueuedBackgroundRechecksFreshness(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	m.refreshAuth(context.Background(), a.ID)
++	if e.calls != 1 {
++		t.Fatal("queued background job refreshed already-fresh credential")
++	}
++}
++func TestRefreshPersistenceRequestCanUseUnsavedPair(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	next, retry := m.tryRefreshAfterUnauthorized(context.Background(), a, &Error{HTTPStatus: 401}, false)
++	if !retry || next == nil || authAccessToken(next) != "synthetic-new-access" || e.calls != 1 {
++		t.Fatal("storage failure discarded usable request credential")
++	}
++}
++func TestRefreshPersistencePendingSavePreservesNewUnauthorized(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	current, _ := m.GetByID(a.ID)
++	current.LastError = &Error{HTTPStatus: 401, Code: "unauthorized"}
++	current.Unavailable = true
++	current.Status = StatusError
++	_, _ = m.Update(context.Background(), current)
++	s.fail = false
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	current, _ = m.GetByID(a.ID)
++	if !hasUnauthorizedAuthFailure(current) || !current.Unavailable || e.calls != 1 {
++		t.Fatal("saving credentials cleared genuine upstream failure")
++	}
++}
++
++func TestRefreshPersistenceStaleWatcherCannotRestoreConsumedPair(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	_, _ = m.Update(WithSkipPersist(context.Background()), a.Clone())
++	current, _ := m.GetByID(a.ID)
++	if authAccessToken(current) != "synthetic-new-access" {
++		t.Fatal("stale watcher restored consumed pair")
++	}
++	s.fail = false
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if e.calls != 1 || s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Fatal("stale watcher broke persistence retry")
++	}
++}
++func TestRefreshPersistenceOverlappingEntrypoints(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	entered, release := make(chan struct{}), make(chan struct{})
++	e.during = func() { close(entered); <-release }
++	finished := make(chan error, 9)
++	go func() { _, err := m.RefreshAuth(context.Background(), a.ID); finished <- err }()
++	<-entered
++	for i := 0; i < 4; i++ {
++		go func() {
++			_, err := m.RefreshAuthAfterUnauthorized(context.Background(), a.ID, "synthetic-old-access")
++			finished <- err
++		}()
++		go func() { m.refreshAuth(context.Background(), a.ID); finished <- nil }()
++	}
++	close(release)
++	for i := 0; i < 9; i++ {
++		if err := <-finished; err != nil {
++			t.Fatal(err)
++		}
++	}
++	if e.calls != 1 {
++		t.Fatalf("overlapping entrypoints rotated %d times", e.calls)
++	}
++}
++
++func TestRefreshPersistenceFailedRequestDoesNotRetryInvalidRefresh(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	e.failure = &Error{HTTPStatus: 401, Code: "unauthorized", Message: "synthetic invalid refresh"}
++	for i := 0; i < 2; i++ {
++		if _, err := m.RefreshAuthAfterUnauthorized(context.Background(), a.ID, "synthetic-old-access"); err == nil {
++			t.Fatal("invalid refresh accepted")
++		}
++	}
++	if e.calls != 1 {
++		t.Fatalf("invalid refresh retried by stale request: %d", e.calls)
++	}
++}
++
++func TestRefreshPersistenceCommitPreservesNewerRequestState(t *testing.T) {
++	m, _, _, a := newRefreshPersistenceFixture(t)
++	rotated := a.Clone()
++	rotated.Metadata["access_token"] = "synthetic-new-access"
++	rotated.refreshSavePending = true
++	latest, _ := m.GetByID(a.ID)
++	latest.Status = StatusError
++	latest.StatusMessage = "quota"
++	latest.Unavailable = true
++	latest.LastError = &Error{HTTPStatus: 429, Code: "quota"}
++	latest.ModelStates = map[string]*ModelState{"other": {Status: StatusError, Unavailable: true, LastError: &Error{HTTPStatus: 429, Code: "quota"}, NextRetryAfter: time.Now().Add(time.Hour)}}
++	if _, err := m.Update(context.Background(), latest); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := m.Update(context.Background(), rotated); err != nil {
++		t.Fatal(err)
++	}
++	current, _ := m.GetByID(a.ID)
++	if current.LastError == nil || current.LastError.HTTPStatus != 429 || current.Status != StatusError || !current.Unavailable {
++		t.Fatal("refresh commit overwrote newer request state")
++	}
++	if authAccessToken(current) != "synthetic-new-access" {
++		t.Fatal("state merge discarded rotation")
++	}
++}
 diff --git a/sdk/cliproxy/auth/error_scope.go b/sdk/cliproxy/auth/error_scope.go
 new file mode 100644
 index 0000000000000000000000000000000000000000..eafe8d812f7ff5331bf1a06f6d11cbe414088d3f
@@ -2152,3 +2961,20 @@ index 0000000000000000000000000000000000000000..89e3a3ca53919862b4b9436c7247c295
 +	}
 +	return m, e
 +}
+diff --git a/sdk/cliproxy/auth/types.go b/sdk/cliproxy/auth/types.go
+index 3bfcd3d16b3673acb78ac1cdd73550fd0ed25a62..13e9f37a2e19868119319a567ee053d82c765a49 100644
+--- a/sdk/cliproxy/auth/types.go
++++ b/sdk/cliproxy/auth/types.go
+@@ -100,8 +100,10 @@ type Auth struct {
+ 	Success int64 `json:"-"`
+ 	Failed  int64 `json:"-"`
+ 
+-	recentRequests recentRequestRing `json:"-"`
+-	indexAssigned  bool              `json:"-"`
++	refreshSavePending        bool
++	refreshConsumedCredential string
++	recentRequests            recentRequestRing `json:"-"`
++	indexAssigned             bool              `json:"-"`
+ }
+ 
+ const (

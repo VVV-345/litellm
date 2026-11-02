@@ -40,6 +40,20 @@ go test ./sdk/cliproxy/auth ./internal/api/handlers/management ./internal/api -r
 
 新能力需要发布配套镜像并按下文受控流程更新目标卡之后才生效。发布架构仍由现有工作流参数选择，未固定为单架构；本地 commit 不会发布、部署或再消费线上重置券
 
+## OAuth 续期保存保护
+
+继续使用 CPA 原有临期刷新调度，不新增 Manager/LiteLLM 定时器，也不修改默认提前量。自动刷新、显式刷新和 401 恢复共用单认证锁；等待期间重新检查凭据，管理接口携带失败请求使用的 Token，避免旧请求再次轮换
+
+刷新成功但保存失败会返回 `refreshed credentials retained in memory; persistence pending`，保留运行中已轮换的凭据。原调度器按现有失败退避补保存，也可由刷新入口补保存，不再次调用 OAuth。调用方在轮换完成后取消，不会取消随后的 15 秒保存上下文。文件保存使用同目录临时文件、同步和替换，写入失败不截断旧文件
+
+新导入、重新注册或删除不会被旧刷新结果覆盖；并发停用保留停用状态和已轮换凭据，其他模型额度与新的认证错误不因补保存被清除。热加载旧文件不会把刚消费过的凭据写回内存。以上协调限于单 CPA 进程，同一认证文件必须只有一个续期写入者，不能同时让商家、其他实例或另一套工具刷新同一份令牌
+
+这不能恢复 `refresh_token_reused` 的旧令牌，也不保证永久续期。所有持久化都失败时，如果进程退出，内存里的新令牌仍可能丢失。修复需要发布并受控更新目标卡的 CPA 镜像后才生效，不能以本地模拟测试代替新有效凭据的真实验收
+
+```sh
+go test ./sdk/auth ./sdk/cliproxy/auth ./internal/api/handlers/management -run 'Test(FileTokenStoreAtomic|RefreshPersistence|ExecuteAPICallReusesRefresh)' -count=1
+```
+
 ## 受控单卡更新
 
 先按 `deploy/UPDATE_RUNBOOK.md` 备份数据库、该卡 Compose 和完整认证卷，记录旧镜像 digest 与容器运行状态。在页面停用目标卡，等配置同步完成、在途请求结束。从已成功发布的配套清单选取 CLIProxyAPI 组件 digest，不能用其他组件、移动标签或未经验证的镜像
