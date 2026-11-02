@@ -221,13 +221,13 @@ class EnvironmentSettingsSync:
             return ""
         stored_proxy_url: Final = configured_proxy_url(snapshot)
         if stored_proxy_url:
-            return validate_proxy_profile_url(stored_proxy_url)
+            return validate_proxy_profile_url(stored_proxy_url, profile_id=snapshot.proxy_profile_id)
         if snapshot.proxy_profile_id is None:
             raise ValueError("proxy profile is missing during settings rollback")
         profile_url: Final = await self._proxy_profiles.get_url(snapshot.proxy_profile_id)
         if profile_url is None:
             raise ValueError("proxy profile is unavailable during settings rollback")
-        return validate_proxy_profile_url(profile_url)
+        return validate_proxy_profile_url(profile_url, profile_id=snapshot.proxy_profile_id)
 
     async def set_policy_runtime_status(
         self,

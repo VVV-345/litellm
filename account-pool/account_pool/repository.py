@@ -11,9 +11,11 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 
 from account_pool.domain import EnvironmentRecord, ProxyProfile
+from account_pool.environment_proxy_storage import transform_proxy_storage
+from account_pool.shared.secrets import StateCipher
 
 _RECORD_ADAPTER: Final = TypeAdapter(EnvironmentRecord)
 
@@ -62,8 +64,15 @@ async def database_connection(database_url: str) -> AsyncGenerator[psycopg.Async
 
 
 class PostgresEnvironmentRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, *, proxy_cipher: StateCipher | None = None) -> None:
         self._database_url: Final = database_url
+        self._proxy_cipher: Final = proxy_cipher
+
+    def _encode(self, record: EnvironmentRecord) -> dict[str, JsonValue]:
+        return transform_proxy_storage(record, self._proxy_cipher, encrypt=True).model_dump(mode="json")
+
+    def _decode(self, payload: object) -> EnvironmentRecord:
+        return transform_proxy_storage(_RECORD_ADAPTER.validate_python(payload), self._proxy_cipher, encrypt=False)
 
     async def initialize(self) -> None:
         async with database_connection(self._database_url) as connection:
@@ -74,7 +83,7 @@ class PostgresEnvironmentRepository:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute("SELECT payload FROM account_pool_environments")
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
-        records: Final = tuple(_RECORD_ADAPTER.validate_python(row["payload"]) for row in rows)
+        records: Final = tuple(self._decode(row["payload"]) for row in rows)
         return tuple(sorted(records, key=lambda record: (record.created_at, record.id.int)))
 
     async def get(self, environment_id: UUID) -> EnvironmentRecord | None:
@@ -84,7 +93,7 @@ class PostgresEnvironmentRepository:
                 (environment_id,),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
     async def find_by_oauth_state(self, state: str) -> EnvironmentRecord | None:
         async with database_connection(self._database_url) as connection:
@@ -93,7 +102,7 @@ class PostgresEnvironmentRepository:
                 (state,),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
     async def find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
         async with database_connection(self._database_url) as connection:
@@ -102,10 +111,10 @@ class PostgresEnvironmentRepository:
                 (operation_id,),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        payload: Final = record.model_dump(mode="json")
+        payload: Final = self._encode(record)
         async with database_connection(self._database_url) as connection:
             await connection.execute(
                 """
@@ -152,7 +161,7 @@ class PostgresEnvironmentRepository:
         record: EnvironmentRecord,
         expected_version: int,
     ) -> EnvironmentRecord | None:
-        payload: Final = record.model_dump(mode="json")
+        payload: Final = self._encode(record)
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 """
@@ -221,7 +230,7 @@ class PostgresEnvironmentRepository:
                 (consumed_at, consumed_at, consumed_at, state, consumed_at),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
 
 async def _delete_environment(

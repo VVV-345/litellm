@@ -23,6 +23,7 @@ from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
+from account_pool.direct_isp_profiles import DirectISPProxyProfiles
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
 from account_pool.feedback import FeedbackService
@@ -53,7 +54,7 @@ from account_pool.repository import (
 )
 from account_pool.service import EnvironmentService
 from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
-from account_pool.shared.secrets import EnvironmentSecretDeriver
+from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -61,7 +62,8 @@ _LOGGER: Final = logging.getLogger(__name__)
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved: Final = settings or Settings()  # pyright: ignore[reportCallIssue]  # values come from environment
-    environments: Final = PostgresEnvironmentRepository(resolved.database_url)
+    secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
+    environments: Final = PostgresEnvironmentRepository(resolved.database_url, proxy_cipher=StateCipher(secrets))
     profiles: Final = PostgresProxyProfileRepository(resolved.database_url)
     keys: Final = CardKeyService(PostgresCardKeyRepository(resolved.database_url))
     policies: Final = PostgresPolicyRepository(resolved.database_url)
@@ -77,7 +79,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
-    secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
     proxy_catalog_repository: Final = PostgresProxyCatalogRepository(
         resolved.database_url, ProxyCatalogCipher(secrets)
     )
@@ -106,7 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         repository=environments,
         runtime=runtime,
         cli_proxy=cli_proxy,
-        proxy_profiles=profiles,
+        proxy_profiles=DirectISPProxyProfiles(profiles, proxy_catalog_repository),
         secrets=secrets,
         channels=channels,
         proxy_gateways=proxy_gateways,
@@ -255,6 +256,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ownership,
                 model_cooldowns=cooldown_client.read_model_cooldowns,
                 on_quota_exhausted=quota_trigger.submit,
+                proxy_available=service.proxy_available,
             ),
             batch_service=batch_service,
             onboarding_service=onboarding_service,

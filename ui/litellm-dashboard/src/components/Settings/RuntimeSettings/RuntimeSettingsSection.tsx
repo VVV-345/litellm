@@ -2,6 +2,7 @@
 
 "use client";
 
+import { proxyProfileLabel } from "@/features/account-pool/utils/AccountPoolProxyOptions";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -466,7 +467,7 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
           value={current.default_proxy_profile_id ?? "default"}
           items={[
             { value: "default", label: t("accountPool.config.defaultGateway") },
-            ...(profilesQuery.data ?? []).map((profile) => ({ value: profile.id, label: profile.name })),
+            ...(profilesQuery.data ?? []).map((profile) => ({ value: profile.id, label: proxyProfileLabel(profile) })),
           ]}
           disabled={disabled}
           onValueChange={(profileId) =>
@@ -481,7 +482,7 @@ export const RuntimeSettingsSection = ({ accessToken, environments, category }: 
             <SelectItem value="default">{t("accountPool.config.defaultGateway")}</SelectItem>
             {(profilesQuery.data ?? []).map((profile) => (
               <SelectItem key={profile.id} value={profile.id}>
-                {profile.name}
+                {proxyProfileLabel(profile)}
               </SelectItem>
             ))}
           </SelectContent>

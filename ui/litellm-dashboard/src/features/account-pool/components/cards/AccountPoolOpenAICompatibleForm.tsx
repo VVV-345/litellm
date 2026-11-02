@@ -1,5 +1,6 @@
 /** 本文件创建 OpenAI 兼容号池卡片及单 API Key 凭据，明文只在提交请求期间存在于浏览器内存。 */
 
+import { proxyProfileLabel } from "@/features/account-pool/utils/AccountPoolProxyOptions";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -153,7 +154,7 @@ export const AccountPoolOpenAICompatibleForm = ({
             <Select
               items={[
                 { value: "default", label: t("accountPool.providers.openaiCompatible.defaultProxy") },
-                ...proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name })),
+                ...proxyProfiles.map((profile) => ({ value: profile.id, label: proxyProfileLabel(profile) })),
               ]}
               value={item.proxy_profile_id || "default"}
               onValueChange={(value) => updateKey(index, "proxy_profile_id", value === "default" ? "" : value ?? "")}
@@ -165,7 +166,7 @@ export const AccountPoolOpenAICompatibleForm = ({
                 <SelectItem value="default">{t("accountPool.providers.openaiCompatible.defaultProxy")}</SelectItem>
                 {proxyProfiles.map((profile) => (
                   <SelectItem key={profile.id} value={profile.id}>
-                    {profile.name}
+                    {proxyProfileLabel(profile)}
                   </SelectItem>
                 ))}
               </SelectContent>

@@ -286,7 +286,7 @@ class EnvironmentConfigurationOperations:
         if profile_url is None:
             return Failure(FailureCode.INVALID, "proxy profile is unavailable")
         try:
-            validated_url: Final = validate_proxy_profile_url(profile_url)
+            validated_url: Final = validate_proxy_profile_url(profile_url, profile_id=request.proxy_profile_id)
         except ValueError:
             return Failure(FailureCode.INVALID, "proxy profile URL is invalid")
         return Success(validated_url)

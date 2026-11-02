@@ -19,7 +19,7 @@ from account_pool.application.environments.contracts import (
     RefreshIfNeededOperation,
     WaitForDirectCredentialOperation,
 )
-from account_pool.config import validate_proxy_profile_url
+from account_pool.config import direct_isp_id, validate_proxy_profile_url
 from account_pool.credential_import import normalize_auth_file
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
 from account_pool.domain import (
@@ -296,6 +296,8 @@ class EnvironmentAuthFiles:
             profile_id: Final = fields.get("proxy_profile_id")
             if "proxy_profile_id" in fields and (not isinstance(profile_id, str) or "proxy_url" in fields):
                 return Failure(FailureCode.INVALID, "select one proxy profile only")
+            if isinstance(profile_id, str) and direct_isp_id(profile_id) is not None:
+                return Failure(FailureCode.INVALID, "请在卡片配置中选择 ISP 出站代理，认证文件使用沿用卡片代理")
             selected_url: Final = (
                 await self._proxy_profiles.get_url(profile_id) if isinstance(profile_id, str) and profile_id else ""
             )

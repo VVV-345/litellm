@@ -12,7 +12,7 @@ const cards = [{ proxy_profile_id: "p1" }, { proxy_profile_id: "p2" }, { proxy_p
 describe("proxyOptionLabel", () => {
   it("shows explicit port, default marker and counts cards sharing a node across ports", () => {
     expect(proxyOptionLabel({ id: "p1", name: "主出口" }, gateways, cards, "p1"))
-      .toBe("号池默认出站代理 · 主出口 · 端口 7891 · 节点：日本02 · 同节点 2 张卡片");
+      .toBe("号池默认出站代理 · 出站代理 · 主出口 · 端口 7891 · 节点：日本02 · 同节点 2 张卡片");
   });
   it("does not guess missing nodes or missing card statistics", () => {
     expect(proxyOptionLabel({ id: "p1", name: "主出口" }, [{ ...gateways[0], current_node: null }], cards))
@@ -25,6 +25,12 @@ describe("proxyOptionLabel", () => {
     expect(proxyOptionLabel({ id: "p1", name: "主出口" }, isps, cards)).toContain("同节点 3 张卡片");
   });
   it("keeps custom proxy names without inventing a gateway node", () => {
-    expect(proxyOptionLabel({ id: "custom", name: "Proxy US" }, gateways, cards)).toBe("Proxy US");
+    expect(proxyOptionLabel({ id: "custom", name: "Proxy US" }, gateways, cards)).toBe("出站代理 · Proxy US");
+  });
+  it("distinguishes direct ISP exits and counts cards using the same ISP through a gateway", () => {
+    const id = "isp-direct-d33cb1de-9247-432a-a827-7503ab1c9f95";
+    const ispGateway = [{ ...gateways[0], isp_profile_id: id.slice("isp-direct-".length) }];
+    expect(proxyOptionLabel({ id, name: "住宅线路" }, ispGateway, [{ proxy_profile_id: id }, cards[0]]))
+      .toBe("ISP 出站代理 · 住宅线路 · 同节点 2 张卡片");
   });
 });

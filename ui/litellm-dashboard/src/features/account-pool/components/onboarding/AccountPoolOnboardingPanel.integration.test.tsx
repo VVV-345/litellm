@@ -80,7 +80,7 @@ describe("onboarding workflows", () => {
     const input = await screen.findByLabelText("认证 JSON 文件（可多选）");
     await waitFor(() => expect(input).toBeEnabled());
     await user.click(screen.getByRole("combobox", { name: "认证文件出站代理" }));
-    await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+    await user.click(await screen.findByRole("option", { name: "出站代理 · Proxy US" }));
     const content = "fixture@example.test----password----JBSWY3DPEHPK3PXP";
     const file = new File([content], "accounts.txt", { type: "text/plain" });
     Object.defineProperty(file, "text", { value: async () => content });
@@ -104,7 +104,7 @@ describe("onboarding workflows", () => {
     const input = await screen.findByLabelText("认证 JSON 文件（可多选）");
     await waitFor(() => expect(input).toBeEnabled());
     await user.click(await screen.findByRole("combobox", { name: "认证文件出站代理" }));
-    await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+    await user.click(await screen.findByRole("option", { name: "出站代理 · Proxy US" }));
     const content = '{"type":"codex","refresh_token":"fixture"}';
     const file = new File([content], "account.json", { type: "application/json" });
     Object.defineProperty(file, "text", { value: async () => content });
@@ -220,7 +220,7 @@ describe("onboarding workflows", () => {
     const fileInput = await screen.findByLabelText("账号 JSON 文件");
     expect(fileInput).toBeDisabled();
     await user.click(await screen.findByRole("combobox", { name: "OAuth 出站代理" }));
-    await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+    await user.click(await screen.findByRole("option", { name: "出站代理 · Proxy US" }));
     expect(fileInput).toBeEnabled();
 
     const content = '[{"email":"account@example.com","mailbox_password":"mail-secret"}]';
@@ -275,9 +275,9 @@ describe("onboarding workflows", () => {
     await user.click(await screen.findByRole("combobox", { name: "OAuth 出站代理" }));
 
     expect(
-      await screen.findByRole("option", { name: "Clash 端口 7891 · 节点：日本02 · 同节点 2 张卡片" }),
+      await screen.findByRole("option", { name: "出站代理 · Clash 端口 7891 · 节点：日本02 · 同节点 2 张卡片" }),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("option", { name: "号池默认出站代理 · 主站代理" }));
+    await user.click(screen.getByRole("option", { name: "号池默认出站代理 · 出站代理 · 主站代理" }));
 
     const fileInput = screen.getByLabelText("账号 JSON 文件");
     const content = '[{"email":"account@example.com","mailbox_password":"mail-secret"}]';

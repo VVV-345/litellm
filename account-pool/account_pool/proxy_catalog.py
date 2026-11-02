@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from datetime import date, datetime
-from typing import Literal, cast
+from typing import Final, Literal, cast
 from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
@@ -290,3 +290,29 @@ def _line_entry(line: str, row_number: int) -> ISPProxyInput:
         )
     except (TypeError, ValueError) as error:
         raise ValueError(f"invalid proxy entry at row {row_number}") from error
+
+
+def direct_subscription_profile(profile: ISPSubscriptionNodeProfile) -> ISPProxyProfile | None:
+    config: Final = profile.config
+    allowed: Final = {"name", "type", "server", "port", "username", "password", "udp", "tls"}
+    if profile.proxy_type not in {"http", "socks5"} or set(config) - allowed:
+        return None
+    tls: Final = config.get("tls", False)
+    host: Final = config.get("server")
+    port: Final = config.get("port")
+    username: Final = config.get("username", "")
+    password: Final = config.get("password", "")
+    if (
+        type(tls) is not bool or (tls and profile.proxy_type != "http")
+        or not isinstance(host, str) or type(port) is not int
+        or not isinstance(username, str) or not isinstance(password, str)
+    ):
+        return None
+    try:
+        return ISPProxyProfile(
+            id=profile.id, name=profile.name,
+            protocol="https" if tls else "http" if profile.proxy_type == "http" else "socks5",
+            host=host, port=port, username=username, password=password, enabled=profile.enabled,
+        )
+    except ValueError:
+        return None

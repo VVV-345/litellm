@@ -41,4 +41,4 @@ def redact_urls(message: str) -> str:
         except ValueError:
             return "[redacted-url]"
 
-    return re.sub(r"https?://[^\s\]\[)>,;]+", replace, message)
+    return re.sub(r"(?:https?|socks5h?)://[^\s\]\[)>,;]+", replace, message, flags=re.IGNORECASE)
