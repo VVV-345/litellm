@@ -1540,6 +1540,170 @@ index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb
  }
  
  // addConfigHeadersToAttrs adds header configuration to auth attributes.
+diff --git a/sdk/auth/filestore.go b/sdk/auth/filestore.go
+index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..d782c6b83e302caf76f876ca657402b1dd9e6bd1 100644
+--- a/sdk/auth/filestore.go
++++ b/sdk/auth/filestore.go
+@@ -117,7 +117,7 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
+ 		if setter, ok := auth.Storage.(metadataSetter); ok {
+ 			setter.SetMetadata(auth.Metadata)
+ 		}
+-		if err = auth.Storage.SaveTokenToFile(path); err != nil {
++		if err = atomicTokenSave(path, auth.Storage.SaveTokenToFile); err != nil {
+ 			return "", err
+ 		}
+ 	case auth.Metadata != nil:
+@@ -130,22 +130,10 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
+ 			if jsonEqual(existing, raw) {
+ 				break
+ 			}
+-			file, errOpen := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
+-			if errOpen != nil {
+-				return "", fmt.Errorf("auth filestore: open existing failed: %w", errOpen)
+-			}
+-			if _, errWrite := file.Write(raw); errWrite != nil {
+-				_ = file.Close()
+-				return "", fmt.Errorf("auth filestore: write existing failed: %w", errWrite)
+-			}
+-			if errClose := file.Close(); errClose != nil {
+-				return "", fmt.Errorf("auth filestore: close existing failed: %w", errClose)
+-			}
+-			break
+ 		} else if !os.IsNotExist(errRead) {
+ 			return "", fmt.Errorf("auth filestore: read existing failed: %w", errRead)
+ 		}
+-		if errWrite := os.WriteFile(path, raw, 0o600); errWrite != nil {
++		if errWrite := atomicTokenSave(path, func(stage string) error { return os.WriteFile(stage, raw, 0o600) }); errWrite != nil {
+ 			return "", fmt.Errorf("auth filestore: write file failed: %w", errWrite)
+ 		}
+ 	default:
+@@ -166,6 +154,37 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
+ 	return path, nil
+ }
+ 
++func atomicTokenSave(path string, write func(string) error) error {
++	stage, err := os.CreateTemp(filepath.Dir(path), ".auth-save-*")
++	if err != nil {
++		return err
++	}
++	name := stage.Name()
++	defer func() { _ = os.Remove(name) }()
++	if err = stage.Close(); err != nil {
++		return err
++	}
++	if err = write(name); err != nil {
++		return err
++	}
++	file, err := os.OpenFile(name, os.O_RDWR, 0o600)
++	if err != nil {
++		return err
++	}
++	if err = file.Chmod(0o600); err != nil {
++		_ = file.Close()
++		return err
++	}
++	if err = file.Sync(); err != nil {
++		_ = file.Close()
++		return err
++	}
++	if err = file.Close(); err != nil {
++		return err
++	}
++	return os.Rename(name, path)
++}
++
+ // List enumerates all auth JSON files under the configured directory.
+ func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error) {
+ 	dir := s.baseDirSnapshot()
+diff --git a/sdk/auth/filestore_test.go b/sdk/auth/filestore_test.go
+index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..ca97d8e7e5c00f479db773eb9089a8900b977555 100644
+--- a/sdk/auth/filestore_test.go
++++ b/sdk/auth/filestore_test.go
+@@ -2,14 +2,84 @@ package auth
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
++
+ 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+ 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+ )
+ 
++type partialTokenStorage struct{}
++
++func (partialTokenStorage) SaveTokenToFile(path string) error {
++	if err := os.WriteFile(path, []byte(`{"partial":`), 0o600); err != nil {
++		return err
++	}
++	return errors.New("synthetic write failure")
++}
++
++func TestFileTokenStoreAtomicFailurePreservesOriginal(t *testing.T) {
++	for _, storage := range []bool{false, true} {
++		t.Run(map[bool]string{false: "partial_write", true: "codex_serialization"}[storage], func(t *testing.T) {
++			dir := t.TempDir()
++			path := filepath.Join(dir, "auth.json")
++			original := `{"type":"codex","refresh_token":"synthetic-old"}`
++			if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
++				t.Fatal(err)
++			}
++			s := NewFileTokenStore()
++			s.SetBaseDir(dir)
++			a := &cliproxyauth.Auth{ID: "auth.json", Metadata: map[string]any{}, Storage: partialTokenStorage{}}
++			if storage {
++				a.Storage = &codex.CodexTokenStorage{RefreshToken: "synthetic-new"}
++				a.Metadata["bad"] = make(chan int)
++			}
++			if _, err := s.Save(context.Background(), a); err == nil {
++				t.Fatal("expected save failure")
++			}
++			got, err := os.ReadFile(path)
++			if err != nil || string(got) != original {
++				t.Fatalf("original file damaged: %q, %v", got, err)
++			}
++			files, err := os.ReadDir(dir)
++			if err != nil || len(files) != 1 {
++				t.Fatalf("staging file leaked: %v", err)
++			}
++		})
++	}
++}
++
++func TestFileTokenStoreAtomicSaveReloadsLatest(t *testing.T) {
++	for _, storage := range []bool{false, true} {
++		t.Run(map[bool]string{false: "metadata", true: "storage"}[storage], func(t *testing.T) {
++			dir := t.TempDir()
++			s := NewFileTokenStore()
++			s.SetBaseDir(dir)
++			a := &cliproxyauth.Auth{ID: "auth.json", Metadata: map[string]any{"type": "codex", "refresh_token": "synthetic-old"}}
++			if _, err := s.Save(context.Background(), a); err != nil {
++				t.Fatal(err)
++			}
++			a.Metadata["refresh_token"] = "synthetic-new"
++			if storage {
++				a.Storage = &codex.CodexTokenStorage{RefreshToken: "synthetic-new"}
++			}
++			if _, err := s.Save(context.Background(), a); err != nil {
++				t.Fatal(err)
++			}
++			restarted := NewFileTokenStore()
++			restarted.SetBaseDir(dir)
++			loaded, err := restarted.List(context.Background())
++			if err != nil || len(loaded) != 1 || loaded[0].Metadata["refresh_token"] != "synthetic-new" {
++				t.Fatalf("latest pair not restart-readable: %v", err)
++			}
++		})
++	}
++}
++
+ func TestExtractAccessToken(t *testing.T) {
+ 	t.Parallel()
+ 
 diff --git a/sdk/cliproxy/auth/error_scope.go b/sdk/cliproxy/auth/error_scope.go
 new file mode 100644
 index 0000000000000000000000000000000000000000..eafe8d812f7ff5331bf1a06f6d11cbe414088d3f
