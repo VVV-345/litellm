@@ -114,6 +114,12 @@ class _APICallResponse(BaseModel):
     body: str
 
 
+# 新适配器使用公开协议名，保留历史私有导入以兼容既有调用方。
+AuthFile = _AuthFile
+AuthFilesResponse = _AuthFilesResponse
+APICallResponse = _APICallResponse
+
+
 class _UpstreamError(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 

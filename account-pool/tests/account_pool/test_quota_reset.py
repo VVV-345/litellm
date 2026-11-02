@@ -1,12 +1,14 @@
 """覆盖单卡兑换事务的持久身份、并发隔离及不明确结果，不连接真实供应商。"""
 
 import asyncio
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.quota_reset import QuotaResetService
-from account_pool.quota_reset_models import ResetObservation, ResetReply
+from account_pool.domain import EnvironmentStatus, ModelCooldown, QuotaSnapshot, QuotaWindow, utc_now
+from account_pool.quota_reset import QuotaResetService, recovered_record
+from account_pool.quota_reset_models import ResetObservation, ResetReply, ResetVerification
 from test_cliproxy_supplier_client import _record
 
 
@@ -34,6 +36,12 @@ class Environments:
     async def get(self, environment_id):
         return self.record if self.record.id == environment_id else None
 
+    async def restore_verified(self, record, model, quota):
+        if self.record != record:
+            return False
+        self.record = recovered_record(record, model, quota)
+        return True
+
 
 class Upstream:
     def __init__(self):
@@ -41,6 +49,8 @@ class Upstream:
         self.calls = []
         self.reply = ResetReply(code="reset", windows_reset=1)
         self.timeout = False
+        self.verification = ResetVerification(passed=True, restored=True, reason="restored")
+        self.probes = []
 
     async def observe(self, record):
         return self.observation
@@ -51,6 +61,10 @@ class Upstream:
         if self.timeout:
             raise TimeoutError("fixture timeout")
         return self.reply
+
+    async def verify(self, record, model, recover):
+        self.probes.append((record.id, model, recover))
+        return self.verification
 
 
 def setup_service():
@@ -132,3 +146,90 @@ async def test_crash_marker_is_durable_before_dispatch_and_binding_change_blocks
     with pytest.raises(ValueError, match="凭据"):
         await service.consume(record.id, operation.request_id)
     assert len(upstream.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_inference_failure_cannot_recover_despite_successful_quota_query():
+    service, record, _, upstream = setup_service()
+    upstream.verification = ResetVerification(passed=False, restored=False, reason="authentication_failed")
+    assert (await service.upstream.observe(record)).available == 2
+    result = await service.verify(record.id, "model-a", True)
+    assert not result.restored
+    assert service.environments.record == record
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "block",
+    [
+        {"enabled": False},
+        {"manual_cooldown": True},
+        {"configuration_pending": True},
+        {"last_error": "independent failure"},
+    ],
+)
+async def test_recovery_preserves_independent_blocks(block):
+    service, record, _, upstream = setup_service()
+    service.environments.record = record.model_copy(update=block)
+    result = await service.verify(record.id, "model-a", True)
+    assert not result.restored
+    assert upstream.probes == []
+
+
+@pytest.mark.asyncio
+async def test_verified_recovery_and_disabled_model_guard():
+    service, record, _, upstream = setup_service()
+    assert (await service.verify(record.id, "model-a", True)).restored
+    with pytest.raises(ValueError):
+        await service.verify(record.id, "unselected-model", True)
+    assert upstream.probes == [(record.id, "model-a", True)]
+
+
+@pytest.mark.asyncio
+async def test_verified_recovery_replaces_exhausted_quota_with_fresh_observation():
+    service, record, _, upstream = setup_service()
+    stale = QuotaSnapshot(windows=(QuotaWindow(name="5h", remaining_percent=0, used_percent=100, window_minutes=300),))
+    service.environments.record = record.model_copy(update={"quota": stale})
+    fresh = QuotaSnapshot(
+        observed_at=utc_now(),
+        source="provider_api",
+        windows=(QuotaWindow(name="5h", remaining_percent=99, used_percent=1, window_minutes=300),),
+    )
+    upstream.observation = upstream.observation.model_copy(update={"quota": fresh})
+    result = await service.verify(record.id, "model-a", True)
+    assert result.restored
+    assert service.environments.record.quota.windows == fresh.windows
+    assert service.environments.record.quota.observed_at == fresh.observed_at
+
+
+@pytest.mark.asyncio
+async def test_failed_quota_recheck_does_not_report_manager_recovery():
+    service, record, _, upstream = setup_service()
+
+    async def failed_observe(current):
+        raise TimeoutError("fixture quota unavailable")
+
+    upstream.observe = failed_observe
+    result = await service.verify(record.id, "model-a", True)
+    assert result.passed and not result.restored
+    assert result.reason == "quota_check_failed"
+    assert service.environments.record == record
+
+
+def test_recovery_projection_only_removes_selected_rate_limit():
+    _, record, _, _ = setup_service()
+    other = ModelCooldown(model="other", reason="rate_limit", retry_at=utc_now() + timedelta(days=1))
+    selected = ModelCooldown(model="model-a", reason="rate_limit", retry_at=utc_now() + timedelta(days=1))
+    blocked = record.model_copy(
+        update={
+            "status": EnvironmentStatus.COOLING_DOWN,
+            "automatic_cooldown": True,
+            "last_error": "上游认证失效，请重新认证",
+            "model_cooldowns": (selected, other),
+        }
+    )
+    result = recovered_record(blocked, "model-a")
+    assert result.status == EnvironmentStatus.READY
+    assert result.model_cooldowns == (other,)
+    assert result.credential_fingerprints == blocked.credential_fingerprints
+    assert not result.automatic_cooldown and result.last_error is None

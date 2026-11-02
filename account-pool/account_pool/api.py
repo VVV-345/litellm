@@ -62,6 +62,8 @@ from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_catalog import ISPProxyProfileView, ISPSubscriptionView, ProxyConfigurationProfileView
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
+from account_pool.quota_reset import QuotaResetService
+from account_pool.quota_reset_api import create_quota_reset_router
 from account_pool.quota_scheduler import (
     AuthFileRefreshStatus,
     QuotaRefreshScheduler,
@@ -317,6 +319,7 @@ def create_router(
     browser_sessions: OAuthBrowserSessionService | None = None,
     browser_runtime: OAuthBrowserRuntime | None = None,
     feedback: FeedbackService | None = None,
+    quota_reset: QuotaResetService | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -326,6 +329,9 @@ def create_router(
         supplied: Final = "" if credentials is None else credentials.credentials
         if not hmac.compare_digest(supplied, manager_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
+
+    if quota_reset is not None:
+        router.include_router(create_quota_reset_router(quota_reset, require_manager))
 
     if (
         environments is not None

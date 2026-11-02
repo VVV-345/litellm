@@ -49,3 +49,33 @@ class ConsumeResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: UUID
     confirmed: Literal[True]
+
+
+class ResetView(BaseModel):
+    request_id: UUID
+    environment_id: UUID
+    status: Literal["prepared", "uncertain", "reset", "nothing_to_reset", "no_credit", "already_redeemed"]
+    before: ResetObservation
+    after: ResetObservation | None = None
+    windows_reset: int
+    verification: Literal["not_run", "failed", "passed", "restored", "blocked"]
+    message: str | None = None
+
+
+class ResetStatus(BaseModel):
+    observation: ResetObservation | None
+    operation: ResetView | None = None
+
+
+class VerifyResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(min_length=1, max_length=100)
+    recover: bool = False
+    confirmed: Literal[True]
+
+
+class ResetVerification(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    passed: bool
+    restored: bool
+    reason: str

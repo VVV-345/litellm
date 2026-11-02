@@ -479,6 +479,53 @@ class AccountPoolClashNode(BaseModel):
     proxy_type: str
 
 
+class AccountPoolResetObservation(BaseModel):
+    available: int
+    credit_id: str | None = None
+    eligible: bool
+    quota: AccountPoolQuotaSnapshot
+
+
+class AccountPoolResetOperation(BaseModel):
+    request_id: UUID
+    environment_id: UUID
+    status: Literal["prepared", "uncertain", "reset", "nothing_to_reset", "no_credit", "already_redeemed"]
+    before: AccountPoolResetObservation
+    after: AccountPoolResetObservation | None = None
+    windows_reset: int
+    verification: Literal["not_run", "failed", "passed", "restored", "blocked"]
+    message: str | None = None
+
+
+class AccountPoolResetStatus(BaseModel):
+    observation: AccountPoolResetObservation | None
+    operation: AccountPoolResetOperation | None = None
+
+
+class AccountPoolPrepareReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    previous_request_id: UUID | None = None
+
+
+class AccountPoolConsumeReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    confirmed: Literal[True]
+
+
+class AccountPoolVerifyReset(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    model: str = Field(min_length=1, max_length=100)
+    recover: bool = False
+    confirmed: Literal[True]
+
+
+class AccountPoolResetVerification(BaseModel):
+    passed: bool
+    restored: bool
+    reason: str
+
+
 class AccountPoolGatewaySwitchRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -546,7 +593,11 @@ class AccountPoolManagerClient:
                 f"{self._base_url}{path}",
                 headers=headers,
                 content=body,
-                timeout=120.0 if path.endswith("/oauth-browser-sessions") and method == "POST" else self._client.timeout,
+                timeout=(
+                    120.0
+                    if (path.endswith("/oauth-browser-sessions") and method == "POST") or "/quota-reset" in path
+                    else self._client.timeout
+                ),
             )
         except httpx.HTTPError as error:
             raise HTTPException(
@@ -949,6 +1000,60 @@ def create_account_pool_router(
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(client_factory, "POST", f"/api/environments/{environment_id}/refresh")
         return _validate_response(response, _ENVIRONMENT)
+
+    @router.get("/environments/{environment_id}/quota-reset", response_model=AccountPoolResetStatus)
+    async def quota_reset_status(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolResetStatus:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(client_factory, "GET", f"/api/environments/{environment_id}/quota-reset")
+        return _validate_response(response, TypeAdapter(AccountPoolResetStatus))
+
+    @router.post("/environments/{environment_id}/quota-reset/prepare", response_model=AccountPoolResetOperation)
+    async def prepare_quota_reset(
+        environment_id: UUID,
+        request: AccountPoolPrepareReset,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolResetOperation:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            f"/api/environments/{environment_id}/quota-reset/prepare",
+            request.model_dump_json().encode(),
+        )
+        return _validate_response(response, TypeAdapter(AccountPoolResetOperation))
+
+    @router.post("/environments/{environment_id}/quota-reset/consume", response_model=AccountPoolResetOperation)
+    async def consume_quota_reset(
+        environment_id: UUID,
+        request: AccountPoolConsumeReset,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolResetOperation:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            f"/api/environments/{environment_id}/quota-reset/consume",
+            request.model_dump_json().encode(),
+        )
+        return _validate_response(response, TypeAdapter(AccountPoolResetOperation))
+
+    @router.post("/environments/{environment_id}/quota-reset/verify", response_model=AccountPoolResetVerification)
+    async def verify_quota_reset(
+        environment_id: UUID,
+        request: AccountPoolVerifyReset,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolResetVerification:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory,
+            "POST",
+            f"/api/environments/{environment_id}/quota-reset/verify",
+            request.model_dump_json().encode(),
+        )
+        return _validate_response(response, TypeAdapter(AccountPoolResetVerification))
 
     @router.put("/environments/{environment_id}", response_model=AccountPoolEnvironment)
     async def update_environment(

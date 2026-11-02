@@ -13,7 +13,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
-from account_pool.domain import EnvironmentRecord, ProxyProfile
+from account_pool.domain import EnvironmentRecord, ProxyProfile, QuotaSnapshot
 from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionStatus
 
 _RECORD_ADAPTER: Final = TypeAdapter(EnvironmentRecord)
@@ -71,6 +71,33 @@ class PostgresEnvironmentRepository:
         async with database_connection(self._database_url) as connection:
             for statement in _CREATE_SCHEMA:
                 await connection.execute(statement)
+
+    async def restore_verified(self, record: EnvironmentRecord, model: str, quota: QuotaSnapshot) -> bool:
+        from account_pool.quota_reset import recovered_record
+
+        recovered: Final = recovered_record(record, model, quota)
+        if recovered is None:
+            return False
+        async with database_connection(self._database_url) as connection:
+            # 锁行后复核在途请求和独立运行时冷却，不删除它们，也不覆盖验证期间的新状态。
+            cursor: Final = await connection.execute(
+                "SELECT payload FROM account_pool_environments WHERE id = %s FOR UPDATE", (record.id,)
+            )
+            row: Final = await cursor.fetchone()
+            if row is None or EnvironmentRecord.model_validate(row["payload"]) != record:
+                return False
+            blockers: Final = await connection.execute(
+                "SELECT 1 FROM account_pool_leases WHERE account_id = %s AND expires_at > now() "
+                "UNION ALL SELECT 1 FROM account_pool_runtime_cooldown WHERE account_id = %s AND expires_at > now()",
+                (record.id, record.id),
+            )
+            if await blockers.fetchone() is not None:
+                return False
+            await connection.execute(
+                "UPDATE account_pool_environments SET payload = %s, updated_at = %s WHERE id = %s",
+                (Jsonb(recovered.model_dump(mode="json")), recovered.updated_at, record.id),
+            )
+            return True
 
     async def list(self) -> tuple[EnvironmentRecord, ...]:
         async with database_connection(self._database_url) as connection:

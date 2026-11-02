@@ -7,8 +7,8 @@ from uuid import UUID, uuid4
 import httpx
 
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind
-from account_pool.quota_reset_models import ResetObservation, ResetOperation, ResetReply
+from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus, QuotaSnapshot, SupplierKind, utc_now
+from account_pool.quota_reset_models import ResetObservation, ResetOperation, ResetReply, ResetVerification
 
 
 class ResetStore(Protocol):
@@ -19,11 +19,59 @@ class ResetStore(Protocol):
 
 class ResetEnvironments(Protocol):
     async def get(self, environment_id: UUID) -> EnvironmentRecord | None: ...
+    async def restore_verified(self, record: EnvironmentRecord, model: str, quota: QuotaSnapshot) -> bool: ...
 
 
 class ResetUpstream(Protocol):
     async def observe(self, record: EnvironmentRecord) -> ResetObservation: ...
     async def consume(self, record: EnvironmentRecord, operation: ResetOperation) -> ResetReply: ...
+    async def verify(self, record: EnvironmentRecord, model: str, recover: bool) -> ResetVerification: ...
+
+
+def recovered_record(
+    record: EnvironmentRecord, model: str, quota: QuotaSnapshot | None = None
+) -> EnvironmentRecord | None:
+    if (
+        not record.enabled
+        or record.manual_cooldown
+        or record.auth_file_disabled
+        or record.status not in (EnvironmentStatus.READY, EnvironmentStatus.COOLING_DOWN)
+        or record.configuration_pending
+        or record.cooldown_until is not None
+        or record.desired_configuration_version != record.observed_configuration_version
+        or record.last_error not in (None, "上游认证失效，请重新认证")
+        or any(
+            item.model == model and item.reason != "rate_limit" and item.retry_at > utc_now()
+            for item in record.model_cooldowns
+        )
+    ):
+        return None
+    return record.model_copy(
+        update={
+            "status": EnvironmentStatus.READY,
+            "automatic_cooldown": False,
+            "last_error": None,
+            "version": record.version + 1,
+            "updated_at": utc_now(),
+            "quota": record.quota
+            if quota is None
+            else record.quota.model_copy(
+                update={
+                    "windows": quota.windows,
+                    "observed_at": quota.observed_at,
+                    "source": quota.source,
+                    "refresh_attempted_at": quota.refresh_attempted_at,
+                    "refresh_status": quota.refresh_status,
+                    "refresh_error": quota.refresh_error,
+                    "refresh_failures": quota.refresh_failures,
+                    "reset_credits_available": quota.reset_credits_available,
+                }
+            ),
+            "model_cooldowns": tuple(
+                item for item in record.model_cooldowns if item.model != model or item.reason != "rate_limit"
+            ),
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +90,24 @@ class QuotaResetService:
         if not record.auth_file_name or not record.auth_index or not record.credential_fingerprints:
             raise ValueError("卡片缺少已确认归属的认证文件")
         return record
+
+    async def verify(self, environment_id: UUID, model: str, recover: bool) -> ResetVerification:
+        async with self.ownership.operation(environment_id):
+            record: Final = await self.record(environment_id)
+            if model not in record.enabled_models:
+                raise ValueError("请选择本卡已启用的模型")
+            if recovered_record(record, model) is None:
+                return ResetVerification(passed=False, restored=False, reason="independent_block")
+            result: Final = await self.upstream.verify(record, model, recover)
+            if not result.passed or not result.restored or not recover:
+                return result.model_copy(update={"restored": False})
+            try:
+                observation: Final = await self.upstream.observe(record)
+            except (ValueError, httpx.HTTPError, TimeoutError):
+                return ResetVerification(passed=True, restored=False, reason="quota_check_failed")
+            # CPA 成功不等于号池恢复；数据库必须仍为验证前快照，且没有独立运行时阻断。
+            restored: Final = await self.environments.restore_verified(record, model, observation.quota)
+            return ResetVerification(passed=True, restored=restored, reason="restored" if restored else "state_changed")
 
     async def prepare(self, environment_id: UUID, previous_request_id: UUID | None) -> ResetOperation:
         async with self.ownership.operation(environment_id):
@@ -91,8 +157,10 @@ class QuotaResetService:
             await self.store.save(completed)
             try:
                 after: Final = await self.upstream.observe(record)
-                observed: Final = completed.model_copy(update={"after": after})
             except (httpx.HTTPError, TimeoutError, ValueError):
-                observed = completed.model_copy(update={"message": "兑换业务结果已记录，额度复查失败"})
+                unobserved: Final = completed.model_copy(update={"message": "兑换业务结果已记录，额度复查失败"})
+                await self.store.save(unobserved)
+                return unobserved
+            observed: Final = completed.model_copy(update={"after": after})
             await self.store.save(observed)
             return observed

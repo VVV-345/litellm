@@ -1185,6 +1185,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/quota-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quota Reset Status */
+        get: operations["quota_reset_status_account_pool_environments__environment_id__quota_reset_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consume Quota Reset */
+        post: operations["consume_quota_reset_account_pool_environments__environment_id__quota_reset_consume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Quota Reset */
+        post: operations["prepare_quota_reset_account_pool_environments__environment_id__quota_reset_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Quota Reset */
+        post: operations["verify_quota_reset_account_pool_environments__environment_id__quota_reset_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/refresh": {
         parameters: {
             query?: never;
@@ -24631,6 +24699,19 @@ export interface components {
             /** Proxy Type */
             proxy_type: string;
         };
+        /** AccountPoolConsumeReset */
+        AccountPoolConsumeReset: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
         /** AccountPoolCreateRequest */
         AccountPoolCreateRequest: {
             /**
@@ -25276,6 +25357,11 @@ export interface components {
              */
             updated_at: string;
         };
+        /** AccountPoolPrepareReset */
+        AccountPoolPrepareReset: {
+            /** Previous Request Id */
+            previous_request_id?: string | null;
+        };
         /** AccountPoolProviderFamily */
         AccountPoolProviderFamily: {
             /** Authentication */
@@ -25493,6 +25579,59 @@ export interface components {
             used_percent: number;
             /** Window Minutes */
             window_minutes: number;
+        };
+        /** AccountPoolResetObservation */
+        AccountPoolResetObservation: {
+            /** Available */
+            available: number;
+            /** Credit Id */
+            credit_id?: string | null;
+            /** Eligible */
+            eligible: boolean;
+            quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+        };
+        /** AccountPoolResetOperation */
+        AccountPoolResetOperation: {
+            after?: components["schemas"]["AccountPoolResetObservation"] | null;
+            before: components["schemas"]["AccountPoolResetObservation"];
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /** Message */
+            message?: string | null;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "prepared" | "uncertain" | "reset" | "nothing_to_reset" | "no_credit" | "already_redeemed";
+            /**
+             * Verification
+             * @enum {string}
+             */
+            verification: "not_run" | "failed" | "passed" | "restored" | "blocked";
+            /** Windows Reset */
+            windows_reset: number;
+        };
+        /** AccountPoolResetStatus */
+        AccountPoolResetStatus: {
+            observation: components["schemas"]["AccountPoolResetObservation"] | null;
+            operation?: components["schemas"]["AccountPoolResetOperation"] | null;
+        };
+        /** AccountPoolResetVerification */
+        AccountPoolResetVerification: {
+            /** Passed */
+            passed: boolean;
+            /** Reason */
+            reason: string;
+            /** Restored */
+            restored: boolean;
         };
         /** AccountPoolRoutingConfig */
         AccountPoolRoutingConfig: {
@@ -25948,6 +26087,21 @@ export interface components {
             proxy_profile_id?: string | null;
             /** Version */
             version: number;
+        };
+        /** AccountPoolVerifyReset */
+        AccountPoolVerifyReset: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Model */
+            model: string;
+            /**
+             * Recover
+             * @default false
+             */
+            recover: boolean;
         };
         /**
          * ActiveUsersAnalyticsResponse
@@ -46924,6 +47078,142 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    quota_reset_status_account_pool_environments__environment_id__quota_reset_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consume_quota_reset_account_pool_environments__environment_id__quota_reset_consume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolConsumeReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetOperation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_quota_reset_account_pool_environments__environment_id__quota_reset_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolPrepareReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetOperation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_quota_reset_account_pool_environments__environment_id__quota_reset_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolVerifyReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetVerification"];
                 };
             };
             /** @description Validation Error */

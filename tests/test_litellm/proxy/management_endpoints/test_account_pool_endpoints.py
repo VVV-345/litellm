@@ -36,6 +36,28 @@ _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
 
 
+def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard() -> None:
+    calls = []
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"passed": False, "restored": False, "reason": "authentication_failed"})
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+    payload = {"model": "gpt-6-astra", "recover": True, "confirmed": True}
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/quota-reset/verify", json=payload)
+        assert response.status_code == 200
+        assert response.json()["restored"] is False
+    assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/quota-reset/verify"
+    assert json.loads(calls[0].content) == payload
+    assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/quota-reset/verify", json=payload)
+        assert response.status_code == 403
+    assert len(calls) == 1
+
+
 class _BrowserWebSocket:
     def __init__(self) -> None:
         self._messages: list[dict[str, str]] = [

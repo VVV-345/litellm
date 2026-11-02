@@ -10,6 +10,7 @@ from datetime import date
 from typing import Final
 from uuid import UUID
 
+import httpx
 import uvicorn
 from fastapi import FastAPI
 
@@ -19,6 +20,7 @@ from account_pool.batch_service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
+from account_pool.channels.cliproxyapi.quota_reset import CodexResetClient
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.compose_runtime import ComposeRuntime
@@ -48,6 +50,8 @@ from account_pool.proxy_gateways import ProxyGatewayService
 from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissingTypeStubs]  # The local Manager package does not publish PEP 561 stubs.
     QuotaRefreshTrigger,
 )
+from account_pool.quota_reset import QuotaResetService
+from account_pool.quota_reset_repository import PostgresResetStore
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,
@@ -91,6 +95,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
+    reset_http: Final = httpx.AsyncClient(timeout=55.0, trust_env=False, transport=httpx.AsyncHTTPTransport(retries=0))
+    reset_store: Final = PostgresResetStore(resolved.database_url)
+    quota_reset: Final = QuotaResetService(reset_store, environments, CodexResetClient(reset_http, secrets), ownership)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
@@ -160,6 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
+        await reset_store.initialize()
         await ownership.initialize()
         await initialize_management_schema(resolved.database_url)
         await feedback_repository.initialize()
@@ -249,6 +257,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await upstream_sync.close()
             await litellm_upstream_sync.close()
             await cooldown_client.close()
+            await reset_http.aclose()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(
@@ -286,6 +295,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_sessions=browser_sessions,
             browser_runtime=browser_runtime,
             feedback=feedback,
+            quota_reset=quota_reset,
         )
     )
     return app
