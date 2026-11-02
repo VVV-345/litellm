@@ -3,13 +3,21 @@
 import asyncio
 import os
 from datetime import timedelta
+from typing import Final
 from uuid import uuid4
 
 import psycopg
 import pytest
 import pytest_asyncio
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.domain import EnvironmentStatus, ModelCooldown, QuotaSnapshot, QuotaWindow, utc_now
+from account_pool.domain import (
+    EnvironmentStatus,
+    ModelCooldown,
+    ModelQuotaSnapshot,
+    QuotaSnapshot,
+    QuotaWindow,
+    utc_now,
+)
 from account_pool.gateway_repository import PostgresLeaseRepository
 from account_pool.quota_reset import QuotaResetService
 from account_pool.quota_reset_models import ResetReply
@@ -68,14 +76,15 @@ async def test_postgres_two_instances_share_one_redemption_and_restart_identity(
 async def test_postgres_verified_restore_preserves_concurrent_or_independent_blocks(database, blocker):
     url, repo, _ = database
     _, record, _, _ = setup_service()
-    other = ModelCooldown(model="other", reason="rate_limit", retry_at=utc_now() + timedelta(hours=1))
+    other = ModelCooldown(model="other", reason="consecutive_timeouts", retry_at=utc_now() + timedelta(hours=1))
     selected = ModelCooldown(model="model-a", reason="rate_limit", retry_at=utc_now() + timedelta(hours=1))
+    sibling = ModelCooldown(model="model-b", reason="rate_limit", retry_at=utc_now() + timedelta(hours=1))
     before = record.model_copy(
         update={
             "status": EnvironmentStatus.COOLING_DOWN,
             "automatic_cooldown": True,
             "last_error": "上游认证失效，请重新认证",
-            "model_cooldowns": (selected, other),
+            "model_cooldowns": (selected, sibling, other),
         }
     )
     await repo.save(before)
@@ -97,12 +106,14 @@ async def test_postgres_verified_restore_preserves_concurrent_or_independent_blo
         observed_at=utc_now(),
         windows=(QuotaWindow(name="5h", remaining_percent=99, used_percent=1, window_minutes=300),),
     )
-    restored = await repo.restore_verified(before, "model-a", fresh)
+    model_quotas: Final = (ModelQuotaSnapshot(model="model-a", quota=fresh),)
+    restored = await repo.restore_verified(before, "model-a", fresh, model_quotas)
     after = await repo.get(record.id)
     assert restored == (blocker == "none")
     if restored:
         assert after.status is EnvironmentStatus.READY
         assert after.model_cooldowns == (other,)
+        assert after.model_quotas == model_quotas
         assert after.credential_fingerprints == before.credential_fingerprints
         assert after.quota.windows == fresh.windows
         assert after.quota.observed_at == fresh.observed_at

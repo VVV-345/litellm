@@ -2,11 +2,19 @@
 
 import asyncio
 from datetime import timedelta
+from typing import Final
 from uuid import uuid4
 
 import pytest
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.domain import EnvironmentStatus, ModelCooldown, QuotaSnapshot, QuotaWindow, utc_now
+from account_pool.domain import (
+    EnvironmentStatus,
+    ModelCooldown,
+    ModelQuotaSnapshot,
+    QuotaSnapshot,
+    QuotaWindow,
+    utc_now,
+)
 from account_pool.quota_reset import QuotaResetService, recovered_record
 from account_pool.quota_reset_models import ResetObservation, ResetReply, ResetVerification
 from test_cliproxy_supplier_client import _record
@@ -36,10 +44,10 @@ class Environments:
     async def get(self, environment_id):
         return self.record if self.record.id == environment_id else None
 
-    async def restore_verified(self, record, model, quota):
+    async def restore_verified(self, record, model, quota, model_quotas):
         if self.record != record:
             return False
-        self.record = recovered_record(record, model, quota)
+        self.record = recovered_record(record, model, quota, model_quotas)
         return True
 
 
@@ -216,20 +224,55 @@ async def test_failed_quota_recheck_does_not_report_manager_recovery():
     assert service.environments.record == record
 
 
-def test_recovery_projection_only_removes_selected_rate_limit():
+def test_recovery_projection_clears_all_rate_limit_cooldowns():
     _, record, _, _ = setup_service()
     other = ModelCooldown(model="other", reason="rate_limit", retry_at=utc_now() + timedelta(days=1))
     selected = ModelCooldown(model="model-a", reason="rate_limit", retry_at=utc_now() + timedelta(days=1))
+    timeouts = ModelCooldown(model="model-b", reason="consecutive_timeouts", retry_at=utc_now() + timedelta(days=1))
     blocked = record.model_copy(
         update={
             "status": EnvironmentStatus.COOLING_DOWN,
             "automatic_cooldown": True,
             "last_error": "上游认证失效，请重新认证",
-            "model_cooldowns": (selected, other),
+            "model_cooldowns": (selected, other, timeouts),
         }
     )
     result = recovered_record(blocked, "model-a")
     assert result.status == EnvironmentStatus.READY
-    assert result.model_cooldowns == (other,)
+    assert result.model_cooldowns == (timeouts,)
     assert result.credential_fingerprints == blocked.credential_fingerprints
     assert not result.automatic_cooldown and result.last_error is None
+
+
+def test_recovered_record_clears_every_rate_limit_cooldown_and_writes_model_quotas() -> None:
+    now: Final = utc_now()
+    record = _record().model_copy(
+        update={
+            "model_cooldowns": (
+                ModelCooldown(model="model-a", reason="rate_limit", retry_at=now + timedelta(hours=2)),
+                ModelCooldown(model="model-b", reason="rate_limit", retry_at=now + timedelta(hours=2)),
+                ModelCooldown(model="model-c", reason="consecutive_timeouts", retry_at=now + timedelta(hours=2)),
+            )
+        }
+    )
+    quota: Final = QuotaSnapshot(
+        observed_at=now,
+        windows=(QuotaWindow(name="5h", remaining_percent=100, used_percent=0, window_minutes=300),),
+    )
+    model_quotas: Final = (
+        ModelQuotaSnapshot(
+            model="model-a",
+            quota=QuotaSnapshot(
+                observed_at=now,
+                windows=(QuotaWindow(name="5h", remaining_percent=100, used_percent=0, window_minutes=300),),
+            ),
+        ),
+    )
+
+    recovered = recovered_record(record, "model-a", quota, model_quotas)
+
+    assert recovered is not None
+    # 上游兑换是账号级的，整卡所有 rate_limit 冷却都必须失效，其它原因的冷却保留。
+    assert tuple(item.model for item in recovered.model_cooldowns) == ("model-c",)
+    assert recovered.model_quotas == model_quotas
+    assert recovered.quota.windows == quota.windows

@@ -66,6 +66,8 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
         const result = await consumeQuotaReset(accessToken, environment.id, prepared.request_id);
         cache.setQueryData(key, { observation: result.after ?? observation, operation: result });
         setConfirmed(false);
+        // 兑换成功后默认勾选恢复，避免只做验证、号池状态没有落地。
+        setRecover(true);
       } else {
         const result = await verifyQuotaReset(accessToken, environment.id, model, recover);
         setVerification(result);

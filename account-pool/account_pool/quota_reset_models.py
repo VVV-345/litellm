@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from account_pool.domain import QuotaSnapshot, utc_now
+from account_pool.domain import ModelQuotaSnapshot, QuotaSnapshot, utc_now
 
 ResetCode = Literal["reset", "nothing_to_reset", "no_credit", "already_redeemed"]
 
@@ -17,6 +17,7 @@ class ResetObservation(BaseModel):
     credit_id: str | None = None
     eligible: bool
     quota: QuotaSnapshot = Field(default_factory=QuotaSnapshot)
+    model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
 
 
 class ResetReply(BaseModel):

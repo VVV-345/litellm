@@ -7,7 +7,15 @@ from uuid import UUID, uuid4
 import httpx
 
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus, QuotaSnapshot, SupplierKind, utc_now
+from account_pool.domain import (
+    ChannelKind,
+    EnvironmentRecord,
+    EnvironmentStatus,
+    ModelQuotaSnapshot,
+    QuotaSnapshot,
+    SupplierKind,
+    utc_now,
+)
 from account_pool.quota_reset_models import ResetObservation, ResetOperation, ResetReply, ResetVerification
 
 
@@ -19,7 +27,13 @@ class ResetStore(Protocol):
 
 class ResetEnvironments(Protocol):
     async def get(self, environment_id: UUID) -> EnvironmentRecord | None: ...
-    async def restore_verified(self, record: EnvironmentRecord, model: str, quota: QuotaSnapshot) -> bool: ...
+    async def restore_verified(
+        self,
+        record: EnvironmentRecord,
+        model: str,
+        quota: QuotaSnapshot,
+        model_quotas: tuple[ModelQuotaSnapshot, ...],
+    ) -> bool: ...
 
 
 class ResetUpstream(Protocol):
@@ -29,7 +43,10 @@ class ResetUpstream(Protocol):
 
 
 def recovered_record(
-    record: EnvironmentRecord, model: str, quota: QuotaSnapshot | None = None
+    record: EnvironmentRecord,
+    model: str,
+    quota: QuotaSnapshot | None = None,
+    model_quotas: tuple[ModelQuotaSnapshot, ...] = (),
 ) -> EnvironmentRecord | None:
     if (
         not record.enabled
@@ -67,9 +84,8 @@ def recovered_record(
                     "reset_credits_available": quota.reset_credits_available,
                 }
             ),
-            "model_cooldowns": tuple(
-                item for item in record.model_cooldowns if item.model != model or item.reason != "rate_limit"
-            ),
+            "model_cooldowns": tuple(item for item in record.model_cooldowns if item.reason != "rate_limit"),
+            "model_quotas": model_quotas or record.model_quotas,
         }
     )
 
@@ -106,7 +122,9 @@ class QuotaResetService:
             except (ValueError, httpx.HTTPError, TimeoutError):
                 return ResetVerification(passed=True, restored=False, reason="quota_check_failed")
             # CPA 成功不等于号池恢复；数据库必须仍为验证前快照，且没有独立运行时阻断。
-            restored: Final = await self.environments.restore_verified(record, model, observation.quota)
+            restored: Final = await self.environments.restore_verified(
+                record, model, observation.quota, observation.model_quotas
+            )
             return ResetVerification(passed=True, restored=restored, reason="restored" if restored else "state_changed")
 
     async def prepare(self, environment_id: UUID, previous_request_id: UUID | None) -> ResetOperation:

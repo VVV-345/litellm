@@ -13,7 +13,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
-from account_pool.domain import EnvironmentRecord, ProxyProfile, QuotaSnapshot
+from account_pool.domain import EnvironmentRecord, ModelQuotaSnapshot, ProxyProfile, QuotaSnapshot
 from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionStatus
 
 _RECORD_ADAPTER: Final = TypeAdapter(EnvironmentRecord)
@@ -72,10 +72,16 @@ class PostgresEnvironmentRepository:
             for statement in _CREATE_SCHEMA:
                 await connection.execute(statement)
 
-    async def restore_verified(self, record: EnvironmentRecord, model: str, quota: QuotaSnapshot) -> bool:
+    async def restore_verified(
+        self,
+        record: EnvironmentRecord,
+        model: str,
+        quota: QuotaSnapshot,
+        model_quotas: tuple[ModelQuotaSnapshot, ...],
+    ) -> bool:
         from account_pool.quota_reset import recovered_record
 
-        recovered: Final = recovered_record(record, model, quota)
+        recovered: Final = recovered_record(record, model, quota, model_quotas)
         if recovered is None:
             return False
         async with database_connection(self._database_url) as connection:

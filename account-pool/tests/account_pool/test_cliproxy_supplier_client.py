@@ -1199,6 +1199,39 @@ async def test_apply_configuration_uses_supplier_exclusion_and_no_concurrency_en
 
 
 @pytest.mark.asyncio
+async def test_apply_configuration_syncs_card_proxy_into_auth_file() -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "codex.json"})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_configuration(
+        record,
+        supplier,
+        EnvironmentConfiguration(
+            name="test",
+            concurrency_limit=2,
+            enabled=True,
+            manual_cooldown=False,
+            proxy_mode=ProxyMode.PROFILE,
+            proxy_profile_id="clash-gateway-7895",
+            enabled_models=("model-a",),
+            proxy_url="http://host.docker.internal:7895",
+        ),
+    )
+    await client.aclose()
+
+    fields: Final = next(request for request in requests if request.url.path.endswith("auth-files/fields"))
+    # 账号级 proxy_url 会覆盖全局设置，改卡片代理时必须同步，否则卡片继续走旧线路。
+    assert json.loads(fields.content) == {"name": "codex.json", "proxy_url": "http://host.docker.internal:7895"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("kind", "path"),
     (

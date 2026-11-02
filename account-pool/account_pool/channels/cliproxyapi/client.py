@@ -711,6 +711,11 @@ class HttpCLIProxyClient:
             selected_supplier = supplier
             selected_configuration = configuration
         await self.set_proxy_url(record, selected_configuration.proxy_url)
+        # 账号级 proxy_url 优先于全局配置：只改全局会让卡片继续走旧的出站线路。
+        if record.auth_file_name is not None:
+            await self.patch_auth_file_fields(
+                record, record.auth_file_name, {"proxy_url": selected_configuration.proxy_url or ""}
+            )
         await self.set_enabled_models(record, selected_supplier, selected_configuration.enabled_models)
         await self.set_credential_enabled(record, selected_configuration.credential_enabled)
 

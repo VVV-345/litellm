@@ -159,6 +159,7 @@ class CodexResetClient:
             quota=quota.quota.model_copy(
                 update={"source": "provider_api", "refresh_status": "complete", "refresh_attempted_at": now}
             ),
+            model_quotas=quota.model_quotas,
         )
 
     async def consume(self, record: EnvironmentRecord, operation: ResetOperation) -> ResetReply:
