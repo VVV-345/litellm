@@ -15,6 +15,22 @@ from test_cliproxy_supplier_client import _record
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("status,reason", [(404, "runtime_upgrade_required"), (401, "management_auth_failed"), (503, "runtime_unavailable"), (0, "runtime_unreachable")])
+async def test_capability_failure_reports_actual_layer(status, reason):
+    calls = []
+    def handle(request):
+        calls.append(request.method)
+        if not status:
+            raise httpx.ConnectTimeout("fixture", request=request)
+        return httpx.Response(status)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        result = await CodexResetClient(http, EnvironmentSecretDeriver("fixture-secret")).verify(_record(), "model-a", True)
+    assert result.reason == reason
+    assert not result.passed and not result.restored
+    assert calls == ["GET"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "capability", [{"supported": True, "version": 1}, {"supported": True, "version": 1, "token_refresh": True}]
 )

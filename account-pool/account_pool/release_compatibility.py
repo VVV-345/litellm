@@ -132,6 +132,14 @@ ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS: Final = (
     b"REFERENCES account_pool_isp_subscription_nodes(id) ON DELETE CASCADE )",
 )
 
+QUOTA_RESET_SCHEMA_ADDITIONS: Final = tuple(sorted((
+    b"CREATE TABLE IF NOT EXISTS account_pool_quota_resets ( request_id uuid PRIMARY KEY, "
+    b"environment_id uuid NOT NULL REFERENCES account_pool_environments(id) ON DELETE CASCADE, "
+    b"created_at timestamptz NOT NULL, payload jsonb NOT NULL )",
+    b"CREATE INDEX IF NOT EXISTS account_pool_quota_resets_environment_idx "
+    b"ON account_pool_quota_resets (environment_id, created_at DESC)",
+)))
+
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     return hashlib.sha256(
@@ -183,7 +191,7 @@ def schema_member_contract(name: str, source: bytes, *, omit_read_timeout_field:
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
+        and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX)|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
     )
     if not statements:
         return b""
@@ -265,6 +273,7 @@ def additive_manager_schema_upgrade(
         ),
     )
     if additions not in (
+        QUOTA_RESET_SCHEMA_ADDITIONS,
         *reviewed_additions,
         ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS))) for group in reviewed_additions),

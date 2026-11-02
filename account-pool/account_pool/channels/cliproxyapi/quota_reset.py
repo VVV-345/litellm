@@ -55,7 +55,16 @@ class CodexResetClient:
         try:
             capability: Final = await transport.request(record, "GET", "/v0/management/codex/quota-verification")
             _VerificationCapability.model_validate_json(capability.content)
-        except (httpx.HTTPError, ValueError):
+        except httpx.HTTPStatusError as error:
+            reason = (
+                "runtime_upgrade_required" if error.response.status_code in (404, 405)
+                else "management_auth_failed" if error.response.status_code in (401, 403)
+                else "runtime_unavailable"
+            )
+            return ResetVerification(passed=False, restored=False, reason=reason)
+        except httpx.HTTPError:
+            return ResetVerification(passed=False, restored=False, reason="runtime_unreachable")
+        except ValueError:
             return ResetVerification(passed=False, restored=False, reason="runtime_upgrade_required")
         try:
             _, credential = await self._credential(record, transport)

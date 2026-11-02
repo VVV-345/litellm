@@ -774,6 +774,18 @@ def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
     assert not additive_manager_schema_upgrade(baseline, (*baseline, (catalog[0], catalog[1].replace(b"enabled boolean", b"enabled text"))))
 
 
+def test_quota_reset_upgrade_allows_only_exact_additive_table_and_index() -> None:
+    root = Path(__file__).resolve().parents[1] / "account_pool"
+    baseline = tuple((str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
+                     if path.name != "quota_reset_repository.py") + (("schema.prisma", b"model A { id String @id }"),)
+    source = (root / "quota_reset_repository.py").read_bytes()
+    target = (*baseline, ("quota_reset_repository.py", source))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, ("quota_reset_repository.py", source.replace(b"request_id uuid", b"request_id text"))))
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE account_pool_environments"')))
+
+
 @pytest.mark.parametrize("change,allowed", (("isp", True), ("prisma", False), ("extra", False), ("modified", False)))
 def test_additive_upgrade_runtime_inspects_both_images(tmp_path: Path, change: str, allowed: bool) -> None:
     from account_pool.proxy_catalog_repository import _SCHEMA
