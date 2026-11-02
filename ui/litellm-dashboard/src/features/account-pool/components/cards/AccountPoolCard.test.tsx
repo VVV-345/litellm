@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -51,6 +52,8 @@ const renderCard = (
       onEnabledChange={vi.fn()}
       onAuthorize={vi.fn()}
       onDelete={vi.fn()}
+      onRefreshCredentials={vi.fn()}
+      onVerifyAccess={vi.fn()}
       onManageKey={vi.fn()}
       policy={policy}
     />,
@@ -252,4 +255,13 @@ describe("AccountPoolCard", () => {
     expect(screen.queryByText("已用 $12.34")).not.toBeInTheDocument();
     expect(screen.queryByText("已用 $0.00")).not.toBeInTheDocument();
   });
+});
+
+
+it("keeps credential warnings visible and displays backoff alongside the next schedule", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({supplier:"openai_codex", credential_refresh:{last_result:"failed",schedule_reason:"backoff",next_refresh_at:"2090-01-01T00:00:00Z",running:false,save_pending:false}});
+  expect(screen.getByRole("button",{name:"刷新凭据"})).toBeVisible();
+  expect(screen.getByText("刷新失败")).toBeVisible();
+  expect(screen.getByText(/退避中/)).toBeInTheDocument();
 });

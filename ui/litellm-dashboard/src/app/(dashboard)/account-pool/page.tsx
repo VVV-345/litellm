@@ -97,6 +97,7 @@ const AccountPoolModelTestDialog = dynamic(
   { loading: ModuleLoading },
 );
 const AccountPoolQuotaResetDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolQuotaResetDialog").then((module) => module.AccountPoolQuotaResetDialog));
+const AccountPoolCredentialDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolCredentialDialog").then((module) => module.AccountPoolCredentialDialog));
 
 const PAGE_SIZE = 24;
 const POOL_TABS = [
@@ -133,6 +134,8 @@ export default function AccountPoolPage() {
   const requestedTab = searchParams?.get("tab") ?? "dashboard";
   const [testEnvironment, setTestEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [refreshCredentialEnvironment,setRefreshCredentialEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [verifyAccessEnvironment,setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -291,6 +294,8 @@ export default function AccountPoolPage() {
           onViewLogs={handleViewLogs}
           onTest={setTestEnvironment}
           onQuotaReset={setResetEnvironment}
+          onRefreshCredentials={setRefreshCredentialEnvironment}
+          onVerifyAccess={setVerifyAccessEnvironment}
           tags={policyView?.policy?.tags}
           group={policyView?.policy?.group}
           policy={policyView}
@@ -307,7 +312,7 @@ export default function AccountPoolPage() {
   const renderContent = () => {
     if (environmentsQuery.isLoading) {
       return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {["one", "two", "three"].map((key) => (
             <Skeleton key={key} className="h-64 w-full" />
           ))}
@@ -346,7 +351,7 @@ export default function AccountPoolPage() {
     }
     return (
       <>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {visibleEnvironments.map((environment) => renderCard(environment, statsByCard.get(environment.id)))}
         </div>
         {filteredEnvironments.length === 0 && (
@@ -669,6 +674,8 @@ export default function AccountPoolPage() {
         />
       )}
       {resetEnvironment && accessToken && <AccountPoolQuotaResetDialog key={resetEnvironment.id} accessToken={accessToken} environment={resetEnvironment} onClose={() => setResetEnvironment(null)} />}
+      {refreshCredentialEnvironment && accessToken && <AccountPoolCredentialDialog key={refreshCredentialEnvironment.id} mode="refresh" accessToken={accessToken} environment={refreshCredentialEnvironment} onClose={() => setRefreshCredentialEnvironment(null)} />}
+      {verifyAccessEnvironment && accessToken && <AccountPoolCredentialDialog key={verifyAccessEnvironment.id} mode="verify" accessToken={accessToken} environment={verifyAccessEnvironment} onClose={() => setVerifyAccessEnvironment(null)} />}
       {configEnvironment && (
         <RuntimeConfigDialog
           key={configEnvironment.id}

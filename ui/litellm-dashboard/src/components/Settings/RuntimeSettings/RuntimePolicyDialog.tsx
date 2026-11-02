@@ -66,6 +66,7 @@ type FormPolicy = Omit<AccountPolicy, "routing" | "transport" | "codex" | "claud
 };
 
 const codexDefaults: Codex = {
+  allow_valid_access_after_refresh_failure: false,
   identity_fingerprint_mode: "off",
   cli_only: false,
   allow_app_server: false,

@@ -6689,7 +6689,7 @@
       "costCoverage": "{{known}} / {{total}} 次请求包含上游金额"
     },
     "confirmDeleteTitle": "确认删除号池环境",
-    "confirmDeleteDescription": "确认删除“{{name}}”吗？删除会清理容器、网络、认证目录和网关路由，且无法恢复。",
+    "confirmDeleteDescription": "确认删除“{{name}}”吗？删除会清理容器、网络、认证目录和网关路由，且无法恢复。 将一并清理该卡专属认证凭据和配置，重新添加可能需要重新授权。审计与备份按原保留策略处理。",
     "confirmDeleteUnavailable": "删除此号池环境后将无法恢复。",
     "cancel": "取消",
     "save": "保存",
@@ -7729,6 +7729,47 @@
         "succeeded": "成功"
       },
       "cardLogs": "查看卡片日志"
+    },
+    "credential": {
+      "refresh": "刷新凭据",
+      "verify": "检查可用性",
+      "refreshNotice": "使用当前刷新令牌，可能轮换整套凭据。沿用该卡代理；保存成功不代表模型可用。",
+      "verifyNotice": "仅用当前访问令牌验证所选模型，不刷新凭据、不兑换额度。需先开启访问令牌降级设置。",
+      "confirm": "我确认仅操作卡片 {{name}}",
+      "saved": "凭据已保存，模型可用性尚未验证",
+      "notSaved": "尚未确认保存：{{reason}}。请核对最新状态",
+      "temporary": "临时可用，无法自动续期",
+      "notRestored": "推理通过，但尚未允许降级调用",
+      "failed": "检查未通过，未允许降级调用",
+      "uncertain": "结果未确认，请关闭后核对最新状态；不要连续重试",
+      "running": "正在执行…",
+      "details": "详情与诊断",
+      "expires": "访问令牌预计到期（可能提前失效）",
+      "next": "下次自动刷新",
+      "last": "最近刷新结果",
+      "fallback": "续期失败时，允许使用仍有效的访问令牌",
+      "fallbackHelp": "默认关闭。只有同卡、同模型、原代理的完整推理验证通过后才临时允许，不绕过其他限制。",
+      "reauthorize": "重新授权",
+      "schedule": {
+        "unavailable": "运行时未提供",
+        "disabled": "卡片已停用",
+        "running": "正在刷新",
+        "reauthorization_required": "已暂停，需重新授权",
+        "no_refresh_token": "无刷新令牌",
+        "scheduler_stopped": "调度器未运行",
+        "rescheduling": "正在重新排期",
+        "not_scheduled": "尚未排期",
+        "save_retry": "等待补保存",
+        "backoff": "退避中",
+        "scheduled": "已排期"
+      },
+      "result": {
+        "unknown": "未知",
+        "saved": "已保存（未验证推理）",
+        "failed": "刷新失败",
+        "rejected": "上游拒绝，需重新授权",
+        "save_pending": "新凭据待保存"
+      }
     }
   },
   "nav": {

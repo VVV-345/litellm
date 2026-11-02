@@ -6689,7 +6689,7 @@
       "costCoverage": "{{known}} of {{total}} requests reported an upstream amount"
     },
     "confirmDeleteTitle": "Delete account pool environment?",
-    "confirmDeleteDescription": "Delete “{{name}}”? This removes its containers, network, authorization data, and gateway route. This cannot be undone.",
+    "confirmDeleteDescription": "Delete “{{name}}”? This removes its containers, network, authorization data, and gateway route. This cannot be undone. Card-owned credentials and configuration are removed too; adding it again may require reauthorization. Existing audit and backup retention is unchanged.",
     "confirmDeleteUnavailable": "Deleting this account pool environment cannot be undone.",
     "cancel": "Cancel",
     "save": "Save",
@@ -7729,6 +7729,47 @@
         "succeeded": "Succeeded"
       },
       "cardLogs": "View card logs"
+    },
+    "credential": {
+      "refresh": "Refresh credentials",
+      "verify": "Check availability",
+      "refreshNotice": "Uses the current refresh token and may rotate credentials through this card’s proxy. Saved credentials do not prove model availability.",
+      "verifyNotice": "Verifies the selected model using the current access token only. No refresh or quota redemption. Enable verified access fallback first.",
+      "confirm": "I confirm this action applies only to {{name}}",
+      "saved": "Credentials saved; model availability not verified",
+      "notSaved": "Save not confirmed: {{reason}}. Check current state",
+      "temporary": "Temporarily available; automatic renewal unavailable",
+      "notRestored": "Inference passed; fallback access not enabled",
+      "failed": "Verification failed; fallback access not enabled",
+      "uncertain": "Result uncertain. Close and check current state before retrying",
+      "running": "Running…",
+      "details": "Details and diagnostics",
+      "expires": "Estimated access-token expiry (may invalidate earlier)",
+      "next": "Next automatic refresh",
+      "last": "Last refresh result",
+      "fallback": "Allow verified valid access after refresh failure",
+      "fallbackHelp": "Off by default. Requires complete inference on the same card, model and proxy; other limits remain enforced.",
+      "reauthorize": "Reauthorize",
+      "schedule": {
+        "unavailable": "Not reported by runtime",
+        "disabled": "Card disabled",
+        "running": "Refreshing",
+        "reauthorization_required": "Paused; reauthorization required",
+        "no_refresh_token": "No refresh token",
+        "scheduler_stopped": "Scheduler stopped",
+        "rescheduling": "Rescheduling",
+        "not_scheduled": "Not scheduled",
+        "save_retry": "Retrying persistence",
+        "backoff": "Backing off",
+        "scheduled": "Scheduled"
+      },
+      "result": {
+        "unknown": "Unknown",
+        "saved": "Saved (inference not verified)",
+        "failed": "Refresh failed",
+        "rejected": "Rejected; reauthorize",
+        "save_pending": "New credentials awaiting persistence"
+      }
     }
   },
   "nav": {
