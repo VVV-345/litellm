@@ -2,8 +2,10 @@
 
 from collections.abc import Sequence
 from datetime import date
-from typing import Final
-from urllib.parse import quote
+from typing import Final, Literal
+from urllib.parse import quote, unquote, urlsplit
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.config import direct_isp_id, validate_proxy_profile_url
 from account_pool.domain import ProxyProfile
@@ -63,3 +65,21 @@ class DirectISPProxyProfiles:
 
     async def delete_gateway(self, profile_id: str) -> bool:
         return await self._profiles.delete_gateway(profile_id)
+
+
+class BrowserProxy(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    proxy_type: Literal["http", "https", "socks5"]
+    host: str
+    port: int = Field(ge=1, le=65535)
+    username: str = Field(repr=False)
+    password: str = Field(repr=False)
+
+
+def browser_proxy(url: str) -> BrowserProxy:
+    parsed: Final = urlsplit(url)
+    return BrowserProxy.model_validate({
+        "proxy_type": parsed.scheme, "host": parsed.hostname, "port": parsed.port,
+        "username": unquote(parsed.username or ""), "password": unquote(parsed.password or ""),
+    })

@@ -39,6 +39,7 @@ from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelEr
 from account_pool.clash import ClashError, ClashProxyNode
 from account_pool.config import Settings, direct_isp_id, validate_proxy_profile_url
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership
+from account_pool.direct_isp_profiles import BrowserProxy, browser_proxy
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationInstructionFlow,
@@ -331,6 +332,24 @@ class EnvironmentService:
 
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
+
+    async def export_browser_proxy(self, environment_id: UUID) -> Result[BrowserProxy]:
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "Environment not found")
+            if record.proxy_profile_id is None or direct_isp_id(record.proxy_profile_id) is None:
+                return Failure(FailureCode.INVALID, "Select an ISP outbound proxy before opening Camoufox")
+            if record.configuration_pending or record.observed_configuration_version < record.desired_configuration_version:
+                return Failure(FailureCode.CONFLICT, "Card proxy configuration is not applied; save it successfully first")
+            url: Final = await self._proxy_profiles.get_url(record.proxy_profile_id)
+            if url is None or record.desired_configuration is None or url != record.desired_configuration.proxy_url:
+                return Failure(FailureCode.CONFLICT, "ISP changed or unavailable; save the card proxy again")
+            try:
+                return Success(browser_proxy(url))
+            except ValueError:
+                return Failure(FailureCode.INVALID, "ISP cannot be imported into the browser")
 
     async def proxy_available(self, record: EnvironmentRecord) -> bool:
         credentials: Final = () if record.openai_compatible is None else record.openai_compatible.credentials

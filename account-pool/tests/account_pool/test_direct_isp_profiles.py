@@ -197,3 +197,68 @@ async def test_saving_card_proxy_applies_current_isp_credentials(tmp_path: Path)
     saved: Final = await repository.get(record.id)
     assert saved is not None and await service.proxy_available(saved)
     assert "proxy:socks5://user%40name:rotated@isp.example:1080" in cli.events
+
+
+@pytest.mark.asyncio
+async def test_browser_export_is_scoped_to_current_isp_and_never_cached(tmp_path: Path) -> None:
+    import httpx
+    from account_pool.api import create_router
+    from fastapi import FastAPI
+
+    cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
+    catalog: Final = Catalog(isp())
+    original: Final = _record(status=EnvironmentStatus.READY)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path), repository=MemoryRepository(original),
+        runtime=runtime, cli_proxy=cli, proxy_profiles=direct_profiles(catalog),
+        secrets=EnvironmentSecretDeriver("s" * 32), channels=_fake_channels(runtime, cli),
+    )
+    created: Final = await service.create_environment(CreateEnvironmentRequest(name="ISP", proxy_profile_id=PROFILE_ID))
+    assert not isinstance(created, Failure)
+    app: Final = FastAPI()
+    app.include_router(create_router(service, "m" * 32))
+    path: Final = f"/api/environments/{created.value.environment.id}/browser-proxy"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager") as client:
+        denied: Final = await client.post(path)
+        assert denied.status_code == 401
+        exported: Final = await client.post(path, headers={"Authorization": f"Bearer {'m' * 32}"})
+        assert exported.status_code == 200
+        assert exported.headers["cache-control"] == "no-store"
+        assert exported.json() == {
+            "proxy_type": "socks5", "host": "isp.example", "port": 1080,
+            "username": "user@name", "password": "p:/@#%",
+        }
+        catalog.profiles = (isp(password="rotated"),)
+        stale: Final = await client.post(path, headers={"Authorization": f"Bearer {'m' * 32}"})
+        assert stale.status_code == 409
+        assert "rotated" not in stale.text
+        unsupported: Final = await client.post(
+            f"/api/environments/{original.id}/browser-proxy", headers={"Authorization": f"Bearer {'m' * 32}"},
+        )
+        assert unsupported.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_browser_export_rejects_unapplied_proxy_configuration(tmp_path: Path) -> None:
+    from account_pool.domain import EnvironmentConfiguration
+    cli: Final = FakeCLIProxy()
+    runtime: Final = FakeRuntime()
+    profiles: Final = direct_profiles(Catalog(isp()))
+    original: Final = _record(status=EnvironmentStatus.READY)
+    record: Final = original.model_copy(update={
+        "proxy_profile_id": PROFILE_ID,
+        "configuration_pending": True,
+        "desired_configuration_version": 2,
+        "observed_configuration_version": 1,
+        "desired_configuration": EnvironmentConfiguration.model_validate({
+            "name": original.name, "concurrency_limit": 2, "enabled": True,
+            "proxy_mode": "profile", "proxy_profile_id": PROFILE_ID, "proxy_url": await profiles.get_url(PROFILE_ID),
+            "enabled_models": [], "manual_cooldown": False,
+        }),
+    })
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path), repository=MemoryRepository(record), runtime=runtime, cli_proxy=cli,
+        proxy_profiles=profiles, secrets=EnvironmentSecretDeriver("s" * 32), channels=_fake_channels(runtime, cli),
+    )
+    assert isinstance(await service.export_browser_proxy(record.id), Failure)

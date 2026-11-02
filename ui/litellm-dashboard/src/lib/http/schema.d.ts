@@ -1048,6 +1048,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/browser-proxy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Browser Proxy */
+        post: operations["export_browser_proxy_account_pool_environments__environment_id__browser_proxy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/oauth-session": {
         parameters: {
             query?: never;
@@ -24535,6 +24552,22 @@ export interface components {
             /** User Code */
             user_code: string | null;
         };
+        /** AccountPoolBrowserProxy */
+        AccountPoolBrowserProxy: {
+            /** Host */
+            host: string;
+            /** Password */
+            password: string;
+            /** Port */
+            port: number;
+            /**
+             * Proxy Type
+             * @enum {string}
+             */
+            proxy_type: "http" | "https" | "socks5";
+            /** Username */
+            username: string;
+        };
         /** AccountPoolClashNode */
         AccountPoolClashNode: {
             /** Name */
@@ -46475,6 +46508,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolAuthorization"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_browser_proxy_account_pool_environments__environment_id__browser_proxy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolBrowserProxy"];
                 };
             };
             /** @description Validation Error */

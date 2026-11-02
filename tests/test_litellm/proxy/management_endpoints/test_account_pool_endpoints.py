@@ -1109,3 +1109,27 @@ def test_retired_server_browser_routes_are_unavailable(method: str, path: str) -
     with TestClient(app) as client:
         response: Final = client.request(method, path)
     assert response.status_code == 404
+
+
+@pytest.mark.parametrize("role, expected", [(LitellmUserRoles.PROXY_ADMIN, 200), (LitellmUserRoles.INTERNAL_USER, 403)])
+def test_browser_proxy_export_requires_admin_and_disables_caching(role: LitellmUserRoles, expected: int) -> None:
+    def factory() -> AccountPoolManagerClient:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.method == "POST"
+            assert request.url.path == f"/api/environments/{_ENVIRONMENT_ID}/browser-proxy"
+            return httpx.Response(200, json={
+                "proxy_type": "socks5", "host": "isp.example", "port": 1080,
+                "username": "user", "password": "secret",
+            })
+        return AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    with TestClient(_app(UserAPIKeyAuth(user_role=role), factory)) as client:
+        response: Final = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/browser-proxy")
+    assert response.status_code == expected
+    if expected == 200:
+        assert response.headers["cache-control"] == "no-store"
+        assert response.json()["password"] == "secret"
+    else:
+        assert "secret" not in response.text

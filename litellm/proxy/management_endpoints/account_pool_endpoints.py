@@ -307,6 +307,16 @@ class AccountPoolAuthorization(BaseModel):
     expires_at: str
 
 
+class AccountPoolBrowserProxy(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    proxy_type: Literal["http", "https", "socks5"]
+    host: str
+    port: int = Field(ge=1, le=65535)
+    username: str = Field(repr=False)
+    password: str = Field(repr=False)
+
+
 class AccountPoolProxyProfile(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -852,6 +862,23 @@ def create_account_pool_router(
         environment: Final = _validate_response(response, _ENVIRONMENT)
         await _reconcile_after_saved_change()
         return environment
+
+    async def export_browser_proxy(
+        environment_id: UUID,
+        response: Response,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolBrowserProxy:
+        _require_proxy_admin(user_api_key_dict)
+        response.headers["Cache-Control"] = "no-store"
+        upstream: Final = await _manager_request(
+            client_factory, "POST", f"/api/environments/{environment_id}/browser-proxy"
+        )
+        return _validate_response(upstream, TypeAdapter(AccountPoolBrowserProxy))
+
+    router.add_api_route(
+        "/environments/{environment_id}/browser-proxy", export_browser_proxy,
+        methods=["POST"], response_model=AccountPoolBrowserProxy,
+    )
 
     @router.post("/environments/{environment_id}/authorize", response_model=AccountPoolAuthorization)
     async def authorize_environment(

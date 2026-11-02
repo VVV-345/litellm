@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -111,4 +112,49 @@ describe("AccountPoolAuthorizationPanel external browser", () => {
     );
     expect(screen.queryByRole("button", { name: "Open server browser" })).not.toBeInTheDocument();
   });
+});
+it("keeps the Camoufox Key local while preparing the ISP and opening fresh authorization", async () => {
+  await i18n.changeLanguage("en");
+  const isp = { proxy_type: "socks5", host: "isp.example", port: 1080, username: "user", password: "secret" };
+  const calls: { path: string; body: unknown }[] = [];
+  vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
+    expect(new URL(input).origin).toBe("http://127.0.0.1:10109");
+    expect(init.headers).toEqual({ Authorization: "Bearer local-key", "Content-Type": "application/json" });
+    const path = new URL(input).pathname;
+    calls.push({ path, body: JSON.parse(String(init.body)) });
+    return new Response(
+      JSON.stringify(
+        path.endsWith("/prepare")
+          ? { ticket: "a".repeat(64), proxy_id: "b".repeat(64), imported: true }
+          : { opened: true },
+      ),
+    );
+  });
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (_name: string, _options: unknown, callback: (lock: object) => Promise<void>) => callback({}),
+    },
+  });
+  postMock.mockReset().mockImplementation(async (path: string, options: object) => {
+    expect(JSON.stringify(options)).not.toContain("local-key");
+    return path.endsWith("/browser-proxy")
+      ? isp
+      : { ...authorization, authorization_url: "https://auth.openai.com/oauth/authorize?state=fresh" };
+  });
+  const { rerender, view } = renderPanel();
+  fireEvent.click(screen.getByText("Camoufox browser"));
+  fireEvent.change(screen.getByLabelText("Local helper Key"), { target: { value: "local-key" } });
+  fireEvent.click(screen.getByRole("button", { name: "Match ISP and open in Camoufox" }));
+  expect(
+    await screen.findByText("ISP registered and authorization opened in Camoufox. Complete sign-in in that browser."),
+  ).toBeInTheDocument();
+  expect(calls).toEqual([
+    { path: "/v1/prepare", body: { card_id: "card-1", proxy: isp } },
+    { path: "/v1/open", body: { ticket: "a".repeat(64), url: "https://auth.openai.com/oauth/authorize?state=fresh" } },
+  ]);
+  rerender(view("card-2", "other-admin"));
+  fireEvent.click(screen.getByText("Camoufox browser"));
+  expect(screen.getByLabelText("Local helper Key")).toHaveValue("");
+  vi.unstubAllGlobals();
 });

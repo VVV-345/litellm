@@ -1,3 +1,5 @@
+import { AccountPoolCamoufoxBrowser } from "./AccountPoolCamoufoxBrowser";
+
 import { ExternalLink } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -135,6 +137,13 @@ function AccountPoolExternalBrowser({
           {t("accountPool.create.generateLocalBrowserLink")}
         </Button>
       </div>
+      <AccountPoolCamoufoxBrowser
+        accessToken={accessToken}
+        environmentId={environmentId}
+        busy={busy}
+        setBusy={setBusy}
+        onAuthorization={setExternalAuthorization}
+      />
       {externalAuthorization && <ExternalBrowserLink authorization={externalAuthorization} />}
       <p className="text-xs text-muted-foreground">
         {t("accountPool.create.authorizationExpires", {

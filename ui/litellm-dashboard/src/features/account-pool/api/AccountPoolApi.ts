@@ -332,3 +332,11 @@ export const testAccountPoolModel = (
     accessToken,
     body: request,
   });
+
+export const exportAccountPoolBrowserProxy = (
+  accessToken: string,
+  environmentId: string,
+): Promise<components["schemas"]["AccountPoolBrowserProxy"]> =>
+  apiClient.post<components["schemas"]["AccountPoolBrowserProxy"]>(
+    `/account_pool/environments/${encodeURIComponent(environmentId)}/browser-proxy`, { accessToken },
+  );

@@ -26,6 +26,7 @@ from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.credential_import import is_two_factor_text
+from account_pool.direct_isp_profiles import BrowserProxy
 from account_pool.domain import (
     ChannelKind,
     CreateDirectCredentialEnvironmentRequest,
@@ -630,6 +631,15 @@ def create_router(
             request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
         )
         return _unwrap(await service.update_environment(environment_id, effective))
+
+    async def export_browser_proxy(environment_id: UUID, response: Response) -> BrowserProxy:
+        response.headers["Cache-Control"] = "no-store"
+        return _unwrap(await service.export_browser_proxy(environment_id))
+
+    router.add_api_route(
+        "/api/environments/{environment_id}/browser-proxy", export_browser_proxy,
+        methods=["POST"], dependencies=[Depends(require_manager)], response_model=BrowserProxy,
+    )
 
     @router.post("/api/environments/{environment_id}/authorize", dependencies=[Depends(require_manager)])
     async def authorize_environment(
