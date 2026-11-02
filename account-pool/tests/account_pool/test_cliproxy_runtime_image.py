@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import socket
 import struct
 import sys
@@ -112,10 +113,12 @@ def test_probe_times_out_when_tcp_accepts_but_http_never_becomes_ready() -> None
         assert attempts == [None]
 
 
-def test_adapted_image_pin_is_the_deployment_default() -> None:
+def test_adapted_build_pin_and_published_deployment_default() -> None:
     pin: Final = _IMAGE_REF.load_pin(_ADAPTER)
-    assert pin.reference == DEFAULT_CLI_PROXY_IMAGE
-    assert pin.reference == "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-f32051450f9e"
+    patch_sha: Final = hashlib.sha256((_ADAPTER / "settings-adaptation.patch").read_bytes()).hexdigest()
+    assert pin.patch_sha256 == patch_sha
+    assert pin.reference == f"ghcr.io/vvv-345/cliproxyapi:managed-{pin.commit[:12]}-{patch_sha[:12]}"
+    assert DEFAULT_CLI_PROXY_IMAGE == "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-f32051450f9e"
     assert "bebf587" not in pin.reference
     assert "eceasy" not in pin.reference
     for relative in (
@@ -123,7 +126,7 @@ def test_adapted_image_pin_is_the_deployment_default() -> None:
         "account-pool/.env.example",
     ):
         text: Final = (_REPO / relative).read_text(encoding="utf-8")
-        assert pin.reference in text
+        assert DEFAULT_CLI_PROXY_IMAGE in text
         assert "eceasy/cli-proxy-api" not in text
         assert "dead34aa" not in text
     deployment: Final = (_REPO / "deploy/docker-compose.yml").read_text(encoding="utf-8")

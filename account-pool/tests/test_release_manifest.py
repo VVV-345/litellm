@@ -1,5 +1,6 @@
 """发布清单必须有四个组件在所选架构上通过探测及固定补丁来源。"""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -55,7 +56,9 @@ def test_release_manifest_records_all_components_and_adapter_provenance(
     assert manifest["images"]["litellm"]["source_revision"] == REVISION
     adapted: Final = manifest["images"]["cliproxyapi"]
     assert adapted["source_revision"] == "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
-    assert adapted["patch_sha256"] == "f32051450f9e1a7350e8b9bc7d5beaa26d47c4d4b9bd9d01af5354dcb464a2c7"
+    assert adapted["patch_sha256"] == hashlib.sha256(
+        (ROOT / "account-pool/cliproxy-adapter/settings-adaptation.patch").read_bytes()
+    ).hexdigest()
     assert adapted["managed_identity_version"] == 1
 
 
