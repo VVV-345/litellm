@@ -52,6 +52,7 @@ from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissin
 )
 from account_pool.quota_reset import QuotaResetService
 from account_pool.quota_reset_repository import PostgresResetStore
+from account_pool.quota_recovery_scheduler import QuotaRecoveryScheduler
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,
@@ -98,6 +99,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     reset_http: Final = httpx.AsyncClient(timeout=55.0, trust_env=False, transport=httpx.AsyncHTTPTransport(retries=0))
     reset_store: Final = PostgresResetStore(resolved.database_url)
     quota_reset: Final = QuotaResetService(reset_store, environments, CodexResetClient(reset_http, secrets), ownership)
+    quota_recovery: Final = QuotaRecoveryScheduler(environments.list, quota_reset.recover_due, resolved.quota_refresh_max_concurrency)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
@@ -212,6 +214,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         quota_refresh_task: Final = asyncio.create_task(quota_scheduler.run_until_cancelled(retry_stopped))
         quota_event_task: Final = asyncio.create_task(quota_trigger.run_until_cancelled(retry_stopped))
+        quota_recovery_task: Final = asyncio.create_task(quota_recovery.run_until_cancelled(retry_stopped))
         auth_refresh_task: Final = asyncio.create_task(auth_refresh_scheduler.run_until_cancelled(retry_stopped))
         browser_cleanup_task: Final = asyncio.create_task(
             _reap_oauth_browser_sessions_until_cancelled(browser_sessions, browser_runtime, retry_stopped)
@@ -228,6 +231,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             onboarding_task.cancel()
             quota_refresh_task.cancel()
             quota_event_task.cancel()
+            quota_recovery_task.cancel()
             auth_refresh_task.cancel()
             browser_cleanup_task.cancel()
             proxy_expiry_task.cancel()
@@ -236,6 +240,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(onboarding_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(quota_event_task, return_exceptions=True)
+            await asyncio.gather(quota_recovery_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
             await asyncio.gather(browser_cleanup_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)

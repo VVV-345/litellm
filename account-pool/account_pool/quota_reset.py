@@ -107,6 +107,25 @@ class QuotaResetService:
     upstream: ResetUpstream
     ownership: CredentialOwnership
 
+    async def recover_due(self, environment_id: UUID) -> bool:
+        from account_pool.quota_recovery_scheduler import due_models
+
+        record = await self.record(environment_id)
+        models = due_models(record, utc_now())
+        if not models:
+            return True
+        observation = await self.upstream.observe(record)
+        if not observation.quota.windows or any(w.remaining_percent <= 0 for w in observation.quota.windows):
+            return False
+        succeeded = True
+        for model in models:
+            if any(w.remaining_percent <= 0 for item in observation.model_quotas if item.model == model for w in item.quota.windows):
+                succeeded = False
+                continue
+            result = await self.verify(environment_id, model, True)
+            succeeded = succeeded and result.restored
+        return succeeded
+
     async def record(self, environment_id: UUID) -> EnvironmentRecord:
         record: Final = await self.environments.get(environment_id)
         if record is None:
