@@ -6564,6 +6564,7 @@
       "verifyNotice": "Verification spends a small amount of model quota using the existing token without OAuth refresh. Routing is restored only if you select the recovery option and verification succeeds.",
       "recover": "Restore proven stale blocks after verification; preserve manual and independent blocks",
       "verify": "Verify inference",
+      "apiVerified": "Ordinary API call verified",
       "restored": "Probe passed and pool state restored; normal API calls still need confirmation",
       "passed": "Inference passed; pool routing not restored",
       "failed": "Inference failed; pool routing not restored",

@@ -22,6 +22,7 @@ from account_pool.quota_reset_models import (
     ResetReply,
     ResetVerification,
     ResetVerificationRecord,
+    VerifiedAPICall,
 )
 
 
@@ -31,6 +32,7 @@ class ResetStore(Protocol):
     async def save(self, operation: ResetOperation) -> None: ...
     async def save_verification(self, environment_id: UUID, verification: ResetVerificationRecord) -> None: ...
     async def latest_verification(self, environment_id: UUID) -> ResetVerificationRecord | None: ...
+    async def latest_api_call(self, environment_id: UUID) -> VerifiedAPICall | None: ...
 
 
 class ResetEnvironments(Protocol):

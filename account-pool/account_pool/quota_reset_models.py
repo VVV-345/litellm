@@ -69,6 +69,7 @@ class ResetStatus(BaseModel):
     observation: ResetObservation | None
     operation: ResetView | None = None
     last_verification: ResetVerificationRecord | None = None
+    last_api_call: VerifiedAPICall | None = None
 
 
 class VerifyResetRequest(BaseModel):
@@ -91,6 +92,15 @@ class ResetVerificationRecord(BaseModel):
     observed_at: datetime = Field(default_factory=utc_now)
     result: ResetVerification
     source: Literal["manual", "natural"] = "manual"
+
+
+class VerifiedAPICall(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    model: str
+    request_id: UUID
+    endpoint: Literal["/v1/responses", "/v1/chat/completions"]
+    verification_at: datetime
+    observed_at: datetime
 
 
 ResetStatus.model_rebuild()

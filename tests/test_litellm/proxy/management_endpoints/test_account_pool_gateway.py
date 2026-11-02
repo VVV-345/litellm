@@ -1033,6 +1033,33 @@ async def test_nonreplayable_stream_forwards_handshake_before_waiting_for_output
     assert attempt.result.http_status == 200
 
 
+@pytest.mark.parametrize("endpoint,body,stream,expected", [
+    ("/v1/responses", {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}]}, False, True),
+    ("/v1/responses", {"status": "incomplete", "output": []}, False, False),
+    ("/v1/responses", {"error": {"code": "invalid_request_error"}}, False, False),
+    ("/v1/responses", {"id": "empty"}, False, False),
+    ("/v1/chat/completions", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}, False, True),
+    ("/v1/chat/completions", {"choices": [{"message": {"content": "partial"}, "finish_reason": None}]}, False, False),
+    ("/v1/responses", 'data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message"}]}}\n\n', True, True),
+    ("/v1/responses", 'data: {"type":"response.incomplete","response":{"status":"incomplete"}}\n\n', True, False),
+    ("/v1/responses", 'data: {"type":"response.output_text.delta","delta":"partial"}\n\n', True, False),
+    ("/v1/responses", 'data: {"type":"error","error":{"code":"server_error"}}\n\n', True, False),
+    ("/v1/chat/completions", 'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', True, True),
+    ("/v1/chat/completions", 'data: [DONE]\n\n', True, False),
+])
+def test_quota_call_proof_requires_completed_response(endpoint, body, stream, expected):
+    response = (httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+                if stream else httpx.Response(200, json=body))
+    client, control = setup_gateway(lambda _: response)
+    with client:
+        client.post(endpoint, headers={"Authorization": f"Bearer {_KEY}"}, json={
+            "model": "model-a", "stream": stream,
+            **({"input": "hello"} if endpoint.endswith("responses") else {"messages": [{"role": "user", "content": "hello"}]}),
+        })
+    assert control.finished
+    assert all(getattr(item, "response_completed", False) is expected for item in control.finished)
+
+
 class Control:
     def __init__(self, resolution: Resolution) -> None:
         self.resolution: Final = resolution

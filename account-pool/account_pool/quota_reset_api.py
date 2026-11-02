@@ -34,11 +34,16 @@ def create_quota_reset_router(service: QuotaResetService, require_manager: Calla
             record: Final = await service.record(environment_id)
             operation: Final = await service.store.latest(environment_id)
             verification = await service.store.latest_verification(environment_id)
+            saved_call: Final = await service.store.latest_api_call(environment_id)
+            api_call: Final = saved_call if (
+                saved_call is not None and verification is not None
+                and saved_call.verification_at == verification.observed_at and saved_call.model == verification.model
+            ) else None
             try:
                 observation: Final = await service.upstream.observe(record)
             except (ValueError, httpx.HTTPError, TimeoutError):
-                return ResetStatus(observation=None, operation=None if operation is None else reset_view(operation), last_verification=verification)
-            return ResetStatus(observation=observation, operation=None if operation is None else reset_view(operation), last_verification=verification)
+                return ResetStatus(observation=None, operation=None if operation is None else reset_view(operation), last_verification=verification, last_api_call=api_call)
+            return ResetStatus(observation=observation, operation=None if operation is None else reset_view(operation), last_verification=verification, last_api_call=api_call)
         except (ValueError, httpx.HTTPError, TimeoutError):
             raise HTTPException(409, "无法查询，请核对卡片凭据、出站连接与供应商状态") from None
 

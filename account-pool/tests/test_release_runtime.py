@@ -796,6 +796,16 @@ def test_quota_verification_schema_is_additive_without_relaxing_existing_tables(
     assert not additive_manager_schema_upgrade(old, (*old, ("verification.py", new[1][1].replace(b"jsonb", b"text"))))
 
 
+def test_api_call_evidence_column_is_exact_additive_upgrade() -> None:
+    from account_pool.release_compatibility import QUOTA_CALL_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS
+
+    old = (("verification.py", repr(tuple(item.decode() for item in QUOTA_VERIFICATION_SCHEMA_ADDITIONS)).encode()),)
+    column = ("call.py", repr(QUOTA_CALL_SCHEMA_ADDITIONS[0].decode()).encode())
+    assert additive_manager_schema_upgrade(old, (*old, column))
+    assert not additive_manager_schema_upgrade((*old, column), old)
+    assert not additive_manager_schema_upgrade(old, (*old, (column[0], column[1].replace(b"jsonb", b"text"))))
+
+
 @pytest.mark.parametrize("change,allowed", (("isp", True), ("prisma", False), ("extra", False), ("modified", False)))
 def test_additive_upgrade_runtime_inspects_both_images(tmp_path: Path, change: str, allowed: bool) -> None:
     from account_pool.proxy_catalog_repository import _SCHEMA

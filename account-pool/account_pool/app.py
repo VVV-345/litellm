@@ -284,6 +284,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ownership,
                 model_cooldowns=cooldown_client.read_model_cooldowns,
                 on_quota_exhausted=quota_trigger.submit,
+                on_api_completed=reset_store.confirm_api_call,
             ),
             batch_service=batch_service,
             onboarding_service=onboarding_service,

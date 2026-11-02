@@ -1223,3 +1223,30 @@ async def test_only_explicit_quota_failures_enqueue_refresh_after_release(
 
     assert len(leases.bindings) == expected_bindings
     assert refreshes == ([card.id] if reason == "quota_exhausted" else [])
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changes,expected", [
+    ({}, True), ({"response_completed": False}, False), ({"http_status": 502}, False),
+    ({"retryable": True}, False), ({"failure_reason": "upstream_unavailable"}, False),
+    ({"stage": "upstream"}, False), ({"endpoint": "/v1/models"}, False),
+])
+async def test_completed_api_hook_uses_actual_lease_and_never_replaces_accounting(changes, expected):
+    card = _record(status=EnvironmentStatus.READY)
+    leases, logs = MemoryLeases(), MemoryLogs()
+    calls = []
+
+    async def completed(lease, request):
+        assert not leases.leases and logs.events
+        calls.append((lease.account_id, lease.model, lease.request_id))
+
+    service = GatewayService(CardKeyService(MemoryKeys()), MemoryRepository(card), MemoryPolicies(), leases,
+                             ErrorLogService(logs), gateway, on_api_completed=completed)
+    lease = Lease(lease_id=uuid4(), card_id=uuid4(), key_id=uuid4(), account_id=card.id, request_id=uuid4(),
+                  channel=card.channel, supplier=card.supplier, model="gpt-5", started_at=utc_now())
+    leases.leases[lease.lease_id] = lease
+    request = FinishRequest.model_validate({"lease_id": lease.lease_id, "http_status": 200, "stage": "response",
+        "message": "Request completed", "endpoint": "/v1/responses", "response_completed": True, **changes})
+    await service.finish(request)
+    await service.finish(request)
+    assert calls == ([(card.id, "gpt-5", lease.request_id)] if expected else [])
+    assert len(logs.events) == 1 and not leases.leases

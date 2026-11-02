@@ -111,3 +111,16 @@ it("reloads saved verification and hides it if a new verification fails", async 
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.queryByText(/号池状态已恢复/)).not.toBeInTheDocument();
 });
+
+it("shows durable ordinary API proof with request identity instead of a management-only success", async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ observation, operation: null, last_verification: {
+    model: "gpt-6-astra", source: "natural", observed_at: "2026-11-03T00:00:00Z",
+    result: { passed: true, restored: true, reason: "restored" },
+  }, last_api_call: {
+    model: "gpt-6-astra", request_id: "ordinary-request", endpoint: "/v1/responses",
+    verification_at: "2026-11-03T00:00:00Z", observed_at: "2026-11-03T00:01:00Z",
+  } });
+  open();
+  expect(await screen.findByText(/普通 API 调用已验证/)).toHaveTextContent("ordinary-request");
+  expect(screen.queryByText(/普通 API 调用仍需确认/)).not.toBeInTheDocument();
+});

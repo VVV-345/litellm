@@ -25621,6 +25621,7 @@ export interface components {
         };
         /** AccountPoolResetStatus */
         AccountPoolResetStatus: {
+            last_api_call?: components["schemas"]["AccountPoolVerifiedAPICall"] | null;
             last_verification?: components["schemas"]["AccountPoolResetVerificationRecord"] | null;
             observation: components["schemas"]["AccountPoolResetObservation"] | null;
             operation?: components["schemas"]["AccountPoolResetOperation"] | null;
@@ -26105,6 +26106,31 @@ export interface components {
             proxy_profile_id?: string | null;
             /** Version */
             version: number;
+        };
+        /** AccountPoolVerifiedAPICall */
+        AccountPoolVerifiedAPICall: {
+            /**
+             * Endpoint
+             * @enum {string}
+             */
+            endpoint: "/v1/responses" | "/v1/chat/completions";
+            /** Model */
+            model: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Verification At
+             * Format: date-time
+             */
+            verification_at: string;
         };
         /** AccountPoolVerifyReset */
         AccountPoolVerifyReset: {
@@ -31453,6 +31479,11 @@ export interface components {
             output_tokens?: number | null;
             /** Proxy Endpoint */
             proxy_endpoint?: string | null;
+            /**
+             * Response Completed
+             * @default false
+             */
+            response_completed: boolean;
             /**
              * Retry After Seconds
              * @default 0

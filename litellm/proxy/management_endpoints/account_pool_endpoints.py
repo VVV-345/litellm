@@ -501,6 +501,7 @@ class AccountPoolResetStatus(BaseModel):
     observation: AccountPoolResetObservation | None
     operation: AccountPoolResetOperation | None = None
     last_verification: AccountPoolResetVerificationRecord | None = None
+    last_api_call: AccountPoolVerifiedAPICall | None = None
 
 
 class AccountPoolPrepareReset(BaseModel):
@@ -532,6 +533,14 @@ class AccountPoolResetVerificationRecord(BaseModel):
     observed_at: datetime
     result: AccountPoolResetVerification
     source: Literal["manual", "natural"] = "manual"
+
+
+class AccountPoolVerifiedAPICall(BaseModel):
+    model: str
+    request_id: UUID
+    endpoint: Literal["/v1/responses", "/v1/chat/completions"]
+    verification_at: datetime
+    observed_at: datetime
 
 
 AccountPoolResetStatus.model_rebuild()

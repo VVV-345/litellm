@@ -143,6 +143,9 @@ QUOTA_VERIFICATION_SCHEMA_ADDITIONS: Final = (
     b"CREATE TABLE IF NOT EXISTS account_pool_quota_verifications ( "
     b"environment_id uuid PRIMARY KEY REFERENCES account_pool_environments(id) ON DELETE CASCADE, payload jsonb NOT NULL )",
 )
+QUOTA_CALL_SCHEMA_ADDITIONS: Final = (
+    b"ALTER TABLE account_pool_quota_verifications ADD COLUMN IF NOT EXISTS api_call jsonb",
+)
 
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
@@ -280,6 +283,10 @@ def additive_manager_schema_upgrade(
         QUOTA_RESET_SCHEMA_ADDITIONS,
         QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
         tuple(sorted((*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS))),
+        *(tuple(sorted((*group, *QUOTA_CALL_SCHEMA_ADDITIONS))) for group in (
+            (), QUOTA_RESET_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS),
+        )),
         *reviewed_additions,
         ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS))) for group in reviewed_additions),
@@ -289,6 +296,7 @@ def additive_manager_schema_upgrade(
         line.startswith(b"CREATE TABLE IF NOT EXISTS account_pool_")
         or line.startswith(b"CREATE INDEX IF NOT EXISTS account_pool_")
         or line.startswith(b"CREATE UNIQUE INDEX IF NOT EXISTS account_pool_")
+        or line in QUOTA_CALL_SCHEMA_ADDITIONS
         for line in additions
     ) and all(line in after.splitlines() for line in before.splitlines())
 

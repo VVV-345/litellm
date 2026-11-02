@@ -1,5 +1,7 @@
 # 额度重置与周期恢复本地执行记录
 
+后续更新：本文记录截至 a88de2f658 的结果；其中“普通 API 成功回写未接入”已由后续本地修复补齐，见 D:/Work2api/litellm/docs/superpowers/plans/2026-11-03-quota-call-verification.md。生产验收边界保持不变
+
 ## 范围与结果
 
 TARGET 为 D:/Work2api/litellm，分支 CLIProxyAPI分支，基线 f9c0d9fa171a68b949d01cb83838dcdfa8272e76。此次只做本地代码、隔离测试及提交，没有 push、部署、连接生产、刷新线上 Token 或消耗真实重置次数。未改动既有无关的 ui/litellm-dashboard/CLAUDE.md

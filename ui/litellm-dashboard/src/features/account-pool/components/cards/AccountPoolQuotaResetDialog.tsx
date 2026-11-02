@@ -50,6 +50,9 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const busy = useRef(false);
   const reconcile = operation?.status === "uncertain";
   const savedVerification = status.data?.last_verification;
+  const savedCall = status.data?.last_api_call;
+  const displayedCall = !failed && !pending && !verification && savedCall?.model === model
+    && savedCall.verification_at === savedVerification?.observed_at ? savedCall : null;
   const displayedVerification = failed || pending ? null : verification ?? (savedVerification?.model === model ? savedVerification.result : null);
   const run = async (action: "reset" | "verify") => {
     if (busy.current || (action === "reset" && !confirmed)) return;
@@ -164,7 +167,12 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
           <Button disabled={pending || !model} onClick={() => void run("verify")}>
             {t("accountPool.quotaReset.verify")}
           </Button>
-          {displayedVerification && (
+          {displayedCall ? (
+            <p role="status">
+              {t("accountPool.quotaReset.apiVerified")} · {displayedCall.model} · {displayedCall.endpoint}
+              {` · ${new Date(displayedCall.observed_at).toLocaleString()} · ${displayedCall.request_id}`}
+            </p>
+          ) : displayedVerification && (
             <p role="status">
               {t(verificationLabel())} ({displayedVerification.reason})
               {savedVerification && !verification && ` · ${new Date(savedVerification.observed_at).toLocaleString()}`}

@@ -31,6 +31,9 @@ class Store:
     async def latest_verification(self, environment_id):
         return self.verifications.get(environment_id)
 
+    async def latest_api_call(self, environment_id):
+        return None
+
     async def latest(self, environment_id):
         return next(
             (item for item in reversed(tuple(self.items.values())) if item.environment_id == environment_id), None
