@@ -15,6 +15,6 @@
   "observed_date": "2026-10-23",
   "patch": {
     "file": "settings-adaptation.patch",
-    "sha256": "c2334cfa56310902a32f1ae9127772aa1d406d3d00c646e260c07ed294c2417c"
+    "sha256": "cbaa3bc78283b146fb6ee424721d40fbf18ca27c6d14559888b472c97a1ff07b"
   }
 }
