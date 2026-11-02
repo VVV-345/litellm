@@ -272,9 +272,10 @@ async def test_scoped_authentication_error_does_not_block_verified_healthy_model
 
 
 def test_old_passive_model_quota_cannot_overwrite_new_verified_snapshot():
+    from datetime import timedelta
+
     from account_pool.channels.cliproxyapi.quota_state import merge_model_quotas
     from account_pool.domain import ModelQuotaSnapshot
-    from datetime import timedelta
     now = utc_now()
     verified = ModelQuotaSnapshot(model="model-a", quota=QuotaSnapshot(observed_at=now, source="provider_api"))
     old = ModelQuotaSnapshot(model="model-a", quota=QuotaSnapshot(observed_at=now-timedelta(hours=1), windows=(QuotaWindow(name="5h", remaining_percent=0, used_percent=100, window_minutes=300),)))

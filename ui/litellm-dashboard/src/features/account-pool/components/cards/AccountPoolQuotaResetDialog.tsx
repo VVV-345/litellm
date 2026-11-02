@@ -49,6 +49,8 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const [verification, setVerification] = useState<QuotaResetVerification | null>(null);
   const busy = useRef(false);
   const reconcile = operation?.status === "uncertain";
+  const savedVerification = status.data?.last_verification;
+  const displayedVerification = failed || pending ? null : verification ?? (savedVerification?.model === model ? savedVerification.result : null);
   const run = async (action: "reset" | "verify") => {
     if (busy.current || (action === "reset" && !confirmed)) return;
     busy.current = true;
@@ -66,11 +68,17 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
         const result = await consumeQuotaReset(accessToken, environment.id, prepared.request_id);
         cache.setQueryData(key, { observation: result.after ?? observation, operation: result });
         setConfirmed(false);
-        // 兑换成功后默认勾选恢复，避免只做验证、号池状态没有落地。
-        setRecover(true);
+        // HTTP 成功不代表兑换成功；不明确结果不能触发恢复或再次兑换。
+        setRecover(result.status === "reset" && result.windows_reset > 0);
+        if (result.status === "reset" && result.windows_reset > 0 && model) {
+          const checked = await verifyQuotaReset(accessToken, environment.id, model, true);
+          setVerification(checked);
+          await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
+        }
       } else {
         const result = await verifyQuotaReset(accessToken, environment.id, model, recover);
         setVerification(result);
+        await cache.invalidateQueries({ queryKey: key });
         if (result.restored)
           await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
       }
@@ -85,8 +93,8 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const canReset =
     reconcile || operation?.status === "prepared" || Boolean(observation?.eligible && observation.available > 0);
   const verificationLabel = () => {
-    if (verification?.restored) return "accountPool.quotaReset.restored";
-    if (verification?.passed) return "accountPool.quotaReset.passed";
+    if (displayedVerification?.restored) return "accountPool.quotaReset.restored";
+    if (displayedVerification?.passed) return "accountPool.quotaReset.passed";
     return "accountPool.quotaReset.failed";
   };
   return (
@@ -156,9 +164,10 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
           <Button disabled={pending || !model} onClick={() => void run("verify")}>
             {t("accountPool.quotaReset.verify")}
           </Button>
-          {verification && (
+          {displayedVerification && (
             <p role="status">
-              {t(verificationLabel())} ({verification.reason})
+              {t(verificationLabel())} ({displayedVerification.reason})
+              {savedVerification && !verification && ` · ${new Date(savedVerification.observed_at).toLocaleString()}`}
             </p>
           )}
         </section>

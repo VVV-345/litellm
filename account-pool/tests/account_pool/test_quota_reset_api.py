@@ -60,3 +60,18 @@ async def test_saved_redemption_remains_visible_when_provider_query_fails():
     assert response.json()["operation"]["request_id"] == str(operation.request_id)
     assert response.json()["operation"]["status"] == "uncertain"
     assert response.json()["observation"] is None
+
+
+@pytest.mark.asyncio
+async def test_verification_reloads_without_a_redemption_record():
+    service, record, _, _ = setup_service()
+    app = FastAPI()
+    app.include_router(create_quota_reset_router(service, lambda: None))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://fixture") as client:
+        root = f"/api/environments/{record.id}/quota-reset"
+        verified = await client.post(root + "/verify", json={"model": "model-a", "recover": True, "confirmed": True})
+        assert verified.json()["restored"]
+        saved = (await client.get(root)).json()
+    assert saved["operation"] is None
+    assert saved["last_verification"]["model"] == "model-a"
+    assert saved["last_verification"]["result"] == verified.json()

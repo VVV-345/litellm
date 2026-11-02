@@ -23,6 +23,13 @@ from test_cliproxy_supplier_client import _record
 class Store:
     def __init__(self):
         self.items = {}
+        self.verifications = {}
+
+    async def save_verification(self, environment_id, verification):
+        self.verifications[environment_id] = verification
+
+    async def latest_verification(self, environment_id):
+        return self.verifications.get(environment_id)
 
     async def latest(self, environment_id):
         return next(
@@ -111,7 +118,8 @@ async def test_timeout_survives_restart_and_only_reconciles_with_same_redemption
     upstream.timeout = False
     upstream.reply = ResetReply(code="already_redeemed", windows_reset=0)
     reconciled = await restarted.consume(record.id, operation.request_id)
-    assert reconciled.status == "already_redeemed"
+    assert reconciled.status == "uncertain"
+    assert len(upstream.calls) == 1
     assert {item[1] for item in upstream.calls} == {operation.request_id}
 
 
@@ -164,6 +172,25 @@ async def test_inference_failure_cannot_recover_despite_successful_quota_query()
     result = await service.verify(record.id, "model-a", True)
     assert not result.restored
     assert service.environments.record == record
+
+
+@pytest.mark.asyncio
+async def test_verification_persisted_without_fabricating_redemption():
+    service, record, store, _ = setup_service()
+    result = await service.verify(record.id, "model-a", True)
+    saved = await store.latest_verification(record.id)
+    assert saved.result == result and saved.model == "model-a"
+    assert saved.observed_at is not None
+    assert await store.latest(record.id) is None
+
+
+@pytest.mark.asyncio
+async def test_verification_updates_existing_redemption_audit():
+    service, record, store, _ = setup_service()
+    operation = await service.prepare(record.id, None)
+    await service.consume(record.id, operation.request_id)
+    await service.verify(record.id, "model-a", True)
+    assert (await store.get(record.id, operation.request_id)).verification == "restored"
 
 
 @pytest.mark.asyncio
@@ -305,3 +332,16 @@ async def test_fresh_exhausted_model_cannot_be_reported_restored():
     result = await service.verify(record.id, "model-a", True)
     assert result.passed and not result.restored and result.reason == "quota_not_recovered"
     assert service.environments.record == record
+
+
+@pytest.mark.asyncio
+async def test_manual_reset_can_verify_old_quota_deadline_without_clearing_independent_deadline():
+    service, record, _, upstream = setup_service()
+    deadline = utc_now() + timedelta(days=1)
+    old = QuotaSnapshot(windows=(QuotaWindow(name="weekly", used_percent=100, remaining_percent=0, window_minutes=10080, resets_at=deadline),))
+    service.environments.record = record.model_copy(update={"quota": old, "cooldown_until": deadline})
+    upstream.observation = upstream.observation.model_copy(update={"quota": QuotaSnapshot(observed_at=utc_now(), windows=(QuotaWindow(name="weekly", used_percent=1, remaining_percent=99, window_minutes=10080, resets_at=deadline),))})
+    assert (await service.verify(record.id, "model-a", True)).restored
+    assert service.environments.record.cooldown_until is None
+    service.environments.record = record.model_copy(update={"cooldown_until": deadline})
+    assert not (await service.verify(record.id, "model-a", True)).restored

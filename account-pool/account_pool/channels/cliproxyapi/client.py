@@ -32,8 +32,8 @@ from account_pool.channels.cliproxyapi.provider_requests import (
     _upstream_code,
 )
 from account_pool.channels.cliproxyapi.quota_state import (
-    merge_model_quotas,
     _merge_quota_snapshots,
+    merge_model_quotas,
 )
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry

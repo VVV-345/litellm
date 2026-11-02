@@ -6,7 +6,7 @@ from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
-from account_pool.quota_reset_models import ResetOperation
+from account_pool.quota_reset_models import ResetOperation, ResetVerificationRecord
 from account_pool.repository import database_connection
 
 
@@ -28,6 +28,26 @@ class PostgresResetStore:
                 CREATE INDEX IF NOT EXISTS account_pool_quota_resets_environment_idx
                 ON account_pool_quota_resets (environment_id, created_at DESC)
             """)
+            await connection.execute("""
+                CREATE TABLE IF NOT EXISTS account_pool_quota_verifications (
+                    environment_id uuid PRIMARY KEY REFERENCES account_pool_environments(id) ON DELETE CASCADE,
+                    payload jsonb NOT NULL
+                )
+            """)
+
+    async def save_verification(self, environment_id: UUID, verification: ResetVerificationRecord) -> None:
+        async with database_connection(self.database_url) as connection:
+            await connection.execute(
+                "INSERT INTO account_pool_quota_verifications VALUES (%s, %s) "
+                "ON CONFLICT (environment_id) DO UPDATE SET payload = EXCLUDED.payload",
+                (environment_id, Jsonb(verification.model_dump(mode="json"))),
+            )
+
+    async def latest_verification(self, environment_id: UUID) -> ResetVerificationRecord | None:
+        async with database_connection(self.database_url) as connection:
+            cursor = await connection.execute("SELECT payload FROM account_pool_quota_verifications WHERE environment_id = %s", (environment_id,))
+            row = await cursor.fetchone()
+            return None if row is None else ResetVerificationRecord.model_validate(row["payload"])
 
     async def latest(self, environment_id: UUID) -> ResetOperation | None:
         async with database_connection(self.database_url) as connection:

@@ -25621,6 +25621,7 @@ export interface components {
         };
         /** AccountPoolResetStatus */
         AccountPoolResetStatus: {
+            last_verification?: components["schemas"]["AccountPoolResetVerificationRecord"] | null;
             observation: components["schemas"]["AccountPoolResetObservation"] | null;
             operation?: components["schemas"]["AccountPoolResetOperation"] | null;
         };
@@ -25632,6 +25633,23 @@ export interface components {
             reason: string;
             /** Restored */
             restored: boolean;
+        };
+        /** AccountPoolResetVerificationRecord */
+        AccountPoolResetVerificationRecord: {
+            /** Model */
+            model: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            result: components["schemas"]["AccountPoolResetVerification"];
+            /**
+             * Source
+             * @default manual
+             * @enum {string}
+             */
+            source: "manual" | "natural";
         };
         /** AccountPoolRoutingConfig */
         AccountPoolRoutingConfig: {

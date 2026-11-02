@@ -1,5 +1,7 @@
 """定义单卡额度兑换记录及安全的公开结果，不保存供应商令牌。"""
 
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
@@ -66,6 +68,7 @@ class ResetView(BaseModel):
 class ResetStatus(BaseModel):
     observation: ResetObservation | None
     operation: ResetView | None = None
+    last_verification: ResetVerificationRecord | None = None
 
 
 class VerifyResetRequest(BaseModel):
@@ -80,3 +83,14 @@ class ResetVerification(BaseModel):
     passed: bool
     restored: bool
     reason: str
+
+
+class ResetVerificationRecord(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    model: str
+    observed_at: datetime = Field(default_factory=utc_now)
+    result: ResetVerification
+    source: Literal["manual", "natural"] = "manual"
+
+
+ResetStatus.model_rebuild()

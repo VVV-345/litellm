@@ -500,6 +500,7 @@ class AccountPoolResetOperation(BaseModel):
 class AccountPoolResetStatus(BaseModel):
     observation: AccountPoolResetObservation | None
     operation: AccountPoolResetOperation | None = None
+    last_verification: AccountPoolResetVerificationRecord | None = None
 
 
 class AccountPoolPrepareReset(BaseModel):
@@ -524,6 +525,16 @@ class AccountPoolResetVerification(BaseModel):
     passed: bool
     restored: bool
     reason: str
+
+
+class AccountPoolResetVerificationRecord(BaseModel):
+    model: str
+    observed_at: datetime
+    result: AccountPoolResetVerification
+    source: Literal["manual", "natural"] = "manual"
+
+
+AccountPoolResetStatus.model_rebuild()
 
 
 class AccountPoolGatewaySwitchRequest(BaseModel):

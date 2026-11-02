@@ -786,6 +786,16 @@ def test_quota_reset_upgrade_allows_only_exact_additive_table_and_index() -> Non
     assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE account_pool_environments"')))
 
 
+def test_quota_verification_schema_is_additive_without_relaxing_existing_tables() -> None:
+    from account_pool.release_compatibility import QUOTA_RESET_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS
+
+    old = (("reset.py", repr(tuple(item.decode() for item in QUOTA_RESET_SCHEMA_ADDITIONS)).encode()),)
+    new = (*old, ("verification.py", repr(tuple(item.decode() for item in QUOTA_VERIFICATION_SCHEMA_ADDITIONS)).encode()))
+    assert additive_manager_schema_upgrade(old, new)
+    assert not additive_manager_schema_upgrade(new, old)
+    assert not additive_manager_schema_upgrade(old, (*old, ("verification.py", new[1][1].replace(b"jsonb", b"text"))))
+
+
 @pytest.mark.parametrize("change,allowed", (("isp", True), ("prisma", False), ("extra", False), ("modified", False)))
 def test_additive_upgrade_runtime_inspects_both_images(tmp_path: Path, change: str, allowed: bool) -> None:
     from account_pool.proxy_catalog_repository import _SCHEMA

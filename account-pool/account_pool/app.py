@@ -47,12 +47,12 @@ from account_pool.proxy_catalog_repository import PostgresProxyCatalogRepository
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_expiry import ISPExpiryScheduler
 from account_pool.proxy_gateways import ProxyGatewayService
+from account_pool.quota_recovery_scheduler import QuotaRecoveryScheduler
 from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissingTypeStubs]  # The local Manager package does not publish PEP 561 stubs.
     QuotaRefreshTrigger,
 )
 from account_pool.quota_reset import QuotaResetService
 from account_pool.quota_reset_repository import PostgresResetStore
-from account_pool.quota_recovery_scheduler import QuotaRecoveryScheduler
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,

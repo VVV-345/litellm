@@ -65,9 +65,10 @@ async def test_postgres_two_instances_share_one_redemption_and_restart_identity(
     upstream.timeout = False
     upstream.reply = ResetReply(code="already_redeemed", windows_reset=0)
     await asyncio.gather(first.consume(record.id, left.request_id), second.consume(record.id, left.request_id))
-    assert len(upstream.calls) == 2  # One uncertain dispatch, then one same-identity reconciliation.
+    assert len(upstream.calls) == 1
     assert len({item[1] for item in upstream.calls}) == 1
-    assert (await store.get(record.id, left.request_id)).status == "already_redeemed"
+    assert (await store.get(record.id, left.request_id)).status == "uncertain"
+    assert len(upstream.calls) == 1
     assert await store.get(uuid4(), left.request_id) is None
 
 
