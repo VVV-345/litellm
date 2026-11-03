@@ -10,6 +10,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Final, Protocol
+from uuid import UUID
 
 from account_pool.release_compatibility import (
     RollbackEvidence,
@@ -35,6 +36,7 @@ from account_pool.release_models import (
     RollbackAlternative,
     RollbackCheck,
     RollbackInspection,
+    RuntimeCardsView,
 )
 from account_pool.release_runtime import PRODUCT_REPOSITORY
 from account_pool.release_store import (
@@ -70,7 +72,11 @@ class ReleaseRuntime(Protocol):
     def pull(self, tag: str) -> ReleasePair: ...
     def pull_candidate(self, candidate: ReleaseCandidate) -> ReleasePair: ...
     def check_health(self, pair: ReleasePair) -> None: ...
-    def rollout_cards(self, pair: ReleasePair, configuration: bytes, progress: Callable[[str], None]) -> None: ...
+    def rollout_cards(
+        self, pair: ReleasePair, configuration: bytes, progress: Callable[[str], None],
+        *, card_ids: tuple[UUID, ...] | None = None,
+    ) -> None: ...
+    def runtime_cards(self) -> RuntimeCardsView: ...
 
 
 class ReleaseService:
@@ -213,6 +219,10 @@ class ReleaseService:
 
     def prepare(self, action: ReleaseAction, actor: str) -> ReleaseConfirmation:
         batch: Final = action.action in ("backup_selected", "delete_backups", "delete_images")
+        if (action.action == "upgrade_cards") != (action.card_ids is not None):
+            raise ReleaseError("逐卡升级必须指定卡片，其他操作不接受卡片编号")
+        if action.card_ids is not None and len(frozenset(action.card_ids)) != len(action.card_ids):
+            raise ReleaseError("逐卡升级不能包含重复卡片")
         if action.version_ids and not batch:
             raise ReleaseError("此操作不接受批量版本")
         if action.candidate is not None and (action.action != "deploy" or action.tag != action.candidate.commit):
@@ -235,6 +245,8 @@ class ReleaseService:
             raise ReleaseError("上次恢复尚未完成，请先使用服务器 recover 入口，保留现场和恢复点")
         if view.revision != action.revision:
             raise ReleaseError("页面数据已更新，请刷新后重试")
+        if action.action == "upgrade_cards" and (view.current is None or action.text):
+            raise ReleaseError("逐卡升级需要可识别的当前版本，不接受额外说明")
         if batch:
             if view.current is None:
                 raise ReleaseError("无法识别当前运行版本")
@@ -704,6 +716,20 @@ class ReleaseService:
         current: Final = self.runtime.current()
         if current.id != job.expected_current_id:
             raise ReleaseError("确认后运行版本已变化，请重新操作")
+        if action.action == "upgrade_cards":
+            self.phase(job, "预检当前版本的 CPA 镜像")
+            card_target: Final = self.runtime.pull(current.commit)
+            if card_target.id != current.id:
+                raise ReleaseError("当前版本镜像身份已变化，停止逐卡升级")
+
+            def card_progress(phase: str) -> None:
+                self.phase(job, phase)
+
+            self.runtime.rollout_cards(
+                current, self.runtime.running_compose(), card_progress,
+                card_ids=action.card_ids,
+            )
+            return
         if action.action in ("backup_selected", "delete_backups", "delete_images"):
             targets: Final = self._batch_targets(action, current)
             for pair in targets:

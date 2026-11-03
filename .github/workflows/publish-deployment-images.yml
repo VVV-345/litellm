@@ -68,6 +68,10 @@ jobs:
       cliproxy_commit: ${{ steps.pin.outputs.commit }}
       cliproxy_tag: ${{ steps.pin.outputs.tag }}
       patch_sha256: ${{ steps.pin.outputs.patch_sha256 }}
+      cpa_builder: ${{ steps.cpa.outputs.builder }}
+      cpa_runtime: ${{ steps.cpa.outputs.runtime }}
+      cpa_build_keys: ${{ steps.cpa.outputs.build_keys }}
+      cpa_independent: ${{ steps.cpa.outputs.independent }}
     steps:
       - name: Resolve the selected source
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -96,6 +100,20 @@ jobs:
         run: |
           python account-pool/cliproxy-adapter/image_ref.py >> "$GITHUB_OUTPUT"
           echo "patch_sha256=$(jq -er '.patch.sha256' account-pool/cliproxy-adapter/sources.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - id: cpa
+        name: Resolve immutable CPA build inputs
+        env:
+          ARCHITECTURES: ${{ steps.platforms.outputs.architectures }}
+          INDEPENDENT: ${{ vars.CPA_COMPONENT_REUSE == 'true' }}
+        run: |
+          builder="golang@$(docker buildx imagetools inspect golang:1.26-bookworm --format '{{.Manifest.Digest}}')"
+          runtime="debian@$(docker buildx imagetools inspect debian:bookworm --format '{{.Manifest.Digest}}')"
+          python deploy/cpa_build_identity.py --builder "$builder" --runtime "$runtime" --architectures "$(jq -r 'join(",")' <<< "$ARCHITECTURES")" >> "$GITHUB_OUTPUT"
+          echo "builder=$builder" >> "$GITHUB_OUTPUT"
+          echo "runtime=$runtime" >> "$GITHUB_OUTPUT"
+          echo "independent=$INDEPENDENT" >> "$GITHUB_OUTPUT"
 
   verify-quota:
     name: Verify quota switching and release compatibility
@@ -167,6 +185,7 @@ jobs:
             account-pool/tests/test_release_database.py \
             account-pool/tests/test_release_workflow.py \
             account-pool/tests/test_release_manifest.py \
+            account-pool/tests/test_cpa_build_identity.py \
             account-pool/tests/test_releases.py \
             account-pool/tests/test_release_runtime.py
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
@@ -191,7 +210,8 @@ jobs:
           npm exec -- vitest run --project unit \
             src/features/account-pool/api/AccountPoolManagementApi.test.ts
           npm exec -- vitest run --project integration \
-            src/features/account-pool/components/onboarding/AccountPoolOnboardingPanel.integration.test.tsx
+            src/features/account-pool/components/onboarding/AccountPoolOnboardingPanel.integration.test.tsx \
+            src/features/account-pool/components/releases/AccountPoolRuntimeCards.integration.test.tsx
 
   build-and-publish:
     name: Build ${{ matrix.image }} (${{ matrix.arch }})
@@ -214,7 +234,7 @@ jobs:
             file: account-pool/browser-worker/Dockerfile
           - image: cliproxyapi
             context: cliproxy-src
-            file: cliproxy-src/Dockerfile
+            file: account-pool/cliproxy-adapter/Dockerfile
     steps:
       - name: Check out the commit to publish
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
@@ -253,7 +273,46 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - id: identity
+        name: Bind component identity independently of product version
+        env:
+          IMAGE: ${{ matrix.image }}
+          INDEPENDENT: ${{ needs.version.outputs.cpa_independent }}
+          KEY: ${{ fromJSON(needs.version.outputs.cpa_build_keys)[matrix.arch] }}
+          PRODUCT_REVISION: ${{ needs.version.outputs.revision }}
+          CPA_REVISION: ${{ needs.version.outputs.cliproxy_commit }}
+          PRODUCT_VERSION: ${{ needs.version.outputs.release_version }}
+          CPA_VERSION: ${{ needs.version.outputs.cliproxy_tag }}
+        run: |
+          revision="$PRODUCT_REVISION"
+          version="$PRODUCT_VERSION"
+          if [ "$INDEPENDENT" = true ] && [ "$IMAGE" = cliproxyapi ]; then
+            revision="$CPA_REVISION"
+            version="$CPA_VERSION"
+          fi
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ "$INDEPENDENT" = true ]; then echo "key=$KEY" >> "$GITHUB_OUTPUT"; fi
+
+      - id: reuse
+        name: Resolve previously verified CPA digest
+        if: matrix.image == 'cliproxyapi' && needs.version.outputs.cpa_independent == 'true'
+        env:
+          KEY: ${{ steps.identity.outputs.key }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          ref="${IMAGE_REPOSITORY}:cpa-${ARCH}-${KEY}"
+          if digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>/tmp/cpa-reuse-error)"; then
+            echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          elif grep -Eiq 'not found|manifest unknown|MANIFEST_UNKNOWN' /tmp/cpa-reuse-error; then
+            echo "No verified CPA image for this build key; building"
+          else
+            cat /tmp/cpa-reuse-error >&2
+            exit 1
+          fi
+
       - id: build
+        if: steps.reuse.outputs.digest == ''
         name: Build ${{ matrix.image }} for ${{ matrix.arch }} by digest
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83 # v6.18.0
         with:
@@ -262,6 +321,8 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           outputs: type=image,name=${{ env.IMAGE_REPOSITORY }},push-by-digest=true,name-canonical=true,push=true
           build-args: |
+            ${{ matrix.image == 'cliproxyapi' && format('CPA_BUILDER={0}', needs.version.outputs.cpa_builder) || '' }}
+            ${{ matrix.image == 'cliproxyapi' && format('CPA_RUNTIME={0}', needs.version.outputs.cpa_runtime) || '' }}
             ${{ matrix.image == 'cliproxyapi' && format('VERSION={0}', needs.version.outputs.cliproxy_tag) || '' }}
             ${{ matrix.image == 'cliproxyapi' && format('COMMIT={0}', needs.version.outputs.cliproxy_commit) || '' }}
           labels: |
@@ -272,8 +333,10 @@ jobs:
             ${{ matrix.image == 'cliproxyapi' && format('ai.zlia.patch-sha256={0}', needs.version.outputs.patch_sha256) || '' }}
             ${{ matrix.image == 'cliproxyapi' && 'ai.zlia.managed-identity-version=1' || '' }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ needs.version.outputs.revision }}
-            org.opencontainers.image.version=${{ needs.version.outputs.release_version }}
+            ${{ matrix.image == 'manager' && steps.identity.outputs.key != '' && format('ai.zlia.cliproxy-build-key={0}', steps.identity.outputs.key) || '' }}
+            ${{ matrix.image == 'cliproxyapi' && steps.identity.outputs.key != '' && format('ai.zlia.build-key={0}', steps.identity.outputs.key) || '' }}
+            org.opencontainers.image.revision=${{ steps.identity.outputs.revision }}
+            org.opencontainers.image.version=${{ steps.identity.outputs.version }}
           cache-from: type=gha,scope=${{ matrix.image }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}-${{ matrix.arch }}
 
@@ -282,14 +345,28 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           ARCH: ${{ matrix.arch }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-          REVISION: ${{ needs.version.outputs.revision }}
+          DIGEST: ${{ steps.reuse.outputs.digest || steps.build.outputs.digest }}
+          REVISION: ${{ steps.identity.outputs.revision }}
+          KEY: ${{ steps.identity.outputs.key }}
+          CPA_REVISION: ${{ needs.version.outputs.cliproxy_commit }}
+          PATCH_SHA256: ${{ needs.version.outputs.patch_sha256 }}
         run: |
           ref="${IMAGE_REPOSITORY}@${DIGEST}"
           docker pull "$ref"
           test "$(docker image inspect "$ref" --format '{{.Architecture}}')" = "$ARCH"
           test "$(docker image inspect "$ref" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$REVISION"
           test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.component"}}')" = "$IMAGE"
+          if [ "$IMAGE" = cliproxyapi ] && [ -n "$KEY" ]; then
+            test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.build-key"}}')" = "$KEY"
+          fi
+          if [ "$IMAGE" = manager ] && [ -n "$KEY" ]; then
+            test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.cliproxy-build-key"}}')" = "$KEY"
+          fi
+          if [ "$IMAGE" = cliproxyapi ]; then
+            test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.source-revision"}}')" = "$CPA_REVISION"
+            test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.patch-sha256"}}')" = "$PATCH_SHA256"
+            test "$(docker image inspect "$ref" --format '{{index .Config.Labels "ai.zlia.managed-identity-version"}}')" = 1
+          fi
           case "$IMAGE" in
             litellm) docker run --rm --entrypoint python -e LITELLM_LOCAL_MODEL_COST_MAP=True "$ref" -c 'import litellm; import litellm.proxy.proxy_server; print("LiteLLM imports passed")' ;;
             manager) docker run --rm --entrypoint python "$ref" -c 'from account_pool.app import create_app; print("Manager imports passed")' ;;
@@ -302,13 +379,26 @@ jobs:
         env:
           IMAGE: ${{ matrix.image }}
           ARCH: ${{ matrix.arch }}
-          DIGEST: ${{ steps.build.outputs.digest }}
-          REVISION: ${{ needs.version.outputs.revision }}
+          DIGEST: ${{ steps.reuse.outputs.digest || steps.build.outputs.digest }}
+          REVISION: ${{ steps.identity.outputs.revision }}
+          KEY: ${{ steps.identity.outputs.key }}
         run: |
           test -n "$DIGEST"
           mkdir -p /tmp/image-digests
-          printf '{"image":"%s","arch":"%s","digest":"%s","revision":"%s","probe":"passed"}\n' \
-            "$IMAGE" "$ARCH" "$DIGEST" "$REVISION" > "/tmp/image-digests/${IMAGE}-${ARCH}.json"
+          jq -n --arg image "$IMAGE" --arg arch "$ARCH" --arg digest "$DIGEST" --arg revision "$REVISION" --arg key "$KEY" \
+            '{image:$image, arch:$arch, digest:$digest, revision:$revision, probe:"passed"} + (if $key != "" and ($image == "manager" or $image == "cliproxyapi") then {cpa_build_key:$key} else {} end)' > "/tmp/image-digests/${IMAGE}-${ARCH}.json"
+          if [ "$IMAGE" = cliproxyapi ] && [ -n "$KEY" ]; then
+            ref="${IMAGE_REPOSITORY}:cpa-${ARCH}-${KEY}"
+            if existing="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2>/tmp/cpa-reuse-error)"; then
+              test "$existing" = "$DIGEST"
+            elif grep -Eiq 'not found|manifest unknown|MANIFEST_UNKNOWN' /tmp/cpa-reuse-error; then
+              docker buildx imagetools create --prefer-index=false --tag "$ref" "${IMAGE_REPOSITORY}@${DIGEST}"
+              test "$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}')" = "$DIGEST"
+            else
+              cat /tmp/cpa-reuse-error >&2
+              exit 1
+            fi
+          fi
 
       - name: Upload the image digest
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1

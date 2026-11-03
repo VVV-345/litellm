@@ -157,3 +157,22 @@ def test_auto_update_endpoints_are_admin_only_and_forward_fixed_paths(monkeypatc
         )
     assert response.status_code == (200 if admin else 403)
     assert "s" * 32 not in response.text
+
+
+@pytest.mark.parametrize("admin", [True, False])
+def test_runtime_card_inventory_requires_admin_and_does_not_expose_worker_token(monkeypatch, admin):
+    monkeypatch.setenv("ACCOUNT_POOL_RELEASE_TOKEN", "s" * 32)
+    app = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="admin" if admin else "member")
+    def authorize(user):
+        if user.user_id != "admin":
+            raise HTTPException(403, "admin only")
+    def transport(request):
+        assert admin and request.method == "GET" and request.url.path == "/api/releases/cards"
+        assert request.headers["Authorization"] == "Bearer " + "s" * 32
+        return httpx.Response(200, json={"default_image": "fixture@sha256:" + "a" * 64, "cards": []})
+    app.include_router(create_release_router(authorize, lambda: httpx.AsyncClient(transport=httpx.MockTransport(transport))))
+    with TestClient(app) as client:
+        response = client.get("/releases/cards")
+    assert response.status_code == (200 if admin else 403)
+    assert "s" * 32 not in response.text

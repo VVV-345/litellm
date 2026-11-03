@@ -2307,6 +2307,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/releases/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cards */
+        get: operations["cards_account_pool_releases_cards_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/releases/execute": {
         parameters: {
             query?: never;
@@ -39929,8 +39946,10 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data" | "backup_selected" | "delete_backups" | "delete_images";
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data" | "backup_selected" | "delete_backups" | "delete_images" | "upgrade_cards";
             candidate?: components["schemas"]["ReleaseCandidate"] | null;
+            /** Card Ids */
+            card_ids?: string[] | null;
             /**
              * Force
              * @default false
@@ -40981,6 +41000,34 @@ export interface components {
             object: string | null;
             /** Run Id */
             run_id: string;
+        };
+        /** RuntimeCardView */
+        RuntimeCardView: {
+            /** Current Image Id */
+            current_image_id?: string | null;
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /** Name */
+            name: string;
+            /** Phase */
+            phase?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "current" | "update_available" | "unknown" | "maintenance";
+            /** Target Image Id */
+            target_image_id?: string | null;
+        };
+        /** RuntimeCardsView */
+        RuntimeCardsView: {
+            /** Cards */
+            cards: components["schemas"]["RuntimeCardView"][];
+            /** Default Image */
+            default_image: string;
         };
         /** SCIMEnterpriseUser */
         SCIMEnterpriseUser: {
@@ -49571,6 +49618,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutoUpdateView"];
+                };
+            };
+        };
+    };
+    cards_account_pool_releases_cards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeCardsView"];
                 };
             };
         };

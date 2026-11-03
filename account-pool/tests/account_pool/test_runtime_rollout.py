@@ -57,6 +57,10 @@ class Runtime:
         self.events = []
         self.backups = {}
         self.fail = False
+        self.current = False
+
+    async def retain_current_runtime_image(self, record):
+        return self.current
 
     async def backup_runtime(self, record, directory, capture):
         assert not store_for(self).leased
@@ -72,6 +76,7 @@ class Runtime:
             self.events.append(("rollback_image_only", record.id))
             raise RuntimeError("synthetic secret must not be printed")
         await verify(record)
+        self.current = True
         return True
 
 
@@ -110,8 +115,44 @@ async def test_rollout_drains_before_docker_and_keeps_original_card_state(tmp_pa
     assert result.model_inference == "not_run"
     assert environments.records[record.id] == record
     assert runtime.events == [("backup", record.id), ("switch", record.id)]
-    assert await service.card(record.id, "a" * 40, _NEW_IMAGE) == result
+    assert (await service.card(record.id, "a" * 40, _NEW_IMAGE)).unchanged
     assert len(runtime.events) == 2
+
+
+async def test_unchanged_image_skips_gate_leases_backup_and_switch(tmp_path: Path):
+    from account_pool.runtime_rollout import RuntimeRollout
+
+    record = _record().model_copy(update={"enabled": False, "status": EnvironmentStatus.COOLING_DOWN})
+    checkpoints = Checkpoints()
+    checkpoints.leased = True
+    runtime = Runtime(tmp_path)
+    runtime.current = True
+    runtime.checkpoints = checkpoints
+    environments = Environments((record,))
+    service = RuntimeRollout(environments, checkpoints, runtime, CredentialOwnership(), verified)
+    result = await asyncio.wait_for(service.card(record.id, "b" * 40, _NEW_IMAGE), 1)
+    assert result.unchanged and result.image_verified and result.phase == "verified"
+    assert checkpoints.items == {} and checkpoints.phases == []
+    assert runtime.events == []
+    assert environments.records[record.id] == record
+
+
+async def test_matching_image_does_not_bypass_failed_checkpoint(tmp_path: Path):
+    from account_pool.runtime_rollout import RuntimeRollout
+    from account_pool.runtime_rollout_repository import RuntimeCheckpoint
+
+    record = _record()
+    checkpoints = Checkpoints()
+    checkpoints.items[record.id] = RuntimeCheckpoint(record.id, "a" * 40, _NEW_IMAGE, phase="failed")
+    runtime = Runtime(tmp_path)
+    runtime.current = True
+    runtime.checkpoints = checkpoints
+    service = RuntimeRollout(Environments((record,)), checkpoints, runtime, CredentialOwnership(), verified)
+    with pytest.raises(ValueError, match="another release"):
+        await service.card(record.id, "b" * 40, _NEW_IMAGE)
+    result = await service.card(record.id, "a" * 40, _NEW_IMAGE)
+    assert not result.unchanged
+    assert runtime.events == [("backup", record.id), ("switch", record.id)]
 
 
 async def test_persisted_maintenance_gate_rejects_an_otherwise_current_gateway_snapshot():
@@ -267,3 +308,22 @@ def test_rollout_cli_failure_does_not_expose_underlying_credentials(monkeypatch)
         rollout.main()
     assert "RuntimeError" in str(error.value)
     assert "fixture secret" not in str(error.value)
+
+
+async def test_runtime_inventory_distinguishes_current_missing_and_failed_without_mutating(tmp_path):
+    from account_pool.runtime_rollout import runtime_inventory
+    from account_pool.runtime_rollout_repository import RuntimeCheckpoint
+    record = _record()
+    checkpoints = Checkpoints()
+    class InventoryRuntime(Runtime):
+        async def runtime_image_identity(self, identifier):
+            return "sha256:" + "a" * 64, "sha256:" + "a" * 64
+    runtime = InventoryRuntime(tmp_path)
+    environments = Environments((record,))
+    report = await runtime_inventory(environments, checkpoints, runtime)
+    assert report.default_image == _NEW_IMAGE
+    assert report.cards[0].status == "current"
+    checkpoints.items[record.id] = RuntimeCheckpoint(record.id, "a" * 40, _NEW_IMAGE, phase="failed")
+    report = await runtime_inventory(environments, checkpoints, runtime)
+    assert report.cards[0].status == "maintenance" and report.cards[0].phase == "failed"
+    assert checkpoints.phases == [] and runtime.events == []

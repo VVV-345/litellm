@@ -135,7 +135,7 @@ def test_unified_package_builds_and_probes_all_four_components_on_selected_platf
     assert "${{ env.IMAGE_REPOSITORY }}" in options["outputs"]
     assert STRING_MAP.validate_python(workflow["env"])["IMAGE_REPOSITORY"] == "ghcr.io/vvv-345/litellm-cliproxyapi"
     assert "ai.zlia.component=${{ matrix.image }}" in options["labels"]
-    assert "org.opencontainers.image.revision=${{ needs.version.outputs.revision }}" in options["labels"]
+    assert "org.opencontainers.image.revision=${{ steps.identity.outputs.revision }}" in options["labels"]
     probe: Final = next(step for step in steps if step.get("id") == "probe")
     commands: Final = TypeAdapter(str).validate_python(probe["run"])
     assert "probe_managed_identity.py --image" in commands
@@ -192,3 +192,21 @@ def test_workflow_exposes_architecture_selection_and_passes_it_to_all_gates() ->
     assert '--architectures "$architectures"' in release["run"]
     wrapper = yaml.load((path.parent / "publish-cliproxy-adapted-image.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
     assert wrapper["jobs"]["publish"]["with"]["architectures"] == "${{ inputs.architectures }}"
+
+
+def test_independent_cpa_is_opt_in_and_reused_digest_is_reprobed_before_publication():
+    path = Path(__file__).resolve().parents[2] / ".github/workflows/publish-deployment-images.yml"
+    jobs = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)["jobs"]
+    identity = next(step for step in jobs["version"]["steps"] if step.get("id") == "cpa")
+    assert identity["env"]["INDEPENDENT"] == "${{ vars.CPA_COMPONENT_REUSE == 'true' }}"
+    assert "--builder" in identity["run"] and "--runtime" in identity["run"]
+    steps = jobs["build-and-publish"]["steps"]
+    build = next(step for step in steps if step.get("id") == "build")
+    assert build["if"] == "steps.reuse.outputs.digest == ''"
+    probe = next(step for step in steps if step.get("id") == "probe")
+    assert "if" not in probe
+    assert probe["env"]["DIGEST"] == "${{ steps.reuse.outputs.digest || steps.build.outputs.digest }}"
+    assert 'ai.zlia.build-key' in probe["run"]
+    receipt = next(step for step in steps if step.get("name") == "Record the built image digest")
+    assert steps.index(receipt) > steps.index(probe)
+    assert 'test "$existing" = "$DIGEST"' in receipt["run"]

@@ -204,6 +204,25 @@ class ComposeRuntime:
     async def _runtime_image_id(self, environment_id: UUID) -> str:
         return await self._inspect_image_id("container", await self._runtime_container_id(environment_id))
 
+    async def runtime_image_identity(self, environment_id: UUID) -> tuple[str, str | None]:
+        current: Final = await self._runtime_image_id(environment_id)
+        try:
+            target: Final = await self._inspect_image_id("image", self._settings.cli_proxy_image)
+        except ValueError:
+            return current, None
+        return current, target
+
+    async def retain_current_runtime_image(self, record: EnvironmentRecord) -> bool:
+        current, target = await self.runtime_image_identity(record.id)
+        if current != target:
+            return False
+        await self._require_runtime_volume(record.id)
+        compose_file: Final = self.environment_dir(record.id) / "compose.yaml"
+        content: Final = compose_file.read_text(encoding="utf-8")
+        if _compose_service_image(content) != self._settings.cli_proxy_image:
+            _write_private_bytes(compose_file, _replace_compose_service_image(content, self._settings.cli_proxy_image).encode())
+        return True
+
     async def _runtime_container_id(self, environment_id: UUID) -> str:
         process: Final = await self._runner(
             ("docker", "compose", "--project-name", f"account-pool-{environment_id.hex}", "--file",

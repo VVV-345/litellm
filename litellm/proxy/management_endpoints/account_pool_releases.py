@@ -23,6 +23,7 @@ from litellm.proxy.management_endpoints.account_pool_release_models import (
     ReleaseImageView,
     ReleaseJob,
     ReleaseView,
+    RuntimeCardsView,
 )
 
 Result: Final = TypeVar("Result", bound=BaseModel)
@@ -66,14 +67,15 @@ def create_release_router(
                         }
                     ),
                     content=body.model_dump_json(exclude_none=True).encode() if body else None,
-                    timeout=300
-                    if isinstance(body, ReleaseAction) and body.action in ("apply", "restore_data", "delete_images")
-                    else 30,
+                    timeout=150 if path == "/cards" else (
+                        300 if isinstance(body, ReleaseAction) and body.action in ("apply", "restore_data", "delete_images")
+                        else 30
+                    ),
                 )
         except httpx.HTTPError as error:
             raise HTTPException(503, "部署管理服务暂时不可用；服务切换期间请稍后刷新") from error
         if result.status_code in (400, 404, 409, 422):
-            if result.status_code == 404 and (path.startswith("/auto-update") or path == "/images"):
+            if result.status_code == 404 and (path.startswith("/auto-update") or path in ("/images", "/cards")):
                 raise HTTPException(503, "发布器尚不支持此功能，请先升级独立 release-worker")
             try:
                 failure: Final = ReleaseFailure.model_validate_json(result.content)
@@ -92,6 +94,9 @@ def create_release_router(
 
     async def images(actor: Annotated[str, Depends(authorize)]) -> ReleaseImageView:
         return await call("GET", "/images", actor, ReleaseImageView)
+
+    async def cards(actor: Annotated[str, Depends(authorize)]) -> RuntimeCardsView:
+        return await call("GET", "/cards", actor, RuntimeCardsView)
 
     async def prepare(action: ReleaseAction, actor: Annotated[str, Depends(authorize)]) -> ReleaseConfirmation:
         if action.action in ("deploy", "recover"):
@@ -115,6 +120,7 @@ def create_release_router(
 
     router.get("")(view)
     router.get("/images")(images)
+    router.get("/cards")(cards)
     router.post("/prepare")(prepare)
     router.post("/execute")(execute)
     router.get("/auto-update")(auto_view)

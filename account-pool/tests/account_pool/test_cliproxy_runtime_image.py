@@ -464,3 +464,18 @@ async def test_card_update_refuses_enabled_card_before_docker_or_file_write(tmp_
     with pytest.raises(ValueError, match="disabled"):
         await runtime.align_runtime_image(_record().model_copy(update={"enabled": True}), verify=_verified)
     assert runner.calls == []
+
+
+@pytest.mark.parametrize("running", [True, False])
+async def test_matching_runtime_only_pins_compose_without_recreating_or_changing_running_state(tmp_path, running):
+    record = _record()
+    runner = _Runner(running=running, current_image="sha256:" + "a" * 64)
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    compose = runtime.environment_dir(record.id) / "compose.yaml"
+    compose.parent.mkdir()
+    original = render_compose(record, runtime.settings).replace(_NEW_IMAGE, _OLD_IMAGE)
+    compose.write_text(original, encoding="utf-8")
+    assert await runtime.retain_current_runtime_image(record)
+    assert runner.running is running
+    assert yaml.safe_load(compose.read_text(encoding="utf-8"))["services"]["cli-proxy-api"]["image"] == _NEW_IMAGE
+    assert all("inspect" in call or "ps" in call for call in runner.calls)

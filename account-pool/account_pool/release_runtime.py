@@ -13,10 +13,11 @@ import re
 import shutil
 import subprocess
 import tarfile
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import lru_cache
 from pathlib import Path
 from threading import Timer
+from types import MappingProxyType
 from typing import Final, Protocol
 from uuid import UUID, uuid4
 
@@ -37,7 +38,7 @@ from account_pool.release_compatibility import (
     oauth_browser_schema_upgrade,
     schema_member_contract,
 )
-from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair, RollbackCheck
+from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair, RollbackCheck, RuntimeCardsView
 from account_pool.release_store import ReleaseDownloadError, ReleaseError, write_private
 from account_pool.runtime_rollout_repository import CHECKPOINT, RuntimeCheckpoint
 
@@ -822,18 +823,23 @@ class DockerReleaseRuntime:
         if normalized not in ("linux/amd64", "linux/arm64"):
             raise DockerOperationError("preflight", "product", "platform")
         first: Final = self._inspect_product(references[0], "litellm", tag, normalized)
-        remaining: Final = tuple(
-            self._download_product(reference, component, tag, normalized)
-            for component, reference in zip(components[1:], references[1:], strict=True)
+        manager: Final = self._download_product(references[1], "manager", tag, normalized)
+        manager_labels: Final = TypeAdapter(dict[str, str]).validate_python(manager.config["Labels"])
+        build_key: Final = manager_labels.get("ai.zlia.cliproxy-build-key")
+        if build_key is not None and re.fullmatch(r"[a-f0-9]{64}", build_key) is None:
+            raise DockerOperationError("preflight", "manager", "provenance")
+        inspected: Final = (
+            first, manager,
+            self._download_product(references[2], "browser-worker", tag, normalized),
+            self._download_product(references[3], "cliproxyapi", tag, normalized, build_key=build_key),
         )
-        inspected: Final = (first, *remaining)
         revision: Final = TypeAdapter(dict[str, str]).validate_python(first.config["Labels"])[
             "org.opencontainers.image.revision"
         ]
         for component, image in zip(components, inspected, strict=True):
             if (
                 TypeAdapter(dict[str, str]).validate_python(image.config["Labels"])["org.opencontainers.image.revision"]
-                != revision
+                != revision and not (component == "cliproxyapi" and build_key is not None)
             ):
                 raise DockerOperationError("preflight", component, "revision")
             if (
@@ -845,7 +851,6 @@ class DockerReleaseRuntime:
                 )
             ):
                 raise ReleaseError(f"Docker phase=preflight component={component} category=identity，镜像身份不一致")
-        manager_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[1].config["Labels"])
         cliproxy_labels: Final = TypeAdapter(dict[str, str]).validate_python(inspected[3].config["Labels"])
         if any(
             manager_labels.get("ai.zlia.cliproxy-" + suffix) != cliproxy_labels.get("ai.zlia." + suffix)
@@ -872,11 +877,15 @@ class DockerReleaseRuntime:
         self._product_preflight = (pair.id, self._product_digest(inspected[2]), self._product_digest(inspected[3]))
         return pair
 
-    def _download_product(self, reference: str, component: str, tag: str, platform: str) -> ImageInspection:
+    def _download_product(
+        self, reference: str, component: str, tag: str, platform: str, *, build_key: str | None = None,
+    ) -> ImageInspection:
         self._download(reference, component)
-        return self._inspect_product(reference, component, tag, platform)
+        return self._inspect_product(reference, component, tag, platform, build_key=build_key)
 
-    def _inspect_product(self, reference: str, component: str, tag: str, platform: str) -> ImageInspection:
+    def _inspect_product(
+        self, reference: str, component: str, tag: str, platform: str, *, build_key: str | None = None,
+    ) -> ImageInspection:
         image: Final = TypeAdapter(tuple[ImageInspection, ...]).validate_json(self.run("image", "inspect", reference))[
             0
         ]
@@ -884,7 +893,14 @@ class DockerReleaseRuntime:
         revision: Final = labels.get("org.opencontainers.image.revision", "")
         if labels.get("ai.zlia.component") != component:
             raise DockerOperationError("preflight", component, "component")
-        if not re.fullmatch(r"[a-f0-9]{40}", revision) or not revision.startswith(tag):
+        independent: Final = component == "cliproxyapi" and build_key is not None
+        if independent and (
+            re.fullmatch(r"[a-f0-9]{64}", build_key or "") is None
+            or labels.get("ai.zlia.build-key") != build_key
+            or revision != labels.get("ai.zlia.source-revision")
+        ):
+            raise DockerOperationError("preflight", component, "provenance")
+        if not re.fullmatch(r"[a-f0-9]{40}", revision) or (not independent and not revision.startswith(tag)):
             raise DockerOperationError("preflight", component, "revision")
         if image.os + "/" + image.architecture != platform:
             raise DockerOperationError("preflight", component, "platform")
@@ -943,7 +959,36 @@ class DockerReleaseRuntime:
             ensure_ascii=False,
         ).encode()
 
-    def rollout_cards(self, pair: ReleasePair, configuration: bytes, progress: Callable[[str], None]) -> None:
+    def runtime_cards(self) -> RuntimeCardsView:
+        pair: Final = self.current()
+        config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(self.running_compose())
+        services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(config["services"])
+        environment: Final = TypeAdapter(dict[str, JsonValue]).validate_python(services["account-pool"]["environment"])
+        image: Final = environment.get("ACCOUNT_POOL_CLI_PROXY_IMAGE")
+        if not isinstance(image, str) or re.fullmatch(re.escape(PRODUCT_REPOSITORY) + r"@sha256:[0-9a-f]{64}", image) is None:
+            raise ReleaseError("新卡默认镜像未固定为已部署版本的摘要，请先完成整站发布")
+        result: Final = RuntimeCardsView.model_validate_json(
+            self.run(*self._runtime_command(pair, image), "--inventory", timeout=120)
+        )
+        if result.default_image != image or self.current().id != pair.id:
+            raise ReleaseError("读取期间运行版本发生变化，请刷新")
+        return result
+
+    def _runtime_command(self, pair: ReleasePair, image: str) -> tuple[str, ...]:
+        manager: Final = self.run(
+            "ps", "-q", "--filter", f"label=com.docker.compose.project={self.settings.project}",
+            "--filter", "label=com.docker.compose.service=account-pool",
+        ).decode().strip()
+        if re.fullmatch(r"[a-f0-9]{12,64}", manager) is None:
+            raise ReleaseError("逐卡升级未找到唯一的目标 Manager")
+        return (
+            "exec", manager, "python", "-m", "account_pool.runtime_rollout", "--release", pair.commit, "--image", image,
+        )
+
+    def rollout_cards(
+        self, pair: ReleasePair, configuration: bytes, progress: Callable[[str], None],
+        *, card_ids: tuple[UUID, ...] | None = None,
+    ) -> None:
         if self._product_preflight is None or self._product_preflight[0] != pair.id:
             raise ReleaseError("逐卡升级需要此次目标版本的四组件预检，不能追踪 latest")
         _, _browser, image = self._product_preflight
@@ -954,21 +999,25 @@ class DockerReleaseRuntime:
             raise ReleaseError("逐卡升级目标与当前 Manager 或预检固定镜像不一致")
         marker: Final = self.settings.root / "card-rollout-active.json"
         identity: Final = {"release_id": pair.commit, "target_image": image}
+        pending: Final[Mapping[str, str]] = (
+            TypeAdapter(dict[str, str]).validate_json(marker.read_bytes()) if marker.exists() else MappingProxyType({})
+        )
         if marker.exists():
-            pending: Final = TypeAdapter(dict[str, str]).validate_json(marker.read_bytes())
             if any(pending.get(key) != value for key, value in identity.items()):
                 raise ReleaseError("必须先续跑原逐卡发布，不能改用其他目标镜像")
+            if card_ids is not None and pending.get("environment_id") not in (None, *(str(card) for card in card_ids)):
+                raise ReleaseError("所选卡片必须包含上次未完成的卡片")
+        command: Final = self._runtime_command(pair, image)
+        available: Final = TypeAdapter(tuple[UUID, ...]).validate_json(self.run(*command, "--list", timeout=60))
+        if card_ids is not None and (not card_ids or not frozenset(card_ids).issubset(available)):
+            raise ReleaseError("所选卡片不存在或不支持 CPA 升级")
+        selected: Final = available if card_ids is None else card_ids
+        interrupted: Final = UUID(pending["environment_id"]) if "environment_id" in pending else None
+        if interrupted is not None and interrupted not in selected:
+            raise ReleaseError("上次未完成的卡片不可用，请核对维护检查点")
+        cards: Final = ((interrupted,) + tuple(card for card in selected if card != interrupted)
+                        if interrupted is not None else selected)
         write_private(marker, json.dumps(identity).encode())
-        manager: Final = self.run(
-            "ps", "-q", "--filter", f"label=com.docker.compose.project={self.settings.project}",
-            "--filter", "label=com.docker.compose.service=account-pool",
-        ).decode().strip()
-        if re.fullmatch(r"[a-f0-9]{12,64}", manager) is None:
-            raise ReleaseError("逐卡升级未找到唯一的目标 Manager")
-        command: Final = (
-            "exec", manager, "python", "-m", "account_pool.runtime_rollout", "--release", pair.commit, "--image", image,
-        )
-        cards: Final = TypeAdapter(tuple[UUID, ...]).validate_json(self.run(*command, "--list", timeout=60))
         for card in cards:
             self._rollout_card(pair, command, card, image, progress)
         marker.unlink()
@@ -1000,7 +1049,7 @@ class DockerReleaseRuntime:
                            if report_file.exists() else ())
         reports: Final = tuple(item for item in previous if item.environment_id != card) + (report,)
         write_private(report_file, TypeAdapter(tuple[RuntimeCheckpoint, ...]).dump_json(reports))
-        progress(f"逐卡运行时升级 {card} / image_verified / credential={report.credential_state} / model_inference=not_run")
+        progress(f"逐卡运行时升级 {card} / {'unchanged' if report.unchanged else 'image_verified'} / credential={report.credential_state} / model_inference=not_run")
 
     def _pull_pinned(self, candidate: ReleaseCandidate, index: int) -> ReleaseImage:
         selected: Final = candidate.images[index]

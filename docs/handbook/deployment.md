@@ -63,3 +63,18 @@ python3 releasectl.py deploy TAG
 源码与本地测试已覆盖门禁、在途结算、崩溃续跑、镜像回退不恢复认证卷、实际镜像不符、能力/唯一凭据/配置失败和同版本发布续跑。测试位置见 [runtime_rollout](../../account-pool/tests/account_pool/test_runtime_rollout.py)、[真实 PostgreSQL](../../account-pool/tests/account_pool/test_runtime_rollout_postgres.py)、[镜像维护](../../account-pool/tests/account_pool/test_cliproxy_runtime_image.py)、[发布服务](../../account-pool/tests/test_releases.py)与[发布运行时](../../account-pool/tests/test_release_runtime.py)
 
 这不等于生产逐卡换镜像、真实 OAuth 或模型推理验收。部署前以当前实际构建、备份和现场结果为准，历史通过数不能替代新一次验证
+
+
+## CPA 独立版本与逐卡升级
+
+产品版本和 CPA 构建指纹分开记录。只有 CPA 固定源码、适配补丁、构建脚本、依赖锁、基础镜像摘要或架构发生变化时，才需要新的 CPA 构建。Go 编译器、C 工具链和运行库由固定基础镜像提供，构建不再执行可变的 apt 安装。基础镜像标签解析失败时停止发布，不使用未经核验的缓存冒充成功
+
+兼容上线必须分两步：首次保持 GitHub 仓库变量 `CPA_COMPONENT_REUSE` 未设置或为 `false`，发布并升级支持独立指纹校验的 release-worker，再按现有更新手册部署本版 Manager 和控制台。确认新发布器已运行后，才把该变量设为 `true` 并发布下一版。不要在旧发布器仍运行时开启，否则旧的同 commit 校验会拒绝复用镜像
+
+开启后使用 schema 3 发布清单，Manager 声明每个架构的 CPA 构建指纹。发布器同时检查指纹、源码、补丁、组件、架构和镜像摘要；没有声明指纹的旧版本仍执行原来的同 commit 校验。CPA 缓存标签按架构和指纹固定，复用后仍运行原生能力探测，已有标签不覆盖。第一次开启会新建独立 CPA 镜像，之后整站升级才可复用它
+
+操作入口是“号池 / 版本管理 / 卡片 CPA 镜像”。先点击“核实卡片镜像”，查看当前镜像 ID、目标镜像 ID和新卡默认镜像，再点击“升级此卡”或勾选后“升级所选卡片”。等待确认倒计时并确认后，后台串行执行。仅允许升级到当前已部署产品版本绑定的 CPA，不接受浏览器自填镜像或任意 commit，不部署整站
+
+相同实际镜像跳过排空、备份和重建，仅在需要时固定 Compose 镜像引用。不同镜像沿用排空、备份、替换及凭据状态校验，保留原启停状态；失败保留维护门禁并停止后续卡片。续跑必须包含上次失败卡，先处理该卡，不允许跳到其他版本。界面显示“已是目标镜像”不代表账号额度、access token 或模型调用已恢复，真实调用仍需另行验证
+
+新卡默认值来自成功部署后持久化的 `ACCOUNT_POOL_CLI_PROXY_IMAGE` 摘要。新建卡无需再升级到同一摘要；以后 CPA 真正有变化时，已有卡才需要更新。尚未固定默认摘要的旧部署需要先按更新手册完成一次正式发布，不能把代码中的兜底标签当成当前已部署版本

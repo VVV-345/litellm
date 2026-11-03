@@ -1003,6 +1003,33 @@ def product_runtime(tmp_path: Path, command: ProductCommands) -> DockerReleaseRu
     )
 
 
+@pytest.mark.parametrize("key", ["e" * 64, "f" * 64, "", "invalid"])
+def test_product_accepts_independent_cpa_only_with_matching_manager_build_key(tmp_path: Path, key: str) -> None:
+    from account_pool.release_store import ReleaseError
+
+    class IndependentCommands(ProductCommands):
+        def __call__(self, *args: str, timeout: int = 120) -> bytes:
+            raw = super().__call__(*args, timeout=timeout)
+            if args[:2] != ("image", "inspect"):
+                return raw
+            images = json.loads(raw)
+            labels = images[0]["Config"]["Labels"]
+            if labels["ai.zlia.component"] == "manager":
+                labels["ai.zlia.cliproxy-build-key"] = key
+            if labels["ai.zlia.component"] == "cliproxyapi":
+                labels["org.opencontainers.image.revision"] = "b" * 40
+                labels["ai.zlia.build-key"] = "e" * 64
+            return json.dumps(images).encode()
+
+    runtime = product_runtime(tmp_path, IndependentCommands())
+    if key == "e" * 64:
+        assert runtime.pull("a" * 40).commit == "a" * 40
+        assert runtime._product_preflight[2] == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
+    else:
+        with pytest.raises(ReleaseError):
+            runtime.pull("a" * 40)
+
+
 def test_native_rollout_stops_at_failed_card_keeps_old_managers_out_and_resumes(tmp_path: Path) -> None:
     from uuid import UUID
 
@@ -1062,6 +1089,8 @@ def test_native_rollout_stops_at_failed_card_keeps_old_managers_out_and_resumes(
     other = selected.model_copy(update={"commit": "b" * 40})
     with pytest.raises(ReleaseError, match="Manager"):
         runtime.apply(other, configuration)
+    with pytest.raises(ReleaseError, match="未完成"):
+        runtime.rollout_cards(selected, configuration, phases.append, card_ids=(cards[2],))
     command.fail = False
     runtime.rollout_cards(selected, configuration, phases.append)
     assert command.switches == cards
@@ -1340,3 +1369,34 @@ def test_product_companion_provenance_must_match_selected_manager_pins(tmp_path,
     with pytest.raises(ReleaseError, match="provenance"):
         product_runtime(tmp_path, command).pull("a" * 10)
     assert not any(args[0] == "compose" for args, _ in command.calls)
+
+
+def test_native_rollout_updates_only_selected_card(tmp_path):
+    from uuid import UUID
+
+    from account_pool.runtime_rollout_repository import CHECKPOINT, RuntimeCheckpoint
+    cards = (UUID(int=1), UUID(int=2))
+    executed = []
+    class Commands(ProductCommands):
+        def __call__(self, *args, timeout=120):
+            if args[0] == "ps":
+                return ("c" * 64).encode()
+            if args[0] != "exec":
+                return super().__call__(*args, timeout=timeout)
+            if args[-1] == "--list":
+                return json.dumps([str(card) for card in cards]).encode()
+            assert args[-2] == "--card"
+            card = UUID(args[-1])
+            executed.append(card)
+            return CHECKPOINT.dump_json(RuntimeCheckpoint(card, "a" * 40,
+                PRODUCT_REPOSITORY + "@sha256:" + "4" * 64,
+                phase="verified", image_verified=True, credential_state="preserved"))
+    class RunningRuntime(DockerReleaseRuntime):
+        def current(self):
+            return self.selected
+    runtime = RunningRuntime(ReleaseSettings(token="t" * 32, root=tmp_path,
+        deployment=tmp_path.parent / "deploy", reserve_bytes=0), Commands())
+    runtime.selected = runtime.pull("a" * 40)
+    configuration = runtime.product_configuration(runtime.selected, b'{"services":{"litellm":{},"account-pool":{}}}')
+    runtime.rollout_cards(runtime.selected, configuration, lambda _: None, card_ids=(cards[1],))
+    assert executed == [cards[1]]

@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final, Protocol, cast
 
 from release_platforms import parse_architectures
@@ -40,8 +41,15 @@ def checked(value: object, pattern: str, field: str) -> str:
 
 def platform_digest(root: Path, component: str, arch: str, revision: str) -> str:
     receipt: Final = read_object(root / f"{component}-{arch}.json")
+    manager: Final = read_object(root / f"manager-{arch}.json")
+    build_key: Final = manager.get("cpa_build_key")
+    independent: Final = component == "cliproxyapi" and build_key is not None
+    if build_key is not None:
+        checked(build_key, r"[0-9a-f]{64}", "Manager CPA build key")
+    if independent and receipt.get("cpa_build_key") != build_key:
+        raise ValueError(f"{component}/{arch}: mismatched CPA build key")
     if (receipt.get("image"), receipt.get("arch"), receipt.get("revision"), receipt.get("probe")) != (
-        component, arch, revision, "passed"
+        component, arch, adapter_provenance()["source_revision"] if independent else revision, "passed"
     ):
         raise ValueError(f"{component}/{arch}: missing successful probe or mismatched identity")
     return checked(receipt.get("digest"), r"sha256:[0-9a-f]{64}", f"{component}/{arch} digest")
@@ -75,7 +83,18 @@ def component_manifest(args: Arguments, component: str, architectures: tuple[str
             for arch in architectures
         },
         **(adapter_provenance() if component == "cliproxyapi" else {"source_revision": args.revision}),
+        **(MappingProxyType({"build_keys": MappingProxyType({
+            f"linux/{arch}": read_object(args.digests / f"manager-{arch}.json")["cpa_build_key"]
+            for arch in architectures
+        })}) if component == "cliproxyapi" and independent_release(args.digests, architectures) else MappingProxyType({})),
     }
+
+
+def independent_release(root: Path, architectures: tuple[str, ...]) -> bool:
+    present: Final = tuple("cpa_build_key" in read_object(root / f"manager-{arch}.json") for arch in architectures)
+    if any(present) and not all(present):
+        raise ValueError("mixed CPA identity schemas across architectures")
+    return all(present)
 
 
 def main() -> int:
@@ -91,7 +110,7 @@ def main() -> int:
         checked(args.revision, r"[0-9a-f]{40}", "product revision")
         checked(args.version, r"v[0-9]+\.[0-9]+(?:\.[0-9]+)?", "product version")
         manifest: Final = {
-            "schema": 2,
+            "schema": 3 if independent_release(args.digests, architectures) else 2,
             "repository": REPOSITORY,
             "revision": args.revision,
             "version": args.version,
@@ -99,7 +118,7 @@ def main() -> int:
             "versioned_tag": f"{args.version}-{args.revision[:10]}",
             "images": {component: component_manifest(args, component, architectures) for component in COMPONENTS},
         }
-        args.output.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        args.output.write_text(json.dumps(manifest, indent=2, default=dict) + "\n", encoding="utf-8")
     except (OSError, ValueError) as error:
         sys.stderr.write(f"Release manifest rejected: {error}\n")
         return 2

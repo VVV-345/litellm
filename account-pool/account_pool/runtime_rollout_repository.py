@@ -29,6 +29,7 @@ class RuntimeCheckpoint:
     credential_state: Literal["not_checked", "preserved", "absent"] = "not_checked"
     model_inference: Literal["not_run"] = "not_run"
     failed_phase: str | None = None
+    unchanged: bool = False
 
 
 CHECKPOINT: Final = TypeAdapter(RuntimeCheckpoint)

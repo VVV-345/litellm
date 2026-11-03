@@ -781,3 +781,34 @@ def test_skip_compatibility_cannot_execute_unsafe_manager_startup(setup):
     bypassed.run(job)
     assert service.store.jobs()[0].status == "failed"
     assert not any(event.startswith("apply:") for event in runtime.events)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_selected_card_update_uses_confirmed_job_without_deploying_or_backing_up_product(setup, monkeypatch, fail):
+    from uuid import UUID
+    service, runtime, clock = setup
+    ids = (UUID(int=1), UUID(int=2))
+    calls = []
+    monkeypatch.setattr(runtime, "pull", lambda tag: runtime.running)
+    def rollout(pair, configuration, progress, *, card_ids=None):
+        assert pair == CURRENT and card_ids == ids
+        calls.append(card_ids)
+        progress("selected card")
+        if fail:
+            raise ReleaseError("card failed; gate retained")
+    monkeypatch.setattr(runtime, "rollout_cards", rollout, raising=False)
+    job = queued(service, clock, ReleaseAction(action="upgrade_cards", card_ids=ids, revision=0))
+    service.run(job)
+    saved = service.store.jobs()[0]
+    assert saved.status == ("failed" if fail else "succeeded")
+    assert calls == [ids]
+    assert runtime.events == ()
+    assert runtime.running == CURRENT
+
+
+@pytest.mark.parametrize("operation,ids", [("upgrade_cards", None), ("scan", ("00000000-0000-0000-0000-000000000001",)),
+    ("upgrade_cards", ("00000000-0000-0000-0000-000000000001",) * 2)])
+def test_card_update_rejects_missing_unrelated_or_duplicate_selection(setup, operation, ids):
+    service, _, _ = setup
+    with pytest.raises(ReleaseError):
+        service.prepare(ReleaseAction(action=operation, card_ids=ids, revision=0), "admin")

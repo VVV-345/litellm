@@ -21,6 +21,7 @@ from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import ChannelKind, EnvironmentRecord
 from account_pool.ports import EnvironmentRepository
+from account_pool.release_models import RuntimeCardsView, RuntimeCardView
 from account_pool.repository import PostgresEnvironmentRepository
 from account_pool.runtime_rollout_repository import (
     CHECKPOINT,
@@ -90,9 +91,20 @@ class RuntimeRollout:
             raise ValueError("runtime rollout requires the fixed release commit and preflight image digest")
         # 归属锁串行化配置和凭据操作，但不锁住结算所需的环境行。
         async with self.ownership.operation(environment_id):
+            previous: Final = await self.checkpoints.get(environment_id)
+            if previous is None or previous.phase == "verified":
+                existing: Final = await self.environments.get(environment_id)
+                if existing is None:
+                    raise ValueError("card not found")
+                require_rollout_ready(existing)
+                if await self.runtime.retain_current_runtime_image(existing):
+                    return RuntimeCheckpoint(
+                        environment_id, release_id, image, phase="verified", image_verified=True,
+                        credential_state="preserved" if existing.auth_file_name else "absent", unchanged=True,
+                    )
             checkpoint: Final = await self.checkpoints.begin(environment_id, release_id, image)
             if checkpoint.phase == "verified":
-                return checkpoint
+                raise ValueError("previously verified runtime image has drifted; inspect before retry")
             try:
                 await self.checkpoints.save(replace(checkpoint, phase="draining", failed_phase=None))
                 async with asyncio.timeout(self.drain_timeout_seconds):
@@ -128,10 +140,39 @@ class RuntimeRollout:
                 raise RuntimeRolloutError(environment_id, failed_phase) from None
 
 
-async def _run(release: str, image: str, card: UUID | None, status: UUID | None) -> None:
+async def runtime_inventory(
+    environments: EnvironmentRepository, checkpoints: PostgresRuntimeRolloutRepository, runtime: ComposeRuntime,
+) -> RuntimeCardsView:
+    async def view(record: EnvironmentRecord) -> RuntimeCardView:
+        checkpoint: Final = await checkpoints.get(record.id)
+        pending: Final = checkpoint is not None and checkpoint.phase != "verified"
+        try:
+            current, target = await runtime.runtime_image_identity(record.id)
+        except (ValueError, OSError, TimeoutError):
+            return RuntimeCardView(
+                environment_id=record.id, name=record.name, status="maintenance" if pending else "unknown",
+                phase=checkpoint.phase if checkpoint is not None and pending else None,
+            )
+        return RuntimeCardView(
+            environment_id=record.id, name=record.name, current_image_id=current, target_image_id=target,
+            status="maintenance" if pending else "unknown" if target is None
+            else "current" if current == target else "update_available",
+            phase=checkpoint.phase if checkpoint is not None and pending else None,
+        )
+
+    records: Final = await environments.list()
+    cards: Final = tuple(await asyncio.gather(*(view(record) for record in records if record.channel is ChannelKind.CLIPROXYAPI)))
+    return RuntimeCardsView(default_image=runtime.settings.cli_proxy_image, cards=cards)
+
+
+async def _run(release: str, image: str, card: UUID | None, status: UUID | None, inventory: bool = False) -> None:
     settings: Final = Settings(cli_proxy_image=image)  # pyright: ignore[reportCallIssue]  # 其余必填设置来自 Manager 现有环境。
     environments: Final = PostgresEnvironmentRepository(settings.database_url)
     checkpoints: Final = PostgresRuntimeRolloutRepository(settings.database_url)
+    if inventory:
+        runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver(settings.secret_seed))
+        sys.stdout.write((await runtime_inventory(environments, checkpoints, runtime)).model_dump_json() + "\n")
+        return
     if status is not None:
         checkpoint: Final = await checkpoints.get(status)
         sys.stdout.write("null\n" if checkpoint is None else CHECKPOINT.dump_json(checkpoint).decode() + "\n")
@@ -150,6 +191,14 @@ async def _run(release: str, image: str, card: UUID | None, status: UUID | None)
         sys.stdout.write(CHECKPOINT.dump_json(result).decode() + "\n")
 
 
+class Arguments(argparse.Namespace):
+    release: str
+    image: str
+    card: UUID | None
+    status: UUID | None
+    inventory: bool
+
+
 def main() -> None:
     parser: Final = argparse.ArgumentParser(description="Explicit, resumable per-card runtime release")
     parser.add_argument("--release", required=True)
@@ -158,9 +207,11 @@ def main() -> None:
     mode.add_argument("--card", type=UUID)
     mode.add_argument("--status", type=UUID)
     mode.add_argument("--list", action="store_true")
-    arguments: Final = parser.parse_args()
+    mode.add_argument("--inventory", action="store_true")
+    arguments: Final = Arguments()
+    parser.parse_args(namespace=arguments)
     try:
-        asyncio.run(_run(arguments.release, arguments.image, arguments.card, arguments.status))
+        asyncio.run(_run(arguments.release, arguments.image, arguments.card, arguments.status, arguments.inventory))
     except Exception as error:
         safe: Final = str(error) if isinstance(error, RuntimeRolloutError) else type(error).__name__
         raise SystemExit(f"runtime rollout failed: {safe}; inspect persistent checkpoint before retry") from None
