@@ -839,7 +839,8 @@ async def test_finish_keeps_cache_rate_unknown_for_zero_input_tokens() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("access_fallback", [False, True])
-async def test_token_budget_reserves_active_requests_and_settles_successful_usage(access_fallback, tmp_path) -> None:
+@pytest.mark.parametrize("virtual_key", [False, True])
+async def test_token_budget_reserves_active_requests_and_settles_successful_usage(access_fallback, virtual_key, tmp_path) -> None:
     from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
     from account_pool.shared.secrets import EnvironmentSecretDeriver
     state = AccessTokenFallbackStatus(enabled=True, active=True, failure_source="refresh", reason="temporary_access", verified_models=("gpt-5",), expires_at=utc_now()+timedelta(minutes=5)) if access_fallback else AccessTokenFallbackStatus()
@@ -861,10 +862,11 @@ async def test_token_budget_reserves_active_requests_and_settles_successful_usag
     await policies.set_runtime_status(card.id, 1, "synced")
     channel = CLIProxyAPIChannel(_settings(tmp_path), EnvironmentSecretDeriver("s"*32))
     service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(logs), channel.gateway)
-    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    scope = {"trusted_card_id":card.id,"trusted_key_id":uuid4()} if virtual_key else {"card_key":issued.value.key}
+    resolution: Final = await service.resolve(ResolveRequest(**scope))
     candidate: Final = resolution.candidates[0]
     request: Final = AcquireRequest(
-        card_key=issued.value.key,
+        **scope,
         account_id=card.id,
         request_id=uuid4(),
         model="gpt-5",

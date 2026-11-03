@@ -88,9 +88,12 @@ class AccessTokenFallbackService:
                 return AccessTokenFallbackVerification(passed=False, restored=False, reason="independent_block")
             quota, models = await self.upstream.access_quota(record)
             merged_models: Final = merge_model_quotas(record.model_quotas, models)
-            if not all(
-                _quota_available(snapshot, utc_now())
-                for snapshot in (quota, *(item.quota for item in merged_models if item.model == model))
+            now: Final = utc_now()
+            # 实时账户额度是验证前提；历史模型缓存只保留尚未到期的耗尽限制，不能替代完整推理证据。
+            if not _quota_available(quota, now) or any(
+                window.remaining_percent <= 0 and (window.resets_at is None or window.resets_at > now)
+                for item in merged_models if item.model == model
+                for window in item.quota.windows
             ):
                 return AccessTokenFallbackVerification(passed=False, restored=False, reason="quota_not_available")
             verified: Final = await self.upstream.verify_access_fallback(record, model)

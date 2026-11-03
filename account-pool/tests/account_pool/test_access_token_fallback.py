@@ -266,3 +266,25 @@ async def test_fallback_capability_rejects_before_policy_writes(capability):
                 AccountPolicy(codex=CodexPolicy(allow_valid_access_after_refresh_failure=True)),
             )
     assert [(r.method, r.url.path) for r in calls] == [("GET", "/v0/management/codex/access-token-fallback")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("remaining,reset_past,expected", [(100, False, True), (100, True, True), (0, True, True), (0, False, False)])
+async def test_fallback_verifies_with_fresh_account_quota_and_historical_model_cache(remaining, reset_past, expected):
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+
+    historical = domain.ModelQuotaSnapshot(model="model-a", quota=QuotaSnapshot(
+        observed_at=utc_now() - timedelta(days=1),
+        windows=(QuotaWindow(name="5h", remaining_percent=remaining, used_percent=100-remaining,
+            window_minutes=300, resets_at=utc_now()+timedelta(hours=-1 if reset_past else 1)),),
+    ))
+    record = _record().model_copy(update={"auth_file_name":"fixture.json", "auth_index":"fixture",
+        "credential_fingerprints":("fixture",), "model_quotas":(historical,)})
+    environments = FallbackEnvironments(record)
+    upstream = FallbackUpstream()
+    result = await AccessTokenFallbackService(environments, FallbackPolicies(), upstream, FallbackOwnership(), FallbackLeases()).verify(record.id, "model-a")
+    assert result.restored is expected
+    assert ("verify" in upstream.calls) is expected
+    assert environments.record.model_quotas == (historical,)
+    if expected:
+        assert environments.record.access_token_fallback.usable_for("model-a", utc_now())

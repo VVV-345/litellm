@@ -2084,3 +2084,24 @@ async def test_verified_single_credential_releases_stale_ownership_only_after_su
     await registry.claim(uuid4(), old.fingerprints)
     with pytest.raises(CredentialConflict):
         await registry.claim(uuid4(), current.fingerprints)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
+async def test_refresh_failure_without_model_proof_is_not_ready(verified):
+    from datetime import timedelta
+
+    state = {"enabled":True, "active":verified, "failure_source":"refresh",
+        "reason":"temporary_access" if verified else "verification_required",
+        "expires_at":(utc_now()+timedelta(hours=1)).isoformat(),
+        "verified_models":["model-a"] if verified else []}
+    def handler(request):
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200,json={"files":[{"name":"selected.json","provider":"codex",
+                "status":"active","unavailable":False,"access_token_fallback":state}]})
+        return httpx.Response(200,json={"models":[{"id":"model-a"}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        snapshot = await HttpCLIProxyClient(EnvironmentSecretDeriver("s"*32),client=http).read_account(
+            _record().model_copy(update={"auth_file_name":"selected.json"}))
+    assert snapshot.status == (EnvironmentStatus.READY if verified else EnvironmentStatus.COOLING_DOWN)
+    assert snapshot.automatic_cooldown is not verified

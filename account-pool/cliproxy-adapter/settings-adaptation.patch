@@ -272,10 +272,10 @@ index 0000000000000000000000000000000000000000..d2d166555414d32ed43f2a465f4b11e1
 +}
 diff --git a/internal/api/handlers/management/quota_recovery_test.go b/internal/api/handlers/management/quota_recovery_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..2541f3663e471fda5e261213777e6cc5a8a25a82
+index 0000000000000000000000000000000000000000..99dedc9d27decc3644b9199dc28f0bd60c5d3eef
 --- /dev/null
 +++ b/internal/api/handlers/management/quota_recovery_test.go
-@@ -0,0 +1,262 @@
+@@ -0,0 +1,266 @@
 +// 验证使用真实 Codex HTTP 执行器和正常调度器，供应商由本地 HTTP 服务替代。
 +package management
 +
@@ -313,6 +313,8 @@ index 0000000000000000000000000000000000000000..2541f3663e471fda5e261213777e6cc5
 +			return
 +		}
 +		w.Header().Set("Content-Type", "text/event-stream")
++		_, _ = w.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}\n\n"))
++		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n"))
 +		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture-response\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-6-astra\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n"))
 +	}))
 +	defer upstream.Close()
@@ -367,6 +369,8 @@ index 0000000000000000000000000000000000000000..2541f3663e471fda5e261213777e6cc5
 +			return
 +		}
 +		w.Header().Set("Content-Type", "text/event-stream")
++		_, _ = w.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}\n\n"))
++		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n"))
 +		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture-response\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-6-astra\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n"))
 +	}))
 +	defer upstream.Close()
@@ -4182,10 +4186,10 @@ index 0000000000000000000000000000000000000000..19deb7b84f89871155ecfe84bc0eed90
 +}
 diff --git a/sdk/cliproxy/auth/quota_recovery.go b/sdk/cliproxy/auth/quota_recovery.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..927db0519146dcd9fcf89d806f842cc2b9f7fa09
+index 0000000000000000000000000000000000000000..6f847f0b4403670149bed8bd15f7cb9616a9a49f
 --- /dev/null
 +++ b/sdk/cliproxy/auth/quota_recovery.go
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,209 @@
 +// 单卡额度恢复使用现有 Codex 执行器验证，不调用刷新、重试或备用账号。
 +package auth
 +
@@ -4241,7 +4245,7 @@ index 0000000000000000000000000000000000000000..927db0519146dcd9fcf89d806f842cc2
 +	if stream == nil || stream.Chunks == nil {
 +		return QuotaVerification{Reason: "incomplete"}
 +	}
-+	buffer := []byte{}
++	responseBytes := 0
 +	complete := false
 +	for !complete {
 +		select {
@@ -4257,11 +4261,12 @@ index 0000000000000000000000000000000000000000..927db0519146dcd9fcf89d806f842cc2
 +				}
 +				return QuotaVerification{Reason: "inference_failed"}
 +			}
-+			buffer = append(buffer, chunk.Payload...)
-+			if len(buffer) > 512*1024 {
++			responseBytes += len(chunk.Payload)
++			if responseBytes > 512*1024 {
 +				return QuotaVerification{Reason: "response_limit"}
 +			}
-+			for _, line := range bytes.Split(buffer, []byte("\n")) {
++			// Codex 执行器按完整 SSE 行输出，翻译后的行不一定保留换行符。
++			for _, line := range bytes.Split(chunk.Payload, []byte("\n")) {
 +				if !bytes.HasPrefix(line, []byte("data:")) {
 +					continue
 +				}
@@ -4396,10 +4401,10 @@ index 0000000000000000000000000000000000000000..927db0519146dcd9fcf89d806f842cc2
 +}
 diff --git a/sdk/cliproxy/auth/quota_recovery_test.go b/sdk/cliproxy/auth/quota_recovery_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..89e3a3ca53919862b4b9436c7247c29577f0a5dc
+index 0000000000000000000000000000000000000000..5786ee900e928877cb9509f1574faccf27aa72af
 --- /dev/null
 +++ b/sdk/cliproxy/auth/quota_recovery_test.go
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,202 @@
 +// 单卡恢复测试只使用模拟执行器，确认失败无副作用且成功不触碰其他凭据。
 +package auth
 +
@@ -4422,6 +4427,7 @@ index 0000000000000000000000000000000000000000..89e3a3ca53919862b4b9436c7247c295
 +	during    func()
 +	refreshes int
 +	payload   []byte
++	chunks    [][]byte
 +}
 +
 +func (e *quotaRecoveryExecutor) Identifier() string { return "codex" }
@@ -4440,12 +4446,18 @@ index 0000000000000000000000000000000000000000..89e3a3ca53919862b4b9436c7247c295
 +	if e.failure != nil {
 +		return nil, e.failure
 +	}
-+	chunks := make(chan exec.StreamChunk, 1)
++	chunks := make(chan exec.StreamChunk, 1+len(e.chunks))
 +	payload := e.payload
 +	if payload == nil {
 +		payload = []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
 +	}
-+	chunks <- exec.StreamChunk{Payload: payload}
++	if e.chunks != nil {
++		for _, chunk := range e.chunks {
++			chunks <- exec.StreamChunk{Payload: chunk}
++		}
++	} else {
++		chunks <- exec.StreamChunk{Payload: payload}
++	}
 +	close(chunks)
 +	return &exec.StreamResult{Chunks: chunks}, nil
 +}
@@ -4569,6 +4581,31 @@ index 0000000000000000000000000000000000000000..89e3a3ca53919862b4b9436c7247c295
 +		}
 +	}
 +	return m, e
++}
++
++func TestQuotaRecoveryChecksEveryTranslatedEventAndTotalSize(t *testing.T) {
++	complete := []byte(`data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}]}}`)
++	for _, test := range []struct {
++		name   string
++		chunks [][]byte
++		passed bool
++		reason string
++	}{
++		{"complete", [][]byte{[]byte(`data: {"type":"response.created"}`), []byte(`data: {"type":"response.output_text.delta","delta":"OK"}`), complete}, true, "restored"},
++		{"tool", [][]byte{[]byte(`data: {"type":"response.output_item.added","item":{"type":"function_call"}}`), complete}, false, "unexpected_output"},
++		{"failed", [][]byte{[]byte(`data: {"type":"response.failed"}`), complete}, false, "inference_failed"},
++		{"incomplete", [][]byte{[]byte(`data: {"type":"response.output_text.delta","delta":"OK"}`)}, false, "incomplete"},
++		{"total-limit", [][]byte{[]byte(strings.Repeat(" ", 300*1024)), []byte(strings.Repeat(" ", 300*1024)), complete}, false, "response_limit"},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			m, e := quotaRecoveryFixture(t)
++			e.chunks = test.chunks
++			result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", true)
++			if result.Passed != test.passed || result.Restored != test.passed || result.Reason != test.reason || e.refreshes != 0 {
++				t.Fatalf("invalid event handling: %+v refreshes=%d", result, e.refreshes)
++			}
++		})
++	}
 +}
 diff --git a/sdk/cliproxy/auth/selector.go b/sdk/cliproxy/auth/selector.go
 index 657be2379717200904fdb79eb80c5e4995c0e684..3e402b10a1f569a8e591b1ecaec1788127c02bf7 100644

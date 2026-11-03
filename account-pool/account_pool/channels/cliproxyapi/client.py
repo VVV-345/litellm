@@ -348,6 +348,7 @@ class HttpCLIProxyClient:
         automatically_cooling: Final = (
             auth_file.disabled
             or authentication_blocked
+            or (fallback.failure_source == "refresh" and not fallback_active)
             or (auth_file.unavailable and not fallback_active and not model_aggregate and not overload_elapsed and not quota_recovered)
             or (cooldown_until is not None and cooldown_until > now)
         )

@@ -51,6 +51,7 @@ def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard
         assert response.status_code == 200
         assert response.json()["restored"] is False
     assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/{action}/verify"
+    assert calls[0].extensions["timeout"]["read"] == 120.0
     assert json.loads(calls[0].content) == payload
     assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
     with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
