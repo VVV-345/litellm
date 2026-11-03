@@ -6691,7 +6691,21 @@
         "request": "The helper rejected the request. Check the helper version and configuration.",
         "invalid": "The local service is not a compatible Camoufox helper.",
         "changed": "The card ISP changed. Save its proxy configuration and retry.",
-        "unsupported": "Use a current browser over HTTPS or localhost to connect to Camoufox."
+        "unsupported": "Use a current browser over HTTPS or localhost to connect to Camoufox.",
+        "credential": "Choose a TXT with exactly one valid email/password/TOTP record (up to 8 KB).",
+        "login": "Automatic login could not continue. Check Camoufox."
+      },
+      "credentialFile": "Credential file (optional)",
+      "credentialHelp": "Select a TXT with one email----password----TOTP secret record. It goes only to the local helper and is cleared after this attempt. Extra verification requires manual action.",
+      "allowConsent": "Allow this account to authorize the current Codex channel",
+      "loggingIn": "Signing in locally with email, password and TOTP…",
+      "stopLogin": "Stop automatic login",
+      "loginStatus": {
+        "confirmation_required": "Sign-in verified. Confirm the final authorization in Camoufox.",
+        "callback_received": "Login callback received. Wait for the account pool to confirm channel readiness.",
+        "verification_required": "Automatic login paused. Check Camoufox for additional verification or an expired authorization.",
+        "account_mismatch": "The browser account differs from the credential file. Automatic login stopped.",
+        "stopped": "Automatic login stopped. You can continue manually in Camoufox."
       }
     },
     "create": {

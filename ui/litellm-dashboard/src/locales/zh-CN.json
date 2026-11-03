@@ -6691,7 +6691,21 @@
         "request": "本机助手拒绝了请求，请检查助手版本和配置。",
         "invalid": "该本机服务不是兼容的 Camoufox 助手。",
         "changed": "卡片 ISP 配置发生变化，请重新保存代理配置后重试。",
-        "unsupported": "请使用新版浏览器，通过 HTTPS 或 localhost 连接 Camoufox。"
+        "unsupported": "请使用新版浏览器，通过 HTTPS 或 localhost 连接 Camoufox。",
+        "credential": "请选择仅含一条有效邮箱、密码和 TOTP 密钥的 TXT，文件不超过 8 KB。",
+        "login": "自动登录无法继续，请查看 Camoufox。"
+      },
+      "credentialFile": "卡密文件（可选）",
+      "credentialHelp": "选择仅含一条 邮箱----密码----TOTP密钥 的 TXT。文件内容仅发送到本机助手，本次尝试后清除；遇到额外验证需手动完成。",
+      "allowConsent": "允许此账号授权给当前 Codex 渠道",
+      "loggingIn": "正在本机填写邮箱、密码和 TOTP 验证码…",
+      "stopLogin": "停止自动登录",
+      "loginStatus": {
+        "confirmation_required": "登录已验证，请在 Camoufox 确认最终授权。",
+        "callback_received": "已收到登录回调，等待号池确认渠道就绪。",
+        "verification_required": "自动登录已暂停，请查看 Camoufox 是否需要额外验证或授权已过期。",
+        "account_mismatch": "浏览器账号与卡密不一致，已停止自动登录。",
+        "stopped": "自动登录已停止，可以在 Camoufox 中手动继续。"
       }
     },
     "create": {

@@ -207,3 +207,38 @@ test("rejects literal IPv6 SOCKS endpoints unsupported by the bridge instead of 
     code: "proxy",
   });
 });
+
+test("login requires the current opened ticket, consumes it once and aborts on shutdown", async (t) => {
+  let started;
+  const ready = new Promise((resolve) => { started = resolve; });
+  const { sessions, root } = fixture(t, { login: async (_page, account, { signal }) => {
+    assert.equal(account.email, 'test@example.test');
+    started();
+    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+    return { status: 'stopped' };
+  } });
+  const prepared = await sessions.prepare(origin, { card_id: card, proxy });
+  const input = { ticket: prepared.ticket, credentials: 'test@example.test----private-password----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' };
+  await assert.rejects(sessions.login(origin, input), { code: 'expired' });
+  await sessions.open(origin, { ticket: prepared.ticket, url });
+  await assert.rejects(sessions.login('https://evil.example', input), { code: 'expired' });
+  const login = sessions.login(origin, input);
+  await ready;
+  await assert.rejects(sessions.prepare(origin, { card_id: card, proxy }), { code: 'busy' });
+  await assert.rejects(sessions.login(origin, input), { code: 'busy' });
+  await sessions.close();
+  assert.deepEqual(await login, { status: 'stopped' });
+  assert.equal(readFileSync(join(root, 'registry.json'), 'utf8').includes('private-password'), false);
+});
+
+test("a newer OAuth page invalidates the previous login ticket and requests cannot be replayed", async (t) => {
+  const { sessions } = fixture(t, { login: async () => ({ status: 'confirmation_required' }) });
+  const one = await sessions.prepare(origin, { card_id: card, proxy });
+  const two = await sessions.prepare(origin, { card_id: card, proxy });
+  await sessions.open(origin, { ticket: one.ticket, url });
+  await sessions.open(origin, { ticket: two.ticket, url });
+  const input = { credentials: 'test@example.test----pw----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' };
+  await assert.rejects(sessions.login(origin, { ...input, ticket: one.ticket }), { code: 'expired' });
+  assert.equal((await sessions.login(origin, { ...input, ticket: two.ticket })).status, 'confirmation_required');
+  await assert.rejects(sessions.login(origin, { ...input, ticket: two.ticket }), { code: 'expired' });
+});

@@ -48,4 +48,17 @@ describe("Camoufox client", () => {
     expect(sameProxy(proxy, { ...proxy, password: "new" })).toBe(false);
     expect(sameProxy(proxy, { ...proxy, proxy_type: "http" })).toBe(false);
   });
+  it("sends login credentials only to the local helper and forwards cancellation", async () => {
+    const controller = new AbortController();
+    const transport = vi.fn<typeof fetch>(async (input, init) => {
+      expect(String(input)).toBe("http://127.0.0.1:10109/v1/login");
+      expect(JSON.parse(String(init?.body))).toEqual({ ticket: "a".repeat(64), credentials: "private-record", allow_consent: true });
+      expect(init?.cache).toBe("no-store");
+      controller.abort();
+      expect(init?.signal?.aborted).toBe(true);
+      return new Response(JSON.stringify({ status: "stopped" }));
+    });
+    const client = new CamoufoxClient("http://127.0.0.1:10109", "key", transport);
+    expect(await client.login("a".repeat(64), "private-record", true, controller.signal)).toEqual({ status: "stopped" });
+  });
 });

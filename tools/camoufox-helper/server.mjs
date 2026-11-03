@@ -1,7 +1,7 @@
 // 仅向明确允许的网页来源暴露回环 API，禁止请求控制浏览器路径或执行命令。
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
-import { HelperError, prepareSchema, openSchema } from "./core.mjs";
+import { HelperError, prepareSchema, openSchema, loginSchema } from "./core.mjs";
 
 const sameKey = (provided, expected) => {
   const a = Buffer.from(provided ?? "");
@@ -15,6 +15,8 @@ const statuses = {
   url: 400,
   launch: 502,
   navigation: 502,
+  login: 502,
+  credential: 400,
 };
 export function createHelperServer({ origins, key, sessions }) {
   const allowed = new Set(origins);
@@ -60,7 +62,7 @@ export function createHelperServer({ origins, key, sessions }) {
     }
     if (
       request.method !== "POST" ||
-      !["/v1/prepare", "/v1/open"].includes(request.url)
+      !["/v1/prepare", "/v1/open", "/v1/login"].includes(request.url)
     ) {
       fail(404, "request");
       return;
@@ -80,7 +82,7 @@ export function createHelperServer({ origins, key, sessions }) {
         }
         chunks.push(chunk);
       }
-      const schema = request.url === "/v1/prepare" ? prepareSchema : openSchema;
+      const schema = request.url === "/v1/prepare" ? prepareSchema : request.url === "/v1/login" ? loginSchema : openSchema;
       const input = schema.safeParse(
         JSON.parse(Buffer.concat(chunks).toString("utf8")),
       );
@@ -88,11 +90,17 @@ export function createHelperServer({ origins, key, sessions }) {
         fail(400, "request");
         return;
       }
-      const result =
-        request.url === "/v1/prepare"
-          ? await sessions.prepare(origin, input.data)
-          : await sessions.open(origin, input.data);
-      response.end(JSON.stringify(result));
+      const controller = new AbortController();
+      const cancel = () => controller.abort();
+      response.once("close", cancel);
+      try {
+        const result = request.url === "/v1/login"
+          ? await sessions.login(origin, input.data, controller.signal)
+          : request.url === "/v1/prepare" ? await sessions.prepare(origin, input.data) : await sessions.open(origin, input.data);
+        response.end(JSON.stringify(result));
+      } finally {
+        response.removeListener("close", cancel);
+      }
     } catch (error) {
       const code = error instanceof HelperError ? error.code : "request";
       fail(statuses[code] ?? 400, code);

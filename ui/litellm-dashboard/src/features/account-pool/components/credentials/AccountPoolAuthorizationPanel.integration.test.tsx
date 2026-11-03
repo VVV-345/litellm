@@ -158,3 +158,36 @@ it("keeps the Camoufox Key local while preparing the ISP and opening fresh autho
   expect(screen.getByLabelText("Local helper Key")).toHaveValue("");
   vi.unstubAllGlobals();
 });
+
+it("automates an optional credential file locally and clears it after one attempt", async () => {
+  await i18n.changeLanguage("en");
+  const privateRecord = "test@example.test----password----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+  const isp = { proxy_type: "socks5", host: "isp.example", port: 1080, username: "u", password: "p" };
+  const calls: { path: string; body: unknown }[] = [];
+  vi.stubGlobal("fetch", async (input: string, init: RequestInit) => {
+    expect(new URL(input).origin).toBe("http://127.0.0.1:10109");
+    const path = new URL(input).pathname;
+    calls.push({ path, body: JSON.parse(String(init.body)) });
+    if (path.endsWith("/prepare")) return new Response(JSON.stringify({ ticket: "a".repeat(64), proxy_id: "b".repeat(64), imported: false }));
+    return new Response(JSON.stringify(path.endsWith("/login") ? { status: "callback_received" } : { opened: true }));
+  });
+  Object.defineProperty(navigator, "locks", { configurable: true, value: {
+    request: (_name: string, _options: unknown, callback: (lock: object) => Promise<void>) => callback({}),
+  } });
+  postMock.mockReset().mockImplementation(async (path: string, options: object) => {
+    expect(JSON.stringify(options)).not.toContain(privateRecord);
+    return path.endsWith("/browser-proxy") ? isp : authorization;
+  });
+  renderPanel();
+  fireEvent.click(screen.getByText("Camoufox browser"));
+  fireEvent.change(screen.getByLabelText("Local helper Key"), { target: { value: "key" } });
+  const file = Object.assign(new File([privateRecord], "account.txt", { type: "text/plain" }), { text: async () => privateRecord });
+  fireEvent.change(screen.getByLabelText("Credential file (optional)"), { target: { files: [file] } });
+  fireEvent.click(screen.getByLabelText("Allow this account to authorize the current Codex channel"));
+  fireEvent.click(screen.getByRole("button", { name: "Match ISP and open in Camoufox" }));
+  expect(await screen.findByText("Login callback received. Wait for the account pool to confirm channel readiness.")).toBeInTheDocument();
+  expect(calls.at(-1)).toEqual({ path: "/v1/login", body: { ticket: "a".repeat(64), credentials: privateRecord, allow_consent: true } });
+  expect(screen.getByLabelText("Credential file (optional)")).toHaveValue("");
+  expect(screen.getByLabelText("Allow this account to authorize the current Codex channel")).not.toBeChecked();
+  vi.unstubAllGlobals();
+});

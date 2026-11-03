@@ -28,12 +28,17 @@ export function AccountPoolCamoufoxBrowser({
   const [key, setKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [allowConsent, setAllowConsent] = useState(false);
+  const [loggingIn, setLoggingIn] = useState(false);
+  const credentialFile = useRef<HTMLInputElement>(null);
+  const loginController = useRef<AbortController | null>(null);
   const active = useRef(true);
   const inFlight = useRef(false);
   useEffect(() => {
     active.current = true;
     return () => {
       active.current = false;
+      loginController.current?.abort();
     };
   }, []);
 
@@ -51,6 +56,12 @@ export function AccountPoolCamoufoxBrowser({
         if (active.current) setMessage(t("accountPool.camoufox.connected"));
         return;
       }
+      const selectedFile = credentialFile.current?.files?.[0];
+      if (selectedFile && selectedFile.size > 8192) throw new CamoufoxError("credential");
+      const credentials = selectedFile ? await selectedFile.text() : null;
+      if (credentialFile.current) credentialFile.current.value = "";
+      const consent = allowConsent;
+      setAllowConsent(false);
       if (!navigator.locks) throw new CamoufoxError("unsupported");
       // 同源标签页共用本机端口锁，防止重复点击或多张卡片同时导入相同代理。
       const port = new URL(client.baseUrl).port;
@@ -71,6 +82,22 @@ export function AccountPoolCamoufoxBrowser({
         if (!active.current) return;
         onAuthorization(authorization);
         setMessage(t(profile.imported ? "accountPool.camoufox.openedImported" : "accountPool.camoufox.openedMatched"));
+        if (credentials !== null) {
+          const controller = new AbortController();
+          loginController.current = controller;
+          setLoggingIn(true);
+          setMessage(t("accountPool.camoufox.loggingIn"));
+          try {
+            const result = await client.login(profile.ticket, credentials, consent, controller.signal);
+            if (active.current) setMessage(t(`accountPool.camoufox.loginStatus.${result.status}`));
+          } catch (failure) {
+            if (!controller.signal.aborted) throw failure;
+            if (active.current) setMessage(t("accountPool.camoufox.loginStatus.stopped"));
+          } finally {
+            loginController.current = null;
+            if (active.current) setLoggingIn(false);
+          }
+        }
       });
     } catch (failure) {
       if (active.current) {
@@ -83,6 +110,7 @@ export function AccountPoolCamoufoxBrowser({
       }
     } finally {
       inFlight.current = false;
+      if (open && credentialFile.current) credentialFile.current.value = "";
       if (active.current) setBusy(false);
     }
   };
@@ -113,6 +141,15 @@ export function AccountPoolCamoufoxBrowser({
           />
         </div>
         <p className="text-xs text-muted-foreground">{t("accountPool.camoufox.privacy")}</p>
+        <div className="grid gap-2">
+          <Label htmlFor={`${id}-credential`}>{t("accountPool.camoufox.credentialFile")}</Label>
+          <Input ref={credentialFile} id={`${id}-credential`} type="file" accept=".txt,text/plain" disabled={busy} />
+          <p className="text-xs text-muted-foreground">{t("accountPool.camoufox.credentialHelp")}</p>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={allowConsent} disabled={busy} onChange={(event) => setAllowConsent(event.target.checked)} />
+            {t("accountPool.camoufox.allowConsent")}
+          </label>
+        </div>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"
@@ -126,6 +163,7 @@ export function AccountPoolCamoufoxBrowser({
           <Button type="button" size="sm" disabled={busy || !key.trim()} onClick={() => void run(true)}>
             {t("accountPool.camoufox.open")}
           </Button>
+          {loggingIn && <Button type="button" size="sm" variant="outline" onClick={() => loginController.current?.abort()}>{t("accountPool.camoufox.stopLogin")}</Button>}
         </div>
         {message && (
           <p role="status" className="text-sm text-muted-foreground">

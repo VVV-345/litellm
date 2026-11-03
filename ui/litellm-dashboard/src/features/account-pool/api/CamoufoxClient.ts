@@ -17,7 +17,10 @@ export type CamoufoxErrorCode =
   | "request"
   | "invalid"
   | "changed"
+  | "credential"
+  | "login"
   | "unsupported";
+export type CamoufoxLoginStatus = "confirmation_required" | "callback_received" | "verification_required" | "account_mismatch" | "stopped";
 const errorCode = z.enum([
   "proxy",
   "unauthorized",
@@ -28,6 +31,8 @@ const errorCode = z.enum([
   "launch",
   "navigation",
   "request",
+  "credential",
+  "login",
 ]);
 export class CamoufoxError extends Error {
   constructor(public readonly code: CamoufoxErrorCode) {
@@ -65,7 +70,7 @@ export class CamoufoxClient {
     this.baseUrl = localBaseUrl(address);
     if (!key.trim() || /[\r\n]/.test(key)) throw new CamoufoxError("key");
   }
-  private async request<T>(path: string, schema: z.ZodType<T>, body?: object): Promise<T> {
+  private async request<T>(path: string, schema: z.ZodType<T>, body?: object, signal?: AbortSignal): Promise<T> {
     try {
       const options: RequestInit = {
         method: body ? "POST" : "GET",
@@ -75,7 +80,7 @@ export class CamoufoxClient {
         redirect: "error",
         cache: "no-store",
         referrerPolicy: "no-referrer",
-        signal: AbortSignal.timeout(60_000),
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       };
       const response = await this.transport(`${this.baseUrl}/v1${path}`, options);
       if (!response.ok) {
@@ -103,5 +108,9 @@ export class CamoufoxClient {
   }
   async open(ticket: string, url: string): Promise<void> {
     await this.request("/open", z.object({ opened: z.literal(true) }), { ticket, url });
+  }
+  login(ticket: string, credentials: string, allowConsent: boolean, signal: AbortSignal): Promise<{ status: CamoufoxLoginStatus }> {
+    const status = z.enum(["confirmation_required", "callback_received", "verification_required", "account_mismatch", "stopped"]);
+    return this.request("/login", z.object({ status }), { ticket, credentials, allow_consent: allowConsent }, signal);
   }
 }

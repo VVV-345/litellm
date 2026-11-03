@@ -106,3 +106,39 @@ test("requires the configured origin, loopback Host, and helper key before any a
     headers.Origin,
   );
 });
+
+test("login has the same auth boundary, redacts failures and cancels when the client disconnects", async (t) => {
+  let called = 0;
+  let entered;
+  let aborted;
+  const ready = new Promise((resolve) => { entered = resolve; });
+  const cancelled = new Promise((resolve) => { aborted = resolve; });
+  const server = createHelperServer({ origins: ['http://127.0.0.1:4001'], key: 'key', sessions: {
+    login: async (_origin, input, signal) => {
+      called++;
+      if (input.allow_consent) throw new Error(input.credentials);
+      entered();
+      await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+      aborted();
+      return { status: 'stopped' };
+    },
+  } });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const url = `http://127.0.0.1:${server.address().port}/v1/login`;
+  const payload = { ticket: 'a'.repeat(64), credentials: 'private-account-secret', allow_consent: true };
+  const headers = { Origin: 'http://127.0.0.1:4001', Authorization: 'Bearer key', 'Content-Type': 'application/json' };
+  const denied = await fetch(url, { method: 'POST', headers: { ...headers, Authorization: 'Bearer wrong' }, body: JSON.stringify(payload) });
+  assert.equal(denied.status, 403);
+  assert.equal(called, 0);
+  const failed = await fetch(url, { method: 'POST', headers, body: JSON.stringify(payload) });
+  assert.equal(failed.status, 400);
+  assert.deepEqual(await failed.json(), { code: 'request' });
+  const controller = new AbortController();
+  const pending = fetch(url, { method: 'POST', headers, body: JSON.stringify({ ...payload, allow_consent: false }), signal: controller.signal });
+  const rejected = assert.rejects(pending);
+  await ready;
+  controller.abort();
+  await cancelled;
+  await rejected;
+});
