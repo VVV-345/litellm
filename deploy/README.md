@@ -1,5 +1,7 @@
 # 部署与回退
 
+统一入口：[使用与维护总手册](../docs/handbook/README.md)与[部署升级与回滚](../docs/handbook/deployment.md)。生产命令和确认门禁仍以 UPDATE_RUNBOOK.md 为准
+
 docker-compose.yml 声明运行服务，releasectl.py 负责发布控制。先读 UPDATE_RUNBOOK.md，保持部署、版本管理与上游源代码兼容操作分离。部署前核对两库备份、镜像 digest、目标架构和回滚试验
 
 ## 修改与更新

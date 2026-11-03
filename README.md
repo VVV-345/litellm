@@ -41,6 +41,12 @@
 
 ---
 
+## 本项目使用与维护
+
+本分支的号池、认证、路由、代理、发布与故障恢复统一从[使用与维护总手册](docs/handbook/README.md)进入。网站部署成功不等于已有卡片的 CPA 镜像已更新，逐卡规则见手册
+
+---
+
 ## What is LiteLLM
 
 LiteLLM is an open source AI Gateway that gives you a single, unified interface to call 100+ LLM providers — OpenAI, Anthropic, Gemini, Bedrock, Azure, and more — using the OpenAI format.
