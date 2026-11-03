@@ -14,6 +14,8 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from websockets.asyncio.client import connect
@@ -40,6 +42,20 @@ from litellm.proxy.management_endpoints.request_log_endpoints import create_requ
 from litellm.proxy.management_endpoints.runtime_configuration_endpoints import create_runtime_configuration_router
 
 _Method = Literal["DELETE", "GET", "PATCH", "POST", "PUT"]
+
+
+class _OAuthCallbackRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                # 校验错误不得回显一次性授权码或完整回调地址。
+                raise HTTPException(422, "Invalid OAuth callback") from None
+
+        return validated
 
 
 class _BrowserWebSocket(Protocol):
@@ -423,6 +439,13 @@ class AccountPoolAuthorization(BaseModel):
     ssh_command: str | None
     user_code: str | None
     expires_at: str
+
+
+class AccountPoolOAuthCallback(BaseModel):
+    state: str = Field(min_length=1, max_length=4096, repr=False)
+    code: str | None = Field(default=None, min_length=1, max_length=8192, repr=False)
+    error: str | None = Field(default=None, min_length=1, max_length=1024)
+    error_description: str | None = Field(default=None, max_length=4096, repr=False)
 
 
 class AccountPoolOAuthBrowserSession(BaseModel):
@@ -1178,6 +1201,23 @@ def create_account_pool_router(
         response: Final = await _manager_request(client_factory, "POST", path, idempotency_key=idempotency_key)
         authorization: Final = _validate_response(response, _AUTHORIZATION)
         return authorization
+
+    callback_router: Final = APIRouter(route_class=_OAuthCallbackRoute)
+
+    @callback_router.post("/environments/{environment_id}/oauth-callback", response_model=AccountPoolEnvironment)
+    async def submit_manual_oauth_callback(
+        environment_id: UUID,
+        request: AccountPoolOAuthCallback,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> AccountPoolEnvironment:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "POST", f"/api/environments/{environment_id}/oauth-callback",
+            request.model_dump_json(exclude_none=True).encode("utf-8"),
+        )
+        return _validate_response(response, _ENVIRONMENT)
+
+    router.include_router(callback_router)
 
     @router.post(
         "/environments/{environment_id}/oauth-browser-sessions",

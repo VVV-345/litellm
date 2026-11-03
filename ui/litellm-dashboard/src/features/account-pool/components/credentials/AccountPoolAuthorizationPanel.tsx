@@ -1,23 +1,17 @@
-import { skipToken, useQuery, useQueryClient, type UseQueryOptions } from "@tanstack/react-query";
-import { ExternalLink, MonitorUp, Square } from "lucide-react";
-import { useState } from "react";
+/** 展示可复制授权链接及手动回填入口，不打开任何浏览器。 */
+import { useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import CopyButton from "@/components/shared/CopyButton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { extractProxyErrorMessage } from "@/lib/http/client";
 
-import { formatDateTime } from "../../utils/AccountPoolFormatters";
-import {
-  cancelAccountPoolOAuthBrowserSession,
-  getAccountPoolOAuthBrowserSession,
-  getAccountPoolOAuthBrowserUrl,
-  startAccountPoolOAuthBrowserSession,
-  type AccountPoolOAuthBrowserSession,
-} from "../../api/AccountPoolManagementApi";
+import { submitAccountPoolOAuthCallback } from "../../api/AccountPoolApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { formatDateTime } from "../../utils/AccountPoolFormatters";
+import { parseOAuthCallback } from "../../utils/oauthCallback";
 
 interface AccountPoolAuthorizationDetails {
   flow: "browser_oauth" | "device_code";
@@ -43,8 +37,7 @@ export function AccountPoolAuthorizationPanel({
   environmentId?: string | null;
 }) {
   const { t, i18n } = useTranslation();
-  const isBrowserFlow = authorization.flow === "browser_oauth";
-
+  const canSubmitCallback = authorization.flow === "browser_oauth" && accessToken && environmentId;
   return (
     <div className="grid gap-5" data-testid="account-pool-authorization-panel">
       {error && (
@@ -52,13 +45,19 @@ export function AccountPoolAuthorizationPanel({
           {error}
         </p>
       )}
-      {isBrowserFlow && accessToken && environmentId ? (
-        <AccountPoolServerBrowser
-          key={`${accessToken}:${environmentId}`}
-          accessToken={accessToken}
-          environmentId={environmentId}
-        />
-      ) : null}
+      <div className="grid gap-2">
+        <Label htmlFor={`${idPrefix}-authorization-link`}>{t("accountPool.create.authorizationLink")}</Label>
+        <div className="flex items-center gap-2">
+          <Input
+            id={`${idPrefix}-authorization-link`}
+            value={authorization.authorization_url}
+            readOnly
+            className="text-xs"
+          />
+          <CopyButton value={authorization.authorization_url} label={t("accountPool.create.copyAuthorizationLink")} />
+        </div>
+        <p className="text-xs text-muted-foreground">{t("accountPool.create.localBrowserHelp")}</p>
+      </div>
       {authorization.flow === "device_code" && authorization.user_code && (
         <div className="grid gap-2" data-testid="account-pool-device-code">
           <Label htmlFor={`${idPrefix}-user-code`}>{t("accountPool.create.userCode")}</Label>
@@ -73,21 +72,14 @@ export function AccountPoolAuthorizationPanel({
           </div>
         </div>
       )}
-      {!isBrowserFlow && (
-        <div className="rounded-md border border-border bg-muted/30 p-4">
-          <p className="text-sm font-medium">{t("accountPool.create.authorizationLink")}</p>
-          <p className="mt-1 break-all text-xs text-muted-foreground">{authorization.authorization_url}</p>
-          <Button
-            type="button"
-            nativeButton={false}
-            className="mt-3"
-            size="sm"
-            render={<a href={authorization.authorization_url} target="_blank" rel="noreferrer" />}
-          >
-            <ExternalLink />
-            {t("accountPool.create.openAuthorization")}
-          </Button>
-        </div>
+      {canSubmitCallback && (
+        <ManualOAuthCallback
+          key={`${accessToken}:${environmentId}:${authorization.authorization_url}`}
+          accessToken={accessToken}
+          environmentId={environmentId}
+          authorizationUrl={authorization.authorization_url}
+          idPrefix={idPrefix}
+        />
       )}
       <p className="text-xs text-muted-foreground">
         {t("accountPool.create.authorizationExpires", {
@@ -99,95 +91,75 @@ export function AccountPoolAuthorizationPanel({
   );
 }
 
-const isBrowserSessionActive = (session: AccountPoolOAuthBrowserSession) =>
-  session.status === "starting" || session.status === "active" || session.status === "callback_pending";
-
-function AccountPoolServerBrowser({ accessToken, environmentId }: { accessToken: string; environmentId: string }) {
+function ManualOAuthCallback({
+  accessToken,
+  environmentId,
+  authorizationUrl,
+  idPrefix,
+}: {
+  accessToken: string;
+  environmentId: string;
+  authorizationUrl: string;
+  idPrefix: string;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [session, setSession] = useState<AccountPoolOAuthBrowserSession | null>(null);
+  const [callbackUrl, setCallbackUrl] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const queryKey = accountPoolQueryKeys.oauthBrowserSession(accessToken, session?.id ?? null);
-  const sessionQueryOptions: UseQueryOptions<AccountPoolOAuthBrowserSession> = {
-    queryKey,
-    queryFn: session ? ({ signal }) => getAccountPoolOAuthBrowserSession(accessToken, session.id, signal) : skipToken,
-    refetchInterval: (query) => (!query.state.data || isBrowserSessionActive(query.state.data) ? 2000 : false),
-    refetchIntervalInBackground: true,
-    retry: false,
-    gcTime: 0,
-  };
-  const sessionQuery = useQuery(sessionQueryOptions);
-  const current = sessionQuery.data ?? session;
-  const active = current !== null && isBrowserSessionActive(current);
-  const visibleError = error ?? (sessionQuery.error ? extractProxyErrorMessage(sessionQuery.error) : null);
+  const [complete, setComplete] = useState(false);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const inFlight = useRef(false);
 
-  const startBrowser = async () => {
-    setBusy(true);
-    setError(null);
+  const submit = async () => {
+    if (inFlight.current || complete) return;
+    setErrorKey(null);
+    let callback;
     try {
-      setSession(await startAccountPoolOAuthBrowserSession(accessToken, environmentId));
-    } catch (startError) {
-      setError(extractProxyErrorMessage(startError));
-    } finally {
-      setBusy(false);
+      callback = parseOAuthCallback(callbackUrl, authorizationUrl);
+    } catch {
+      setErrorKey("accountPool.create.invalidCallback");
+      return;
     }
-  };
-
-  const stopBrowser = async () => {
-    if (!current) return;
+    inFlight.current = true;
     setBusy(true);
-    setError(null);
     try {
-      const cancelled = await cancelAccountPoolOAuthBrowserSession(accessToken, current.id);
-      await queryClient.cancelQueries({ queryKey });
-      queryClient.setQueryData(queryKey, cancelled);
-    } catch (stopError) {
-      setError(extractProxyErrorMessage(stopError));
+      await submitAccountPoolOAuthCallback(accessToken, environmentId, callback);
+      setCallbackUrl("");
+      setComplete(true);
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+    } catch {
+      setErrorKey("accountPool.create.callbackFailed");
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
 
   return (
-    <div className="grid gap-3" data-testid="account-pool-server-browser">
-      <p className="text-sm text-muted-foreground">{t("accountPool.create.serverBrowserHelp")}</p>
-      {visibleError && (
-        <p role="alert" className="break-words text-sm text-destructive">
-          {visibleError}
+    <div className="grid gap-2">
+      <Label htmlFor={`${idPrefix}-callback`}>{t("accountPool.create.callbackUrl")}</Label>
+      <Input
+        id={`${idPrefix}-callback`}
+        value={callbackUrl}
+        onChange={(event) => setCallbackUrl(event.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={busy || complete}
+      />
+      <p className="text-xs text-muted-foreground">{t("accountPool.create.callbackHelp")}</p>
+      <Button type="button" onClick={submit} disabled={busy || complete || !callbackUrl.trim()}>
+        {t("accountPool.create.submitCallback")}
+      </Button>
+      {errorKey && (
+        <p role="alert" className="text-sm text-destructive">
+          {t(errorKey)}
         </p>
       )}
-      {current && (
+      {complete && (
         <p role="status" className="text-sm">
-          {t(`accountPool.create.browserStatus.${current.status}`)}
+          {t("accountPool.create.callbackAccepted")}
         </p>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        {active ? (
-          <Button type="button" size="sm" variant="outline" onClick={() => void stopBrowser()} disabled={busy}>
-            <Square />
-            {t("accountPool.create.stopServerBrowser")}
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => void startBrowser()}
-            disabled={busy || current?.status === "completed"}
-          >
-            <MonitorUp />
-            {t("accountPool.create.openServerBrowser")}
-          </Button>
-        )}
-      </div>
-      {active && current && (
-        <iframe
-          title={t("accountPool.create.serverBrowserTitle")}
-          src={getAccountPoolOAuthBrowserUrl(current.id)}
-          referrerPolicy="no-referrer"
-          className="h-[min(70vh,640px)] w-full rounded-md border bg-black"
-          data-testid="account-pool-server-browser-frame"
-        />
       )}
     </div>
   );

@@ -275,10 +275,13 @@ describe("AccountPoolCreateDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("requires the server browser for browser OAuth results and hides local login instructions", async () => {
+  it("offers a copyable local OAuth link and manual callback without opening a browser", async () => {
     renderDialog({ initialAuthorization: browserAuthorization as never });
 
-    expect(screen.getByRole("button", { name: /打开服务器浏览器|Open server browser/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /复制授权链接|Copy authorization link/i })).toBeEnabled();
+    expect(screen.getByDisplayValue(browserAuthorization.authorization_url)).toBeInTheDocument();
+    expect(screen.getByLabelText(/回调地址|Callback URL/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /打开服务器浏览器|Open server browser/i })).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue(browserAuthorization.ssh_command)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /打开授权页面|Open authorization page/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("account-pool-device-code")).not.toBeInTheDocument();

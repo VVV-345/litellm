@@ -56,6 +56,16 @@ export const listAccountPoolProviderFamilies = (accessToken: string): Promise<Ac
 export const listAccountPoolEnvironments = (accessToken: string): Promise<AccountPoolEnvironment[]> =>
   apiClient.get<AccountPoolEnvironment[]>("/account_pool/environments", { accessToken });
 
+export const submitAccountPoolOAuthCallback = (
+  accessToken: string,
+  environmentId: string,
+  callback: components["schemas"]["AccountPoolOAuthCallback"],
+): Promise<AccountPoolEnvironment> =>
+  apiClient.post<AccountPoolEnvironment>(`/account_pool/environments/${encodeURIComponent(environmentId)}/oauth-callback`, {
+    accessToken,
+    body: callback,
+  });
+
 export const getAccountPoolEnvironment = (
   accessToken: string,
   environmentId: string,

@@ -1416,3 +1416,27 @@ def test_routing_status_reports_the_snapshot_and_rejects_unknown_cards() -> None
     assert found.json()["eligible"] is True
     assert found.json()["resolved_model"] == "shared"
     assert missing.status_code == 404
+
+
+def test_manual_oauth_callback_admin_guard_and_manager_forwarding() -> None:
+    calls: Final[list[httpx.Request]] = []
+    payload: Final = {"state": "synthetic-state-value", "code": "synthetic-code"}
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(409, json={"detail": "OAuth callback has already been consumed"})
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+    path: Final = f"/account_pool/environments/{_ENVIRONMENT_ID}/oauth-callback"
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.post(path, json=payload).status_code == 403
+    assert not calls
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        assert client.post(path, json=payload).status_code == 409
+        invalid: Final = client.post(path, json={"code": "synthetic-code"})
+        assert invalid.status_code == 422
+        assert "synthetic-code" not in invalid.text
+    assert len(calls) == 1
+    assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/oauth-callback"
+    assert json.loads(calls[0].content) == payload
+    assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"

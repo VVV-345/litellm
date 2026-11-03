@@ -601,3 +601,32 @@ async def test_deleted_card_cannot_start_browser_after_delayed_authorization(tmp
     assert response.status_code == 409
     assert runtime.started == []
     assert all(s.status is OAuthBrowserSessionStatus.FAILED for s in repository.sessions.values())
+
+
+@pytest.mark.asyncio
+async def test_manual_oauth_callback_requires_auth_and_preserves_one_time_state(tmp_path: Path) -> None:
+    from test_account_pool import FakeCLIProxy, _service
+
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+    authorization: Final = await service.authorize_environment(record.id)
+    assert isinstance(authorization, Success)
+    from urllib.parse import parse_qs, urlsplit
+    state: Final = parse_qs(urlsplit(str(authorization.value.authorization_url)).query)["state"][0]
+    app: Final = FastAPI()
+    app.include_router(create_router(service, MANAGER_TOKEN))
+    payload: Final = {"state": state, "code": "synthetic-code"}
+    path: Final = f"/api/environments/{record.id}/oauth-callback"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager") as client:
+        assert (await client.post(path, json=payload)).status_code == 401
+        client.headers["Authorization"] = f"Bearer {MANAGER_TOKEN}"
+        invalid: Final = await client.post(path, json={"code": "synthetic-code"})
+        assert invalid.status_code == 422
+        assert "synthetic-code" not in invalid.text
+        assert (await client.post(f"/api/environments/{uuid4()}/oauth-callback", json=payload)).status_code == 409
+        response: Final = await client.post(path, json=payload)
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "ready"
+        assert (await client.post(path, json=payload)).status_code == 409
+        assert "synthetic-code" not in response.text

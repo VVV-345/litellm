@@ -1099,6 +1099,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/oauth-callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Manual Oauth Callback */
+        post: operations["submit_manual_oauth_callback_account_pool_environments__environment_id__oauth_callback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/oauth-session": {
         parameters: {
             query?: never;
@@ -25366,6 +25383,17 @@ export interface components {
             /** Ticket */
             ticket: string;
         };
+        /** AccountPoolOAuthCallback */
+        AccountPoolOAuthCallback: {
+            /** Code */
+            code?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Error Description */
+            error_description?: string | null;
+            /** State */
+            state: string;
+        };
         /** AccountPoolOpenAICompatibleConfig */
         AccountPoolOpenAICompatibleConfig: {
             /** Api Keys */
@@ -47052,6 +47080,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolOAuthBrowserSessionStart"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_manual_oauth_callback_account_pool_environments__environment_id__oauth_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolOAuthCallback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
                 };
             };
             /** @description Validation Error */

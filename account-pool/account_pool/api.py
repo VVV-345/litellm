@@ -102,6 +102,20 @@ class ISPCatalogRoute(APIRoute):
         return validated
 
 
+class OAuthCallbackRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                # 校验错误不得回显一次性授权码或完整回调地址。
+                raise HTTPException(422, "Invalid OAuth callback") from None
+
+        return validated
+
+
 class GatewaySwitchRequest(BaseModel):
     node_name: str = Field(min_length=1, max_length=256)
 
@@ -929,6 +943,14 @@ def create_router(
         operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> AuthorizationView:
         return _unwrap(await service.authorize_environment(environment_id, operation_id))
+
+    callback_router: Final = APIRouter(route_class=OAuthCallbackRoute)
+
+    @callback_router.post("/api/environments/{environment_id}/oauth-callback", dependencies=[Depends(require_manager)])
+    async def submit_manual_oauth_callback(environment_id: UUID, callback: OAuthCallback) -> EnvironmentView:
+        return _unwrap(await service.submit_oauth_callback(callback, environment_id))
+
+    router.include_router(callback_router)
 
     @router.delete("/api/environments/{environment_id}/oauth-session", dependencies=[Depends(require_manager)])
     async def cancel_oauth_session(environment_id: UUID) -> EnvironmentView:
