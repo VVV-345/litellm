@@ -55,6 +55,20 @@ def test_release_settings_accepts_private_release_proxy_but_manager_does_not(tmp
         Settings.validate_docker_host(endpoint)
 
 
+def test_runtime_rollout_schema_upgrade_is_exact_and_cannot_be_reversed() -> None:
+    root = Path(__file__).resolve().parents[1] / "account_pool"
+    baseline = tuple((str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
+                     if path.name != "runtime_rollout_repository.py") + (("schema.prisma", b"unchanged"),)
+    source = (root / "runtime_rollout_repository.py").read_bytes()
+    target = (*baseline, ("runtime_rollout_repository.py", source))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, (
+        "runtime_rollout_repository.py", source.replace(b"phase text NOT NULL", b"phase integer NOT NULL"),
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE old"')))
+
+
 def schema_contract(source: str, name: str = "account_pool/settings.py") -> bytes:
     data: Final = source.encode()
     output: Final = io.BytesIO()
@@ -987,6 +1001,74 @@ def product_runtime(tmp_path: Path, command: ProductCommands) -> DockerReleaseRu
     return DockerReleaseRuntime(
         ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy", reserve_bytes=0), command
     )
+
+
+def test_native_rollout_stops_at_failed_card_keeps_old_managers_out_and_resumes(tmp_path: Path) -> None:
+    from uuid import UUID
+
+    from account_pool.release_store import ReleaseError
+    from account_pool.runtime_rollout_repository import CHECKPOINT, RuntimeCheckpoint
+
+    cards = (UUID(int=1), UUID(int=2), UUID(int=3))
+
+    class Commands(ProductCommands):
+        def __init__(self):
+            super().__init__()
+            self.fail = True
+            self.completed = ()
+            self.switches = ()
+
+        def __call__(self, *args, timeout=120):
+            if args[0] == "ps":
+                return ("c" * 64).encode()
+            if args[0] != "exec":
+                return super().__call__(*args, timeout=timeout)
+            assert args[args.index("--image") + 1] == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
+            if args[-1] == "--list":
+                return json.dumps([str(card) for card in cards]).encode()
+            card = UUID(args[-1])
+            if "--status" in args:
+                return CHECKPOINT.dump_json(RuntimeCheckpoint(card, "a" * 40,
+                    PRODUCT_REPOSITORY + "@sha256:" + "4" * 64, phase="failed", failed_phase="switching"))
+            if self.fail and card == cards[1]:
+                raise ReleaseError("password=must-not-be-exposed")
+            if card not in self.completed:
+                self.completed += (card,)
+                self.switches += (card,)
+            return CHECKPOINT.dump_json(RuntimeCheckpoint(card, "a" * 40,
+                PRODUCT_REPOSITORY + "@sha256:" + "4" * 64,
+                phase="verified", image_verified=True, credential_state="preserved"))
+
+    class RunningRuntime(DockerReleaseRuntime):
+        selected = None
+
+        def current(self):
+            assert self.selected is not None
+            return self.selected
+
+    command = Commands()
+    runtime = RunningRuntime(ReleaseSettings(token="t" * 32, root=tmp_path,
+        deployment=tmp_path.parent / "deploy", reserve_bytes=0), command)
+    selected = runtime.pull("a" * 10)
+    runtime.selected = selected
+    configuration = runtime.product_configuration(selected, b'{"services":{"litellm":{},"account-pool":{}}}')
+    phases = []
+    with pytest.raises(ReleaseError, match="switching") as error:
+        runtime.rollout_cards(selected, configuration, phases.append)
+    assert "password" not in str(error.value)
+    assert command.switches == (cards[0],)
+    marker = tmp_path / "card-rollout-active.json"
+    assert marker.is_file()
+    other = selected.model_copy(update={"commit": "b" * 40})
+    with pytest.raises(ReleaseError, match="Manager"):
+        runtime.apply(other, configuration)
+    command.fail = False
+    runtime.rollout_cards(selected, configuration, phases.append)
+    assert command.switches == cards
+    assert not marker.exists()
+    reports = json.loads((tmp_path / f"card-rollout-{selected.id}.json").read_bytes())
+    assert {item["environment_id"] for item in reports} == {str(card) for card in cards}
+    assert all(item["image_verified"] and item["model_inference"] == "not_run" for item in reports)
 
 
 @pytest.mark.parametrize("worker", ("", "ghcr.io/vvv-345/account-pool-browser-worker:old"))

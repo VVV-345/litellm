@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import io
 import os
 import re
 import shutil
+import tarfile
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import yaml
 from pydantic import BaseModel, ConfigDict, TypeAdapter
@@ -154,38 +158,157 @@ class ComposeRuntime:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
         await self._connect_control_plane(environment_id, self._settings.gateway_container)
 
+    async def backup_runtime(
+        self, record: EnvironmentRecord, directory: Path,
+        capture: Callable[[EnvironmentRecord], Awaitable[str]],
+    ) -> str:
+        if (directory / "manifest.json").exists():
+            return _load_runtime_backup(directory).state
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        directory.chmod(0o700)
+        compose: Final = (self.environment_dir(record.id) / "compose.yaml").read_bytes()
+        running: Final = await self._is_running(record.id)
+        image_id: Final = await self._runtime_image_id(record.id)
+        await self._require_runtime_volume(record.id)
+        state: Final = await capture(record)
+        process: Final = await self._runner(
+            ("docker", "run", "--rm", "--network", "none", "--user", "0", "--entrypoint", "tar", "--mount",
+             f"type=volume,src={data_volume_name(record.id)},dst=/data,readonly",
+             image_id, "-C", "/data", "-cf", "-", "."),
+            self._docker_environment(),
+        )
+        data, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        if process.returncode != 0:
+            raise ValueError("runtime volume backup failed")
+        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+            if not archive.getmembers():
+                raise ValueError("runtime volume backup is empty")
+        image_process: Final = await self._runner(("docker", "image", "save", image_id), self._docker_environment())
+        image_data, _image_stderr = await communicate_with_timeout(image_process, self._settings.docker_command_timeout_seconds)
+        if image_process.returncode != 0:
+            raise ValueError("runtime image backup failed")
+        with tarfile.open(fileobj=io.BytesIO(image_data)) as archive:
+            archive.getmember("manifest.json")
+        if shutil.disk_usage(directory).free < len(image_data) * 2 + len(data):
+            raise ValueError("insufficient space for protected runtime backup")
+        files: Final = (("compose.yaml", compose), ("record.json", record.model_dump_json().encode()),
+                        ("data.tar", data), ("image.tar", image_data))
+        for name, content in files:
+            _write_private_bytes(directory / name, content)
+        backup: Final = _RuntimeBackup(
+            image_id, running, state, tuple((name, hashlib.sha256(content).hexdigest()) for name, content in files),
+        )
+        _write_private_bytes(directory / "manifest.json", _RUNTIME_BACKUP.dump_json(backup))
+        return _load_runtime_backup(directory).state
+
+    async def _runtime_image_id(self, environment_id: UUID) -> str:
+        return await self._inspect_image_id("container", await self._runtime_container_id(environment_id))
+
+    async def _runtime_container_id(self, environment_id: UUID) -> str:
+        process: Final = await self._runner(
+            ("docker", "compose", "--project-name", f"account-pool-{environment_id.hex}", "--file",
+             str(self.environment_dir(environment_id) / "compose.yaml"),
+             "ps", "--all", "--format", "{{.ID}}", "cli-proxy-api"),
+            self._docker_environment(),
+        )
+        stdout, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        identifier: Final = stdout.decode().strip()
+        if process.returncode != 0 or re.fullmatch(r"[a-f0-9]{12,64}", identifier) is None:
+            raise ValueError("runtime container identity is missing or ambiguous")
+        return identifier
+
+    async def _require_runtime_volume(self, environment_id: UUID) -> None:
+        identifier: Final = await self._runtime_container_id(environment_id)
+        process: Final = await self._runner(
+            ("docker", "inspect", "--type", "container", "--format",
+             '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Type}}|{{.Name}}{{end}}{{end}}', identifier),
+            self._docker_environment(),
+        )
+        stdout, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        if process.returncode != 0 or stdout.decode().strip() != "volume|" + data_volume_name(environment_id):
+            raise ValueError("runtime must retain the original card data volume")
+
+    async def _inspect_image_id(self, kind: str, reference: str) -> str:
+        process: Final = await self._runner(
+            ("docker", "inspect", "--type", kind, "--format", "{{.Image}}" if kind == "container" else "{{.Id}}", reference),
+            self._docker_environment(),
+        )
+        stdout, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        image_id: Final = stdout.decode().strip()
+        if process.returncode != 0 or re.fullmatch(r"sha256:[a-f0-9]{64}", image_id) is None:
+            raise ValueError("runtime image identity is unavailable")
+        return image_id
+
     async def align_runtime_image(
         self, record: EnvironmentRecord, *, verify: Callable[[EnvironmentRecord], Awaitable[None]]
     ) -> bool:
         if record.enabled or record.status is not EnvironmentStatus.DISABLED:
             raise ValueError("runtime update requires a disabled card")
+        return await self._switch_runtime_image(record, verify=verify)
+
+    async def rollout_runtime_image(
+        self, record: EnvironmentRecord, directory: Path, *, verify: Callable[[EnvironmentRecord], Awaitable[None]]
+    ) -> bool:
+        """只供已安装持久门禁且已排空租约的显式发布编排调用。"""
+        backup: Final = _load_runtime_backup(directory)
+        if EnvironmentRecord.model_validate_json((directory / "record.json").read_bytes()).id != record.id:
+            raise ValueError("runtime backup belongs to another card")
+        return await self._switch_runtime_image(
+            record, verify=verify, backup=backup,
+            original=(directory / "compose.yaml").read_text(encoding="utf-8"),
+            image_archive=directory / "image.tar",
+        )
+
+    async def _switch_runtime_image(
+        self, record: EnvironmentRecord, *, verify: Callable[[EnvironmentRecord], Awaitable[None]],
+        backup: _RuntimeBackup | None = None, original: str | None = None, image_archive: Path | None = None,
+    ) -> bool:
         if re.fullmatch(r"ghcr\.io/vvv-345/litellm-cliproxyapi@sha256:[0-9a-f]{64}", self._settings.cli_proxy_image) is None:
             raise ValueError("runtime update requires a published unified-package digest")
         compose_file: Final = self.environment_dir(record.id) / "compose.yaml"
         if not compose_file.is_file():
             raise ValueError("card compose file is missing")
         current: Final = compose_file.read_text(encoding="utf-8")
-        if _compose_service_image(current) == self._settings.cli_proxy_image:
-            return False
         desired: Final = _replace_compose_service_image(current, self._settings.cli_proxy_image)
         running: Final = await self._is_running(record.id)
-        _write_private(compose_file, desired)
+        before_image: Final = await self._runtime_image_id(record.id)
+        restore_compose: Final = current if original is None else original
+        restore_image: Final = before_image if backup is None else backup.image_id
+        restore_running: Final = running if backup is None else backup.running
+        _write_private_bytes(compose_file, desired.encode())
         try:
             await self._compose(record.id, "pull", "cli-proxy-api")
-        except (Exception, asyncio.CancelledError):
-            _write_private(compose_file, current)
-            raise
-        try:
-            await self._compose(record.id, "up", "-d", "--pull", "never", "--no-deps", "cli-proxy-api")
+            target_image: Final = await self._inspect_image_id("image", self._settings.cli_proxy_image)
+            changed: Final = before_image != target_image or _compose_service_image(current) != self._settings.cli_proxy_image
+            if before_image != target_image or not running:
+                await self._compose(record.id, "up", "-d", "--pull", "never", "--no-deps", "cli-proxy-api")
+            if await self._runtime_image_id(record.id) != target_image:
+                raise ValueError("running card image differs from the release digest")
+            await self._require_runtime_volume(record.id)
             await verify(record)
-            if not running:
+            if not restore_running:
                 await self.set_running(record, False)
         except (Exception, asyncio.CancelledError):
-            # 能力失败时恢复旧镜像和原运行状态；认证卷不删除、不重新播种。
-            _write_private(compose_file, current)
-            await asyncio.shield(self._restore_runtime(record, running))
+            # 只回退实际旧镜像与运行状态，不用备份卷覆盖可能已经轮换的新凭据。
+            _write_private_bytes(compose_file, _replace_compose_service_image(restore_compose, restore_image).encode())
+            if image_archive is not None:
+                await asyncio.shield(self._load_runtime_image(image_archive))
+            if await self._runtime_image_id(record.id) != restore_image or await self._is_running(record.id) != restore_running:
+                await asyncio.shield(self._restore_runtime(record, restore_running))
+            if await self._runtime_image_id(record.id) != restore_image:
+                raise ValueError("runtime image rollback could not be verified") from None
+            await self._require_runtime_volume(record.id)
+            _write_private_bytes(compose_file, restore_compose.encode())
             raise
-        return True
+        return changed
+
+    async def _load_runtime_image(self, archive: Path) -> None:
+        process: Final = await self._runner(
+            ("docker", "image", "load", "--input", str(archive)), self._docker_environment(),
+        )
+        _stdout, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        if process.returncode != 0:
+            raise ValueError("runtime image archive could not be loaded for rollback")
 
     async def _restore_runtime(self, record: EnvironmentRecord, running: bool) -> None:
         await self._compose(record.id, "up", "-d", "--pull", "never", "--no-deps", "cli-proxy-api")
@@ -420,6 +543,35 @@ class ComposeRuntime:
             raise ValueError("invalid account pool project name")
         await self._disconnect_control_plane(UUID(hex=slug), self._settings.manager_container)
         await self._disconnect_control_plane(UUID(hex=slug), self._settings.gateway_container)
+
+
+@dataclass(frozen=True, slots=True)
+class _RuntimeBackup:
+    image_id: str
+    running: bool
+    state: str
+    hashes: tuple[tuple[str, str], ...]
+
+
+_RUNTIME_BACKUP: Final = TypeAdapter(_RuntimeBackup)
+
+
+def _load_runtime_backup(directory: Path) -> _RuntimeBackup:
+    backup: Final = _RUNTIME_BACKUP.validate_json((directory / "manifest.json").read_bytes())
+    if ({name for name, _digest in backup.hashes} != {"compose.yaml", "record.json", "data.tar", "image.tar"}
+            or re.fullmatch(r"sha256:[a-f0-9]{64}", backup.image_id) is None
+            or any((directory / name).is_symlink()
+                   or hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest
+                   for name, digest in backup.hashes)):
+        raise ValueError("runtime backup checksum mismatch")
+    return backup
+
+
+def _write_private_bytes(path: Path, content: bytes) -> None:
+    pending: Final = path.with_name(path.name + "." + uuid4().hex)
+    with os.fdopen(os.open(pending, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), "wb") as stream:
+        stream.write(content)
+    pending.replace(path)
 
 
 class _ComposeService(BaseModel):

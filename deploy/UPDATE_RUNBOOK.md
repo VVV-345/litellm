@@ -206,6 +206,20 @@ sudo -n sh -c 'cd /opt/zlia-pool/litellm-migration/runtime && python3 releasectl
 
 这条命令不部署 Browser Worker。若之前未启用，保持未启用；若本次明确要升级它，需要对应 GHCR `@sha256:`、会话兼容和独立验证，不把 tag 填进只接受 digest 的配置
 
+### 逐卡 CPA 阶段与同版本续跑
+
+统一包发布在两业务服务就绪后进入显式逐卡阶段，目标只取本次四组件预检得到的 CPA digest，不追踪 latest，也不在 Manager 启动时批量重建账号
+
+每卡先持久化维护门禁，只拒绝新租约，释放环境行锁后等待在途请求结算。不会修改用户启停、额度或凭据。备份原 compose、实际镜像归档、环境状态及认证卷并校验哈希后，只替换镜像，核对实际容器镜像和原数据卷、管理鉴权、两项能力接口、唯一原凭据以及配置和策略读回摘要。原先停止的容器验证后仍停止，原错误状态不自动改成 READY
+
+受保护备份位于 Manager 的 `data_root/runtime-rollouts/RELEASE_COMMIT/CARD_ID/`。`data.tar` 含凭据，只能保留在权限受限目录，不能下载到报告、提交代码或在镜像回退时回放。失败只加载旧镜像归档并恢复原运行状态，保留认证卷中的当前凭据
+
+失败即停止后续卡片，数据库中的门禁与阶段断点继续生效，不自动回退到可能不认识门禁的旧 Manager。发布器保留 `card-rollout-active.json`，阻止切换到其他 Manager 版本。排空超时或进程中断也不自动解除门禁；先检查失败卡及其断点，再对同一固定版本重新执行 `releasectl.py deploy TAG`，重新完成预检和确认后只续跑卡片阶段，不重建已在目标版本的两业务服务，已验证卡片不重复切换
+
+发布任务阶段显示当前卡片，逐卡结果保存在发布器的 `card-rollout-PAIR_ID.json`，分别记录 `image_verified`、`credential_state` 和 `model_inference`。自动镜像维护不发送推理或刷新 Token，`model_inference=not_run` 必须如实保留。真实号池模型调用需要单独授权验收，不能把镜像阶段完成说成账号已恢复
+
+该阶段需要包含新编排代码的 release-worker 和 Manager。按第 5 节单独更新发布器，不给旧发布器打补丁绕过备份或兼容门禁。新增维护表只允许精确审阅过的单向兼容升级；回退到旧源码仍受结构兼容检查约束
+
 ## 6.1 网页端替换代理配置
 
 号池代理配置可从 Dashboard 的代理网关面板更新，不需要登录服务器手工覆盖文件。更新入口通过 LiteLLM 管理接口转发到 Manager，仍受代理管理员权限和 Manager 鉴权保护。当前页面支持两种输入方式，二选一：

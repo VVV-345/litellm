@@ -282,6 +282,53 @@ def test_new_deployment_backs_up_running_images_and_rejects_schema_changes(
     assert service.store.jobs()[0].status == ("succeeded" if compatible else "failed")
 
 
+def test_per_card_release_failure_keeps_new_manager_and_same_version_resumes(tmp_path: Path) -> None:
+    from account_pool.release_runtime import PRODUCT_REPOSITORY
+
+    def product(selected):
+        return selected.model_copy(update={"images": tuple(
+            image.model_copy(update={"repository": PRODUCT_REPOSITORY}) for image in selected.images
+        )})
+
+    class ProductRuntime(Runtime):
+        def __init__(self):
+            super().__init__()
+            self.running = product(CURRENT)
+            self.remaining = ("card-a", "card-b")
+            self.fail_card = True
+
+        def pull(self, tag):
+            self.events += ("pull:" + tag,)
+            return product(NEW)
+
+        def product_configuration(self, selected, configuration):
+            return configuration
+
+        def rollout_cards(self, selected, configuration, progress):
+            for card in self.remaining:
+                progress("逐卡运行时升级 " + card)
+                self.events += (card,)
+                if self.fail_card and card == "card-b":
+                    self.remaining = ("card-b",)
+                    raise ReleaseError("card-b failed; gate retained")
+            self.remaining = ()
+
+    runtime = ProductRuntime()
+    clock = Clock()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0)
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert runtime.running == product(NEW)
+    assert service.store.jobs()[0].status == "failed"
+    assert "card-b" in service.store.jobs()[0].phase
+    assert not any(event == "load:" + CURRENT.id for event in runtime.events)
+    runtime.fail_card = False
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert service.store.jobs()[0].status == "succeeded"
+    assert runtime.events.count("card-a") == 1
+    assert runtime.events.count("card-b") == 2
+    assert runtime.events.count("apply:" + NEW.id) == 1
+
+
 def test_configured_compatibility_bypass_allows_incompatible_deployment(
     setup: tuple[ReleaseService, Runtime, Clock],
 ) -> None:

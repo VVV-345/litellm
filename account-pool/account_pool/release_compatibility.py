@@ -143,6 +143,13 @@ QUOTA_VERIFICATION_SCHEMA_ADDITIONS: Final = (
     b"CREATE TABLE IF NOT EXISTS account_pool_quota_verifications ( "
     b"environment_id uuid PRIMARY KEY REFERENCES account_pool_environments(id) ON DELETE CASCADE, payload jsonb NOT NULL )",
 )
+
+RUNTIME_ROLLOUT_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_runtime_rollouts ( environment_id uuid PRIMARY KEY "
+    b"REFERENCES account_pool_environments(id) ON DELETE CASCADE, phase text NOT NULL "
+    b"CHECK (phase IN ('draining', 'backup', 'switching', 'verified', 'failed')), "
+    b"payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now() )",
+)
 QUOTA_CALL_SCHEMA_ADDITIONS: Final = (
     b"ALTER TABLE account_pool_quota_verifications ADD COLUMN IF NOT EXISTS api_call jsonb",
 )
@@ -280,6 +287,13 @@ def additive_manager_schema_upgrade(
         ),
     )
     if additions not in (
+        RUNTIME_ROLLOUT_SCHEMA_ADDITIONS,
+        *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
+            QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
+            QUOTA_CALL_SCHEMA_ADDITIONS,
+            (*QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
+        )),
         QUOTA_RESET_SCHEMA_ADDITIONS,
         QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
         tuple(sorted((*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS))),

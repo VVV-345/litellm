@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Final
@@ -10,7 +12,8 @@ from uuid import UUID
 from weakref import WeakValueDictionary
 
 import httpx
-from pydantic import TypeAdapter
+import yaml
+from pydantic import JsonValue, TypeAdapter
 
 from account_pool.application.quota_state import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.channels.cliproxyapi.protocol import (
@@ -675,6 +678,40 @@ class HttpCLIProxyClient:
     async def get_config_yaml(self, record: EnvironmentRecord) -> str:
         response: Final = await self._request(record, "GET", "/v0/management/config.yaml")
         return response.text
+
+    async def runtime_state_digest(self, record: EnvironmentRecord, *, require_unique: bool) -> str:
+        response: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        payload: Final = TypeAdapter(dict[str, JsonValue]).validate_json(response.content)
+        files: Final = TypeAdapter(tuple[dict[str, JsonValue], ...]).validate_python(payload.get("files", ()))
+        if require_unique and len(files) != (1 if record.auth_file_name else 0):
+            raise ValueError("runtime rollout requires the original unique credential")
+        selected: Final = next((item for item in files if item.get("name") == record.auth_file_name), None)
+        if record.auth_file_name and selected is None:
+            raise ValueError("runtime rollout original credential is missing")
+        if selected is not None and selected.get("disabled", False) != record.auth_file_disabled:
+            raise ValueError("runtime credential enabled state differs from the card configuration")
+        content: Final = (
+            (await self.download_auth_file(record, record.auth_file_name))[0] if record.auth_file_name else None
+        )
+        identity: Final = None if content is None else credential_identity(content, record.supplier.value, self._secrets)
+        fields: Final = (
+            "proxy_url", "proxy-url", "prefix", "priority", "weight", "request_retry",
+            "codex_allow_valid_access_after_refresh_failure", "codex_fingerprint_mode", "codex_fingerprint_seed",
+            "codex_cli_only", "codex_cli_only_allow_app_server", "fingerprint_profile", "cloak_mode",
+            "rebuild_mid_system_message",
+        )
+        state: Final[dict[str, JsonValue]] = {
+            "config": TypeAdapter(JsonValue).validate_python(yaml.safe_load(await self.get_config_yaml(record))),
+            "credential": [] if identity is None else list(identity.fingerprints),
+            "auth_settings": {} if selected is None else {
+                section: {key: value for key, value in source.items() if key in fields}
+                for section, source in (("fields", selected), ("metadata", selected.get("metadata", {})),
+                                        ("attributes", selected.get("attributes", {})))
+                if isinstance(source, dict)
+            },
+            "disabled": None if selected is None else selected.get("disabled", False),
+        }
+        return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
     async def require_access_token_fallback(self, record: EnvironmentRecord) -> None:
         try:

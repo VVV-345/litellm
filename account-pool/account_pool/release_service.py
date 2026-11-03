@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final, Protocol
 
@@ -69,6 +70,7 @@ class ReleaseRuntime(Protocol):
     def pull(self, tag: str) -> ReleasePair: ...
     def pull_candidate(self, candidate: ReleaseCandidate) -> ReleasePair: ...
     def check_health(self, pair: ReleasePair) -> None: ...
+    def rollout_cards(self, pair: ReleasePair, configuration: bytes, progress: Callable[[str], None]) -> None: ...
 
 
 class ReleaseService:
@@ -734,6 +736,9 @@ class ReleaseService:
         if startup.status != "compatible":
             raise ReleaseError(startup.detail)
         if target.id == current.id:
+            if action.action == "deploy" and all(image.repository == PRODUCT_REPOSITORY for image in target.images):
+                self._rollout_cards(job, target, configuration)
+                return
             raise ReleaseError("目标版本已在运行")
         self.phase(job, "备份当前运行版本")
         recovery: Final = self.backup(current, self.runtime.running_compose())
@@ -781,6 +786,17 @@ class ReleaseService:
             self.database.restore(self.store.path(snapshot.version_id), snapshot)
         self.phase(database_job, "替换服务并检查健康", recovery.pair.id)
         self.runtime.apply(target, configuration)
+        if action.action == "deploy" and all(image.repository == PRODUCT_REPOSITORY for image in target.images):
+            self._rollout_cards(database_job, target, configuration)
+
+    def _rollout_cards(self, job: ReleaseJob, target: ReleasePair, configuration: bytes) -> None:
+        self.phase(job, "逐卡运行时升级")
+
+        def progress(phase: str) -> None:
+            self.phase(job, phase)
+
+        # 此阶段失败不回退 Manager，旧版可能不认识仍然生效的维护门禁。
+        self.runtime.rollout_cards(target, configuration, progress)
 
     def _target(self, job: ReleaseJob, current: ReleasePair) -> tuple[ReleasePair, bytes]:
         action: Final = job.action

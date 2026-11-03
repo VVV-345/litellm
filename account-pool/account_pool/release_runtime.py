@@ -13,11 +13,12 @@ import re
 import shutil
 import subprocess
 import tarfile
+from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
 from threading import Timer
 from typing import Final, Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, JsonValue, SecretStr, TypeAdapter, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +39,7 @@ from account_pool.release_compatibility import (
 )
 from account_pool.release_models import ReleaseCandidate, ReleaseImage, ReleasePair, RollbackCheck
 from account_pool.release_store import ReleaseDownloadError, ReleaseError, write_private
+from account_pool.runtime_rollout_repository import CHECKPOINT, RuntimeCheckpoint
 
 REPOSITORIES: Final = {"litellm": "ghcr.io/vvv-345/litellm", "account-pool": "ghcr.io/vvv-345/account-pool-manager"}
 PRODUCT_REPOSITORY: Final = "ghcr.io/vvv-345/litellm-cliproxyapi"
@@ -712,6 +714,11 @@ class DockerReleaseRuntime:
                 raise ReleaseError("导入镜像与备份记录不一致")
 
     def apply(self, pair: ReleasePair, configuration: bytes) -> None:
+        marker: Final = self.settings.root / "card-rollout-active.json"
+        if marker.exists():
+            pending: Final = TypeAdapter(dict[str, str]).validate_json(marker.read_bytes())
+            if pending.get("release_id") != pair.commit:
+                raise ReleaseError("逐卡发布尚未完成，不能切换其他 Manager 版本；请先续跑原目标")
         startup: Final = self.manager_startup_check(pair)
         if startup.status != "compatible":
             raise ReleaseError(startup.detail)
@@ -935,6 +942,65 @@ class DockerReleaseRuntime:
             },
             ensure_ascii=False,
         ).encode()
+
+    def rollout_cards(self, pair: ReleasePair, configuration: bytes, progress: Callable[[str], None]) -> None:
+        if self._product_preflight is None or self._product_preflight[0] != pair.id:
+            raise ReleaseError("逐卡升级需要此次目标版本的四组件预检，不能追踪 latest")
+        _, _browser, image = self._product_preflight
+        config: Final = TypeAdapter(dict[str, JsonValue]).validate_json(configuration)
+        services: Final = TypeAdapter(dict[str, dict[str, JsonValue]]).validate_python(config["services"])
+        environment: Final = TypeAdapter(dict[str, JsonValue]).validate_python(services["account-pool"]["environment"])
+        if environment.get("ACCOUNT_POOL_CLI_PROXY_IMAGE") != image or self.current().id != pair.id:
+            raise ReleaseError("逐卡升级目标与当前 Manager 或预检固定镜像不一致")
+        marker: Final = self.settings.root / "card-rollout-active.json"
+        identity: Final = {"release_id": pair.commit, "target_image": image}
+        if marker.exists():
+            pending: Final = TypeAdapter(dict[str, str]).validate_json(marker.read_bytes())
+            if any(pending.get(key) != value for key, value in identity.items()):
+                raise ReleaseError("必须先续跑原逐卡发布，不能改用其他目标镜像")
+        write_private(marker, json.dumps(identity).encode())
+        manager: Final = self.run(
+            "ps", "-q", "--filter", f"label=com.docker.compose.project={self.settings.project}",
+            "--filter", "label=com.docker.compose.service=account-pool",
+        ).decode().strip()
+        if re.fullmatch(r"[a-f0-9]{12,64}", manager) is None:
+            raise ReleaseError("逐卡升级未找到唯一的目标 Manager")
+        command: Final = (
+            "exec", manager, "python", "-m", "account_pool.runtime_rollout", "--release", pair.commit, "--image", image,
+        )
+        cards: Final = TypeAdapter(tuple[UUID, ...]).validate_json(self.run(*command, "--list", timeout=60))
+        for card in cards:
+            self._rollout_card(pair, command, card, image, progress)
+        marker.unlink()
+
+    def _rollout_card(
+        self, pair: ReleasePair, command: tuple[str, ...], card: UUID, image: str, progress: Callable[[str], None],
+    ) -> None:
+        if self.current().id != pair.id:
+            raise ReleaseError("逐卡升级期间业务版本变化，已停止后续卡片")
+        progress(f"逐卡运行时升级 {card}")
+        write_private(self.settings.root / "card-rollout-active.json", json.dumps({
+            "release_id": pair.commit, "target_image": image, "environment_id": str(card),
+        }).encode())
+        try:
+            report: Final = CHECKPOINT.validate_json(self.run(*command, "--card", str(card), timeout=600))
+        except ReleaseError:
+            status: Final = TypeAdapter(RuntimeCheckpoint | None).validate_json(
+                self.run(*command, "--status", str(card), timeout=60)
+            )
+            phase: Final = "unknown" if status is None else status.failed_phase or status.phase
+            progress(f"逐卡运行时升级 {card} / {phase} 失败，门禁保留")
+            raise ReleaseError(f"卡片 {card} 在 {phase} 阶段失败，已停止后续卡片；请按原目标续跑") from None
+        if (report.environment_id != card or report.release_id != pair.commit or report.target_image != image
+                or report.phase != "verified" or not report.image_verified
+                or report.credential_state not in ("preserved", "absent")):
+            raise ReleaseError(f"卡片 {card} 没有完整的运行时验证结果，已停止后续卡片")
+        report_file: Final = self.settings.root / f"card-rollout-{pair.id}.json"
+        previous: Final = (TypeAdapter(tuple[RuntimeCheckpoint, ...]).validate_json(report_file.read_bytes())
+                           if report_file.exists() else ())
+        reports: Final = tuple(item for item in previous if item.environment_id != card) + (report,)
+        write_private(report_file, TypeAdapter(tuple[RuntimeCheckpoint, ...]).dump_json(reports))
+        progress(f"逐卡运行时升级 {card} / image_verified / credential={report.credential_state} / model_inference=not_run")
 
     def _pull_pinned(self, candidate: ReleaseCandidate, index: int) -> ReleaseImage:
         selected: Final = candidate.images[index]

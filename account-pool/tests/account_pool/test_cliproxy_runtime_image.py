@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import io
 import socket
 import struct
 import sys
+import tarfile
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -210,20 +212,127 @@ class _Process:
 
 
 class _Runner:
-    def __init__(self, returncode: int = 0, *, running: bool = True) -> None:
+    def __init__(self, returncode: int = 0, *, running: bool = True, current_image: str = "sha256:" + "b" * 64) -> None:
         self.returncode: Final = returncode
         self.running = running
+        self.current_image = current_image
         self.calls: list[tuple[str, ...]] = []
 
     async def __call__(self, arguments: tuple[str, ...], environment: dict[str, str]) -> _Process:
         self.calls.append(arguments)
+        if "inspect" in arguments:
+            if any(".Mounts" in value for value in arguments):
+                command = next(call for call in reversed(self.calls) if "--file" in call)
+                document = yaml.safe_load(Path(command[command.index("--file") + 1]).read_text(encoding="utf-8"))
+                return _Process(stdout=("volume|" + document["volumes"]["cliproxy-data"]["name"]).encode())
+            return _Process(stdout=(self.current_image if "container" in arguments else "sha256:" + "a" * 64).encode())
         if "ps" in arguments:
+            if "{{.ID}}" in arguments:
+                return _Process(stdout=("c" * 64).encode())
             return _Process(stdout=b"running\n" if self.running else b"exited\n")
         if "up" in arguments:
             self.running = True
+            content = Path(arguments[arguments.index("--file") + 1]).read_text(encoding="utf-8")
+            image = yaml.safe_load(content)["services"]["cli-proxy-api"]["image"]
+            self.current_image = ("sha256:" + "a" * 64 if image == _NEW_IMAGE
+                                  else image if image.startswith("sha256:") else "sha256:" + "b" * 64)
         if "stop" in arguments:
             self.running = False
         return _Process(self.returncode, b"pull failed" if self.returncode else b"")
+
+
+def _fixture_archive(name: str, content: bytes) -> bytes:
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w") as archive:
+        entry = tarfile.TarInfo(name)
+        entry.size = len(content)
+        archive.addfile(entry, io.BytesIO(content))
+    return buffer.getvalue()
+
+
+class _BackupRunner(_Runner):
+    async def __call__(self, arguments: tuple[str, ...], environment: dict[str, str]) -> _Process:
+        if arguments[1:3] == ("image", "save"):
+            self.calls.append(arguments)
+            return _Process(stdout=_fixture_archive("manifest.json", b"[]"))
+        if "tar" in arguments:
+            self.calls.append(arguments)
+            return _Process(stdout=_fixture_archive("auths/fixture.json", b"{}"))
+        return await super().__call__(arguments, environment)
+
+
+async def test_rollout_backup_is_private_verified_and_never_recaptured_after_switch(tmp_path: Path) -> None:
+    record = _record()
+    runner = _BackupRunner()
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    compose = runtime.environment_dir(record.id) / "compose.yaml"
+    compose.parent.mkdir()
+    original = render_compose(record, runtime.settings).replace(_NEW_IMAGE, _OLD_IMAGE)
+    compose.write_text(original, encoding="utf-8")
+    calls = []
+
+    async def capture(current):
+        calls.append(current.id)
+        return "fixture-state"
+
+    directory = tmp_path / "runtime-rollouts" / ("a" * 40) / record.id.hex
+    assert await runtime.backup_runtime(record, directory, capture) == "fixture-state"
+    assert (directory / "compose.yaml").read_text(encoding="utf-8") == original
+    assert (directory / "data.tar").read_bytes() == _fixture_archive("auths/fixture.json", b"{}")
+    assert next(call for call in runner.calls if "tar" in call)[-5:] == ("-C", "/data", "-cf", "-", ".")
+    assert all("readonly" in value for call in runner.calls if "tar" in call for value in call if "type=volume" in value)
+    compose.write_text(render_compose(record, runtime.settings), encoding="utf-8")
+    assert await runtime.backup_runtime(record, directory, capture) == "fixture-state"
+    assert calls == [record.id]
+    assert (directory / "compose.yaml").read_text(encoding="utf-8") == original
+    (directory / "data.tar").write_bytes(b"corrupted")
+    with pytest.raises(ValueError, match="backup checksum"):
+        await runtime.backup_runtime(record, directory, capture)
+
+
+@pytest.mark.parametrize("running", [True, False])
+@pytest.mark.parametrize("started_before_crash", [True, False])
+@pytest.mark.parametrize("probe_fails", [True, False])
+async def test_rollout_resumes_crash_with_original_backup_and_never_replays_credentials(
+    tmp_path: Path, running: bool, started_before_crash: bool, probe_fails: bool,
+) -> None:
+    record = _record().model_copy(update={"enabled": True, "status": EnvironmentStatus.ERROR, "last_error": "original"})
+    runner = _BackupRunner(running=running)
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    compose = runtime.environment_dir(record.id) / "compose.yaml"
+    compose.parent.mkdir()
+    original = render_compose(record, runtime.settings).replace(_NEW_IMAGE, _OLD_IMAGE)
+    compose.write_text(original, encoding="utf-8")
+
+    async def capture(current: EnvironmentRecord) -> str:
+        assert current == record
+        return "fixture-state"
+
+    directory = tmp_path / "runtime-rollouts" / ("a" * 40) / record.id.hex
+    await runtime.backup_runtime(record, directory, capture)
+    compose.write_text(render_compose(record, runtime.settings), encoding="utf-8")
+    if started_before_crash:
+        runner.current_image = "sha256:" + "a" * 64
+        runner.running = True
+
+    async def verify(current: EnvironmentRecord) -> None:
+        assert current == record
+        assert runner.running
+        if probe_fails:
+            raise ValueError("unsupported target capability")
+
+    if probe_fails:
+        with pytest.raises(ValueError, match="unsupported target capability"):
+            await runtime.rollout_runtime_image(record, directory, verify=verify)
+    else:
+        await runtime.rollout_runtime_image(record, directory, verify=verify)
+    assert runner.running is running
+    assert runner.current_image == "sha256:" + ("b" if probe_fails else "a") * 64
+    assert compose.read_text(encoding="utf-8") == (original if probe_fails else render_compose(record, runtime.settings))
+    assert any("load" in call for call in runner.calls) is probe_fails
+    assert all("down" not in call and not any(value.endswith("data.tar") for value in call) for call in runner.calls)
+    assert all("readonly" in value for call in runner.calls if "tar" in call for value in call if "type=volume" in value)
+    assert record.enabled and record.status is EnvironmentStatus.ERROR and record.last_error == "original"
 
 
 async def _verified(_record: EnvironmentRecord) -> None:
@@ -257,7 +366,7 @@ async def test_existing_card_switches_to_the_adapted_image_and_keeps_compose_on_
 async def test_same_image_does_not_recreate_the_card(tmp_path: Path) -> None:
     settings: Final = _settings(tmp_path)
     record: Final = _record()
-    runner: Final = _Runner()
+    runner: Final = _Runner(current_image="sha256:" + "a" * 64)
     runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=runner)
     desired: Final = render_compose(record, settings).replace("mem_limit: 512m", "mem_limit: 256m", 1)
     compose_file: Final = runtime.environment_dir(record.id) / "compose.yaml"
@@ -267,7 +376,33 @@ async def test_same_image_does_not_recreate_the_card(tmp_path: Path) -> None:
     assert await runtime.align_runtime_image(record, verify=_verified) is False
 
     assert compose_file.read_text(encoding="utf-8") == desired
-    assert runner.calls == []
+    assert not any("up" in call for call in runner.calls)
+
+
+async def test_same_compose_image_still_checks_capability_after_an_interrupted_update(tmp_path: Path) -> None:
+    record = _record()
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=_Runner())
+    compose_file = runtime.environment_dir(record.id) / "compose.yaml"
+    compose_file.parent.mkdir()
+    compose_file.write_text(render_compose(record, runtime.settings), encoding="utf-8")
+
+    async def reject(_record: EnvironmentRecord) -> None:
+        raise ValueError("capability is missing")
+
+    with pytest.raises(ValueError, match="capability is missing"):
+        await runtime.align_runtime_image(record, verify=reject)
+
+
+async def test_same_compose_digest_repairs_a_stale_container_instead_of_trusting_the_file(tmp_path: Path) -> None:
+    record = _record()
+    runner = _Runner()
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    compose_file = runtime.environment_dir(record.id) / "compose.yaml"
+    compose_file.parent.mkdir()
+    compose_file.write_text(render_compose(record, runtime.settings), encoding="utf-8")
+    assert await runtime.align_runtime_image(record, verify=_verified) is True
+    assert runner.current_image == "sha256:" + "a" * 64
+    assert any("up" in command for command in runner.calls)
 
 
 async def test_failed_pull_restores_the_previous_card_image(tmp_path: Path) -> None:
