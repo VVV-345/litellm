@@ -7,8 +7,8 @@ from typing import Final
 from uuid import UUID, uuid4
 
 import pytest
-from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest, BatchTarget
-from account_pool.batch_service import BatchService
+from account_pool.batch.models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest, BatchTarget
+from account_pool.batch.service import BatchService
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationView,

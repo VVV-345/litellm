@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from typing import Final, Literal, cast
 from uuid import UUID
 
-from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest
-from account_pool.batch_repository import BatchRepository
+from account_pool.batch.models import BatchAuthorization, BatchClaim, BatchJob, BatchRequest
+from account_pool.batch.repository import BatchRepository
 from account_pool.domain import (
     EnvironmentRecord,
     EnvironmentStatus,

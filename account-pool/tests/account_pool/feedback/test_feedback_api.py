@@ -9,7 +9,7 @@ from test_feedback import setup_service
 
 
 def client_for():
-    from account_pool.feedback_api import create_feedback_router
+    from account_pool.feedback.api import create_feedback_router
 
     repo, service, _, _ = setup_service()
 

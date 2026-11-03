@@ -32,7 +32,7 @@ class MemoryRepository:
         return True
 
     async def page(self, query):
-        from account_pool.feedback_models import FeedbackPage, FeedbackStats
+        from account_pool.feedback.models import FeedbackPage, FeedbackStats
 
         all_items = tuple(self.issues.values())
         items = tuple(
@@ -92,7 +92,7 @@ def setup_service():
 
 
 async def make_issue(service, actor):
-    from account_pool.feedback_models import FeedbackCreate
+    from account_pool.feedback.models import FeedbackCreate
 
     return await service.create(
         FeedbackCreate(title=" 保存后不更新 ", description="页面仍显示旧值", module="settings"), actor
@@ -100,7 +100,7 @@ async def make_issue(service, actor):
 
 
 def test_feedback_input_is_strict_and_never_accepts_url_secrets():
-    from account_pool.feedback_models import FeedbackCreate
+    from account_pool.feedback.models import FeedbackCreate
 
     for fields in (
         {"title": " ", "description": "x"},
@@ -116,7 +116,7 @@ def test_feedback_input_is_strict_and_never_accepts_url_secrets():
 
 @pytest.mark.asyncio
 async def test_real_state_machine_retains_evidence_and_reopens():
-    from account_pool.feedback_models import FeedbackIssue, FeedbackMutation
+    from account_pool.feedback.models import FeedbackIssue, FeedbackMutation
 
     repo, service, admin, _ = setup_service()
     issue = await make_issue(service, admin)
@@ -162,7 +162,7 @@ async def test_real_state_machine_retains_evidence_and_reopens():
 @pytest.mark.asyncio
 async def test_required_fix_and_runtime_evidence_cannot_be_bypassed():
     from account_pool.feedback import FeedbackFailure
-    from account_pool.feedback_models import FeedbackMutation
+    from account_pool.feedback.models import FeedbackMutation
 
     repo, service, admin, _ = setup_service()
     issue = await make_issue(service, admin)
@@ -186,7 +186,7 @@ async def test_required_fix_and_runtime_evidence_cannot_be_bypassed():
 @pytest.mark.asyncio
 async def test_cas_and_agent_ownership_prevent_overwrites():
     from account_pool.feedback import FeedbackActor, FeedbackFailure
-    from account_pool.feedback_models import FeedbackMutation
+    from account_pool.feedback.models import FeedbackMutation
 
     repo, service, admin, _ = setup_service()
     issue = await make_issue(service, admin)
@@ -210,7 +210,7 @@ async def test_cas_and_agent_ownership_prevent_overwrites():
 @pytest.mark.asyncio
 async def test_token_is_hash_only_expiring_revocable_and_not_admin():
     from account_pool.feedback import FeedbackFailure
-    from account_pool.feedback_models import FeedbackTokenCreate
+    from account_pool.feedback.models import FeedbackTokenCreate
 
     repo, service, admin, clock = setup_service()
     issued = await service.issue_token(FeedbackTokenCreate(name="Claude Code", expires_in_days=1))
@@ -231,7 +231,7 @@ async def test_token_is_hash_only_expiring_revocable_and_not_admin():
 @pytest.mark.asyncio
 async def test_edit_delete_require_current_revision_and_admin():
     from account_pool.feedback import FeedbackActor, FeedbackFailure
-    from account_pool.feedback_models import FeedbackEdit
+    from account_pool.feedback.models import FeedbackEdit
 
     repo, service, admin, _ = setup_service()
     issue = await make_issue(service, admin)
@@ -249,7 +249,7 @@ async def test_edit_delete_require_current_revision_and_admin():
 @pytest.mark.asyncio
 async def test_attachment_is_validated_versioned_and_downloadable_only_for_its_issue():
     from account_pool.feedback import FeedbackFailure
-    from account_pool.feedback_models import FeedbackIssue
+    from account_pool.feedback.models import FeedbackIssue
 
     repo, service, admin, _ = setup_service()
     issue = await make_issue(service, admin)
@@ -286,8 +286,8 @@ async def test_attachment_rejects_mismatched_signature_invalid_text_and_oversize
 def test_attachment_accepts_each_approved_format():
     from uuid import uuid4
 
-    from account_pool.feedback_attachments import create_attachment
-    from account_pool.feedback_models import FeedbackAttachmentRecord
+    from account_pool.feedback.attachments import create_attachment
+    from account_pool.feedback.models import FeedbackAttachmentRecord
 
     issue_id = uuid4()
     samples = (

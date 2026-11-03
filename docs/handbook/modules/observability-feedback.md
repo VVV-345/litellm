@@ -6,7 +6,7 @@
 
 ## 关键入口
 
-[ErrorLogService](../../../account-pool/account_pool/error_logs.py)、[日志仓库](../../../account-pool/account_pool/management_repository.py)、[号池观测集成](../../../litellm/proxy/management_endpoints/account_pool_observability.py)、[完整日志](../../../litellm/proxy/management_endpoints/account_pool_full_logs.py)、[请求日志](../../../litellm/proxy/management_endpoints/account_pool_request_log.py)、[反馈服务](../../../account-pool/account_pool/feedback.py)、[反馈 CLI](../../../scripts/feedback.py)
+[ErrorLogService](../../../account-pool/account_pool/error_logs.py)、[日志仓库](../../../account-pool/account_pool/management_repository.py)、[号池观测集成](../../../litellm/proxy/management_endpoints/account_pool_observability.py)、[完整日志](../../../litellm/proxy/management_endpoints/account_pool_full_logs.py)、[请求日志](../../../litellm/proxy/management_endpoints/account_pool_request_log.py)、[反馈服务](../../../account-pool/account_pool/feedback/service.py)、[反馈 CLI](../../../scripts/feedback.py)
 
 ## 输入输出与流程
 
@@ -34,7 +34,7 @@ python scripts/feedback.py --help
 
 ## 测试与通过标准
 
-[管理日志](../../../account-pool/tests/account_pool/test_management.py)、[反馈服务](../../../account-pool/tests/account_pool/test_feedback.py)、[反馈 API](../../../account-pool/tests/account_pool/test_feedback_api.py)、[真实本机 CLI fixture](../../../tests/local_testing/test_feedback_cli.py)。要求秘密不泄漏，401/409/连接失败明确区分，成功与失败请求可按 ID 追溯，revision 冲突不盲写
+[管理日志](../../../account-pool/tests/account_pool/test_management.py)、[反馈服务](../../../account-pool/tests/account_pool/feedback/test_feedback.py)、[反馈 API](../../../account-pool/tests/account_pool/feedback/test_feedback_api.py)、[真实本机 CLI fixture](../../../tests/local_testing/test_feedback_cli.py)。要求秘密不泄漏，401/409/连接失败明确区分，成功与失败请求可按 ID 追溯，revision 冲突不盲写
 
 ## 故障排查
 

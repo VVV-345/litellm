@@ -11,7 +11,8 @@ account-pool/
 页面在：
 
 ```text
-ui/litellm-dashboard/src/app/(dashboard)/account-pool/
+ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx
+ui/litellm-dashboard/src/features/account-pool/
 ```
 
 LiteLLM 与号池 Manager 之间的接口在：
@@ -67,97 +68,43 @@ account-pool-<环境UUID>-data
 
 LiteLLM 负责用户登录和管理员权限。Manager 负责创建、更新和删除账号环境。模型请求不经过 Manager
 
-## 完整结构
+## 主要入口与目录
+
+只列职责目录，不逐个罗列所有实现文件。新增文件放进已有职责目录，详细修改边界和测试命令见[开发与验证](../docs/handbook/development.md)，完整使用说明见[总手册](../docs/handbook/README.md)
 
 ```text
-litellm/
-├── .env                                      本机 LiteLLM 配置和密钥，不提交 Git
-├── docker-compose.yml                        LiteLLM、主数据库、Prometheus 和共享网络
-├── docker-compose.override.yml               使用本地构建的 litellm:local 镜像
-├── prometheus.yml                            Prometheus 采集配置
-│
-├── account-pool/                             号池 Manager 主目录
-│   ├── .env                                  Manager 配置和密钥，不提交 Git
-│   ├── .env.example                          Manager 配置模板
-│   ├── AGENTS.md                             号池开发规则和安全边界
-│   ├── README.md                             号池架构、部署和使用说明
-│   ├── PROJECT_STRUCTURE.md                  本文档
-│   ├── PLAN.md                               早期实现计划和需求记录
-│   ├── Dockerfile                            Manager 镜像构建文件
-│   ├── docker-compose.manager.yml            Manager、号池数据库和 Socket Proxy
-│   ├── pyproject.toml                        Python 包和依赖配置
-│   ├── uv.lock                               锁定的 Python 依赖版本
-│   │
-│   ├── account_pool/                         Manager 后端源码
-│   │   ├── __init__.py                       Python 包入口
-│   │   ├── app.py                            创建 FastAPI 应用并组装所有服务
-│   │   ├── api.py                            Manager API、健康检查和 OAuth 回调
-│   │   ├── service.py                        创建、授权、更新、删除和恢复流程
-│   │   ├── domain.py                         环境状态、请求和数据模型
-│   │   ├── contracts.py                      对外响应结构
-│   │   ├── ports.py                          存储、Docker 和上游客户端接口
-│   │   ├── repository.py                     PostgreSQL 表和数据读写
-│   │   ├── config.py                         环境变量读取和安全校验
-│   │   ├── secrets.py                        按环境派生管理密钥和网关密钥
-│   │   ├── compose_renderer.py               生成账号的 Compose 和 CLIProxyAPI 配置
-│   │   ├── compose_runtime.py                执行 Docker、网络和数据卷操作
-│   │   ├── compose.py                        Compose 功能的统一导出入口
-│   │   ├── channels/                         渠道抽象层
-│   │   │   ├── base.py                       渠道定义和拒绝语义
-│   │   │   ├── registry.py                   渠道注册表
-│   │   │   ├── cliproxyapi/                  CLIProxyAPI 渠道实现
-│   │   │   │   ├── channel.py                渠道组合根（运行时、客户端、供应商）
-│   │   │   │   ├── client.py                 CLIProxyAPI 管理协议客户端
-│   │   │   │   ├── settings_sync.py          全局设置与单卡策略同步
-│   │   │   │   ├── runtime.py                Docker 渲染与执行封装
-│   │   │   │   └── suppliers/                五个供应商的静态契约
-│   │   │   │       ├── base.py               SupplierDefinition 数据结构
-│   │   │   │       ├── registry.py           供应商注册表
-│   │   │   │       ├── openai_codex.py       Codex（浏览器授权，回调 1455）
-│   │   │   │       ├── anthropic_claude.py   Claude（浏览器授权，回调 54545）
-│   │   │   │       ├── google_antigravity.py Antigravity（浏览器授权，回调 51121）
-│   │   │   │       ├── kimi.py               Kimi（设备码授权）
-│   │   │   │       └── xai.py                xAI（设备码授权）
-│   │   ├── cliproxy.py                       旧调用方的兼容导出层
-│   │   ├── quota.py                          解析额度和冷却时间
-│   │   ├── cleanup.py                        删除环境时记录清理进度
-│   │   ├── error_safety.py                   隐藏敏感错误信息
-│   │   └── result.py                         成功和失败结果类型
-│   │
-│   └── tests/                                Manager 测试
-│       ├── conftest.py                       测试公共配置
-│       ├── test_account_pool.py              创建、授权、更新和删除主流程
-│       └── account_pool/
-│           ├── test_cleanup.py               清理流程测试
-│           ├── test_compose_renderer.py      Compose 生成测试
-│           ├── test_contracts.py             接口结构测试
-│           ├── test_error_safety.py          敏感信息保护测试
-│           ├── test_quota.py                 额度解析测试
-│           └── test_result.py                结果类型测试
-│
-├── litellm/proxy/management_endpoints/
-│   ├── account_pool_endpoints.py             Dashboard 到 Manager 的代理接口
-│   └── account_pool_reconciler.py            把可用账号同步成 LiteLLM 模型部署
-│
-├── tests/test_litellm/proxy/management_endpoints/
-│   ├── test_account_pool_endpoints.py        LiteLLM 号池接口测试
-│   └── test_account_pool_reconciler.py       模型部署同步测试
-│
-└── ui/litellm-dashboard/src/app/(dashboard)/account-pool/
-    ├── page.tsx                              号池页面入口
-    ├── AccountPoolCard.tsx                   单个账号卡片
-    ├── AccountPoolCreateDialog.tsx           创建账号窗口
-    ├── AccountPoolConfigDialog.tsx           修改账号配置窗口
-    ├── AccountPoolApi.ts                     调用 LiteLLM 号池接口
-    ├── AccountPoolTypes.ts                   前端数据类型
-    ├── AccountPoolPermissions.ts             页面权限判断
-    ├── AccountPoolValidation.ts              表单校验
-    ├── AccountPoolFormatters.ts              状态、额度和时间显示
-    ├── AccountPoolFormatters.test.ts          显示格式测试
-    ├── accountPoolSelectors.ts               页面数据筛选
-    ├── useAccountPoolQuery.ts                 查询账号列表
-    └── useAccountPoolMutations.ts             创建、修改、授权和删除操作
+account-pool/
+  account_pool/
+    app.py, api.py          服务组装及 Manager 接口入口
+    batch/                 批量任务模型、持久化、执行服务
+    onboarding/            账号接入模型、持久化、任务编排、API
+    feedback/              反馈模型、持久化、状态编排、API、附件
+    application/           环境生命周期操作及纯计算
+    channels/cliproxyapi/   CPA 协议、客户端、供应商适配
+    providers/usage/       供应商额度解析
+    shared/                结果类型、错误脱敏及密钥基础设施
+    service.py             环境操作组装及锁的持有者
+    repository.py          环境持久化及数据库连接入口
+  tests/
+    test_account_pool.py   环境主流程
+    account_pool/
+      batch/               批量任务测试
+      onboarding/          账号接入及接口契约测试
+      feedback/            反馈服务及接口测试
+
+litellm/proxy/management_endpoints/account_pool*.py
+                           LiteLLM 鉴权、代理与路由集成
+tests/test_litellm/proxy/management_endpoints/test_account_pool*.py
+                           跨服务契约与集成测试
+ui/litellm-dashboard/src/
+  app/(dashboard)/account-pool/page.tsx
+                           前端路由入口
+  features/account-pool/   号池 API、hooks、组件及相邻测试
+scripts/feedback.py        反馈命令行入口
+docs/handbook/             使用、开发、部署及恢复说明
 ```
+
+配置和入口保留在原位，`account_pool.feedback` 继续导出服务及契约，`quota`、`provider_quota` 等既有兼容入口保留。未在图中展开的模块仍在原位，后续按职责逐批整理
 
 ## 创建账号时发生什么
 
@@ -178,10 +125,12 @@ litellm/
 
 | 要修改的内容 | 主要位置 |
 |---|---|
-| 页面布局、按钮、卡片 | `ui/litellm-dashboard/src/app/(dashboard)/account-pool/` |
-| 创建账号窗口 | `AccountPoolCreateDialog.tsx` |
-| 账号设置窗口 | `AccountPoolConfigDialog.tsx` |
-| 页面请求和返回类型 | `AccountPoolApi.ts`、`AccountPoolTypes.ts` |
+| 页面路由与编排 | `ui/litellm-dashboard/src/app/(dashboard)/account-pool/page.tsx` |
+| 卡片、创建及设置窗口 | `ui/litellm-dashboard/src/features/account-pool/components/cards/` |
+| 页面请求和返回类型 | `ui/litellm-dashboard/src/features/account-pool/api/` |
+| 批量任务 | `account-pool/account_pool/batch/` |
+| 账号导入与接入任务 | `account-pool/account_pool/onboarding/` |
+| 反馈、附件及反馈凭证 | `account-pool/account_pool/feedback/` |
 | 创建、授权、更新、删除逻辑 | `account-pool/account_pool/service.py` |
 | Manager HTTP 接口 | `account-pool/account_pool/api.py` |
 | LiteLLM 对外接口 | `litellm/proxy/management_endpoints/account_pool_endpoints.py` |

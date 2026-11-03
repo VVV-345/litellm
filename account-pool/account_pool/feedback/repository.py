@@ -8,7 +8,7 @@ from uuid import UUID
 
 from psycopg.types.json import Jsonb
 
-from account_pool.feedback_models import (
+from account_pool.feedback.models import (
     FeedbackAttachmentRecord,
     FeedbackIssue,
     FeedbackPage,

@@ -38,7 +38,7 @@ Manager 管理卡片元数据、生命周期、配置对账及 Compose 操作。
 
 ## 测试与通过标准
 
-[环境及服务测试](../../../account-pool/tests/test_account_pool.py)、[清理](../../../account-pool/tests/account_pool/test_cleanup.py)、[Compose](../../../account-pool/tests/account_pool/test_compose_renderer.py)、[批量任务](../../../account-pool/tests/account_pool/test_batch_service.py)。通过标准是状态转换、补偿和重试身份保持一致，独立网络和卷归属正确，用户停用不被自动覆盖
+[环境及服务测试](../../../account-pool/tests/test_account_pool.py)、[清理](../../../account-pool/tests/account_pool/test_cleanup.py)、[Compose](../../../account-pool/tests/account_pool/test_compose_renderer.py)、[批量任务](../../../account-pool/tests/account_pool/batch/test_batch_service.py)。通过标准是状态转换、补偿和重试身份保持一致，独立网络和卷归属正确，用户停用不被自动覆盖
 
 ## 故障排查
 

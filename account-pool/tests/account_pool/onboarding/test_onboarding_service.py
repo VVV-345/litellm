@@ -17,8 +17,8 @@ from account_pool.domain import (
     SupplierKind,
     utc_now,
 )
-from account_pool.onboarding_models import OnboardingAction, OnboardingEntry, OnboardingImport, OnboardingTarget
-from account_pool.onboarding_service import OnboardingService, target_view, usable_models
+from account_pool.onboarding.models import OnboardingAction, OnboardingEntry, OnboardingImport, OnboardingTarget
+from account_pool.onboarding.service import OnboardingService, target_view, usable_models
 from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService
@@ -633,7 +633,7 @@ async def test_completion_time_survives_later_observations(tmp_path):
 
 
 async def test_cleanup_hides_completed_history_and_preserves_cards_and_fingerprints(tmp_path):
-    from account_pool.onboarding_models import OnboardingCleanup
+    from account_pool.onboarding.models import OnboardingCleanup
 
     service, tasks, environments, runtime, cli, environment_service = setup_service(tmp_path)
     request = file_request()
@@ -662,7 +662,7 @@ async def test_cleanup_hides_completed_history_and_preserves_cards_and_fingerpri
 
 @pytest.mark.parametrize("state", ("ready", "cooling_down", "disabled"))
 async def test_cleanup_uses_completion_cutoff_and_source_not_last_poll_time(tmp_path, state):
-    from account_pool.onboarding_models import OnboardingCleanup
+    from account_pool.onboarding.models import OnboardingCleanup
 
     service, tasks, _, _, _, _ = setup_service(tmp_path)
     item = (await service.submit(file_request())).items[0]
@@ -688,7 +688,7 @@ async def test_cleanup_uses_completion_cutoff_and_source_not_last_poll_time(tmp_
     "state", ("awaiting_mailbox", "standby", "queued", "running", "awaiting_authorization", "failed")
 )
 async def test_cleanup_preserves_unfinished_or_failed_tasks(tmp_path, state):
-    from account_pool.onboarding_models import OnboardingCleanup
+    from account_pool.onboarding.models import OnboardingCleanup
 
     service, tasks, _, _, _, _ = setup_service(tmp_path)
     item = (await service.submit(oauth_request())).items[0]
@@ -701,7 +701,7 @@ async def test_cleanup_preserves_unfinished_or_failed_tasks(tmp_path, state):
 
 
 async def test_cleanup_preserves_explicitly_paused_completed_task(tmp_path):
-    from account_pool.onboarding_models import OnboardingCleanup
+    from account_pool.onboarding.models import OnboardingCleanup
 
     service, _, _, _, _, _ = setup_service(tmp_path)
     item = (await service.submit(file_request())).items[0]
@@ -715,7 +715,7 @@ async def test_cleanup_preserves_explicitly_paused_completed_task(tmp_path):
 
 
 async def test_cleanup_keeps_oauth_target_accounting_after_restart(tmp_path):
-    from account_pool.onboarding_models import OnboardingCleanup
+    from account_pool.onboarding.models import OnboardingCleanup
 
     service, tasks, environments, runtime, _, environment_service = setup_service(tmp_path)
     item = (await service.submit(oauth_request(prepare=False))).items[0]
@@ -756,8 +756,8 @@ async def test_cleanup_keeps_oauth_target_accounting_after_restart(tmp_path):
 
 
 async def test_cleanup_metadata_round_trip_and_legacy_pause_compatibility(tmp_path):
-    from account_pool.onboarding_models import OnboardingCleanup
-    from account_pool.onboarding_repository import PostgresOnboardingRepository, persisted_item
+    from account_pool.onboarding.models import OnboardingCleanup
+    from account_pool.onboarding.repository import PostgresOnboardingRepository, persisted_item
 
     service, tasks, _, _, _, _ = setup_service(tmp_path)
     item = (await service.submit(file_request())).items[0]

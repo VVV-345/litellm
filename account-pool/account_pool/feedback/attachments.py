@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 from uuid import UUID, uuid4
 
-from account_pool.feedback_models import (
+from account_pool.feedback.models import (
     MAX_FEEDBACK_ATTACHMENT_SIZE,
     FeedbackAttachmentContentType,
     FeedbackAttachmentRecord,

@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
-from account_pool.batch_models import BatchAuthorization, BatchClaim, BatchItem, BatchJob, BatchRequest, BatchTarget
+from account_pool.batch.models import BatchAuthorization, BatchClaim, BatchItem, BatchJob, BatchRequest, BatchTarget
 from account_pool.repository import database_connection
 
 

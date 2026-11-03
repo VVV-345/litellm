@@ -16,8 +16,8 @@ from fastapi import FastAPI
 
 from account_pool.access_token_fallback import AccessTokenFallbackService
 from account_pool.api import create_router
-from account_pool.batch_repository import PostgresBatchRepository
-from account_pool.batch_service import BatchService
+from account_pool.batch.repository import PostgresBatchRepository
+from account_pool.batch.service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
@@ -31,7 +31,7 @@ from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
 from account_pool.feedback import FeedbackService
-from account_pool.feedback_repository import PostgresFeedbackRepository
+from account_pool.feedback.repository import PostgresFeedbackRepository
 from account_pool.gateway_repository import PostgresLeaseRepository
 from account_pool.gateway_service import GatewayService
 from account_pool.management_repository import (
@@ -40,8 +40,8 @@ from account_pool.management_repository import (
     initialize_management_schema,
 )
 from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
-from account_pool.onboarding_repository import PostgresOnboardingRepository
-from account_pool.onboarding_service import OnboardingService
+from account_pool.onboarding.repository import PostgresOnboardingRepository
+from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository

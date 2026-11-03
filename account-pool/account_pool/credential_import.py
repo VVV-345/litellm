@@ -11,7 +11,7 @@ from typing import Final
 from pydantic import JsonValue, TypeAdapter
 
 from account_pool.credential_ownership import CredentialConflict
-from account_pool.onboarding_models import OnboardingEntry
+from account_pool.onboarding.models import OnboardingEntry
 
 _JSON: Final = TypeAdapter(JsonValue)
 

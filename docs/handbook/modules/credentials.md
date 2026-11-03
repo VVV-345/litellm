@@ -6,7 +6,7 @@
 
 ## 关键入口
 
-[授权操作](../../../account-pool/account_pool/application/environments/authorization.py)、[认证文件操作](../../../account-pool/account_pool/application/environments/auth_files.py)、[CredentialOwnership](../../../account-pool/account_pool/credential_ownership.py)、[手动刷新](../../../account-pool/account_pool/credential_refresh.py)、[访问令牌降级](../../../account-pool/account_pool/access_token_fallback.py)、[OAuth 会话](../../../account-pool/account_pool/oauth_browser.py)、[上号任务](../../../account-pool/account_pool/onboarding_service.py)、[适配补丁](../../../account-pool/cliproxy-adapter/settings-adaptation.patch)
+[授权操作](../../../account-pool/account_pool/application/environments/authorization.py)、[认证文件操作](../../../account-pool/account_pool/application/environments/auth_files.py)、[CredentialOwnership](../../../account-pool/account_pool/credential_ownership.py)、[手动刷新](../../../account-pool/account_pool/credential_refresh.py)、[访问令牌降级](../../../account-pool/account_pool/access_token_fallback.py)、[OAuth 会话](../../../account-pool/account_pool/oauth_browser.py)、[上号任务](../../../account-pool/account_pool/onboarding/service.py)、[适配补丁](../../../account-pool/cliproxy-adapter/settings-adaptation.patch)
 
 ## 输入输出与流程
 
@@ -32,7 +32,7 @@ token、密码和回调 code 不进入命令参数、日志或截图。worker �
 
 ## 测试与通过标准
 
-[OAuth API](../../../account-pool/tests/account_pool/test_oauth_browser_api.py)、[会话](../../../account-pool/tests/account_pool/test_oauth_browser.py)、[归属](../../../account-pool/tests/account_pool/test_credential_ownership.py)、[刷新](../../../account-pool/tests/account_pool/test_credential_refresh.py)、[降级](../../../account-pool/tests/account_pool/test_access_token_fallback.py)、[上号](../../../account-pool/tests/account_pool/test_onboarding_service.py)。须验证一次性回调、冲突拒绝、失败不泄密和不丢轮换凭据。mock 通过不代表真实 OAuth 已完成
+[OAuth API](../../../account-pool/tests/account_pool/test_oauth_browser_api.py)、[会话](../../../account-pool/tests/account_pool/test_oauth_browser.py)、[归属](../../../account-pool/tests/account_pool/test_credential_ownership.py)、[刷新](../../../account-pool/tests/account_pool/test_credential_refresh.py)、[降级](../../../account-pool/tests/account_pool/test_access_token_fallback.py)、[上号](../../../account-pool/tests/account_pool/onboarding/test_onboarding_service.py)。须验证一次性回调、冲突拒绝、失败不泄密和不丢轮换凭据。mock 通过不代表真实 OAuth 已完成
 
 ## 故障排查
 

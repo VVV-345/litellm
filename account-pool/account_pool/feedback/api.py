@@ -11,7 +11,7 @@ from fastapi.routing import APIRoute
 from psycopg import Error as DatabaseError
 
 from account_pool.feedback import FeedbackActor, FeedbackFailure, FeedbackService
-from account_pool.feedback_models import (
+from account_pool.feedback.models import (
     MAX_FEEDBACK_ATTACHMENT_SIZE,
     FeedbackAgentAttachmentRead,
     FeedbackAgentCommand,

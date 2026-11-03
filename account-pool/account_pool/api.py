@@ -21,8 +21,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from starlette.background import BackgroundTask
 
 from account_pool.access_token_fallback import AccessTokenFallbackService, create_access_token_fallback_router
-from account_pool.batch_models import BatchJob, BatchRequest
-from account_pool.batch_service import BatchService
+from account_pool.batch.models import BatchJob, BatchRequest
+from account_pool.batch.service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
@@ -45,7 +45,7 @@ from account_pool.domain import (
 )
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.feedback import FeedbackService
-from account_pool.feedback_api import create_feedback_router
+from account_pool.feedback.api import create_feedback_router
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.isp_probe import GatewayISPProbeResult, ISPProbeResult
 from account_pool.management_api import create_management_router
@@ -57,8 +57,8 @@ from account_pool.oauth_browser import (
     OAuthBrowserSessionStatus,
     cleanup_oauth_browser_sessions,
 )
-from account_pool.onboarding_api import create_onboarding_router
-from account_pool.onboarding_service import OnboardingService
+from account_pool.onboarding.api import create_onboarding_router
+from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository

@@ -10,7 +10,7 @@ from uuid import UUID
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
-from account_pool.onboarding_models import OnboardingItem, OnboardingTarget
+from account_pool.onboarding.models import OnboardingItem, OnboardingTarget
 from account_pool.repository import database_connection
 
 

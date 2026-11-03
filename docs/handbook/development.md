@@ -14,6 +14,32 @@ git rev-parse HEAD
 
 开始实现前按约定 `git pull --ff-only`，此命令会更新本地 Git 状态，不是部署。先写出假设、受影响边界和通过标准，修复先复现，结构调整不夹带默认值或 API 行为变化
 
+## 相关代码放在哪里
+
+Manager 按职责归组，实现和对应测试使用同名目录，不把服务、数据库读写和接口继续平铺在包根目录
+
+```text
+account-pool/
+  account_pool/
+    app.py                 组装服务和生命周期
+    api.py                 注册 Manager 接口
+    batch/                 批量任务：models、repository、service
+    onboarding/            账号接入：models、repository、service、api
+    feedback/              反馈：models、repository、service、api、attachments
+    application/           环境操作和纯计算
+    channels/cliproxyapi/   CPA 协议、客户端和供应商适配
+    providers/usage/       供应商额度解析
+    shared/                已复用的结果、错误与密钥基础设施
+  tests/account_pool/
+    batch/                 批量任务测试
+    onboarding/            账号接入及接口契约测试
+    feedback/              反馈服务和接口测试
+```
+
+批量操作从 [batch](../../account-pool/account_pool/batch/)进入，账号导入和授权从 [onboarding](../../account-pool/account_pool/onboarding/)进入，反馈状态、附件和限权凭证从 [feedback](../../account-pool/account_pool/feedback/)进入。跨服务契约测试仍在 `tests/test_litellm/proxy/management_endpoints/`，反馈 CLI 仍是 `scripts/feedback.py`
+
+新增相关代码和测试先放进现有职责目录，不为单个函数再建包。`account_pool.feedback` 保留服务与契约导入，`quota`、`provider_quota` 等已有兼容入口不变。根目录其余模块分批整理，不能以移动文件为由修改默认值、锁、事务或公开接口
+
 ## 启动与配置
 
 Manager 的环境变量由 [Settings](../../account-pool/account_pool/config.py)读取，样例见 [Manager 环境样例](../../account-pool/.env.example)及[产品环境样例](../../deploy/.env.example)。数据库地址、Manager token、secret seed、SSH 回调配置是独立配置；不要打印真实 `.env`、完整容器环境或认证文件

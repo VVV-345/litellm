@@ -10,7 +10,7 @@ from fastapi.routing import APIRoute
 
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
 from account_pool.domain import AuthorizationFlow, AuthorizationView
-from account_pool.onboarding_models import (
+from account_pool.onboarding.models import (
     OnboardingAction,
     OnboardingCleanup,
     OnboardingCleanupResult,
@@ -24,7 +24,7 @@ from account_pool.onboarding_models import (
     OnboardingTarget,
     OnboardingTargetView,
 )
-from account_pool.onboarding_service import OnboardingService
+from account_pool.onboarding.service import OnboardingService
 from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.shared.result import Failure
 

@@ -13,8 +13,8 @@ from typing import Final, Literal, TypedDict
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "account-pool"))
 
 from account_pool.credential_ownership import CredentialConflict
-from account_pool.onboarding_models import OnboardingEntry
-from account_pool.onboarding_service import file_identity
+from account_pool.onboarding.models import OnboardingEntry
+from account_pool.onboarding.service import file_identity
 from account_pool.secrets import EnvironmentSecretDeriver
 
 

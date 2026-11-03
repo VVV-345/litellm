@@ -17,7 +17,7 @@ from pydantic import BaseModel, JsonValue, TypeAdapter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "account-pool"))
 
-from account_pool.onboarding_models import OnboardingEntry, OnboardingImport
+from account_pool.onboarding.models import OnboardingEntry, OnboardingImport
 
 
 class Preview(BaseModel):

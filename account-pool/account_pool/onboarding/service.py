@@ -32,7 +32,7 @@ from account_pool.domain import (
     to_view,
     utc_now,
 )
-from account_pool.onboarding_models import (
+from account_pool.onboarding.models import (
     OnboardingAction,
     OnboardingCleanup,
     OnboardingCleanupResult,
@@ -46,7 +46,7 @@ from account_pool.onboarding_models import (
     OnboardingTarget,
     OnboardingTargetView,
 )
-from account_pool.onboarding_repository import OnboardingRepository, StoredOnboarding
+from account_pool.onboarding.repository import OnboardingRepository, StoredOnboarding
 from account_pool.ports import EnvironmentRepository
 from account_pool.service import EnvironmentService
 from account_pool.shared.result import Failure, FailureCode, Result, Success

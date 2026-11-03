@@ -142,7 +142,7 @@ async def test_manager_requires_auth_and_never_echoes_passwords_in_validation_er
 
 
 def test_manager_and_proxy_onboarding_contracts_match():
-    from account_pool import onboarding_models as manager
+    from account_pool.onboarding import models as manager
 
     from litellm.proxy.management_endpoints import account_pool_onboarding_models as proxy
 

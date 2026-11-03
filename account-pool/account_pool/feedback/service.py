@@ -11,8 +11,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Final, Protocol
 from uuid import UUID, uuid4
 
-from account_pool.feedback_attachments import FeedbackAttachmentValidationFailure, create_attachment
-from account_pool.feedback_models import (
+from account_pool.feedback.attachments import FeedbackAttachmentValidationFailure, create_attachment
+from account_pool.feedback.models import (
     FeedbackAttachmentInfo,
     FeedbackAttachmentRecord,
     FeedbackCreate,
