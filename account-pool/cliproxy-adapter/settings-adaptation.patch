@@ -1902,7 +1902,7 @@ index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb
  
  // addConfigHeadersToAttrs adds header configuration to auth attributes.
 diff --git a/sdk/auth/filestore.go b/sdk/auth/filestore.go
-index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..d782c6b83e302caf76f876ca657402b1dd9e6bd1 100644
+index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..520eee8547fded199c2500442b93ab0f1b71f9d4 100644
 --- a/sdk/auth/filestore.go
 +++ b/sdk/auth/filestore.go
 @@ -117,7 +117,7 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
@@ -1976,8 +1976,18 @@ index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..d782c6b83e302caf76f876ca657402b1
  // List enumerates all auth JSON files under the configured directory.
  func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error) {
  	dir := s.baseDirSnapshot()
+@@ -178,6 +197,9 @@ func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error)
+ 			return walkErr
+ 		}
+ 		if d.IsDir() {
++			if d.Name() == ".codex-managed-identity" {
++				return filepath.SkipDir
++			}
+ 			return nil
+ 		}
+ 		if !strings.HasSuffix(strings.ToLower(d.Name()), ".json") {
 diff --git a/sdk/auth/filestore_test.go b/sdk/auth/filestore_test.go
-index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..ca97d8e7e5c00f479db773eb9089a8900b977555 100644
+index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..cde1f171b097299492687f180ee569293d779810 100644
 --- a/sdk/auth/filestore_test.go
 +++ b/sdk/auth/filestore_test.go
 @@ -2,14 +2,84 @@ package auth
@@ -2065,6 +2075,48 @@ index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..ca97d8e7e5c00f479db773eb9089a890
  func TestExtractAccessToken(t *testing.T) {
  	t.Parallel()
  
+@@ -401,3 +471,41 @@ func (f fileStoreMultiAuthParserFunc) ParseAuth(context.Context, pluginapi.AuthP
+ func (f fileStoreMultiAuthParserFunc) ParseAuths(ctx context.Context, req pluginapi.AuthParseRequest) ([]*cliproxyauth.Auth, bool, error) {
+ 	return f(ctx, req)
+ }
++
++func TestFileTokenStoreListExcludesManagedIdentity(t *testing.T) {
++	dir := t.TempDir()
++	identityDir := filepath.Join(dir, ".codex-managed-identity")
++	nestedDir := filepath.Join(dir, "accounts")
++	for _, folder := range []string{identityDir, nestedDir} {
++		if err := os.MkdirAll(folder, 0700); err != nil {
++			t.Fatal(err)
++		}
++	}
++	identityPath := filepath.Join(identityDir, "scope.json")
++	identity := []byte(`{"version":1,"installation_id":"fixture","scope":"fixture"}`)
++	if err := os.WriteFile(identityPath, identity, 0600); err != nil {
++		t.Fatal(err)
++	}
++	for _, folder := range []string{dir, nestedDir} {
++		if err := os.WriteFile(filepath.Join(folder, "auth.json"), []byte(`{"type":"codex","access_token":"synthetic"}`), 0600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	store := NewFileTokenStore()
++	store.SetBaseDir(dir)
++	for i := 0; i < 2; i++ {
++		loaded, err := store.List(context.Background())
++		if err != nil || len(loaded) != 2 {
++			t.Fatalf("expected two real credentials, got %d: %v", len(loaded), err)
++		}
++		for _, auth := range loaded {
++			if auth.Provider != "codex" {
++				t.Fatalf("internal state loaded as %s", auth.Provider)
++			}
++		}
++	}
++	raw, err := os.ReadFile(identityPath)
++	if err != nil || string(raw) != string(identity) {
++		t.Fatal("internal identity was modified")
++	}
++}
 diff --git a/sdk/cliproxy/auth/access_token_fallback.go b/sdk/cliproxy/auth/access_token_fallback.go
 new file mode 100644
 index 0000000000000000000000000000000000000000..ee937c9e1629e9664fa9447b022590fd715f40a7
