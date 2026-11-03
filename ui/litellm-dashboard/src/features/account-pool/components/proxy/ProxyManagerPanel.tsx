@@ -496,7 +496,7 @@ interface GatewayRowProps {
   disabled: boolean;
   onSelectNode: (nodeName: string) => void;
   onBindISP: (profileId: string) => void;
-  onBindFront: (nodeName: string) => void;
+  onBindFront: (nodeName: string | null) => void;
   onDelete: () => void;
 }
 
@@ -547,8 +547,9 @@ const GatewayRow = ({
   const selectedValue = gateway.isp_profile_id ? `isp:${gateway.isp_profile_id}` : selectedNodeValue;
   const chainBound = gateway.isp_profile_id != null;
   const frontAvailable =
-    gateway.front_node_name != null && nodeOptions.some((node) => node.name === gateway.front_node_name);
-  const chainReady = chainBound && boundISP?.enabled === true && frontAvailable;
+    gateway.front_node_name == null || nodeOptions.some((node) => node.name === gateway.front_node_name);
+  const selectedISP = gateway.current_node === `account-pool-isp-${gateway.port}-${gateway.isp_profile_id?.replaceAll("-", "")}`;
+  const chainReady = chainBound && boundISP?.enabled === true && frontAvailable && selectedISP;
   const currentNodeLabel = gateway.current_node
     ? t("accountPool.proxyGateways.currentNode", { node: gateway.current_node })
     : t("accountPool.proxyGateways.currentNodeUnknown");
@@ -642,9 +643,10 @@ const GatewayRow = ({
         {gateway.isp_profile_id && (
           <div className="flex min-w-0 gap-1">
             <Select
-              value={gateway.front_node_name ?? undefined}
+              value={gateway.front_node_name == null ? "none" : `node:${gateway.front_node_name}`}
               onValueChange={(value) => {
-                if (value) onBindFront(value);
+                if (value === "none") onBindFront(null);
+                else if (value?.startsWith("node:")) onBindFront(value.slice(5));
               }}
               disabled={disabled}
             >
@@ -652,11 +654,12 @@ const GatewayRow = ({
                 className="w-full"
                 aria-label={t("accountPool.proxyGateways.selectFront", { name: gateway.name })}
               >
-                <SelectValue placeholder={t("accountPool.proxyGateways.selectFrontPlaceholder")} />
+                <SelectValue>{gateway.front_node_name ?? t("accountPool.proxyGateways.noFront")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="none">{t("accountPool.proxyGateways.noFront")}</SelectItem>
                 {nodeOptions.map((node) => (
-                  <SelectItem key={node.name} value={node.name}>
+                  <SelectItem key={node.name} value={`node:${node.name}`}>
                     {node.name}
                   </SelectItem>
                 ))}

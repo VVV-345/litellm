@@ -360,13 +360,13 @@ async def test_isp_chain_uses_independent_fronts_and_preserves_subscription_conf
     assert tuple(node.name for node in await service.list_nodes()) == ("airport-1", "airport-2", "airport-3")
 
     first_isp: Final = await service.bind_isp_gateway(7891, manual.id)
-    assert first_isp.current_node == "REJECT"
+    assert first_isp.current_node == ProxyGatewayService.isp_node_name(manual.id, 7891)
     first: Final = await cast(Callable[[int, str | None], Awaitable[GatewayView]], bind_front)(7891, "airport-1")
     second_isp: Final = await service.bind_isp_gateway(7892, manual.id)
-    assert second_isp.current_node == "REJECT"
+    assert second_isp.current_node == ProxyGatewayService.isp_node_name(manual.id, 7892)
     second: Final = await cast(Callable[[int, str | None], Awaitable[GatewayView]], bind_front)(7892, "airport-2")
     third_isp: Final = await service.bind_isp_gateway(7893, subscription.id)
-    assert third_isp.current_node == "REJECT"
+    assert third_isp.current_node == ProxyGatewayService.isp_node_name(subscription.id, 7893)
     third: Final = await cast(Callable[[int, str | None], Awaitable[GatewayView]], bind_front)(7893, "airport-3")
 
     current: Final = await service.list_gateways()
@@ -440,6 +440,39 @@ async def test_isp_chain_uses_independent_fronts_and_preserves_subscription_conf
     assert replaced_groups["clash-gateway-7891"]["proxies"] == [
         ProxyGatewayService.isp_node_name(manual.id, 7891), "REJECT",
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("subscription", (False, True))
+async def test_optional_front_connects_isp_directly_and_survives_reconcile(tmp_path: Path, subscription: bool) -> None:
+    profile: Final = (
+        ISPSubscriptionNodeProfile(
+            id=uuid4(), name="subscription", proxy_type="socks5",
+            config={"type": "socks5", "server": "isp.test", "port": 1080, "dialer-proxy": "obsolete-front"},
+        ) if subscription else ISPProxyProfile(id=uuid4(), name="manual", protocol="http", host="isp.test", port=8080)
+    )
+    config_path: Final = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({"listeners": [], "proxy-groups": [], "proxies": []}), encoding="utf-8")
+    settings: Final = _settings((7891,)).model_copy(update={"clash_config_path": str(config_path)})
+    catalog: Final = FakeCatalog((profile,))
+    controller: Final = FakeController(nodes=(ClashProxyNode("airport", "Socks5"),))
+    service: Final = ProxyGatewayService(settings, FakeProfiles(), controller, catalog=cast(ProxyCatalogRepository, catalog))
+    chain: Final = service.isp_node_name(profile.id, 7891)
+
+    direct: Final = await service.bind_isp_gateway(7891, profile.id)
+    assert direct.current_node == chain
+    assert "dialer-proxy" not in yaml.safe_load(config_path.read_text())["proxies"][0]
+    await service.bind_front_node(7891, "airport")
+    assert yaml.safe_load(config_path.read_text())["proxies"][0]["dialer-proxy"] == service.front_selector_name(7891)
+    detached: Final = await service.bind_front_node(7891, None)
+    assert detached.front_node_name is None
+    assert detached.current_node == chain
+    assert "dialer-proxy" not in yaml.safe_load(config_path.read_text())["proxies"][0]
+    restarted: Final = ProxyGatewayService(settings, FakeProfiles(), controller, catalog=cast(ProxyCatalogRepository, catalog))
+    await restarted.reconcile_isp_bindings(date.today())
+    assert controller.current["clash-gateway-7891"] == chain
+    assert "dialer-proxy" not in yaml.safe_load(config_path.read_text())["proxies"][0]
+    assert catalog.fronts == {}
 
 
 @pytest.mark.asyncio
@@ -586,7 +619,7 @@ async def test_front_binding_reload_failure_restores_config_and_catalog_binding(
 
     assert config_path.read_text(encoding="utf-8") == before_front_binding
     assert catalog.fronts == {}
-    assert controller.current["clash-gateway-7891"] == "REJECT"
+    assert controller.current["clash-gateway-7891"] == service.isp_node_name(manual.id, 7891)
 
 
 @pytest.mark.asyncio
@@ -728,7 +761,8 @@ async def test_removing_last_gateway_restores_config_when_profile_deletion_fails
 
 
 @pytest.mark.asyncio
-async def test_gateway_probe_uses_bound_listener_and_rejects_unbound_gateway() -> None:
+@pytest.mark.parametrize("front", (None, "airport-a"))
+async def test_gateway_probe_uses_bound_listener_and_rejects_unbound_gateway(front: str | None) -> None:
     from datetime import datetime, timezone
 
     from account_pool.isp_probe import GatewayISPProbe, GatewayISPProbeResult
@@ -756,9 +790,9 @@ async def test_gateway_probe_uses_bound_listener_and_rejects_unbound_gateway() -
     chain_name: Final = ProxyGatewayService.isp_node_name(manual.id, 7891)
     controller: Final = FakeController(
         nodes=(ClashProxyNode("airport-a", "Socks5"),),
-        current={"clash-gateway-7891": chain_name, "account-pool-front-7891": "airport-a"},
+        current={"clash-gateway-7891": chain_name, **({"account-pool-front-7891": front} if front else {})},
     )
-    catalog: Final = FakeCatalog((manual,), bindings={7891: manual.id}, fronts={7891: "airport-a"})
+    catalog: Final = FakeCatalog((manual,), bindings={7891: manual.id}, fronts={7891: front} if front else {})
     service: Final = ProxyGatewayService(
         _settings((7891,)),
         FakeProfiles(),
