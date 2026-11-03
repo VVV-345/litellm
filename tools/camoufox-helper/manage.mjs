@@ -94,9 +94,20 @@ async function install(root, source) {
   }
 }
 function configure(root, values) {
-  const previous = existsSync(join(root, "settings.json"))
-    ? loadSettings(root)
-    : DEFAULT_SETTINGS;
+  const complete = ["origin", "port", "callback-port", "executable"].every(
+    (name) => values[name] !== undefined,
+  );
+  const previous = (() => {
+    if (complete || !existsSync(join(root, "settings.json")))
+      return DEFAULT_SETTINGS;
+    try {
+      return loadSettings(root);
+    } catch {
+      throw new Error(
+        "配置文件无效，请使用菜单重新配置，或同时传入 --origin、--port、--callback-port 和 --executable 替换配置",
+      );
+    }
+  })();
   const settings = saveSettings(root, {
     origins: values.origin ?? previous.origins,
     port: values.port === undefined ? previous.port : Number(values.port),
@@ -154,9 +165,18 @@ async function menu(root) {
       if (choice === "0") return;
       try {
         if (choice === "2") {
-          const previous = existsSync(join(root, "settings.json"))
-            ? loadSettings(root)
-            : DEFAULT_SETTINGS;
+          const previous = (() => {
+            if (!existsSync(join(root, "settings.json")))
+              return DEFAULT_SETTINGS;
+            try {
+              return loadSettings(root);
+            } catch {
+              console.log(
+                "配置文件无效，下面以默认值填写；完成所有输入后保存替换配置",
+              );
+              return DEFAULT_SETTINGS;
+            }
+          })();
           const origins = await terminal.question(
             `网站来源，多个用空格分隔 [${previous.origins.join(" ")}]: `,
           );

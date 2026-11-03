@@ -164,17 +164,21 @@ async function selectVersion(root, next, service) {
   if (job.loaded && !job.owned)
     throw new Error("该 launchd 服务属于其他数据目录，未切换版本");
   if (job.loaded) await service.stop(root);
-  writeJsonPrivate(join(root, "active.json"), next);
+  let selected = false;
   try {
+    writeJsonPrivate(join(root, "active.json"), next);
+    selected = true;
     if (job.loaded) await service.start(root);
   } catch (error) {
-    if (previous) writeJsonPrivate(join(root, "active.json"), previous);
-    else rmSync(join(root, "active.json"));
     try {
-      if (previous) await service.start(root);
+      if (selected) {
+        if (previous) writeJsonPrivate(join(root, "active.json"), previous);
+        else rmSync(join(root, "active.json"));
+      }
+      if (job.loaded && previous) await service.start(root);
     } catch {
       throw new Error(
-        "新版本启动失败，旧版本选择已恢复，但旧服务也未能启动。请运行 diagnose",
+        "版本切换失败，恢复旧版本或重启旧服务也失败。请运行 diagnose 检查当前版本与服务",
       );
     }
     throw error;

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  chmodSync,
   mkdtempSync,
   readFileSync,
   writeFileSync,
@@ -182,4 +183,28 @@ test("a failed managed restart restores active selection and restarts the old ve
   );
   assert.deepEqual(started, ["0.2.1", "0.2.0"]);
   assert.equal(readActive(paths.state).version, "0.2.0");
+});
+test("selection write failure restarts the prior service without changing active selection", async (t) => {
+  const paths = fixture(t);
+  createPackage(paths.source, paths.package);
+  await installPackage(paths.state, paths.package, dependencies);
+  setVersion(paths.source, "0.2.1");
+  const newer = join(paths.root, "newer");
+  createPackage(paths.source, newer);
+  const started = [];
+  const service = {
+    inspect: () => ({ loaded: true, owned: true }),
+    stop: async () => chmodSync(paths.state, 0o500),
+    start: async () => started.push(readActive(paths.state).version),
+  };
+  try {
+    await assert.rejects(
+      installPackage(paths.state, newer, { ...dependencies, service }),
+      { code: "EACCES" },
+    );
+    assert.deepEqual(started, ["0.2.0"]);
+    assert.equal(readActive(paths.state).version, "0.2.0");
+  } finally {
+    chmodSync(paths.state, 0o700);
+  }
 });
