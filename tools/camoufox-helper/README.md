@@ -2,6 +2,53 @@
 
 让号池页面使用操作者电脑上的独立 Camoufox 完成 OpenAI OAuth。助手不运行在项目 Docker 中，也不依赖 Donut 或 AdsPower
 
+## macOS 安装与日常管理
+
+先安装 Node.js 22 或以上版本（含 npm），以及独立 Camoufox。Node 安装入口是 [Node.js 下载页](https://nodejs.org/en/download)，Camoufox 安装包见 [官方 Releases](https://github.com/daijro/camoufox/releases)，选择适合本机架构的 macOS 包，将应用放入 `/Applications`。助手不会自动下载浏览器。双击入口会从 PATH、Homebrew 和 nvm 目录中寻找可用 Node；也可用 `CAMOUFOX_NODE=/完整/node路径` 指定版本
+
+解压 `camoufox-helper-macos-0.2.0.zip`，双击其中的 `管理.command`。按菜单依次选择「安装/更新当前软件包」「配置网站与浏览器」「后台启动」。从仓库使用时也可直接双击本目录的 `管理.command`。macOS 若拦截未签名脚本，核实来源后在系统的「隐私与安全性」中允许打开，或在终端执行 `bash /完整路径/管理.command`
+
+配置中的网站来源是打开号池的网站，例如 `https://pool.example.com`，不能带路径；本机开发可填 `http://127.0.0.1:4001`。默认助手端口为 10109，默认 Camoufox 路径为 `/Applications/Camoufox.app/Contents/MacOS/camoufox`。回调转发端口填 0 表示关闭；有 SSH 隧道时填写本机映射的 Manager 回调端口，不能填写网站端口
+
+启动完成后可以关闭终端窗口，助手由当前用户的 launchd 管理。菜单提供停止、重启、状态和诊断，只有明确选择「显示连接 Key」才会输出 Key。启动不会启用登录自启动，注销或重启电脑后需要再次选择后台启动。修改配置后需要重启助手。停止和重启会关闭该助手打开的 Camoufox 窗口，账号登录数据继续保留
+
+如果端口被旧的手动助手占用，先到启动它的终端按 `Ctrl+C`，再启动受管理版本。管理器不按 PID 杀进程，也不会停止属于其他数据目录的同名 launchd 服务。先运行「诊断」检查配置、Node/npm、浏览器和服务，再根据提示查看日志。安装依赖时需要能访问 npm；失败时重试安装即可
+
+## 更新、回退与数据位置
+
+收到可信的新版本 ZIP 后，先用 `shasum -a 256 -c camoufox-helper-macos-版本.zip.sha256` 核对外部校验文件，再解压并双击新包中的 `管理.command`，选择安装/更新。也可在现有菜单选择「从其他已解压软件包更新」并填写新包目录。当前没有在线发布或自动更新渠道，ZIP 内的 SHA-256 清单只验证文件完整性，不证明发布者身份
+
+安装器检查固定文件清单和校验值，拒绝符号链接及额外文件，在独立目录执行 `npm ci --ignore-scripts` 并检查模块加载后才切换版本。安装失败保留原版本；运行中的服务更新失败时会恢复旧版本选择并尝试重启，恢复失败会明确报错。旧版本保留，可用菜单「回退上一版本」切回；相同版本内容不同不会覆盖，需要提高版本号
+
+状态目录为 `~/.litellm-camoufox`，权限 0700。`settings.json` 保存网站来源、端口和浏览器路径，权限 0600；`helper.key`、`registry.json`、`profiles/` 是持久身份和登录数据。可替换应用位于 `apps/版本/`，`active.json` 记录当前和上一版本。安装、更新、回退不会重置 Key、登记表或浏览器数据。`helper.plist` 保存在此目录中，不放到 `~/Library/LaunchAgents`；日志在 `logs/helper.log` 和 `logs/helper.error.log`，不会在诊断中自动输出
+
+非交互脚本必须指定命令，可用 `--data-dir` 在隔离目录验证。所有管理命令均只支持 macOS：
+
+```sh
+./管理.command install
+./管理.command configure --origin https://pool.example.com --callback-port 0
+./管理.command start
+./管理.command status --json
+./管理.command diagnose --json
+./管理.command show-key
+./管理.command restart
+./管理.command stop
+./管理.command install --source '/完整路径/新版/camoufox-helper'
+./管理.command rollback
+```
+
+若管理器异常退出遗留 `manager.lock` 目录，确认所有管理窗口都已关闭后，按错误提示删除该空目录再重试。不要删除整个状态目录
+
+维护者生成独立 ZIP：
+
+```sh
+node package-release.mjs --out /完整路径/发布目录
+```
+
+输出 ZIP 和同名 `.sha256`，仅打包运行代码、锁文件、说明、管理入口及 SHA-256 清单，不包含 `node_modules`、测试、Key、登记表、日志或浏览器数据。版本由本目录 `package.json` 和 `package-lock.json` 共同维护，与项目服务端版本独立
+
+## 保留的命令行与授权流程
+
 需要 Node.js 22 或以上版本，以及已安装的独立 Camoufox。已在 macOS ARM64 的 Camoufox 158.0.1-beta.41、Playwright 1.62.1 上验证浏览器启动和带认证的 SOCKS5 ISP 出口
 
 从仓库目录执行：
