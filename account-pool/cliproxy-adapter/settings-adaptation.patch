@@ -167,7 +167,7 @@ index 16368fd5344ec298a3ba880329aec72303ce8474..9ecb69dabcbf3242e0a46ee67a377869
 +}
 diff --git a/internal/api/handlers/management/credential_refresh.go b/internal/api/handlers/management/credential_refresh.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..c3d7a81783c81f8c324dc1e57476eb3e64e9f541
+index 0000000000000000000000000000000000000000..e769a49a3bfa33155ab0c6dfa279d110e3e11a55
 --- /dev/null
 +++ b/internal/api/handlers/management/credential_refresh.go
 @@ -0,0 +1,44 @@
@@ -192,7 +192,7 @@ index 0000000000000000000000000000000000000000..c3d7a81783c81f8c324dc1e57476eb3e
 +		return
 +	}
 +	for _, a := range h.authManager.List() {
-+		if a.FileName != request.Name || a.Index != request.AuthIndex || a.Provider != "codex" {
++		if a.Provider != "codex" || !matchesAuthFileLookup(a, request.Name, request.AuthIndex) {
 +			continue
 +		}
 +		_, err := h.authManager.RefreshCredential(c.Request.Context(), a.ID, request.TokenFingerprint)
@@ -217,7 +217,7 @@ index 0000000000000000000000000000000000000000..c3d7a81783c81f8c324dc1e57476eb3e
 +}
 diff --git a/internal/api/handlers/management/quota_recovery.go b/internal/api/handlers/management/quota_recovery.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..3cf8b27592646b7cf2d3377fcb01142fdadb30c9
+index 0000000000000000000000000000000000000000..d2d166555414d32ed43f2a465f4b11e130ee3326
 --- /dev/null
 +++ b/internal/api/handlers/management/quota_recovery.go
 @@ -0,0 +1,49 @@
@@ -243,7 +243,7 @@ index 0000000000000000000000000000000000000000..3cf8b27592646b7cf2d3377fcb01142f
 +		return
 +	}
 +	for _, a := range h.authManager.List() {
-+		if a.FileName == request.Name && a.Index == request.AuthIndex && a.Provider == "codex" {
++		if a.Provider == "codex" && matchesAuthFileLookup(a, request.Name, request.AuthIndex) {
 +			c.JSON(http.StatusOK, h.authManager.VerifyCodexQuota(c.Request.Context(), a.ID, request.Model, request.Recover, request.TokenFingerprint))
 +			return
 +		}
@@ -263,7 +263,7 @@ index 0000000000000000000000000000000000000000..3cf8b27592646b7cf2d3377fcb01142f
 +		return
 +	}
 +	for _, a := range h.authManager.List() {
-+		if a.FileName == request.Name && a.Index == request.AuthIndex && a.Provider == "codex" {
++		if a.Provider == "codex" && matchesAuthFileLookup(a, request.Name, request.AuthIndex) {
 +			c.JSON(http.StatusOK, h.authManager.VerifyAccessTokenFallback(c.Request.Context(), a.ID, request.Model, request.TokenFingerprint))
 +			return
 +		}
@@ -272,26 +272,32 @@ index 0000000000000000000000000000000000000000..3cf8b27592646b7cf2d3377fcb01142f
 +}
 diff --git a/internal/api/handlers/management/quota_recovery_test.go b/internal/api/handlers/management/quota_recovery_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..983914fbbf3b6b71ac8ca933bb14f9110bd761c5
+index 0000000000000000000000000000000000000000..2541f3663e471fda5e261213777e6cc5a8a25a82
 --- /dev/null
 +++ b/internal/api/handlers/management/quota_recovery_test.go
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,262 @@
 +// 验证使用真实 Codex HTTP 执行器和正常调度器，供应商由本地 HTTP 服务替代。
 +package management
 +
 +import (
++	"bytes"
 +	"context"
 +	"crypto/sha256"
++	"encoding/json"
 +	"fmt"
 +	"net/http"
 +	"net/http/httptest"
++	"os"
++	"path/filepath"
 +	"sync/atomic"
 +	"testing"
 +	"time"
 +
++	"github.com/gin-gonic/gin"
 +	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
 +	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
 +	runtime "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
 +	auth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
 +	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
 +	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
@@ -370,7 +376,23 @@ index 0000000000000000000000000000000000000000..983914fbbf3b6b71ac8ca933bb14f911
 +	manager.SetCooldownStateStore(auth.NewFileCooldownStateStore(t.TempDir()))
 +	executor := &fallbackRealExecutor{ProviderExecutor: runtime.NewCodexAutoExecutor(cfg)}
 +	manager.RegisterExecutor(executor)
-+	entry := &auth.Auth{ID: "local-fallback-integration", Provider: "codex", Status: auth.StatusError, StatusMessage: "unauthorized", Unavailable: true, LastError: &auth.Error{HTTPStatus: 401}, Attributes: map[string]string{"base_url": upstream.URL}, Metadata: map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh", "expired": time.Now().Add(time.Hour).Format(time.RFC3339), "codex_allow_valid_access_after_refresh_failure": true}}
++	directory := t.TempDir()
++	metadata, err := json.Marshal(map[string]any{"type": "codex", "access_token": "fixture-access", "refresh_token": "fixture-refresh", "expired": time.Now().Add(time.Hour).Format(time.RFC3339), "codex_allow_valid_access_after_refresh_failure": true})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(directory, "fallback.json"), metadata, 0600); err != nil {
++		t.Fatal(err)
++	}
++	entries, err := synthesizer.NewFileSynthesizer().Synthesize(&synthesizer.SynthesisContext{Config: cfg, AuthDir: directory, Now: time.Now(), IDGenerator: synthesizer.NewStableIDGenerator()})
++	if err != nil || len(entries) != 1 {
++		t.Fatalf("file synthesis: count=%d err=%v", len(entries), err)
++	}
++	entry := entries[0]
++	entry.Attributes["base_url"] = upstream.URL
++	if entry.FileName != "" {
++		t.Fatal("file loader unexpectedly populated FileName")
++	}
 +	if _, err := manager.Register(context.Background(), entry); err != nil {
 +		t.Fatal(err)
 +	}
@@ -378,7 +400,37 @@ index 0000000000000000000000000000000000000000..983914fbbf3b6b71ac8ca933bb14f911
 +	defer registry.GetGlobalRegistry().UnregisterClient(entry.ID)
 +	_, _ = manager.RefreshAuth(context.Background(), entry.ID)
 +	fp := fmt.Sprintf("%x", sha256.Sum256([]byte("fixture-access")))
-+	result := manager.VerifyAccessTokenFallback(context.Background(), entry.ID, "gpt-6-astra", fp)
++	handler := &Handler{cfg: cfg, authManager: manager}
++	listed := handler.buildAuthFileEntry(entry)
++	requestBody, err := json.Marshal(map[string]any{"name": listed["name"], "auth_index": listed["auth_index"], "model": "gpt-6-astra", "token_fingerprint": fp})
++	if err != nil {
++		t.Fatal(err)
++	}
++	router := gin.New()
++	router.POST("/verify", handler.VerifyAccessTokenFallback)
++	staleBody, err := json.Marshal(map[string]any{"name": listed["name"], "auth_index": listed["auth_index"], "model": "gpt-6-astra", "token_fingerprint": fmt.Sprintf("%064d", 0)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	staleResponse := httptest.NewRecorder()
++	staleRequest := httptest.NewRequest(http.MethodPost, "/verify", bytes.NewReader(staleBody))
++	staleRequest.Header.Set("Content-Type", "application/json")
++	router.ServeHTTP(staleResponse, staleRequest)
++	var stale auth.QuotaVerification
++	if err := json.Unmarshal(staleResponse.Body.Bytes(), &stale); err != nil || staleResponse.Code != 200 || stale.Passed || stale.Restored || stale.Reason != "credential_changed" || calls.Load() != 0 {
++		t.Fatalf("unexpected stale fingerprint response or upstream invocation: %s", staleResponse.Body.String())
++	}
++	response := httptest.NewRecorder()
++	request := httptest.NewRequest(http.MethodPost, "/verify", bytes.NewReader(requestBody))
++	request.Header.Set("Content-Type", "application/json")
++	router.ServeHTTP(response, request)
++	if response.Code != http.StatusOK {
++		t.Fatalf("advertised file binding rejected: HTTP %d body=%s", response.Code, response.Body.String())
++	}
++	var result auth.QuotaVerification
++	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
++		t.Fatal(err)
++	}
 +	if !result.Passed || !result.Restored {
 +		t.Fatalf("verification: %+v", result)
 +	}
@@ -400,6 +452,90 @@ index 0000000000000000000000000000000000000000..983914fbbf3b6b71ac8ca933bb14f911
 +	}
 +	if calls.Load() != 2 {
 +		t.Fatalf("calls=%d; expected one verification and one normal inference", calls.Load())
++	}
++	after, err := os.ReadFile(filepath.Join(directory, "fallback.json"))
++	if err != nil || !bytes.Equal(after, metadata) {
++		t.Fatal("fallback verification or normal request changed credential bytes")
++	}
++	t.Log("FALLBACK_HTTP status=200 passed=true restored=true; stale_fingerprint_rejected=true; credential_bytes_unchanged=true; verification_and_normal_inference_calls=2; no_additional_OAuth_refresh")
++}
++
++func TestCodexManagementBindingMatchesAuthFileLookup(t *testing.T) {
++	for _, endpoint := range []string{"fallback", "quota", "refresh"} {
++		for _, test := range []struct {
++			name     string
++			fileName string
++			provider string
++			change   string
++			wantHTTP int
++		}{
++			{name: "file-loaded-ID", provider: "codex", wantHTTP: 200},
++			{name: "uploaded-file-name", fileName: "uploaded.json", provider: "codex", wantHTTP: 200},
++			{name: "existing-ID-alias", fileName: "uploaded.json", provider: "codex", change: "ID-alias", wantHTTP: 200},
++			{name: "wrong-name", provider: "codex", change: "wrong-name", wantHTTP: 409},
++			{name: "other-credential-index", provider: "codex", change: "other-index", wantHTTP: 409},
++			{name: "wrong-provider", provider: "claude", wantHTTP: 409},
++			{name: "missing-name", provider: "codex", change: "missing-name", wantHTTP: 400},
++			{name: "missing-index", provider: "codex", change: "missing-index", wantHTTP: 400},
++			{name: "invalid-fingerprint", provider: "codex", change: "invalid-fingerprint", wantHTTP: 400},
++		} {
++			t.Run(endpoint+"/"+test.name, func(t *testing.T) {
++				manager := auth.NewManager(nil, nil, nil)
++				entry, err := manager.Register(context.Background(), &auth.Auth{ID: "fixture.json", FileName: test.fileName, Provider: test.provider, Status: auth.StatusActive, Attributes: map[string]string{"path": filepath.Join(t.TempDir(), "fixture.json")}, Metadata: map[string]any{"access_token": "fixture-access"}})
++				if err != nil {
++					t.Fatal(err)
++				}
++				other, err := manager.Register(context.Background(), &auth.Auth{ID: "other.json", Provider: "codex", Status: auth.StatusActive})
++				if err != nil {
++					t.Fatal(err)
++				}
++				handler := &Handler{cfg: &config.Config{}, authManager: manager}
++				listed := handler.buildAuthFileEntry(entry)
++				body := map[string]any{"name": listed["name"], "auth_index": listed["auth_index"], "model": "gpt-6-astra", "token_fingerprint": fmt.Sprintf("%064d", 0)}
++				switch test.change {
++				case "ID-alias":
++					body["name"] = entry.ID
++				case "wrong-name":
++					body["name"] = other.ID
++				case "other-index":
++					body["auth_index"] = other.Index
++				case "missing-name":
++					delete(body, "name")
++				case "missing-index":
++					delete(body, "auth_index")
++				case "invalid-fingerprint":
++					body["token_fingerprint"] = "invalid"
++				}
++				if endpoint == "refresh" {
++					delete(body, "model")
++				}
++				payload, err := json.Marshal(body)
++				if err != nil {
++					t.Fatal(err)
++				}
++				router := gin.New()
++				router.POST("/fallback", handler.VerifyAccessTokenFallback)
++				router.POST("/quota", handler.VerifyCodexQuota)
++				router.POST("/refresh", handler.RefreshCodexCredential)
++				response := httptest.NewRecorder()
++				request := httptest.NewRequest(http.MethodPost, "/"+endpoint, bytes.NewReader(payload))
++				request.Header.Set("Content-Type", "application/json")
++				router.ServeHTTP(response, request)
++				if response.Code != test.wantHTTP {
++					t.Fatalf("HTTP %d, want %d: %s", response.Code, test.wantHTTP, response.Body.String())
++				}
++				if test.wantHTTP == 200 {
++					var result struct {
++						Passed   bool `json:"passed"`
++						Restored bool `json:"restored"`
++						Saved    bool `json:"saved"`
++					}
++					if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Passed || result.Restored || result.Saved {
++						t.Fatal("binding lookup bypassed verification eligibility or fingerprint checks")
++					}
++				}
++			})
++		}
 +	}
 +}
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go

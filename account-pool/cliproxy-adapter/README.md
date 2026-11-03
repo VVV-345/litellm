@@ -40,6 +40,35 @@ go test ./sdk/cliproxy/auth ./internal/api/handlers/management ./internal/api -r
 
 新能力需要发布配套镜像并按下文受控流程更新目标卡之后才生效。发布架构仍由现有工作流参数选择，未固定为单架构；本地 commit 不会发布、部署或再消费线上重置券
 
+## Access-token 降级绑定修复的发布和验收
+
+文件加载器允许认证记录的 `FileName` 为空，此时认证文件列表使用 `ID` 作为 `name`。降级验证、额度验证和显式续期入口复用已有的 `matchesAuthFileLookup`，按名称或 ID 加相同 `auth_index` 查找，仍要求 Codex 供应商和当前 token 指纹。不会取消认证、手动停用、独立额度或模型冷却限制，也不会因绑定匹配就报告验证成功
+
+本地回归覆盖文件加载、已有文件名和 ID 查找、错误名称、串用另一凭据的索引、错误供应商、缺失字段及旧 token 指纹。降级测试从文件加载真实认证结构，通过 HTTP 管理入口调用真实 Codex 执行器，再走正常调度；供应商由本地测试服务器代替，断言没有额外 OAuth 刷新且认证文件字节不变。这不代表线上两张卡已经恢复
+
+先审查本地 commit，明确同意 push 后才推送 `CLIProxyAPI分支`。该分支的 push 会自动触发 `Publish deployment images`，构建四组件；工作流本身不执行服务器部署。服务器使用 arm64，确认工作流选择包含 arm64；如需手动指定，用 `publish-deployment-images.yml` 的 `source_ref` 指向审查通过的完整 commit。不要为同一次发布重复触发两个工作流
+
+等发布成功，从配套发布清单取得 **CLIProxyAPI** 组件的固定 digest，核对平台、完整产品 commit、源码钉点和补丁 SHA256。不能拿 Manager digest、旧标签或 `latest` 替代。此修复只需要显式更新目标卡的 CPA，重启 Manager、更新 release-worker 或拉取镜像都不会替换已有卡片
+
+确认目标卡配置和策略已同步，备份数据库、该卡 Compose、完整认证卷及安装身份，在现有 Manager 容器内逐卡执行。`PRODUCT_COMMIT` 是发布的完整产品 commit，`CPA_DIGEST` 是上述组件 digest，`CARD_UUID` 是当前目标卡的不可变 ID；不要并行更新两张卡
+
+```sh
+python -m account_pool.runtime_rollout --release "$PRODUCT_COMMIT" \
+  --image "ghcr.io/vvv-345/litellm-cliproxyapi@sha256:$CPA_DIGEST" --card "$CARD_UUID"
+```
+
+该入口排空在途请求、持久化维护检查点并备份原运行时，保留原启停设置、认证卷和凭据绑定。每张卡都要达到 `phase=verified`、`image_verified=true`、`credential_state=preserved`。失败时先读取同一 release/card 的 `--status` 检查点，不换 release ID 绕过门禁，不重放旧认证卷；检查点中的 `model_inference=not_run` 也不代表模型验证成功
+
+重新确认目标卡已启用、策略为 `synced`，通过 Manager 已有的降级验证接口为该卡实际启用的模型做最小调用。`MANAGER_TOKEN` 只从现有安全配置注入，禁用命令回显，不填写 refresh token
+
+```sh
+curl --fail-with-body -sS -X POST "$MANAGER_URL/api/environments/$CARD_UUID/access-token-fallback/verify" \
+  -H "Authorization: Bearer $MANAGER_TOKEN" -H 'Content-Type: application/json' \
+  --data "{\"model\":\"$ENABLED_MODEL\",\"confirmed\":true}"
+```
+
+只有 `passed=true`、`restored=true`、`reason=temporary_access`，状态显示对应模型已验证、令牌仍有效且正常网关调用成功，才能认定降级可用。能力接口 200、用量接口 200、额度为 100% 或卡片单独变为 ready 都不够。若存在独立冷却、停用、额度限制或 access token 已失效，仍应拒绝；本修复不强制恢复这些卡片。降级只在 access token 有效期内临时可用，不修复已失效的 refresh token，到期后仍需重新授权
+
 ## OAuth 续期保存保护
 
 继续使用 CPA 原有临期刷新调度，不新增 Manager/LiteLLM 定时器，也不修改默认提前量。自动刷新、显式刷新和 401 恢复共用单认证锁；等待期间重新检查凭据，管理接口携带失败请求使用的 Token，避免旧请求再次轮换
