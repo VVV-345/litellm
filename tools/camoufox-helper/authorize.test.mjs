@@ -5,7 +5,7 @@ import { authorizeAccount } from "./authorize.mjs";
 const options = {
   dashboard: "http://127.0.0.1:4001", helper: "http://127.0.0.1:10109",
   accessToken: "admin-secret", helperKey: "local-secret", cardId: "e5304d0c-462d-46c5-a738-7c3fc31de8ec",
-  credentials: "test@example.test----pw----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", allowConsent: true,
+  credentials: "test@example.test----pw----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
 };
 const proxy = { proxy_type: "socks5", host: "isp.example", port: 1080, username: "u", password: "p" };
 test("prepares ISP before fresh OAuth, rechecks it and sends credentials only to the helper", async () => {

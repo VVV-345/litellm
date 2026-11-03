@@ -43,7 +43,7 @@ export const openSchema = z
 export const loginSchema = z.object({
   ticket: z.string().regex(/^[a-f0-9]{64}$/),
   credentials: z.string().min(1).max(8192),
-  allow_consent: z.boolean().default(false),
+  allow_consent: z.boolean().default(true),
 }).strict();
 const registrySchema = z
   .object({ proxies: z.array(z.string().regex(/^[a-f0-9]{64}$/)) })

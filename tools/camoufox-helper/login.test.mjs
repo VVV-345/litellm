@@ -45,7 +45,7 @@ test('fills email, password and authenticator code then stops before consent', a
     { path: '/mfa-challenge/test', field: 'One-time code', heading: 'Check your authenticator app' },
     { path: '/sign-in-with-chatgpt/codex/consent' },
   ]);
-  assert.deepEqual(await automateLogin(page, credential, { now: () => 59_000 }), { status: 'confirmation_required' });
+  assert.deepEqual(await automateLogin(page, credential, { now: () => 59_000, allowConsent: false }), { status: 'confirmation_required' });
   assert.deepEqual(filled, [{ name: 'Email address', value: credential.email }, { name: 'Password', value: credential.password }, { name: 'One-time code', value: '287082' }]);
   assert.equal(clicked.length, 3);
 });
@@ -71,16 +71,16 @@ test('honors cancellation before filling any field', async () => {
   assert.deepEqual(await automateLogin(page, credential, { signal: controller.signal }), { status: 'stopped' });
   assert.equal(filled.length, 0);
 });
-test('explicit consent verifies the account and follows only the expected callback', async () => {
+test('authorizes by default after verifying the account and follows only the expected callback', async () => {
   const callback = 'http://127.0.0.1:1456/auth/callback?state=expected&code=test';
   const { page, clicked } = pageFixture([
     { path: '/sign-in-with-chatgpt/codex/consent' },
     { origin: 'http://127.0.0.1:1456', path: '/auth/callback?state=expected&code=test' },
   ]);
-  assert.deepEqual(await automateLogin(page, credential, { allowConsent: true, callback }), { status: 'callback_received' });
+  assert.deepEqual(await automateLogin(page, credential, { callback }), { status: 'callback_received' });
   assert.equal(clicked.length, 1);
   const wrong = pageFixture([{ path: '/sign-in-with-chatgpt/codex/consent', email: 'other@example.test' }]);
-  assert.equal((await automateLogin(wrong.page, credential, { allowConsent: true, callback })).status, 'account_mismatch');
+  assert.equal((await automateLogin(wrong.page, credential, { callback })).status, 'account_mismatch');
   assert.equal(wrong.clicked.length, 0);
 });
 test('never reports callback success for a foreign state or an OAuth error', async () => {

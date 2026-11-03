@@ -46,7 +46,7 @@ export async function authorizeAccount(options, transport = fetch) {
   const currentProxy = proxySchema.parse(await remote("/browser-proxy"));
   if (JSON.stringify(currentProxy) !== JSON.stringify(proxy)) throw new HelperError("changed");
   z.object({ opened: z.literal(true) }).parse(await local("/open", { ticket: prepared.ticket, url: authorization.authorization_url }));
-  const result = await local("/login", { ticket: prepared.ticket, credentials: options.credentials, allow_consent: options.allowConsent === true });
+  const result = await local("/login", { ticket: prepared.ticket, credentials: options.credentials, allow_consent: options.allowConsent ?? true });
   return z.object({ status: z.enum(["confirmation_required", "callback_received", "verification_required", "account_mismatch", "stopped"]) }).parse(result);
 }
 
@@ -58,7 +58,7 @@ async function main() {
       "card-id": { type: "string" }, "credentials-file": { type: "string" },
       "access-token-file": { type: "string" },
       "helper-key-file": { type: "string", default: join(homedir(), ".litellm-camoufox", "helper.key") },
-      "allow-consent": { type: "boolean", default: false },
+      "allow-consent": { type: "boolean", default: true },
     } });
     const controller = new AbortController();
     const stop = () => controller.abort();

@@ -29,7 +29,7 @@ export function totp(secret, now = Date.now()) {
 }
 
 export async function automateLogin(page, credential, {
-  signal, allowConsent = false, callback, now = Date.now, timeoutMs = 45_000,
+  signal, allowConsent = true, callback, now = Date.now, timeoutMs = 45_000,
 } = {}) {
   const submitted = new Set();
   const deadline = Date.now() + timeoutMs;

@@ -59,6 +59,6 @@ describe("Camoufox client", () => {
       return new Response(JSON.stringify({ status: "stopped" }));
     });
     const client = new CamoufoxClient("http://127.0.0.1:10109", "key", transport);
-    expect(await client.login("a".repeat(64), "private-record", true, controller.signal)).toEqual({ status: "stopped" });
+    expect(await client.login("a".repeat(64), "private-record", controller.signal)).toEqual({ status: "stopped" });
   });
 });

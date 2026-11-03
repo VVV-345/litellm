@@ -159,7 +159,7 @@ it("keeps the Camoufox Key local while preparing the ISP and opening fresh autho
   vi.unstubAllGlobals();
 });
 
-it("automates an optional credential file locally and clears it after one attempt", async () => {
+it("authorizes a credential file locally without a consent checkbox and clears it after one attempt", async () => {
   await i18n.changeLanguage("en");
   const privateRecord = "test@example.test----password----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
   const isp = { proxy_type: "socks5", host: "isp.example", port: 1080, username: "u", password: "p" };
@@ -183,11 +183,10 @@ it("automates an optional credential file locally and clears it after one attemp
   fireEvent.change(screen.getByLabelText("Local helper Key"), { target: { value: "key" } });
   const file = Object.assign(new File([privateRecord], "account.txt", { type: "text/plain" }), { text: async () => privateRecord });
   fireEvent.change(screen.getByLabelText("Credential file (optional)"), { target: { files: [file] } });
-  fireEvent.click(screen.getByLabelText("Allow this account to authorize the current Codex channel"));
   fireEvent.click(screen.getByRole("button", { name: "Match ISP and open in Camoufox" }));
   expect(await screen.findByText("Login callback received. Wait for the account pool to confirm channel readiness.")).toBeInTheDocument();
   expect(calls.at(-1)).toEqual({ path: "/v1/login", body: { ticket: "a".repeat(64), credentials: privateRecord, allow_consent: true } });
   expect(screen.getByLabelText("Credential file (optional)")).toHaveValue("");
-  expect(screen.getByLabelText("Allow this account to authorize the current Codex channel")).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: "Allow this account to authorize the current Codex channel" })).not.toBeInTheDocument();
   vi.unstubAllGlobals();
 });

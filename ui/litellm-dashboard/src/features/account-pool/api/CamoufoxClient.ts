@@ -109,8 +109,8 @@ export class CamoufoxClient {
   async open(ticket: string, url: string): Promise<void> {
     await this.request("/open", z.object({ opened: z.literal(true) }), { ticket, url });
   }
-  login(ticket: string, credentials: string, allowConsent: boolean, signal: AbortSignal): Promise<{ status: CamoufoxLoginStatus }> {
+  login(ticket: string, credentials: string, signal: AbortSignal): Promise<{ status: CamoufoxLoginStatus }> {
     const status = z.enum(["confirmation_required", "callback_received", "verification_required", "account_mismatch", "stopped"]);
-    return this.request("/login", z.object({ status }), { ticket, credentials, allow_consent: allowConsent }, signal);
+    return this.request("/login", z.object({ status }), { ticket, credentials, allow_consent: true }, signal);
   }
 }

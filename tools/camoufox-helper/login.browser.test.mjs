@@ -24,7 +24,7 @@ test("waits for slow navigation and consent rendering without resubmitting login
     await page.goto("https://auth.openai.com/log-in");
     const result = await automateLogin(page, {
       email: "account@example.test", password: "test-password", totpSecret: "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ",
-    });
+    }, { allowConsent: false });
     assert.deepEqual(result, { status: "confirmation_required" });
     assert.deepEqual(submissions, ["email=account%40example.test"]);
   } finally {

@@ -232,13 +232,18 @@ test("login requires the current opened ticket, consumes it once and aborts on s
 });
 
 test("a newer OAuth page invalidates the previous login ticket and requests cannot be replayed", async (t) => {
-  const { sessions } = fixture(t, { login: async () => ({ status: 'confirmation_required' }) });
+  const loginOptions = [];
+  const { sessions } = fixture(t, { login: async (_page, _account, options) => {
+    loginOptions.push(options);
+    return { status: 'callback_received' };
+  } });
   const one = await sessions.prepare(origin, { card_id: card, proxy });
   const two = await sessions.prepare(origin, { card_id: card, proxy });
   await sessions.open(origin, { ticket: one.ticket, url });
   await sessions.open(origin, { ticket: two.ticket, url });
   const input = { credentials: 'test@example.test----pw----GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ' };
   await assert.rejects(sessions.login(origin, { ...input, ticket: one.ticket }), { code: 'expired' });
-  assert.equal((await sessions.login(origin, { ...input, ticket: two.ticket })).status, 'confirmation_required');
+  assert.equal((await sessions.login(origin, { ...input, ticket: two.ticket })).status, 'callback_received');
+  assert.equal(loginOptions[0].allowConsent, true);
   await assert.rejects(sessions.login(origin, { ...input, ticket: two.ticket }), { code: 'expired' });
 });

@@ -6697,7 +6697,6 @@
       },
       "credentialFile": "Credential file (optional)",
       "credentialHelp": "Select a TXT with one email----password----TOTP secret record. It goes only to the local helper and is cleared after this attempt. Extra verification requires manual action.",
-      "allowConsent": "Allow this account to authorize the current Codex channel",
       "loggingIn": "Signing in locally with email, password and TOTP…",
       "stopLogin": "Stop automatic login",
       "loginStatus": {

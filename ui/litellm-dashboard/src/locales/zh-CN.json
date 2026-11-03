@@ -6697,7 +6697,6 @@
       },
       "credentialFile": "卡密文件（可选）",
       "credentialHelp": "选择仅含一条 邮箱----密码----TOTP密钥 的 TXT。文件内容仅发送到本机助手，本次尝试后清除；遇到额外验证需手动完成。",
-      "allowConsent": "允许此账号授权给当前 Codex 渠道",
       "loggingIn": "正在本机填写邮箱、密码和 TOTP 验证码…",
       "stopLogin": "停止自动登录",
       "loginStatus": {
