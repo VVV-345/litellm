@@ -64,6 +64,11 @@ def credential_identity(content: bytes, supplier: str, secrets: EnvironmentSecre
         (name, value)
         for name, value in (
             ("refresh_token", _text(values, "refresh_token")),
+            (
+                "access_token",
+                _text(values, "access_token")
+                if supplier in ("openai_codex", "codex") and not _text(values, "refresh_token") else None,
+            ),
             ("api_key", _text(values, "api_key")),
             ("private_key", _text(credential_values, "private_key")),
             ("account", account_id),
@@ -71,15 +76,21 @@ def credential_identity(content: bytes, supplier: str, secrets: EnvironmentSecre
         )
         if value is not None
     )
-    if not identifiers or not any(name in ("refresh_token", "api_key", "private_key") for name, _ in identifiers):
-        raise CredentialConflict("认证文件缺少可验证归属的刷新令牌或密钥")
+    if not identifiers or not any(
+        name in ("refresh_token", "access_token", "api_key", "private_key") for name, _ in identifiers
+    ):
+        raise CredentialConflict("认证文件缺少可验证归属的访问令牌、刷新令牌或密钥")
     key: Final = secrets.derive(UUID(int=0), SecretPurpose.CREDENTIAL_IDENTITY).encode()
     return CredentialIdentity(
         fingerprints=tuple(
             hmac.new(
                 key,
                 json.dumps(
-                    ("credential" if name in ("refresh_token", "api_key", "private_key") else supplier, name, value)
+                    (
+                        "credential"
+                        if name in ("refresh_token", "access_token", "api_key", "private_key") else supplier,
+                        name, value,
+                    )
                 ).encode(),
                 hashlib.sha256,
             ).hexdigest()

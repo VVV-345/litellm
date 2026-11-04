@@ -229,3 +229,20 @@ def test_access_model_test_reuses_current_proof_and_counts_verification_latency(
     assert len(router.calls) == 1
     if expired:
         assert response.json()["elapsed_ms"] >= 25
+
+
+@pytest.mark.parametrize("mode", ["chat", "responses"])
+def test_model_test_keeps_internal_metadata_out_of_provider_payload(mode):
+    router = RouterDouble({
+        "choices": [{"message": {"content": "Hello"}, "finish_reason": "stop"}],
+        "status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "Hello"}]}],
+    })
+    response = client_for(router).post(
+        f"/account_pool/environments/{CARD}/test", json={"model": "test-model", "mode": mode}
+    )
+    assert response.json()["success"]
+    parameters = router.calls[0][0]
+    internal = "metadata" if mode == "chat" else "litellm_metadata"
+    assert parameters[internal] == {"user_api_key":"hashed-admin","account_pool_model_test":True}
+    if mode == "responses":
+        assert "metadata" not in parameters

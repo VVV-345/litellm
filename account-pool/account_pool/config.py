@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-DEFAULT_CLI_PROXY_IMAGE: Final = "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-f32051450f9e"
+DEFAULT_CLI_PROXY_IMAGE: Final = "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-5bb91cd241a3"
 
 
 DEFAULT_PROXY_GATEWAY_HOST: Final = "host.docker.internal"

@@ -101,3 +101,24 @@ async def test_operation_lock_waits_and_releases_after_cancellation() -> None:
         await first_task
     await asyncio.wait_for(second_task, 1)
     assert waiting.is_set()
+
+
+@pytest.mark.asyncio
+async def test_access_only_codex_import_retains_exclusive_token_and_account_ownership() -> None:
+    registry: Final = CredentialOwnership()
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    access_only: Final = credential_identity(
+        b'{"access_token":"access-a","account_id":"same-account"}', "openai_codex", secrets
+    )
+    rotated: Final = credential_identity(
+        b'{"access_token":"access-b","account_id":"same-account"}', "openai_codex", secrets
+    )
+    owner: Final = uuid4()
+    await registry.claim(owner, access_only.fingerprints)
+    with pytest.raises(CredentialConflict, match="已绑定其他卡片"):
+        await registry.claim(uuid4(), rotated.fingerprints)
+    await registry.claim(owner, rotated.fingerprints)
+    assert await registry.owns(owner, rotated.fingerprints)
+    assert "access-a" not in repr(access_only)
+    with pytest.raises(CredentialConflict):
+        credential_identity(b'{"account_id":"same-account"}', "openai_codex", secrets)

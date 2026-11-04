@@ -261,7 +261,7 @@ async def test_invalid_two_factor_text_never_echoes_secret_or_creates_tasks(tmp_
          "2FA 格式应为：邮箱----供应商密码----2FA密钥，每行一个账号"),
         ("fixture@example.test----password----JBSWY3DPEHPK3PXP", "anthropic_claude", "当前 2FA 格式仅支持 Codex 账号"),
         ('{"platform":"openai","type":"oauth","credentials":{}}', "openai_codex",
-         "Sub2API 文件缺少 refresh_token，请重新导出完整 OAuth 凭据"),
+         "Sub2API 文件缺少 access_token 或 refresh_token，请重新导出 OAuth 凭据"),
         ('{"refresh_token":"fixture-secret",', "openai_codex", "认证文件格式无效，请选择 CPA、Sub2API JSON 或 2FA 文本"),
     ],
 )
@@ -385,7 +385,7 @@ def test_sub2api_normalization_preserves_real_tokens_and_derives_access_expirati
 
 
 @pytest.mark.parametrize(
-    "changes", [{"platform": "anthropic"}, {"type": "api_key"}, {"credentials": {"access_token": "access-only"}}]
+    "changes", [{"platform": "anthropic"}, {"type": "api_key"}, {"credentials": {"account_id": "no-token"}}]
 )
 async def test_unsupported_sub2api_does_not_replace_existing_file(tmp_path, changes):
     _, _, environments, _, cli, environment_service = setup_service(tmp_path)
@@ -781,3 +781,20 @@ async def test_cleanup_metadata_round_trip_and_legacy_pause_compatibility(tmp_pa
     )
     assert legacy.paused
     assert not legacy.history_cleared
+
+
+def test_sub2api_access_only_import_keeps_access_without_inventing_a_refresh_token():
+    from account_pool.credential_import import normalize_auth_file
+    from account_pool.credential_ownership import credential_identity
+    from account_pool.shared.secrets import EnvironmentSecretDeriver
+
+    source = {
+        "platform": "openai", "type": "oauth",
+        "credentials": {"access_token": "access-only", "account_id": "account-test", "expires_at": 1794018581},
+    }
+    normalized = normalize_auth_file(json.dumps(source).encode(), "openai_codex")
+    payload = json.loads(normalized)
+    assert payload["access_token"] == "access-only"
+    assert payload["expired"] == "2026-11-07T02:29:41+00:00"
+    assert "refresh_token" not in payload
+    assert credential_identity(normalized, "openai_codex", EnvironmentSecretDeriver("s"*32)).fingerprints

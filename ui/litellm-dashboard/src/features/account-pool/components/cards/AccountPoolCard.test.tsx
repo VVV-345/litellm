@@ -312,3 +312,11 @@ it("keeps card logs in the action row for non-Codex cards without Codex recovery
   fireEvent.click(within(row).getByRole("button", { name: "查看卡片日志" }));
   expect(actions.onViewLogs).toHaveBeenCalledExactlyOnceWith(environment);
 });
+
+
+it("shows an uncertain refresh as paused without claiming the access token was rejected", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({supplier:"openai_codex", credential_refresh:{last_result:"unknown_outcome",schedule_reason:"refresh_outcome_unknown",running:false,save_pending:false}});
+  expect(screen.getByText("刷新结果未知，已暂停重试；有效访问令牌仍可验证使用")).toBeVisible();
+  expect(screen.queryByText("上游拒绝，需重新授权")).not.toBeInTheDocument();
+});

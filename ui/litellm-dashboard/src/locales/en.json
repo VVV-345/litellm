@@ -7765,6 +7765,7 @@
         "disabled": "Card disabled",
         "running": "Refreshing",
         "reauthorization_required": "Paused; reauthorization required",
+        "refresh_outcome_unknown": "Refresh outcome unknown; retries paused",
         "no_refresh_token": "No refresh token",
         "scheduler_stopped": "Scheduler stopped",
         "rescheduling": "Rescheduling",
@@ -7774,6 +7775,7 @@
         "scheduled": "Scheduled"
       },
       "result": {
+        "unknown_outcome": "Refresh outcome unknown; retries paused, valid access can still be verified",
         "unknown": "Unknown",
         "saved": "Saved (inference not verified)",
         "failed": "Refresh failed",

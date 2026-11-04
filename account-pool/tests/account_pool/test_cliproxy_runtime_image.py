@@ -120,7 +120,7 @@ def test_adapted_build_pin_and_published_deployment_default() -> None:
     patch_sha: Final = hashlib.sha256((_ADAPTER / "settings-adaptation.patch").read_bytes()).hexdigest()
     assert pin.patch_sha256 == patch_sha
     assert pin.reference == f"ghcr.io/vvv-345/cliproxyapi:managed-{pin.commit[:12]}-{patch_sha[:12]}"
-    assert DEFAULT_CLI_PROXY_IMAGE == "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-f32051450f9e"
+    assert DEFAULT_CLI_PROXY_IMAGE == "ghcr.io/vvv-345/cliproxyapi:managed-b3c954b63df0-5bb91cd241a3"
     assert "bebf587" not in pin.reference
     assert "eceasy" not in pin.reference
     for relative in (

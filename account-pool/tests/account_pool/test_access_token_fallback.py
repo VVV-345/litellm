@@ -187,7 +187,7 @@ async def test_fallback_service_requires_policy_and_commits_only_current_proof()
     restored = await service.verify(record.id, "model-a")
     assert restored.restored and env.record.status == EnvironmentStatus.READY
     assert env.record.access_token_fallback.usable_for("model-a", utc_now())
-    assert up.calls == ["quota", "verify", "status"]
+    assert up.calls == ["verify", "status"]
     env.record = record
     up.during = lambda: setattr(
         env, "record", record.model_copy(update={"version": record.version + 1, "enabled": False})
@@ -198,7 +198,7 @@ async def test_fallback_service_requires_policy_and_commits_only_current_proof()
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "block", ["ownership", "stale_quota", "expired_window", "empty_quota", "exhausted_model", "excluded_model"]
+    "block", ["ownership", "exhausted_account", "exhausted_model", "excluded_model"]
 )
 async def test_fallback_rejects_independent_blocks_before_inference(block):
     from account_pool.access_token_fallback import AccessTokenFallbackService
@@ -210,35 +210,28 @@ async def test_fallback_rejects_independent_blocks_before_inference(block):
     upstream = FallbackUpstream()
     ownership = FallbackOwnership(owned=block != "ownership")
     policies = FallbackPolicies()
-    if block == "stale_quota":
-        upstream.quota = upstream.quota.model_copy(update={"observed_at": utc_now() - timedelta(minutes=10)})
-    if block == "expired_window":
-        upstream.quota = upstream.quota.model_copy(
-            update={
-                "windows": (
-                    upstream.quota.windows[0].model_copy(update={"resets_at": utc_now() - timedelta(seconds=1)}),
-                )
-            }
-        )
-    if block == "empty_quota":
-        upstream.quota = QuotaSnapshot()
+    if block == "exhausted_account":
+        environments.record = record.model_copy(update={"quota": upstream.quota.model_copy(
+            update={"windows": (upstream.quota.windows[0].model_copy(update={"remaining_percent": 0}),)}
+        )})
     if block == "exhausted_model":
-        upstream.models = (
+        environments.record = record.model_copy(update={"model_quotas": (
             domain.ModelQuotaSnapshot(
                 model="model-a",
                 quota=upstream.quota.model_copy(
                     update={"windows": (upstream.quota.windows[0].model_copy(update={"remaining_percent": 0}),)}
                 ),
             ),
-        )
+        )})
     if block == "excluded_model":
         policies.view.policy = policies.view.policy.model_copy(update={"excluded_models": ("model-a",)})
+    before = environments.record
     result = await AccessTokenFallbackService(environments, policies, upstream, ownership, FallbackLeases()).verify(
         record.id, "model-a"
     )
     assert not result.restored
     assert "verify" not in upstream.calls
-    assert environments.record == record
+    assert environments.record == before
 
 
 @pytest.mark.asyncio
@@ -393,3 +386,54 @@ async def test_current_model_proof_never_bypasses_new_restrictions(restriction):
     up.calls.clear()
     assert not (await service.verify(record.id, "model-a")).restored
     assert "verify" not in up.calls
+
+
+@pytest.mark.asyncio
+async def test_access_inference_works_when_quota_observation_is_unavailable():
+    import httpx
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+
+    class QuotaUnavailable(FallbackUpstream):
+        async def access_quota(self, record):
+            self.calls.append("quota")
+            raise httpx.HTTPStatusError(
+                "usage returned 502", request=httpx.Request("GET", "https://upstream.invalid/usage"),
+                response=httpx.Response(502),
+            )
+
+    record = _record().model_copy(update={
+        "auth_file_name": "fixture.json", "auth_index": "fixture",
+        "credential_fingerprints": ("fixture",), "quota": QuotaSnapshot(),
+    })
+    env, up = FallbackEnvironments(record), QuotaUnavailable()
+    service = AccessTokenFallbackService(env, FallbackPolicies(), up, FallbackOwnership(), FallbackLeases())
+    result = await service.verify(record.id, "model-a")
+    assert result.passed and result.restored
+    assert up.calls == ["verify", "status"]
+    up.calls.clear()
+    assert (await service.verify(record.id, "model-a")).restored
+    assert up.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("observation", ["missing", "stale", "window_elapsed"])
+async def test_unknown_quota_does_not_hide_models_with_successful_inference(observation):
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+    now = utc_now()
+    quota = QuotaSnapshot() if observation == "missing" else QuotaSnapshot(
+        source="provider_api", refresh_status="complete", observed_at=now - timedelta(minutes=10),
+        windows=(QuotaWindow(
+            name="5h", window_minutes=300, remaining_percent=0 if observation == "window_elapsed" else 50,
+            used_percent=100 if observation == "window_elapsed" else 50, resets_at=now - timedelta(seconds=1),
+        ),),
+    )
+    record = _record().model_copy(update={
+        "auth_file_name": "fixture.json", "auth_index": "fixture",
+        "credential_fingerprints": ("fixture",), "quota": quota,
+    })
+    env, up = FallbackEnvironments(record), FallbackUpstream()
+    service = AccessTokenFallbackService(env, FallbackPolicies(), up, FallbackOwnership(), FallbackLeases())
+    result = await service.verify(record.id, "model-a")
+    assert result.restored
+    assert up.calls == ["verify", "status"]
+    assert env.record.quota == quota

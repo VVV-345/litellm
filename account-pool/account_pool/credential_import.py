@@ -86,8 +86,11 @@ def normalize_auth_file(content: bytes, supplier: str) -> bytes:
     credentials: Final = value.get("credentials")
     if not isinstance(credentials, dict) or credentials.get("auth_mode", "oauth") != "oauth":
         raise CredentialConflict("Sub2API credentials 必须是 OAuth 凭据对象")
-    if not isinstance(credentials.get("refresh_token"), str) or not str(credentials["refresh_token"]).strip():
-        raise CredentialConflict("Sub2API 文件缺少 refresh_token，请重新导出完整 OAuth 凭据")
+    if not any(
+        isinstance(credentials.get(name), str) and str(credentials[name]).strip()
+        for name in ("refresh_token", "access_token")
+    ):
+        raise CredentialConflict("Sub2API 文件缺少 access_token 或 refresh_token，请重新导出 OAuth 凭据")
     if any(
         key in credentials and not isinstance(credentials[key], str)
         for key in (

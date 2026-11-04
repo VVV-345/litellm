@@ -248,7 +248,9 @@ def create_model_test_router(
             "model": selected.model_info.id, "stream": request.stream,
             "num_retries": 0, "max_retries": 0, "disable_fallbacks": True, "timeout": 30,
             "caching": False, "cache": {"no-cache": True, "no-store": True},
-            "metadata": {"user_api_key": user.api_key, "account_pool_model_test": True},
+            ("metadata" if request.mode == "chat" else "litellm_metadata"): {
+                "user_api_key": user.api_key, "account_pool_model_test": True,
+            },
         }
         try:
             async with asyncio.timeout(30):

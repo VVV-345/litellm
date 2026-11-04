@@ -3,7 +3,7 @@
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Final, Literal, Protocol
 from uuid import UUID
 
@@ -11,7 +11,6 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from account_pool.channels.cliproxyapi.quota_state import merge_model_quotas
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import (
     AccessTokenFallbackStatus,
@@ -29,7 +28,6 @@ from account_pool.ports import EnvironmentRepository
 
 
 class AccessFallbackUpstream(Protocol):
-    async def access_quota(self, record: EnvironmentRecord) -> tuple[QuotaSnapshot, tuple[ModelQuotaSnapshot, ...]]: ...
     async def verify_access_fallback(
         self, record: EnvironmentRecord, model: str
     ) -> AccessTokenFallbackVerification: ...
@@ -53,23 +51,15 @@ def fallback_eligible(record: EnvironmentRecord, model: str) -> bool:
     )
 
 
-def _quota_available(quota: QuotaSnapshot, now: datetime) -> bool:
-    return (
-        quota.source == "provider_api"
-        and quota.refresh_status in ("complete", "partial")
-        and quota.observed_at is not None
-        and now - timedelta(minutes=5) <= quota.observed_at <= now
-        and bool(quota.windows)
-        and all(w.remaining_percent > 0 and (w.resets_at is None or w.resets_at > now) for w in quota.windows)
+def _quota_exhausted(quota: QuotaSnapshot, now: datetime) -> bool:
+    return any(
+        window.remaining_percent <= 0 and (window.resets_at is None or window.resets_at > now)
+        for window in quota.windows
     )
 
 
 def _model_quota_exhausted(quotas: tuple[ModelQuotaSnapshot, ...], model: str, now: datetime) -> bool:
-    return any(
-        window.remaining_percent <= 0 and (window.resets_at is None or window.resets_at > now)
-        for item in quotas if item.model == model
-        for window in item.quota.windows
-    )
+    return any(_quota_exhausted(item.quota, now) for item in quotas if item.model == model)
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,21 +116,16 @@ class AccessTokenFallbackService:
             ):
                 return AccessTokenFallbackVerification(passed=False, restored=False, reason="independent_block")
             now: Final = utc_now()
-            if (
-                record.access_token_fallback.usable_for(model, now)
-                and _quota_available(record.quota, now)
-                and not _model_quota_exhausted(record.model_quotas, model, now)
-            ):
+            fallback: Final = record.access_token_fallback
+            if fallback.failure_source == "refresh" and (fallback.expires_at is None or fallback.expires_at <= now):
+                return AccessTokenFallbackVerification(passed=False, restored=False, reason="access_expired")
+            if _quota_exhausted(record.quota, now) or _model_quota_exhausted(record.model_quotas, model, now):
+                return AccessTokenFallbackVerification(passed=False, restored=False, reason="quota_not_available")
+            if record.access_token_fallback.usable_for(model, now):
                 return AccessTokenFallbackVerification(
                     passed=True, restored=True, reason="temporary_access",
                     expires_at=record.access_token_fallback.expires_at,
                 )
-            quota, models = await self.upstream.access_quota(record)
-            merged_models: Final = merge_model_quotas(record.model_quotas, models)
-            observed_now: Final = utc_now()
-            # 实时账户额度是验证前提；历史模型缓存只保留尚未到期的耗尽限制，不能替代完整推理证据。
-            if not _quota_available(quota, observed_now) or _model_quota_exhausted(merged_models, model, observed_now):
-                return AccessTokenFallbackVerification(passed=False, restored=False, reason="quota_not_available")
             verified: Final = await self.upstream.verify_access_fallback(record, model)
             if not verified.passed or not verified.restored:
                 return verified.model_copy(update={"restored": False})
@@ -160,8 +145,6 @@ class AccessTokenFallbackService:
                     "status": EnvironmentStatus.READY,
                     "last_error": None,
                     "automatic_cooldown": False,
-                    "quota": quota,
-                    "model_quotas": merged_models,
                     "version": record.version + 1,
                     "updated_at": utc_now(),
                 }

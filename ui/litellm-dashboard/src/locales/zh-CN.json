@@ -7765,6 +7765,7 @@
         "disabled": "卡片已停用",
         "running": "正在刷新",
         "reauthorization_required": "已暂停，需重新授权",
+        "refresh_outcome_unknown": "刷新结果未知，已暂停重试",
         "no_refresh_token": "无刷新令牌",
         "scheduler_stopped": "调度器未运行",
         "rescheduling": "正在重新排期",
@@ -7774,6 +7775,7 @@
         "scheduled": "已排期"
       },
       "result": {
+        "unknown_outcome": "刷新结果未知，已暂停重试；有效访问令牌仍可验证使用",
         "unknown": "未知",
         "saved": "已保存（未验证推理）",
         "failed": "刷新失败",
