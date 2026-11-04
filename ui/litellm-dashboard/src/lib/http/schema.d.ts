@@ -29197,7 +29197,7 @@ export interface components {
             allow_app_server_clients: string[];
             /**
              * Allow Valid Access After Refresh Failure
-             * @default false
+             * @default true
              */
             allow_valid_access_after_refresh_failure: boolean;
             /**

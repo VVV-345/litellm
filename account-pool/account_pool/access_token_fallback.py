@@ -24,7 +24,7 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.gateway_repository import LeaseRepository
-from account_pool.policies import PolicyRepository
+from account_pool.policies import CodexPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
 
 
@@ -61,6 +61,14 @@ def _quota_available(quota: QuotaSnapshot, now: datetime) -> bool:
         and now - timedelta(minutes=5) <= quota.observed_at <= now
         and bool(quota.windows)
         and all(w.remaining_percent > 0 and (w.resets_at is None or w.resets_at > now) for w in quota.windows)
+    )
+
+
+def _model_quota_exhausted(quotas: tuple[ModelQuotaSnapshot, ...], model: str, now: datetime) -> bool:
+    return any(
+        window.remaining_percent <= 0 and (window.resets_at is None or window.resets_at > now)
+        for item in quotas if item.model == model
+        for window in item.quota.windows
     )
 
 
@@ -110,23 +118,28 @@ class AccessTokenFallbackService:
             if (
                 record is None
                 or not fallback_eligible(record, model)
-                or policy.policy.codex is None
-                or not policy.policy.codex.allow_valid_access_after_refresh_failure
+                or not (policy.policy.codex or CodexPolicy()).allow_valid_access_after_refresh_failure
                 or model in policy.policy.excluded_models
                 or policy.runtime_status != "synced"
                 or environment_id in await self.leases.cooling()
                 or not await self.ownership.owns(environment_id, record.credential_fingerprints)
             ):
                 return AccessTokenFallbackVerification(passed=False, restored=False, reason="independent_block")
+            now: Final = utc_now()
+            if (
+                record.access_token_fallback.usable_for(model, now)
+                and _quota_available(record.quota, now)
+                and not _model_quota_exhausted(record.model_quotas, model, now)
+            ):
+                return AccessTokenFallbackVerification(
+                    passed=True, restored=True, reason="temporary_access",
+                    expires_at=record.access_token_fallback.expires_at,
+                )
             quota, models = await self.upstream.access_quota(record)
             merged_models: Final = merge_model_quotas(record.model_quotas, models)
-            now: Final = utc_now()
+            observed_now: Final = utc_now()
             # 实时账户额度是验证前提；历史模型缓存只保留尚未到期的耗尽限制，不能替代完整推理证据。
-            if not _quota_available(quota, now) or any(
-                window.remaining_percent <= 0 and (window.resets_at is None or window.resets_at > now)
-                for item in merged_models if item.model == model
-                for window in item.quota.windows
-            ):
+            if not _quota_available(quota, observed_now) or _model_quota_exhausted(merged_models, model, observed_now):
                 return AccessTokenFallbackVerification(passed=False, restored=False, reason="quota_not_available")
             verified: Final = await self.upstream.verify_access_fallback(record, model)
             if not verified.passed or not verified.restored:

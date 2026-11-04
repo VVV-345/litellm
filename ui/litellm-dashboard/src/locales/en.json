@@ -6555,6 +6555,7 @@
       "available": "Available resets: {{count}}",
       "eligible": "A suitable credit and used quota window are available",
       "ineligible": "No suitable credit, no reset needed, or query not completed",
+      "queryFailed": "Quota query failed. Available credits are unknown; this does not mean reset succeeded or no credits remain.",
       "query": "Query quota",
       "confirm": "I confirm this applies only to {{name}} and spends a credit, then verifies and attempts to restore the selected model; uncertain results are checked without another redemption",
       "reset": "Reset quota",
@@ -7757,7 +7758,7 @@
       "next": "Next automatic refresh",
       "last": "Last refresh result",
       "fallback": "Allow verified valid access after refresh failure",
-      "fallbackHelp": "Off by default. Requires complete inference on the same card, model and proxy; other limits remain enforced.",
+      "fallbackHelp": "Enabled by default; existing manual opt-outs are preserved. Fallback requires a valid access token and a successful test for this account and model. Cooldown and quota limits still apply.",
       "reauthorize": "Reauthorize",
       "schedule": {
         "unavailable": "Not reported by runtime",

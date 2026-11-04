@@ -31,7 +31,7 @@ from account_pool.gateway_contracts import (
     ResolveRequest,
 )
 from account_pool.gateway_repository import LeaseRepository
-from account_pool.policies import PolicyRepository
+from account_pool.policies import CodexPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
 from account_pool.settings import (
     AccountPoolSettings,
@@ -182,7 +182,7 @@ class GatewayService:
             supplier=record.supplier,
             environment_version=record.version,
             policy_version=policy.version,
-            enabled_models=endpoint.enabled_models if record.access_token_fallback.failure_source != "refresh" or (candidate_policy.codex is not None and candidate_policy.codex.allow_valid_access_after_refresh_failure and policy.runtime_status == "synced") else (),
+            enabled_models=endpoint.enabled_models if record.access_token_fallback.failure_source != "refresh" or ((candidate_policy.codex or CodexPolicy()).allow_valid_access_after_refresh_failure and policy.runtime_status == "synced") else (),
             proxy_endpoint=record.proxy_profile_id or "default",
             api_base=endpoint.api_base,
             api_key=endpoint.api_key,

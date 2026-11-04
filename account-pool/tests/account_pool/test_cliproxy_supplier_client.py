@@ -1669,6 +1669,8 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.url.path.endswith("/access-token-fallback"):
+            return httpx.Response(200, json={"supported": True, "version": 1, "token_refresh": False}, request=request)
         if request.url.path.endswith("/config.yaml") and request.method == "GET":
             return httpx.Response(200, text="host: 0.0.0.0\ncodex:\n  keep: unchanged\n", request=request)
         return httpx.Response(204, request=request)
@@ -1695,7 +1697,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
         "name": "codex.json",
         "request_retry": 0,
         "codex_fingerprint_mode": "session",
-        "codex_allow_valid_access_after_refresh_failure": False,
+        "codex_allow_valid_access_after_refresh_failure": True,
         "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": True,
         "codex_cli_only_allow_app_server": True,
@@ -1723,7 +1725,7 @@ async def test_managed_identity_rejects_unsupported_runtime_before_writes(capabi
         return httpx.Response(404 if capability is None else 200, json=capability)
 
     record = _record().model_copy(update={"auth_file_name": "codex.json"})
-    policy = AccountPolicy(codex=CodexPolicy(identity_fingerprint_mode="managed"))
+    policy = AccountPolicy(codex=CodexPolicy(identity_fingerprint_mode="managed", allow_valid_access_after_refresh_failure=False))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         sync = CLIProxySettingsSynchronizer(HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client))
         with pytest.raises(ValueError, match="managed identity"):
@@ -1753,6 +1755,7 @@ async def test_managed_identity_and_confusion_sync_only_after_runtime_capability
             AccountPolicy(
                 codex=CodexPolicy(
                     identity_fingerprint_mode="managed",
+                    allow_valid_access_after_refresh_failure=False,
                     identity_confuse=True,
                 )
             ),
@@ -1786,7 +1789,7 @@ async def test_managed_identity_requires_authorized_codex_card_before_runtime_wr
         requests.append(request)
         return httpx.Response(204)
 
-    policy = AccountPolicy(codex=CodexPolicy(identity_fingerprint_mode="managed"))
+    policy = AccountPolicy(codex=CodexPolicy(identity_fingerprint_mode="managed", allow_valid_access_after_refresh_failure=False))
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
         sync = CLIProxySettingsSynchronizer(HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client))
         for record in (
@@ -1820,6 +1823,8 @@ async def test_omitted_provider_policy_writes_that_suppliers_safe_defaults() -> 
         documents: list[dict[str, object]] = []
 
         async def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/access-token-fallback"):
+                return httpx.Response(200, json={"supported": True, "version": 1, "token_refresh": False})
             if request.url.path.endswith("/config.yaml") and request.method == "GET":
                 return httpx.Response(200, text=stale, request=request)
             if request.url.path.endswith("/config.yaml") and request.method == "PUT":
@@ -1951,6 +1956,8 @@ async def test_settings_and_policy_preserve_single_retry_owner(supplier: Supplie
     patches: list[dict[str, object]] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/access-token-fallback"):
+            return httpx.Response(200, json={"supported": True, "version": 1, "token_refresh": False})
         if request.url.path.endswith("/config.yaml"):
             if request.method == "GET":
                 return httpx.Response(200, text=yaml.safe_dump(documents[-1]))

@@ -218,7 +218,7 @@ def _normalize_app_server_clients(values: tuple[str, ...]) -> tuple[str, ...]:
 class CodexPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    allow_valid_access_after_refresh_failure: bool = False
+    allow_valid_access_after_refresh_failure: bool = True
 
     identity_fingerprint_mode: Literal["off", "device", "session", "full", "managed"] = "off"
     cli_only: bool = False

@@ -69,8 +69,9 @@ class CLIProxySettingsSynchronizer:
             await self._client.patch_auth_file_fields(record, record.auth_file_name, {"request_retry": 0})
 
     async def apply_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
-        if policy.codex is not None and policy.codex.allow_valid_access_after_refresh_failure:
-            if record.supplier is not SupplierKind.OPENAI_CODEX or not record.auth_file_name:
+        codex: Final = policy.codex or (CodexPolicy() if record.supplier is SupplierKind.OPENAI_CODEX else None)
+        if codex is not None and codex.allow_valid_access_after_refresh_failure and record.auth_file_name:
+            if record.supplier is not SupplierKind.OPENAI_CODEX:
                 raise PolicyRuntimeRejected("访问令牌降级需要已授权的 Codex 卡片")
             await self._client.require_access_token_fallback(record)
         if policy.codex is not None and policy.codex.identity_fingerprint_mode == "managed":

@@ -6,12 +6,13 @@ import json
 import random
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from datetime import datetime, timezone
 from typing import Annotated, Final, Literal, Protocol
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from litellm.llms.anthropic.experimental_pass_through.messages.streaming_iterator import aclose_if_supported
 from litellm.proxy._types import UserAPIKeyAuth
@@ -47,6 +48,7 @@ class _AccessFallback(BaseModel):
     active: bool = False
     failure_source: str | None = None
     verified_models: tuple[str, ...] = ()
+    expires_at: AwareDatetime | None = None
 
 
 class _AccessVerification(BaseModel):
@@ -184,6 +186,7 @@ def create_model_test_router(
         user: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
     ) -> AccountPoolModelTestResult:
         require_admin(user)
+        started: Final = time.perf_counter()
         response: Final = await request_manager("GET", f"/api/environments/{card_id}", None)
         if response.is_error:
             raise HTTPException(response.status_code, "Account is unavailable")
@@ -196,6 +199,7 @@ def create_model_test_router(
         fallback: Final = card.access_token_fallback
         if fallback.enabled and fallback.failure_source == "refresh" and (
             not fallback.active or request.model not in fallback.verified_models
+            or fallback.expires_at is None or fallback.expires_at <= datetime.now(timezone.utc)
         ):
             verification_response: Final = await request_manager(
                 "POST", f"/api/environments/{card_id}/access-token-fallback/verify",
@@ -230,7 +234,6 @@ def create_model_test_router(
         except ValueError:
             raise HTTPException(502, "Model test settings are unavailable") from None
         greeting: Final = choose_greeting(settings.model_test_greetings or ("Hello. Reply briefly with Hello.",))
-        started: Final = time.perf_counter()
         identity: Final = PoolIdentity(
             key_hash=user.api_key or "master", request_id=uuid4(), card_id=card_id, model_test=True,
             protocol=request.mode,

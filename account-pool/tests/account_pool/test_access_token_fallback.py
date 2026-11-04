@@ -6,8 +6,11 @@ from account_pool.channels.cliproxyapi.settings_sync import _policy_auth_fields
 from test_cliproxy_supplier_client import _record
 
 
-def test_access_fallback_policy_is_default_off_and_syncs_explicit_enable():
-    assert getattr(CodexPolicy(), "allow_valid_access_after_refresh_failure", None) is False
+def test_access_fallback_policy_defaults_on_and_preserves_explicit_disable():
+    assert CodexPolicy().allow_valid_access_after_refresh_failure is True
+    assert CodexPolicy(allow_valid_access_after_refresh_failure=False).allow_valid_access_after_refresh_failure is False
+    from litellm.proxy.management_endpoints.account_pool_management_models import CodexPolicy as ProxyCodexPolicy
+    assert ProxyCodexPolicy().allow_valid_access_after_refresh_failure is True
     enabled = CodexPolicy(allow_valid_access_after_refresh_failure=True)
     fields = _policy_auth_fields(_record(), AccountPolicy(codex=enabled))
     assert fields["codex_allow_valid_access_after_refresh_failure"] is True
@@ -346,3 +349,47 @@ async def test_automatic_discovery_never_bypasses_independent_restrictions(updat
     up = FallbackUpstream()
     await AccessTokenFallbackService(FallbackEnvironments(record), FallbackPolicies(), up, FallbackOwnership(), FallbackLeases()).discover()
     assert up.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("default_policy", [False, True])
+async def test_fallback_reuses_current_model_proof_but_preserves_independent_limits(default_policy):
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+    record = _record().model_copy(update={"auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",)})
+    env, up, policies = FallbackEnvironments(record), FallbackUpstream(), FallbackPolicies()
+    if default_policy:
+        policies.view.policy = AccountPolicy()
+    service = AccessTokenFallbackService(env, policies, up, FallbackOwnership(), FallbackLeases())
+    first = await service.verify(record.id, "model-a")
+    assert first.restored
+    up.calls.clear()
+    second = await service.verify(record.id, "model-a")
+    assert second.passed and second.restored
+    assert up.calls == []
+    policies.view = FallbackPolicies(False).view
+    denied = await service.verify(record.id, "model-a")
+    assert not denied.restored and up.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restriction", ["expiry", "cooldown", "quota", "model_quota"])
+async def test_current_model_proof_never_bypasses_new_restrictions(restriction):
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+    record = _record().model_copy(update={"auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",)})
+    env, up = FallbackEnvironments(record), FallbackUpstream()
+    service = AccessTokenFallbackService(env, FallbackPolicies(), up, FallbackOwnership(), FallbackLeases())
+    assert (await service.verify(record.id, "model-a")).restored
+    empty = up.quota.model_copy(update={"windows": (QuotaWindow(name="5h", window_minutes=300, remaining_percent=0, used_percent=100, resets_at=utc_now()+timedelta(hours=1)),)})
+    if restriction == "expiry":
+        env.record = env.record.model_copy(update={"access_token_fallback": env.record.access_token_fallback.model_copy(update={"expires_at": utc_now()-timedelta(minutes=1)})})
+        up.quota = empty
+    elif restriction == "cooldown":
+        env.record = env.record.model_copy(update={"manual_cooldown": True})
+    elif restriction == "quota":
+        env.record = env.record.model_copy(update={"quota": empty})
+        up.quota = empty
+    else:
+        env.record = env.record.model_copy(update={"model_quotas": (domain.ModelQuotaSnapshot(model="model-a", quota=empty),)})
+    up.calls.clear()
+    assert not (await service.verify(record.id, "model-a")).restored
+    assert "verify" not in up.calls

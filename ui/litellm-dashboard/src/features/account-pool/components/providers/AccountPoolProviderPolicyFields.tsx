@@ -157,7 +157,7 @@ export function AccountPoolProviderPolicyFields({
           {toggleField({
             label: t("accountPool.credential.fallback"),
             description: t("accountPool.credential.fallbackHelp"),
-            checked: codex.allow_valid_access_after_refresh_failure ?? false,
+            checked: codex.allow_valid_access_after_refresh_failure ?? true,
             onChange: (next) => onCodexChange("allow_valid_access_after_refresh_failure", next),
           })}
           {selectField({

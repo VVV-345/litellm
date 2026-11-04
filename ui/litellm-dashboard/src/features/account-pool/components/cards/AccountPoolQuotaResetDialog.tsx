@@ -41,6 +41,7 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   });
   const operation = status.data?.operation;
   const observation = status.data?.observation;
+  const queryFailed = status.isError || (status.isSuccess && !observation);
   const [confirmed, setConfirmed] = useState(false);
   const [recover, setRecover] = useState(false);
   const [model, setModel] = useState(environment.enabled_models[0] ?? "");
@@ -109,9 +110,11 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
         </DialogHeader>
         <section className="grid gap-3 rounded-md border p-3">
           <p>{t("accountPool.quotaReset.available", { count: observation?.available ?? "?" })}</p>
-          <p className="text-sm text-muted-foreground">
-            {t(observation?.eligible ? "accountPool.quotaReset.eligible" : "accountPool.quotaReset.ineligible")}
-          </p>
+          {queryFailed ? <p role="alert">{t("accountPool.quotaReset.queryFailed")}</p> : (
+            <p className="text-sm text-muted-foreground">
+              {t(observation?.eligible ? "accountPool.quotaReset.eligible" : "accountPool.quotaReset.ineligible")}
+            </p>
+          )}
           <Button variant="outline" disabled={pending || status.isFetching} onClick={() => void status.refetch()}>
             {t("accountPool.quotaReset.query")}
           </Button>
@@ -179,7 +182,7 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
             </p>
           )}
         </section>
-        {(failed || status.isError) && <p role="alert">{t("accountPool.quotaReset.error")}</p>}
+        {failed && <p role="alert">{t("accountPool.quotaReset.error")}</p>}
         <DialogFooter>
           <Button variant="outline" disabled={pending} onClick={onClose}>
             {t("accountPool.quotaReset.close")}

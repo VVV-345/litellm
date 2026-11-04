@@ -1,8 +1,17 @@
 diff --git a/internal/api/handlers/management/api_tools.go b/internal/api/handlers/management/api_tools.go
-index 29f00100c2cf64484df19841afeab0e645975cc4..358adc0161741d2b8360c6751e12ade9a26f0b82 100644
 --- a/internal/api/handlers/management/api_tools.go
 +++ b/internal/api/handlers/management/api_tools.go
-@@ -192,7 +192,7 @@ func (h *Handler) executeAPICall(
+@@ -170,7 +170,8 @@
+ 	if method == http.MethodGet {
+ 		maxAttempts = apiCallGETMaxAttempts
+ 	}
+-	forceRefreshAvailable := auth != nil && stringValue(auth.Metadata, "refresh_token") != "" && h.authManager != nil
++	// Codex 管理查询与额度兑换不轮换凭据，401 原样返回，由独立刷新入口处理。
++	forceRefreshAvailable := auth != nil && !strings.EqualFold(auth.Provider, "codex") && stringValue(auth.Metadata, "refresh_token") != "" && h.authManager != nil
+ 	forcedRefresh := false
+ 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+ 		result, usedToken, errRequest := h.executeAPICallAttempt(
+@@ -192,7 +193,7 @@
  			return apiCallResponse{}, errRequest
  		}
  		if result.StatusCode == http.StatusUnauthorized && usedToken && forceRefreshAvailable && !forcedRefresh {
@@ -12,10 +21,20 @@ index 29f00100c2cf64484df19841afeab0e645975cc4..358adc0161741d2b8360c6751e12ade9
  				return apiCallResponse{}, fmt.Errorf("refresh credential after unauthorized response: %w", errRefresh)
  			}
 diff --git a/internal/api/handlers/management/api_tools_test.go b/internal/api/handlers/management/api_tools_test.go
-index 066b6bd3b0aaa06b0624154cb012ba0334ab3948..a8f6dd25b68511c2fcec4ad186346f3ae66edf54 100644
 --- a/internal/api/handlers/management/api_tools_test.go
 +++ b/internal/api/handlers/management/api_tools_test.go
-@@ -23,7 +23,7 @@ func (f managementRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, e
+@@ -2,8 +2,10 @@
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"io"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -23,7 +25,7 @@
  	return f(req)
  }
  
@@ -24,7 +43,7 @@ index 066b6bd3b0aaa06b0624154cb012ba0334ab3948..a8f6dd25b68511c2fcec4ad186346f3a
  
  func (*managementRefreshExecutor) Identifier() string { return "test-refresh" }
  
-@@ -35,7 +35,8 @@ func (*managementRefreshExecutor) ExecuteStream(context.Context, *coreauth.Auth,
+@@ -35,7 +37,8 @@
  	return nil, nil
  }
  
@@ -34,7 +53,7 @@ index 066b6bd3b0aaa06b0624154cb012ba0334ab3948..a8f6dd25b68511c2fcec4ad186346f3a
  	auth.Metadata["access_token"] = "new-token"
  	auth.Metadata["key"] = "new-token"
  	return auth, nil
-@@ -447,3 +448,30 @@ func TestAuthByIndexDistinguishesSharedAPIKeysAcrossProviders(t *testing.T) {
+@@ -447,3 +450,106 @@
  		t.Fatalf("authByIndex(compat) returned %q, want %q", gotCompat.ID, compatAuth.ID)
  	}
  }
@@ -63,6 +82,82 @@ index 066b6bd3b0aaa06b0624154cb012ba0334ab3948..a8f6dd25b68511c2fcec4ad186346f3a
 +	}
 +	if exec.calls != 1 {
 +		t.Fatalf("stale management request rotated twice: %d", exec.calls)
++	}
++}
++
++type codexQuotaRefreshExecutor struct{ managementRefreshExecutor }
++
++func (*codexQuotaRefreshExecutor) Identifier() string { return "codex" }
++
++func TestCodexManagementQuotaRequestsDoNotRotateCredentials(t *testing.T) {
++	for _, method := range []string{http.MethodGet, http.MethodPost} {
++		t.Run(method, func(t *testing.T) {
++			calls := 0
++			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				calls++
++				w.WriteHeader(http.StatusUnauthorized)
++				_, _ = w.Write([]byte(`{"error":{"code":"access_token_invalid"}}`))
++			}))
++			defer upstream.Close()
++			manager := coreauth.NewManager(nil, nil, nil)
++			exec := &codexQuotaRefreshExecutor{}
++			manager.RegisterExecutor(exec)
++			auth, err := manager.Register(context.Background(), &coreauth.Auth{ID: "quota-no-rotation", Provider: "codex", Metadata: map[string]any{"access_token": "old-token", "refresh_token": "synthetic-refresh"}})
++			if err != nil {
++				t.Fatal(err)
++			}
++			body, _ := json.Marshal(map[string]any{"auth_index": auth.Index, "method": method, "url": upstream.URL, "header": map[string]string{"Authorization": "Bearer $TOKEN$"}})
++			recorder := httptest.NewRecorder()
++			ctx, _ := gin.CreateTestContext(recorder)
++			ctx.Request = httptest.NewRequest(http.MethodPost, "/v0/management/api-call", strings.NewReader(string(body)))
++			h := &Handler{authManager: manager}
++			h.APICall(ctx)
++			var result apiCallResponse
++			if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
++				t.Fatal(err)
++			}
++			if recorder.Code != http.StatusOK || result.StatusCode != http.StatusUnauthorized || calls != 1 || exec.calls != 0 {
++				t.Fatalf("query changed credentials or hid rejection: outer=%d upstream=%d calls=%d refreshes=%d", recorder.Code, result.StatusCode, calls, exec.calls)
++			}
++			current, _ := manager.GetByID(auth.ID)
++			if tokenValueForAuth(current) != "old-token" || current.LastError != nil {
++				t.Fatal("quota query changed authentication state")
++			}
++		})
++	}
++}
++
++type rejectedCredentialExecutor struct{ codexQuotaRefreshExecutor }
++
++func (e *rejectedCredentialExecutor) Refresh(_ context.Context, a *coreauth.Auth) (*coreauth.Auth, error) {
++	e.calls++
++	return nil, &coreauth.Error{HTTPStatus: 401, Code: "refresh_token_reused"}
++}
++func TestRefreshCredentialFirstRejectionIsClassified(t *testing.T) {
++	manager := coreauth.NewManager(nil, nil, nil)
++	exec := &rejectedCredentialExecutor{}
++	manager.RegisterExecutor(exec)
++	a, err := manager.Register(context.Background(), &coreauth.Auth{ID: "refresh-fixture", Provider: "codex", Metadata: map[string]any{"access_token": "old-token", "refresh_token": "synthetic-refresh"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, _ := json.Marshal(map[string]string{"name": a.ID, "auth_index": a.Index, "token_fingerprint": fmt.Sprintf("%x", sha256.Sum256([]byte("old-token")))})
++	for i := 0; i < 2; i++ {
++		recorder := httptest.NewRecorder()
++		ctx, _ := gin.CreateTestContext(recorder)
++		ctx.Request = httptest.NewRequest(http.MethodPost, "/refresh", strings.NewReader(string(body)))
++		ctx.Request.Header.Set("Content-Type", "application/json")
++		(&Handler{authManager: manager}).RefreshCodexCredential(ctx)
++		var result struct {
++			Saved  bool   `json:"saved"`
++			Reason string `json:"reason"`
++		}
++		if err := json.Unmarshal(recorder.Body.Bytes(), &result); err != nil {
++			t.Fatal(err)
++		}
++		if recorder.Code != 200 || result.Saved || result.Reason != "reauthorization_required" || exec.calls != 1 {
++			t.Fatalf("attempt %d: %s calls=%d", i, recorder.Body.String(), exec.calls)
++		}
 +	}
 +}
 diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
@@ -167,10 +262,9 @@ index 16368fd5344ec298a3ba880329aec72303ce8474..9ecb69dabcbf3242e0a46ee67a377869
 +}
 diff --git a/internal/api/handlers/management/credential_refresh.go b/internal/api/handlers/management/credential_refresh.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..e769a49a3bfa33155ab0c6dfa279d110e3e11a55
 --- /dev/null
 +++ b/internal/api/handlers/management/credential_refresh.go
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,47 @@
 +// 通过受保护管理入口刷新绑定凭据，只返回安全结果分类。
 +package management
 +
@@ -196,6 +290,7 @@ index 0000000000000000000000000000000000000000..e769a49a3bfa33155ab0c6dfa279d110
 +			continue
 +		}
 +		_, err := h.authManager.RefreshCredential(c.Request.Context(), a.ID, request.TokenFingerprint)
++		status := h.authManager.CredentialRefreshStatus(a.ID)
 +		reason := "saved"
 +		switch {
 +		case err == nil:
@@ -207,10 +302,12 @@ index 0000000000000000000000000000000000000000..e769a49a3bfa33155ab0c6dfa279d110
 +			reason = "state_changed"
 +		case errors.Is(err, coreauth.ErrRefreshBackoff):
 +			reason = "backoff"
++		case status.LastResult == "rejected":
++			reason = "reauthorization_required"
 +		default:
 +			reason = "refresh_failed"
 +		}
-+		c.JSON(http.StatusOK, gin.H{"saved": err == nil, "reason": reason, "status": h.authManager.CredentialRefreshStatus(a.ID)})
++		c.JSON(http.StatusOK, gin.H{"saved": err == nil, "reason": reason, "status": status})
 +		return
 +	}
 +	c.JSON(http.StatusConflict, gin.H{"error": "credential binding changed"})

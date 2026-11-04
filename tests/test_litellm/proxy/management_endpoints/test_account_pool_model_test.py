@@ -199,3 +199,33 @@ def test_access_only_model_test_verifies_then_synchronizes_exact_card(passed, re
         assert response.json()["success"] is True
         assert router.calls[0][1].card_id == CARD
         assert router.calls[0][0]["model"] == "selected"
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_access_model_test_reuses_current_proof_and_counts_verification_latency(expired):
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    verified = []
+    async def manager(method, path, body):
+        if path.endswith("/access-token-fallback/verify"):
+            verified.append(path)
+            await asyncio.sleep(0.03)
+            return httpx.Response(200, json={"passed": True, "restored": True})
+        if path == "/api/settings":
+            return httpx.Response(200, json={"values": {}})
+        return httpx.Response(200, json={"enabled": True, "enabled_models": ["test-model"], "access_token_fallback": {
+            "enabled": True, "active": True, "failure_source": "refresh", "verified_models": ["test-model"],
+            "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=-1 if expired else 5)).isoformat(),
+        }})
+    async def sync():
+        pass
+    router = RouterDouble({"choices": [{"message": {"content": "Hello"}, "finish_reason": "stop"}]})
+    app = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(api_key="hashed-admin")
+    app.include_router(create_model_test_router(manager, lambda user: None, lambda: router, synchronize=sync), prefix="/account_pool")
+    response = TestClient(app).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model"})
+    assert response.json()["success"]
+    assert len(verified) == int(expired)
+    assert len(router.calls) == 1
+    if expired:
+        assert response.json()["elapsed_ms"] >= 25

@@ -41,3 +41,11 @@ token、密码和回调 code 不进入命令参数、日志或截图。worker �
 ## 恢复与回滚
 
 保留当前认证卷及已轮换凭据，优先恢复运行时能力和配置。真的失效需要账号持有者重新授权；迁移归属按现有删除/释放流程明确处理。回退镜像不恢复旧 Token，详见[数据边界](../data-and-backups.md)
+
+## 刷新失败与 access 降级的验收边界
+
+新策略默认允许 access 降级，已保存的手动关闭值仍为关闭，不批量改写旧卡。未绑定凭据时只保存策略意图，绑定后同步需通过运行时能力检查。刷新仍使用现有单卡协调器，锁内重读凭据，轮换成功但保存失败时只重试保存，不重复兑换旧 refresh token。上游拒绝首次即分类为需要重新授权，不承诺撤销凭据能被刷新成功
+
+access 降级只接受同卡同模型的完整推理验证，手动关闭、归属冲突、配置未同步、冷却、耗尽额度和访问令牌到期仍阻止使用。有效证明且账户额度观测仍新鲜时复用验证，普通模型测试仍走该卡的正常 Chat/Responses 路由，不以管理接口成功代替普通调用。模型测试计时包含前置验证和路由同步，冷启动比已有证明多一次验证请求
+
+设计核对了 [CLIProxyAPI 并发刷新讨论](https://github.com/router-for-me/CLIProxyAPI/issues/3783) 和 [sub2api OAuth 刷新协调器](https://github.com/Wei-Shaw/sub2api/blob/4a4a83ee5ec86b19d3a2dd9b6471de5128963bec/backend/internal/service/oauth_refresh_api.go)，沿用已有锁和重读机制，没有另外添加一套刷新调度。单进程协调不代表同一 refresh token 在其他服务中并发刷新也安全

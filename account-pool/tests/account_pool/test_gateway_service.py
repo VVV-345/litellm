@@ -904,7 +904,7 @@ async def test_token_budget_reserves_active_requests_and_settles_successful_usag
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('block', ['disabled_policy', 'pending_policy', 'expired', 'access_rejected', 'unverified_model', 'disabled_card'])
+@pytest.mark.parametrize('block', ['disabled_policy', 'pending_policy', 'expired', 'access_rejected', 'unverified_model', 'disabled_card', 'default_policy'])
 async def test_fallback_normal_admission_rechecks_proof_and_policy(block, tmp_path):
     from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
     from account_pool.shared.secrets import EnvironmentSecretDeriver
@@ -915,12 +915,16 @@ async def test_fallback_normal_admission_rechecks_proof_and_policy(block, tmp_pa
     card = _record(status=EnvironmentStatus.READY).model_copy(update={'access_token_fallback':state, 'enabled':block != 'disabled_card'})
     keys = CardKeyService(MemoryKeys()); issued = await keys.issue(card.id)
     policies = MemoryPolicies()
-    await policies.save(card.id, PolicyUpdate(version=0,policy=AccountPolicy(codex=CodexPolicy(allow_valid_access_after_refresh_failure=block != 'disabled_policy'))))
+    await policies.save(card.id, PolicyUpdate(version=0,policy=AccountPolicy() if block == 'default_policy' else AccountPolicy(codex=CodexPolicy(allow_valid_access_after_refresh_failure=block != 'disabled_policy'))))
     await policies.set_runtime_status(card.id, 1, 'partial' if block == 'pending_policy' else 'synced')
     channel = CLIProxyAPIChannel(_settings(tmp_path), EnvironmentSecretDeriver('s'*32))
     service = GatewayService(keys,MemoryRepository(card),policies,MemoryLeases(),ErrorLogService(MemoryLogs()),channel.gateway)
-    with pytest.raises(HTTPException):
-        await service.acquire(AcquireRequest(card_key=issued.value.key,account_id=card.id,request_id=uuid4(),model='gpt-5',card_version=card.version,policy_version=1,account_version=card.version,account_policy_version=1,timeout_seconds=30,attempt=1))
+    request = AcquireRequest(card_key=issued.value.key,account_id=card.id,request_id=uuid4(),model='gpt-5',card_version=card.version,policy_version=1,account_version=card.version,account_policy_version=1,timeout_seconds=30,attempt=1)
+    if block == 'default_policy':
+        assert (await service.acquire(request)).account_id == card.id
+    else:
+        with pytest.raises(HTTPException):
+            await service.acquire(request)
 
 
 @pytest.mark.asyncio

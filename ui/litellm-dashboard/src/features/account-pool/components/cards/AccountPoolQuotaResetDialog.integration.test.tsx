@@ -124,3 +124,14 @@ it("shows durable ordinary API proof with request identity instead of a manageme
   expect(await screen.findByText(/普通 API 调用已验证/)).toHaveTextContent("ordinary-request");
   expect(screen.queryByText(/普通 API 调用仍需确认/)).not.toBeInTheDocument();
 });
+
+
+it("shows failed quota observation without losing the uncertain redemption identity", async () => {
+  vi.mocked(apiClient.get).mockResolvedValue({ observation: null, operation: { ...operation, status: "uncertain" } });
+  open();
+  expect(await screen.findByRole("alert")).toHaveTextContent("额度查询失败");
+  expect(screen.getByRole("button", { name: "核对原次兑换" })).toBeInTheDocument();
+  expect(screen.getByText(/same-redemption/)).toBeInTheDocument();
+  expect(screen.queryByText(/无适用次数/)).not.toBeInTheDocument();
+  expect(apiClient.post).not.toHaveBeenCalled();
+});

@@ -70,3 +70,9 @@ Manager 启动后在后台检查现有凭据状态与已启用模型，此后每
 - 前端 `accountPoolDashboardSelectors.test.ts` 与 `AccountPoolModelTestDialog.integration.test.tsx`：未验证、过期、冷却模型隐藏，状态变化后禁止提交旧选项
 
 这些本地测试使用边界替身，不等同于线上凭据仍有效。发布后仍需核对运行镜像，在不手工验证的前提下等待自动发现，检查 `/v1/models`，再用原 Key 分别调用 Chat/Responses 和固定卡模型测试。不得用管理员测试成功替代用户 Key 验收
+
+## 查询失败与认证状态
+
+Codex 管理额度查询和兑换遇到上游 401 时原样返回上游状态，不隐式刷新 OAuth 凭据，也不因刷新重放 POST。额度查询失败不会证明兑换成功、额度耗尽或 refresh token 失效。界面缺少有效观测时显示查询失败，并保留已有不确定兑换的请求身份供核对，不能创建新身份重复消耗
+
+凭据刷新通过独立入口执行。网络/出口代理故障、上游拒绝和真正的认证失效要分开查，不能把所有 502 都认定为 token 已被撤销。类似的错误包装问题见 [sub2api #5748](https://github.com/Wei-Shaw/sub2api/issues/5748)
