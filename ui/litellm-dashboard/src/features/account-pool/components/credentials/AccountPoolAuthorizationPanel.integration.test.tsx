@@ -161,7 +161,7 @@ it("keeps the Camoufox Key in this browser while preparing the ISP and opening f
   vi.unstubAllGlobals();
 });
 
-it("remembers a verified helper across visits and lets the user clear it", async () => {
+it("remembers a verified helper across visits", async () => {
   await i18n.changeLanguage("en");
   vi.stubGlobal(
     "fetch",
@@ -179,9 +179,6 @@ it("remembers a verified helper across visits and lets the user clear it", async
   fireEvent.click(screen.getByText("Camoufox browser"));
   expect(screen.getByLabelText("Local helper URL")).toHaveValue("http://127.0.0.1:10200");
   expect(screen.getByLabelText("Local helper Key")).toHaveValue("verified-key");
-  fireEvent.click(screen.getByRole("button", { name: "Forget saved connection" }));
-  expect(screen.getByLabelText("Local helper URL")).toHaveValue("http://127.0.0.1:10109");
-  expect(screen.getByLabelText("Local helper Key")).toHaveValue("");
   vi.unstubAllGlobals();
 });
 

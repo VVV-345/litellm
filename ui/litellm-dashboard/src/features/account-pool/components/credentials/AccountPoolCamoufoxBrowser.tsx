@@ -190,22 +190,6 @@ export function AccountPoolCamoufoxBrowser({
               {t("accountPool.camoufox.stopLogin")}
             </Button>
           )}
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => {
-              try {
-                localStorage.removeItem(storageKey);
-              } catch {
-                setStorageFailed(true);
-              }
-              setConnection({ address: defaultAddress, key: "" });
-            }}
-          >
-            {t("accountPool.camoufox.forget")}
-          </Button>
         </div>
         {storageFailed && (
           <p role="alert" className="text-sm text-destructive">
