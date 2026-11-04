@@ -7,6 +7,8 @@ import { getAccountPoolSettings } from "@/features/account-pool/api/AccountPoolM
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 
+const AccountPoolAutomationPanel = dynamic(() => import("@/features/account-pool/components/onboarding/AccountPoolAutomationPanel").then((module) => module.AccountPoolAutomationPanel));
+
 import {
   loadAccountPoolSettingsOverview,
   loadAccountPoolCredentialsPanel,
@@ -107,6 +109,7 @@ const POOL_TABS = [
   "providers",
   "credentials",
   "onboarding",
+  "oauth-automation",
   "proxy-layer",
   "upstream-sync",
   "releases",
@@ -408,6 +411,7 @@ export default function AccountPoolPage() {
             >
               自动化上号
             </TabsTrigger>
+            <TabsTrigger value="oauth-automation" className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200">授权自动化</TabsTrigger>
 
             <TabsTrigger
               value="proxy-layer"
@@ -537,6 +541,9 @@ export default function AccountPoolPage() {
             visited={isTabVisited("onboarding")}
           >
             {accessToken && <AccountPoolOnboardingPanel accessToken={accessToken} />}
+          </DeferredTabPanel>
+          <DeferredTabPanel value="oauth-automation" className="pt-4" active={activeTab === "oauth-automation"} visited={isTabVisited("oauth-automation")}>
+            {accessToken && <AccountPoolAutomationPanel accessToken={accessToken} />}
           </DeferredTabPanel>
 
           <DeferredTabPanel

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
@@ -38,7 +39,7 @@ from account_pool.application.profile_updates import (
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashError, ClashProxyNode
 from account_pool.config import Settings, validate_proxy_profile_url
-from account_pool.credential_ownership import CredentialConflict, CredentialOwnership
+from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, OAUTH_AUTOMATION_LOCK
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationInstructionFlow,
@@ -113,7 +114,7 @@ class EnvironmentService:
         self._proxy_profiles: Final = proxy_profiles
         self._secrets: Final = secrets
         self._channels: Final = channels or ChannelRegistry.default(self._settings, self._secrets)
-        self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(self._settings, proxy_profiles)
+        self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(self._settings, proxy_profiles, ownership=self._ownership)
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
         self._quota_refresh_slots: Final = asyncio.Semaphore(max(1, settings.quota_refresh_max_concurrency))
@@ -464,7 +465,10 @@ class EnvironmentService:
     async def update_proxy_gateway_configuration(
         self, *, content: str | None = None, url: str | None = None, name: str | None = None
     ) -> GatewayConfigurationView:
-        return await self._proxy_gateways.update_configuration(content=content, url=url, name=name)
+        async with self._ownership.operation(OAUTH_AUTOMATION_LOCK):
+            if any(record.oauth_automation_operation is not None for record in await self._repository.list()):
+                raise ValueError("授权自动化运行期间不能替换出口代理配置")
+            return await self._proxy_gateways.update_configuration(content=content, url=url, name=name)
 
     async def list_proxy_gateway_configurations(self) -> tuple[ProxyConfigurationProfileView, ...]:
         return await self._proxy_gateways.list_configuration_profiles()
@@ -475,7 +479,15 @@ class EnvironmentService:
         return await self._proxy_gateways.save_configuration_profile(name, content=content, url=url)
 
     async def activate_proxy_gateway_configuration(self, profile_id: UUID) -> ProxyConfigurationProfileView:
-        return await self._proxy_gateways.activate_configuration_profile(profile_id)
+        async with self._ownership.operation(OAUTH_AUTOMATION_LOCK):
+            if any(record.oauth_automation_operation is not None for record in await self._repository.list()):
+                raise ValueError("授权自动化运行期间不能切换出口代理配置")
+            return await self._proxy_gateways.activate_configuration_profile(profile_id)
+
+    @asynccontextmanager
+    async def proxy_profile_operation(self, profile_id: str | None) -> AsyncGenerator[None, None]:
+        async with self._proxy_gateways.profile_operation(profile_id):
+            yield
 
     async def delete_proxy_gateway_configuration(self, profile_id: UUID) -> None:
         await self._proxy_gateways.delete_configuration_profile(profile_id)
@@ -684,8 +696,8 @@ class EnvironmentService:
     ) -> Result[AuthorizationView]:
         return await self._authorization_operations.authorize_prepared(record, operation_id)
 
-    async def cancel_oauth_session(self, environment_id: UUID) -> Result[EnvironmentView]:
-        return await self._authorization_operations.cancel_oauth_session(environment_id)
+    async def cancel_oauth_session(self, environment_id: UUID, operation_id: str | None = None) -> Result[EnvironmentView]:
+        return await self._authorization_operations.cancel_oauth_session(environment_id, operation_id)
 
     async def submit_oauth_callback(
         self, callback: OAuthCallback, environment_id: UUID | None = None
@@ -958,6 +970,8 @@ class EnvironmentService:
 
 
 def _oauth_proxy_in_use(record: EnvironmentRecord, now: datetime) -> bool:
+    if record.oauth_automation_operation is not None:
+        return True
     if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
         return False
     if record.status in (EnvironmentStatus.PROVISIONING, EnvironmentStatus.VALIDATING):

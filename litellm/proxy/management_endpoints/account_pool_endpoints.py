@@ -31,6 +31,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import Ac
 from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
+from litellm.proxy.management_endpoints.account_pool_automation import create_automation_router
 from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     ReconcilerStatus,
@@ -65,7 +66,7 @@ class _BrowserWebSocket(Protocol):
 
 
 def _browser_relay_host(session_id: UUID) -> str:
-    return f"account-pool-oauth-browser-{session_id.hex}-callback-relay"
+    return f"oauth-control-{session_id.hex}"
 
 
 def _browser_relay_url(
@@ -1626,6 +1627,7 @@ def create_account_pool_router(
     router.include_router(create_feedback_router(management_request, _require_proxy_admin, feedback_multipart))
     router.include_router(create_model_test_router(management_request, _require_proxy_admin))
     router.include_router(create_onboarding_router(management_request, _require_proxy_admin))
+    router.include_router(create_automation_router(management_request, _require_proxy_admin))
     router.include_router(create_release_router(_require_proxy_admin, release_client_factory))
     return router
 

@@ -148,13 +148,18 @@ export const startAccountPoolOAuthBrowserSession = async (
     { accessToken },
   );
   try {
-    await apiClient.post<void>(`/account_pool/oauth-browser-sessions/${encodeURIComponent(session.id)}/browser`, {
-      accessToken: ticket,
-    });
+    await attachAccountPoolOAuthBrowserSession({ ...session, ticket });
   } catch (error) {
     await cancelAccountPoolOAuthBrowserSession(accessToken, session.id).catch(() => undefined);
     throw error;
   }
+  return session;
+};
+
+export const attachAccountPoolOAuthBrowserSession = async ({ ticket, ...session }: AccountPoolOAuthBrowserSessionStart) => {
+  await apiClient.post<void>(`/account_pool/oauth-browser-sessions/${encodeURIComponent(session.id)}/browser`, {
+    accessToken: ticket,
+  });
   return session;
 };
 

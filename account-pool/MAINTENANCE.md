@@ -63,6 +63,9 @@
 | `account_pool/application/profile_updates.py` | 命名配置与卡片原配置的差异计算 |
 | `account_pool/application/plugin_validation.py` | 插件来源和版本校验 |
 | `account_pool/application/environments/contracts.py` | 生命周期常量和显式回调协议 |
+| `account_pool/controlled_oauth_browser.py` | 手动及自动授权共享的会话、代理绑定和启动编排 |
+| `account_pool/oauth_automation/` | 加密任务、固定指纹、跨进程串行控制及同卡推理验收 |
+| `browser-worker/automation/` | 临时 Linux 浏览器、受限登录与 TOTP、接管输入互斥 |
 | `account_pool/application/environments/provisioning.py` | 创建环境及初始凭据验证 |
 | `account_pool/application/environments/authorization.py` | OAuth、回调与授权验证恢复 |
 | `account_pool/application/environments/auth_files.py` | 认证文件上传、替换、删除与状态修改 |

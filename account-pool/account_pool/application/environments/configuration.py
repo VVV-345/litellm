@@ -66,6 +66,8 @@ class EnvironmentConfigurationOperations:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None:
+                return Failure(FailureCode.CONFLICT, "授权自动化运行期间不能修改卡片配置，请先取消任务")
             if request.operation_id is not None and record.operation_id == request.operation_id:
                 if (
                     record.configuration_pending

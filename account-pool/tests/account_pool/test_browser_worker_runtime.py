@@ -85,7 +85,7 @@ def test_browser_compose_keeps_worker_internal_and_binds_only_selected_proxy(tmp
     assert callback["command"] == ["callback-relay"]
     assert callback["networks"] == {
         "browser": None,
-        "control": {"aliases": [f"{rendered['name']}-callback-relay"]},
+        "control": {"aliases": [f"oauth-control-{session.id.hex}"]},
     }
     assert callback["environment"]["CALLBACK_TOKEN"] == "callback-ticket-secret"
     assert callback["environment"]["MANAGER_CALLBACK_URL"].startswith(

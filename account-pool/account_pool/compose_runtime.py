@@ -26,7 +26,7 @@ from account_pool.compose_renderer import (
 )
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus
-from account_pool.oauth_browser import OAuthBrowserSession
+from account_pool.oauth_browser import OAuthBrowserAutomation, OAuthBrowserSession
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 
@@ -98,7 +98,8 @@ class ComposeRuntime:
         _write_private(environment_dir / "compose.yaml", selected_compose)
         await self._create_data_volume(record.id)
         await self._write_data_volume(record.id, selected_config)
-        await self._compose(record.id, "up", "-d", "--pull", "always", "--remove-orphans")
+        pull: Final = "missing" if "@sha256:" in self._settings.cli_proxy_image else "always"
+        await self._compose(record.id, "up", "-d", "--pull", pull, "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
 
     async def _create_data_volume(self, environment_id: UUID) -> None:
@@ -407,6 +408,7 @@ class ComposeRuntime:
         callback_token: str,
         callback_port: int,
         callback_path: str,
+        automation: OAuthBrowserAutomation | None = None,
     ) -> None:
         compose: Final = render_oauth_browser_compose(
             session,
@@ -416,6 +418,7 @@ class ComposeRuntime:
             callback_token=callback_token,
             callback_port=callback_port,
             callback_path=callback_path,
+            automation=automation,
         )
         directory: Final = self.oauth_browser_dir(session.id)
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -439,6 +442,8 @@ class ComposeRuntime:
 
     async def remove_oauth_browser(self, session_id: UUID) -> None:
         directory: Final = self.oauth_browser_dir(session_id)
+        if not (directory / "compose.yaml").is_file():
+            return
         await self._compose_at(
             f"account-pool-oauth-browser-{session_id.hex}",
             directory,
@@ -447,6 +452,29 @@ class ComposeRuntime:
             "--remove-orphans",
         )
         await asyncio.to_thread(_remove_environment_directory, directory, self._settings.data_root)
+
+    async def oauth_worker_check(self, action: tuple[str, ...]) -> bytes:
+        if action not in (("self-check",), ("generate-profile", "en-US"), ("generate-profile", "en-GB"), ("generate-profile", "zh-CN")):
+            raise ValueError("unsupported worker check")
+        image: Final = self._settings.oauth_browser_image
+        if image is None or re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", image) is None:
+            raise ValueError("OAuth browser image must be pinned by sha256 digest")
+        name: Final = f"account-pool-oauth-check-{uuid4().hex}"
+        process: Final = await self._runner((
+            "docker", "run", "--rm", "--pull=never", "--name", name, "--network", "none", "--read-only",
+            "--user", "10001:10001", "--memory", "1g", "--cpus", "2", "--pids-limit", "256",
+            "--shm-size", "256m", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
+            "--tmpfs", "/tmp:rw,noexec,nosuid,size=384m", image, *action,
+        ), self._docker_environment())
+        try:
+            stdout, stderr = await communicate_with_timeout(process, 90)
+            if process.returncode != 0 or len(stdout) > 65_536:
+                raise RuntimeError("isolated OAuth worker check failed")
+            return stdout
+        finally:
+            # run 客户端超时或 Manager 重启不能留下自检容器，名称来自本次生成的 UUID。
+            cleanup: Final = await self._runner(("docker", "rm", "--force", name), self._docker_environment())
+            await communicate_with_timeout(cleanup, 15)
 
     async def _write_stdin(self, process: DockerProcess, stdin_content: str) -> None:
         stdin = process.stdin

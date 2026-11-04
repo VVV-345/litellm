@@ -19,6 +19,7 @@ from account_pool.repository import database_connection
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
+OAUTH_AUTOMATION_LOCK: Final = UUID("ff1298bd-a852-58b0-965e-774b9d982936")
 
 
 class CredentialConflict(ValueError):

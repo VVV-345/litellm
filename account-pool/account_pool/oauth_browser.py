@@ -20,6 +20,10 @@ from account_pool.domain import OAuthCallback, utc_now
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 
 
+def oauth_browser_control_host(session_id: UUID) -> str:
+    return f"oauth-control-{session_id.hex}"
+
+
 class OAuthBrowserSessionStatus(StrEnum):
     STARTING = "starting"
     ACTIVE = "active"
@@ -80,10 +84,21 @@ class OAuthBrowserSessionGrant:
     callback_token: str = field(repr=False)
 
 
+class OAuthBrowserAutomation(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    fingerprint_json: str = Field(min_length=2, max_length=65_536, repr=False)
+    worker_token: str = Field(min_length=32, max_length=128, repr=False)
+    expires_at: datetime
+    human_timeout_seconds: int = Field(default=300, ge=30, le=300)
+
+
 class OAuthBrowserSessionRepository(Protocol):
     async def create_if_absent(self, session: OAuthBrowserSession) -> bool: ...
 
     async def get(self, session_id: UUID) -> OAuthBrowserSession | None: ...
+
+    async def renew_ticket(self, session_id: UUID, ticket_digest: str, now: datetime) -> OAuthBrowserSession | None: ...
 
     async def consume_ticket(
         self,
@@ -132,6 +147,7 @@ class OAuthBrowserRuntime(Protocol):
         callback_token: str,
         callback_port: int,
         callback_path: str,
+        automation: OAuthBrowserAutomation | None = None,
     ) -> None: ...
 
     async def remove_oauth_browser(self, session_id: UUID) -> None: ...
@@ -157,6 +173,14 @@ class OAuthBrowserSessionService:
 
     async def get(self, session_id: UUID) -> OAuthBrowserSession | None:
         return await self._repository.get(session_id)
+
+    async def list_for_environment(self, environment_id: UUID) -> tuple[OAuthBrowserSession, ...]:
+        return await self._repository.list_for_environment(environment_id)
+
+    async def renew_ticket(self, session_id: UUID) -> tuple[OAuthBrowserSession, str] | None:
+        token: Final = self._token_factory()
+        session: Final = await self._repository.renew_ticket(session_id, _digest(token), self._clock())
+        return None if session is None else (session, token)
 
     async def start(
         self,

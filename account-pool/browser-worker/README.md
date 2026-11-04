@@ -14,4 +14,13 @@ entrypoint.py 和 Dockerfile 提供受控授权浏览器运行环境；不是公
 
 ```bash
 docker build -f account-pool/browser-worker/Dockerfile -t account-pool-browser-check account-pool
+docker run --rm --network none account-pool-browser-check self-check
+docker run --rm --network none account-pool-browser-check generate-profile en-US
+node --test account-pool/browser-worker/automation/*.test.mjs
 ```
+
+镜像预装固定版本 Camoufox SDK、Linux 浏览器、字体、Xvfb 和 noVNC，不在登录时下载资源。构建需要访问固定的镜像源、PyPI、npm 和 GitHub release；代理不可达或下载校验失败时应停止，不跳过校验。SDK 指纹生成也需要显示服务，入口会在离线自检和指纹生成时启动 Xvfb
+
+## 授权自动化
+
+配置、2FA、接管与重试流程统一见[凭据手册](../../docs/handbook/modules/credentials.md#可选授权自动化与-2fa)，实际验收范围与已知基线失败见 [2026-11-04 验收记录](../docs/oauth-automation-acceptance-20261104.md)

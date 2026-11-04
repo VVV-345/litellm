@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import http.server
+import hmac
 import ipaddress
 import json
 import os
@@ -240,6 +241,9 @@ class _BrowserCallbackHandler(http.server.BaseHTTPRequestHandler):
 
 class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:
+        if self.path == "/control":
+            self._control()
+            return
         server: Final = cast(_CallbackServer, self.server)
         manager_url: Final = server.manager_callback_url
         token: Final = server.callback_token
@@ -281,6 +285,36 @@ class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
         )
         code: Final = _callback_response_status(request)
         self._respond(200 if 200 <= code < 300 else code)
+
+    def _control(self) -> None:
+        token: Final = os.environ.get("OAUTH_AUTOMATION_TOKEN", "")
+        if not token or not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {token}"):
+            self._respond(401)
+            return
+        try:
+            length: Final = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 16_384:
+                self._respond(413)
+                return
+            request: Final = Request(
+                "http://browser:8094/control", data=self.rfile.read(length), method="POST",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            )
+            with cast(HTTPResponse, urlopen(request, timeout=15)) as response:
+                content: Final = response.read(4097)
+                if len(content) > 4096:
+                    self._respond(502)
+                    return
+                self.send_response(response.status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+        except HTTPError as error:
+            self._respond(error.code)
+        except (ValueError, OSError, URLError, TimeoutError):
+            self._respond(502)
 
     def _respond(self, code: int) -> None:
         self.send_response(code)
@@ -457,20 +491,37 @@ def _run_browser() -> None:
         processes.callback(callback_server.shutdown)
         processes.callback(callback_server.server_close)
         _start_process(
-            ("Xvfb", display, "-screen", "0", "1280x800x24", "-nolisten", "tcp"), process_environment, processes
+            ("Xvfb", display, "-screen", "0", "1920x1080x24", "-nolisten", "tcp"), process_environment, processes
         )
         _start_process(
-            ("x11vnc", "-display", display, "-forever", "-shared", "-nopw", "-rfbport", "5900"),
+            ("x11vnc", "-display", display, "-forever", "-shared", "-nopw", "-rfbport", "5900",
+             *( ("-viewonly",) if os.environ.get("OAUTH_AUTOMATION") == "true" else () )),
             process_environment,
             processes,
         )
-        from playwright.sync_api import (
-            sync_playwright,  # pyright: ignore[reportMissingImports, reportUnknownVariableType]  # worker image supplies Playwright
+        driver: Final = subprocess.run(
+            ("node", "/app/automation/browser.mjs"), stdin=subprocess.DEVNULL, check=False,
         )
+        if driver.returncode != 0:
+            raise RuntimeError("OAuth browser driver failed")
 
-        playwright_factory: Final = cast(Callable[[], PlaywrightContext], sync_playwright)
-        with playwright_factory() as playwright:
-            _run_browser_page(playwright.chromium, authorization_url, proxy_server, _BROWSER_READY_FILE)
+
+def _run_self_check() -> None:
+    environment: Final = {"DISPLAY": ":99", "HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
+    with ExitStack() as processes:
+        _start_process(("Xvfb", ":99", "-screen", "0", "1920x1080x24", "-nolisten", "tcp"), environment, processes)
+        _start_process(
+            ("x11vnc", "-display", ":99", "-forever", "-shared", "-nopw", "-viewonly", "-rfbport", "5900"),
+            environment, processes,
+        )
+        _start_process(
+            ("websockify", "--web=/usr/share/novnc", "127.0.0.1:8093", "127.0.0.1:5900"), environment, processes,
+        )
+        result: Final = subprocess.run(
+            ("node", "/app/automation/selfcheck.mjs"), env=environment, stdin=subprocess.DEVNULL, check=False, timeout=75,
+        )
+        if result.returncode != 0:
+            raise SystemExit("OAuth browser image self check failed")
 
 
 def main() -> None:
@@ -482,6 +533,17 @@ def main() -> None:
             asyncio.run(_run_egress_relay(_required_environment("PROXY_URL")))
         case "callback-relay":
             _run_callback_relay(_required_environment("MANAGER_CALLBACK_URL"), _required_environment("CALLBACK_TOKEN"))
+        case "generate-profile":
+            environment: Final = {"DISPLAY": ":99", "HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
+            with ExitStack() as processes:
+                _start_process(("Xvfb", ":99", "-screen", "0", "1920x1080x24", "-nolisten", "tcp"), environment, processes)
+                result: Final = subprocess.run(
+                    ("python", "/app/camoufox_profile.py", "generate", sys.argv[2]), env=environment,
+                    stdin=subprocess.DEVNULL, check=False, timeout=45,
+                )
+                raise SystemExit(result.returncode)
+        case "self-check":
+            _run_self_check()
         case "healthcheck":
             try:
                 _check_health(sys.argv[2])

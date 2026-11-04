@@ -145,6 +145,8 @@ class QuotaResetService:
         record: Final = await self.environments.get(environment_id)
         if record is None:
             raise ValueError("卡片不存在")
+        if record.oauth_automation_operation is not None:
+            raise ValueError("卡片正由授权自动化独占，请先取消任务")
         if record.channel is not ChannelKind.CLIPROXYAPI or record.supplier is not SupplierKind.OPENAI_CODEX:
             raise ValueError("此卡片不支持 Codex 官方额度重置")
         if not record.auth_file_name or not record.auth_index or not record.credential_fingerprints:

@@ -49,6 +49,14 @@ class MemoryBrowserSessions:
     async def get(self, session_id: UUID) -> OAuthBrowserSession | None:
         return self.sessions.get(session_id)
 
+    async def renew_ticket(self, session_id: UUID, ticket_digest: str, now: datetime) -> OAuthBrowserSession | None:
+        current: Final = self.sessions.get(session_id)
+        if current is None or current.status is not OAuthBrowserSessionStatus.ACTIVE or current.expires_at <= now:
+            return None
+        renewed: Final = current.model_copy(update={"ticket_digest": ticket_digest, "ticket_consumed_at": None})
+        self.sessions[session_id] = renewed
+        return renewed
+
     async def consume_ticket(
         self,
         session_id: UUID,

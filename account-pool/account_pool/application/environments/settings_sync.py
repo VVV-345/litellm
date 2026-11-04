@@ -98,24 +98,30 @@ class EnvironmentSettingsSync:
     ) -> None:
         if record.status is EnvironmentStatus.DELETING:
             return
+        if record.oauth_automation_operation is not None:
+            raise ValueError("授权自动化运行期间不能修改卡片设置")
         effective: Final = settings_for_card(settings, record.id)
         configured: Final = await self.apply_explicit_profile_configuration(record, update)
         if configured.channel is not ChannelKind.CLIPROXYAPI:
             return
-        await self._cli_proxy.apply_global_settings(configured, effective)
-        if policy is None:
-            return
-        try:
-            await self._cli_proxy.apply_policy(configured, policy.policy)
-        except Exception as error:
-            await self.set_policy_runtime_status(
-                policy,
-                "failed",
-                public_policy_sync_error(error) or "policy runtime synchronization failed",
-                require_current=False,
-            )
-            raise
-        await self.set_policy_runtime_status(policy, "synced")
+        async with self._ownership.operation(record.id):
+            current: Final = await self._repository.get(record.id)
+            if current is None or current.oauth_automation_operation is not None:
+                raise ValueError("卡片不存在或正在执行授权自动化，不能同步设置")
+            await self._cli_proxy.apply_global_settings(current, effective)
+            if policy is None:
+                return
+            try:
+                await self._cli_proxy.apply_policy(current, policy.policy)
+            except Exception as error:
+                await self.set_policy_runtime_status(
+                    policy,
+                    "failed",
+                    public_policy_sync_error(error) or "policy runtime synchronization failed",
+                    require_current=False,
+                )
+                raise
+            await self.set_policy_runtime_status(policy, "synced")
 
     def explicit_profile_update(
         self,
@@ -144,7 +150,7 @@ class EnvironmentSettingsSync:
         lock: Final = await self._lock_for(snapshot.id)
         async with lock, self._ownership.operation(snapshot.id):
             current: Final = await self._repository.get(snapshot.id)
-            if current is None:
+            if current is None or current.oauth_automation_operation is not None:
                 raise ValueError("environment not found during settings rollback")
             # 只撤销本次设置同步写入，不能覆盖同步期间发生的其他卡片编辑。
             if current.operation_id != operation_id:
@@ -244,5 +250,9 @@ class EnvironmentSettingsSync:
             raise ValueError("policy changed during runtime synchronization")
 
     async def sync_policy(self, record: EnvironmentRecord, policy: AccountPolicy) -> None:
-        if record.channel is ChannelKind.CLIPROXYAPI and record.status is not EnvironmentStatus.DELETING:
-            await self._cli_proxy.apply_policy(record, policy)
+        async with self._ownership.operation(record.id):
+            current: Final = await self._repository.get(record.id)
+            if current is None or current.oauth_automation_operation is not None:
+                raise ValueError("卡片不存在或正在执行授权自动化，不能同步策略")
+            if current.channel is ChannelKind.CLIPROXYAPI and current.status is not EnvironmentStatus.DELETING:
+                await self._cli_proxy.apply_policy(current, policy)

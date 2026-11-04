@@ -65,6 +65,8 @@ class EnvironmentAuthFiles:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None:
+                return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消任务")
             if record.channel is not ChannelKind.CLIPROXYAPI:
                 return Failure(FailureCode.INVALID, "auth files are supported by CLIProxyAPI cards only")
             if record.status is EnvironmentStatus.DELETING:
@@ -114,6 +116,8 @@ class EnvironmentAuthFiles:
         content_type: str | None,
         pending_state: str | None,
     ) -> Result[EnvironmentView]:
+        if record.oauth_automation_operation is not None:
+            return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消任务")
         channel: Final = self._channel(record)
         try:
             if pending_state is not None:
@@ -203,6 +207,8 @@ class EnvironmentAuthFiles:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None:
+                return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消任务")
             if record.channel is not ChannelKind.CLIPROXYAPI:
                 return Failure(FailureCode.INVALID, "this card has no auth file")
             if record.status is EnvironmentStatus.DELETING:
@@ -265,6 +271,8 @@ class EnvironmentAuthFiles:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None:
+                return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消任务")
             if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
                 return Failure(FailureCode.INVALID, "this card has no auth file")
             if record.status is EnvironmentStatus.DELETING:
@@ -285,6 +293,8 @@ class EnvironmentAuthFiles:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None:
+                return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消任务")
             if record.channel is not ChannelKind.CLIPROXYAPI or record.auth_file_name is None:
                 return Failure(FailureCode.INVALID, "this card has no auth file")
             if record.status is EnvironmentStatus.DELETING:

@@ -15,13 +15,14 @@ from datetime import date, datetime, timezone
 from io import BytesIO
 from typing import Final, cast
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, NAMESPACE_URL, uuid5
 
 import httpx
 import yaml
 
 from account_pool.clash import ClashController, ClashDelayResult, ClashDelayStatus, ClashError, ClashProxyNode
 from account_pool.config import Settings
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.isp_probe import GatewayISPProbe, GatewayISPProbeResult
 from account_pool.ports import ProxyProfileRepository
 from account_pool.proxy_catalog import (
@@ -81,6 +82,7 @@ class ProxyGatewayService:
         fetch_configuration: Callable[[str], Awaitable[str]] | None = None,
         catalog: ProxyCatalogRepository | None = None,
         gateway_probe: GatewayISPProbe | None = None,
+        ownership: CredentialOwnership | None = None,
     ) -> None:
         self._settings: Final = settings
         self._profiles: Final = profiles
@@ -92,15 +94,16 @@ class ProxyGatewayService:
         self._fetch_configuration: Final = fetch_configuration or self._download_configuration
         self._catalog: Final = catalog
         self._gateway_probe: Final = gateway_probe or GatewayISPProbe()
+        self._ownership: Final = ownership or CredentialOwnership()
 
     @asynccontextmanager
     async def profile_operation(self, profile_id: str | None) -> AsyncGenerator[None, None]:
-        if profile_id is None or not profile_id.startswith(_GATEWAY_PROFILE_PREFIX):
+        if profile_id is None:
             yield
             return
         # 同一出口的授权启动与节点切换互斥；不同出口不等待，也不持锁等待人工登录。
         lock: Final = self._profile_locks.setdefault(profile_id, asyncio.Lock())
-        async with lock:
+        async with lock, self._ownership.operation(uuid5(NAMESPACE_URL, "account-pool-proxy:" + profile_id)):
             yield
 
     @classmethod
@@ -110,6 +113,7 @@ class ProxyGatewayService:
         profiles: ProxyProfileRepository,
         *,
         catalog: ProxyCatalogRepository | None = None,
+        ownership: CredentialOwnership | None = None,
     ) -> ProxyGatewayService:
         """Clash 未配置时的占位实例：列表为空，调用切换即报错。"""
 
@@ -135,7 +139,7 @@ class ProxyGatewayService:
             async def measure_gateway_delay(self, proxy_url: str) -> ClashDelayResult:
                 raise ClashError("clash controller is not configured")
 
-        return cls(settings, profiles, _InactiveController(), catalog=catalog)  # pyright: ignore[reportArgumentType]  # structural controller double
+        return cls(settings, profiles, _InactiveController(), catalog=catalog, ownership=ownership)  # pyright: ignore[reportArgumentType]  # structural controller double
 
     async def list_nodes(self) -> tuple[ClashProxyNode, ...]:
         return tuple(

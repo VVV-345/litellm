@@ -3,6 +3,7 @@
 const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
 
 export const accountPoolQueryKeys = {
+  automation: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "oauth-automation", accessToken] as const,
   runtimeCards: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "runtime-cards", accessToken] as const,
   quotaReset: (accessToken: string, id: string) => [...ACCOUNT_POOL_ROOT, "quota-reset", accessToken, id] as const,
   all: ACCOUNT_POOL_ROOT,

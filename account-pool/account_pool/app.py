@@ -26,6 +26,7 @@ from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
+from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
@@ -40,6 +41,10 @@ from account_pool.management_repository import (
     initialize_management_schema,
 )
 from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
+from account_pool.oauth_automation.repository import PostgresAutomationRepository
+from account_pool.oauth_automation.runner import AutomationRunner
+from account_pool.oauth_automation.service import AutomationRegistry
+from account_pool.oauth_automation.worker import AutomationWorker
 from account_pool.onboarding.repository import PostgresOnboardingRepository
 from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
@@ -111,9 +116,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ClashController(resolved.clash_controller_url, resolved.clash_secret) if resolved.clash_controller_url else None
     )
     proxy_gateways: Final = (
-        ProxyGatewayService(resolved, profiles, controller, catalog=proxy_catalog_repository)
+        ProxyGatewayService(resolved, profiles, controller, catalog=proxy_catalog_repository, ownership=ownership)
         if controller is not None
-        else ProxyGatewayService.disabled(resolved, profiles, catalog=proxy_catalog_repository)
+        else ProxyGatewayService.disabled(resolved, profiles, catalog=proxy_catalog_repository, ownership=ownership)
     )
     proxy_catalog: Final = ProxyCatalogService(
         proxy_catalog_repository,
@@ -150,6 +155,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     onboarding_repository: Final = PostgresOnboardingRepository(resolved.database_url)
     onboarding_service: Final = OnboardingService(onboarding_repository, environments, service, secrets)
+    automation_repository: Final = PostgresAutomationRepository(resolved.database_url)
+    automation_http: Final = httpx.AsyncClient(timeout=30, trust_env=False, transport=httpx.AsyncHTTPTransport(retries=0))
+    automation_worker: Final = AutomationWorker(browser_runtime, automation_http)
+    browser_controller: Final = ControlledOAuthBrowser(environments, profiles, browser_sessions, browser_runtime, service, ownership)
+    automation: Final = AutomationRunner(
+        AutomationRegistry(automation_repository, environments, automation_worker, secrets, ownership),
+        browser_controller, automation_worker,
+    )
     quota_scheduler: Final = QuotaRefreshScheduler(
         settings_repository,
         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
@@ -203,6 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await leases.initialize()
         await batches.initialize()
         await onboarding_repository.initialize()
+        await automation_repository.initialize()
         await settings_repository.initialize()
         await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
@@ -229,6 +243,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         retry_stopped: Final = asyncio.Event()
         log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
         onboarding_task: Final = asyncio.create_task(onboarding_service.run_until_cancelled(retry_stopped))
+        automation_task: Final = asyncio.create_task(automation.run_until_cancelled(retry_stopped))
         batch_task: Final = asyncio.create_task(batch_service.run_until_cancelled(retry_stopped))
         retry_task: Final = asyncio.create_task(
             _reconcile_pending_configurations_until_cancelled(service, retry_stopped)
@@ -254,6 +269,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             log_retention_task.cancel()
             batch_task.cancel()
             onboarding_task.cancel()
+            automation_task.cancel()
             quota_refresh_task.cancel()
             quota_event_task.cancel()
             quota_recovery_task.cancel()
@@ -264,6 +280,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
+            await asyncio.gather(automation_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(quota_event_task, return_exceptions=True)
             await asyncio.gather(quota_recovery_task, return_exceptions=True)
@@ -290,6 +307,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await litellm_upstream_sync.close()
             await cooldown_client.close()
             await reset_http.aclose()
+            await automation_http.aclose()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(
@@ -327,6 +345,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             proxy_catalog=proxy_catalog,
             browser_sessions=browser_sessions,
             browser_runtime=browser_runtime,
+            browser_controller=browser_controller,
+            automation=automation,
             feedback=feedback,
             quota_reset=quota_reset,
             access_token_fallback=access_fallback,

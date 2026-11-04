@@ -83,6 +83,8 @@ class EnvironmentAuthorization:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None and record.oauth_automation_operation != operation_id:
+                return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消自动化任务")
             if record.status is EnvironmentStatus.DELETING:
                 return Failure(FailureCode.CONFLICT, "environment is being deleted")
             if require_empty and (
@@ -134,6 +136,8 @@ class EnvironmentAuthorization:
     async def _authorize_prepared_locked(
         self, record: EnvironmentRecord, operation_id: str | None
     ) -> Result[AuthorizationView]:
+        if record.oauth_automation_operation is not None and record.oauth_automation_operation != operation_id:
+            return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消自动化任务")
         try:
             channel: Final = self._channel(record)
             await channel.ensure_control_plane_connections(record.id)
@@ -167,12 +171,14 @@ class EnvironmentAuthorization:
             return Failure(FailureCode.CONFLICT, "environment was changed by another request")
         return Success(self.authorization_view(saved))
 
-    async def cancel_oauth_session(self, environment_id: UUID) -> Result[EnvironmentView]:
+    async def cancel_oauth_session(self, environment_id: UUID, operation_id: str | None = None) -> Result[EnvironmentView]:
         lock: Final = await self._lock_for(environment_id)
         async with lock, self._ownership.operation(environment_id):
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if record.oauth_automation_operation is not None and record.oauth_automation_operation != operation_id:
+                return Failure(FailureCode.CONFLICT, "请从自动化任务取消，不中断其他任务的授权")
             state: Final = record.oauth_provider_state or record.oauth_state
             if record.status is not EnvironmentStatus.AWAITING_AUTHORIZATION or state is None:
                 return Failure(FailureCode.CONFLICT, "OAuth authorization is not pending")

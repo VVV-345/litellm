@@ -359,6 +359,18 @@ class PostgresOAuthBrowserSessionRepository:
             row: Final = await cursor.fetchone()
         return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
 
+    async def renew_ticket(self, session_id: UUID, ticket_digest: str, now: datetime) -> OAuthBrowserSession | None:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "UPDATE account_pool_oauth_browser_sessions SET payload = "
+                "jsonb_set(jsonb_set(payload, '{ticket_digest}', to_jsonb(%s::text), true), "
+                "'{ticket_consumed_at}', 'null'::jsonb, true) "
+                "WHERE id = %s AND status = %s AND expires_at > %s RETURNING payload",
+                (ticket_digest, session_id, OAuthBrowserSessionStatus.ACTIVE.value, now),
+            )
+            row: Final = await cursor.fetchone()
+        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
+
     async def validate_ticket(
         self,
         session_id: UUID,

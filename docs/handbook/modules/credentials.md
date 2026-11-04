@@ -22,6 +22,16 @@ OAuth 创建一次性 state，用户复制链接在本地浏览器登录，再�
 
 token、密码和回调 code 不进入命令参数、日志或截图。worker 未配置时保持未配置，不为了排障自动启用。边界和更完整的流程见[受控浏览器说明](../../../account-pool/docs/controlled-oauth-browser.md)、[上号说明](../../../account-pool/ONBOARDING.md)及[归属说明](../../../account-pool/CREDENTIAL_OWNERSHIP.md)
 
+## 可选授权自动化与 2FA
+
+Manager 的 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 必须使用 digest。号池的“授权自动化”有任务队列、指纹配置、运行设置三个标签页；默认关闭，先自检当前镜像，再生成固定 Linux 指纹、选择已同步普通出口代理的空白 Codex 卡片、提交一条 `email----password----TOTPBase32` 资料，最后显式开启
+
+手动文件导入和原有浏览器授权仍保留。自动化全局只推进一个账号，和人工登录互斥；同账号重试沿用原指纹，浏览器和 CPA 使用同一代理，代理失败不直连。人工接管要先等脚本停止，交回时先关闭输入并重新确认账号。未知验证、邮箱、短信和 CAPTCHA 不会猜测或绕过，需人工处理。总时限最多 600 秒，人工等待最多 300 秒且计入总时限
+
+凭据保存与模型推理是两个结果。只有同卡 Chat 和 Responses 都得到完整文本才标记验收通过；失败后可指定这张卡已启用的模型“仅重试验收”，不会重新登录、重放回调或覆盖凭据。进程重启不自动重发结果未知的登录和推理。取消或超时会清理临时浏览器，保留已保存凭据，不能保证已经发出的上游请求未被处理
+
+资料只通过管理员接口提交并在 Manager 按环境加密，不进入任务查询、浏览器存储或查询缓存；屏幕沿用原来的短期一次性票据，不公开 VNC 端口。不要把账号文件、截图中的私密资料或验收 Key 提交进 Git。实现入口是 [oauth_automation](../../../account-pool/account_pool/oauth_automation)，构建命令见 [worker 说明](../../../account-pool/browser-worker/README.md)，实际验收范围与已知基线失败见 [2026-11-04 验收记录](../../../account-pool/docs/oauth-automation-acceptance-20261104.md)
+
 ## 依赖与改动影响
 
 归属使用现有 seed 派生的 HMAC 指纹，生产依赖 PostgreSQL 与跨进程操作锁。授权、上传替换、刷新、删除和配置共享归属约束；改变枚举或回调会影响准入、批量上号、策略同步和 UI 缓存

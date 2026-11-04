@@ -9,7 +9,7 @@ import yaml
 
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import EnvironmentRecord
-from account_pool.oauth_browser import OAuthBrowserSession
+from account_pool.oauth_browser import OAuthBrowserAutomation, OAuthBrowserSession, oauth_browser_control_host
 
 
 def render_cli_proxy_config(management_key: str, gateway_key: str, *, proxy_url: str = "") -> str:
@@ -89,6 +89,7 @@ def render_oauth_browser_compose(
     callback_token: str,
     callback_port: int,
     callback_path: str,
+    automation: OAuthBrowserAutomation | None = None,
 ) -> str:
     image: Final = settings.oauth_browser_image
     if image is None or re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", image) is None:
@@ -130,6 +131,13 @@ def render_oauth_browser_compose(
                     "OAUTH_AUTHORIZATION_URL": authorization_url,
                     "OAUTH_CALLBACK_LISTEN_PORT": str(callback_port),
                     "OAUTH_CALLBACK_LISTEN_PATH": callback_path,
+                    "OAUTH_BROWSER_EXPIRES_AT": min(session.expires_at, automation.expires_at).isoformat() if automation else session.expires_at.isoformat(),
+                    **({
+                        "OAUTH_AUTOMATION": "true",
+                        "OAUTH_AUTOMATION_TOKEN": automation.worker_token,
+                        "OAUTH_FINGERPRINT_PROFILE": automation.fingerprint_json,
+                        "OAUTH_HUMAN_TIMEOUT_SECONDS": str(automation.human_timeout_seconds),
+                    } if automation else {}),
                 },
                 "networks": {"browser": {"aliases": ["browser"]}},
                 "depends_on": {
@@ -158,6 +166,7 @@ def render_oauth_browser_compose(
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=8m"],
                 "environment": {
                     "CALLBACK_TOKEN": callback_token,
+                    **({"OAUTH_AUTOMATION_TOKEN": automation.worker_token} if automation else {}),
                     "MANAGER_CALLBACK_URL": (
                         f"http://{settings.manager_container}:8091/internal/oauth-browser-sessions/"
                         f"{session.id}/callback"
@@ -165,7 +174,7 @@ def render_oauth_browser_compose(
                 },
                 "networks": {
                     "browser": None,
-                    "control": {"aliases": [f"{project_name}-callback-relay"]},
+                    "control": {"aliases": [oauth_browser_control_host(session.id)]},
                 },
                 "healthcheck": {
                     "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "callback-relay"],
