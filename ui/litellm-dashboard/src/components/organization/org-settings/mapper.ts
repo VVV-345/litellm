@@ -18,6 +18,7 @@ const metadataRecordSchema = z.record(z.string(), z.unknown());
 
 export const orgToForm = (org: Organization): OrgSettingsFormValues => {
   const budget = budgetSliceSchema.parse(org.litellm_budget_table ?? {});
+  const permission = org.object_permission ?? {};
   return {
     organization_alias: org.organization_alias ?? "",
     models: org.models ?? [],
@@ -25,11 +26,11 @@ export const orgToForm = (org: Organization): OrgSettingsFormValues => {
     budget_duration: budget.budget_duration ?? "",
     tpm_limit: budget.tpm_limit?.toString() ?? "",
     rpm_limit: budget.rpm_limit?.toString() ?? "",
-    vector_stores: org.object_permission?.vector_stores ?? [],
+    vector_stores: permission.vector_stores ?? [],
     mcp: {
-      servers: org.object_permission?.mcp_servers ?? [],
-      accessGroups: org.object_permission?.mcp_access_groups ?? [],
-      toolsets: org.object_permission?.mcp_toolsets ?? [],
+      servers: permission.mcp_servers ?? [],
+      accessGroups: permission.mcp_access_groups ?? [],
+      toolsets: permission.mcp_toolsets ?? [],
     },
     metadata: org.metadata && Object.keys(org.metadata).length > 0 ? JSON.stringify(org.metadata, null, 2) : "",
   };

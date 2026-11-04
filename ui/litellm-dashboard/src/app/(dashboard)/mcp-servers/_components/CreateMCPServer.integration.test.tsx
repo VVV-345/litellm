@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import * as networking from "@/components/networking";
 import { setToken } from "@/utils/mcpTokenStore";
 import CreateMCPServer from "./CreateMCPServer";
@@ -106,6 +107,10 @@ const defaultProps = {
 
 /** Helper: get the server_name input by its Ant Form id */
 const getServerNameInput = () => document.getElementById("server_name") as HTMLInputElement;
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en-US");
+});
 
 describe("CreateMCPServer", () => {
   beforeEach(() => {

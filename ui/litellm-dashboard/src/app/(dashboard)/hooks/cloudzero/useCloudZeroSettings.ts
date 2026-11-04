@@ -25,11 +25,11 @@ const getCloudZeroSettings = async (accessToken: string): Promise<CloudZeroSetti
       // Handle different error response formats
       if (typeof errorData === "object" && errorData !== null) {
         errorMessage =
-          errorData?.error?.message ||
-          errorData?.error ||
-          errorData?.message ||
-          errorData?.detail ||
-          (typeof errorData?.error === "string" ? errorData.error : errorMessage);
+          errorData.error?.message ||
+          errorData.error ||
+          errorData.message ||
+          errorData.detail ||
+          (typeof errorData.error === "string" ? errorData.error : errorMessage);
       } else if (typeof errorData === "string") {
         errorMessage = errorData;
       }
@@ -99,11 +99,11 @@ const updateCloudZeroSettings = async (accessToken: string, params: UpdateParams
       const errorData = await response.json();
       if (typeof errorData === "object" && errorData !== null) {
         errorMessage =
-          errorData?.error?.message ||
-          errorData?.error ||
-          errorData?.message ||
-          errorData?.detail ||
-          (typeof errorData?.error === "string" ? errorData.error : errorMessage);
+          errorData.error?.message ||
+          errorData.error ||
+          errorData.message ||
+          errorData.detail ||
+          (typeof errorData.error === "string" ? errorData.error : errorMessage);
       } else if (typeof errorData === "string") {
         errorMessage = errorData;
       }

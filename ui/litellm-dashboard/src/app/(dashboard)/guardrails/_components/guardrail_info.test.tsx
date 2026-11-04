@@ -1,7 +1,8 @@
 import * as networking from "@/components/networking";
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import GuardrailInfoView from "./guardrail_info";
 
 // Mock the networking module
@@ -37,6 +38,9 @@ vi.mock("./content_filter/ContentFilterManager", () => ({
 }));
 
 describe("Guardrail Info", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
+  });
   afterEach(() => {
     vi.clearAllMocks();
   });

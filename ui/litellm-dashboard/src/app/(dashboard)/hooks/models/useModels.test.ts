@@ -66,7 +66,7 @@ describe("useModelsInfo", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -75,7 +75,8 @@ describe("useModelsInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -171,7 +172,7 @@ describe("useModelsInfo", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -180,7 +181,8 @@ describe("useModelsInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useModelsInfo(), { wrapper });
 
@@ -191,7 +193,7 @@ describe("useModelsInfo", () => {
   });
 
   it("should not execute query when userId is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: "test-access-token",
       userId: null,
       userRole: "Admin",
@@ -200,7 +202,8 @@ describe("useModelsInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     const { result } = renderHook(() => useModelsInfo(), { wrapper });
 
@@ -211,7 +214,7 @@ describe("useModelsInfo", () => {
   });
 
   it("should not execute query when userRole is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult4 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: null,
@@ -220,7 +223,8 @@ describe("useModelsInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
     const { result } = renderHook(() => useModelsInfo(), { wrapper });
 
@@ -231,7 +235,7 @@ describe("useModelsInfo", () => {
   });
 
   it("should not execute query when all required auth values are missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult5 = {
       accessToken: null,
       userId: null,
       userRole: null,
@@ -240,7 +244,8 @@ describe("useModelsInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult5);
 
     const { result } = renderHook(() => useModelsInfo(), { wrapper });
 
@@ -265,7 +270,7 @@ describe("useModelHub", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult6 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -274,7 +279,8 @@ describe("useModelHub", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult6);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -329,7 +335,7 @@ describe("useModelHub", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult7 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -338,7 +344,8 @@ describe("useModelHub", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult7);
 
     const { result } = renderHook(() => useModelHub(), { wrapper });
 
@@ -363,7 +370,7 @@ describe("useAllProxyModels", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult8 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -372,7 +379,8 @@ describe("useAllProxyModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult8);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -435,7 +443,7 @@ describe("useAllProxyModels", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult9 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -444,7 +452,8 @@ describe("useAllProxyModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult9);
 
     const { result } = renderHook(() => useAllProxyModels(), { wrapper });
 
@@ -455,7 +464,7 @@ describe("useAllProxyModels", () => {
   });
 
   it("should not execute query when userId is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult10 = {
       accessToken: "test-access-token",
       userId: null,
       userRole: "Admin",
@@ -464,7 +473,8 @@ describe("useAllProxyModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult10);
 
     const { result } = renderHook(() => useAllProxyModels(), { wrapper });
 
@@ -475,7 +485,7 @@ describe("useAllProxyModels", () => {
   });
 
   it("should not execute query when userRole is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult11 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: null,
@@ -484,7 +494,8 @@ describe("useAllProxyModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult11);
 
     const { result } = renderHook(() => useAllProxyModels(), { wrapper });
 
@@ -509,7 +520,7 @@ describe("useUserModels", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult12 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -518,7 +529,8 @@ describe("useUserModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult12);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -541,7 +553,7 @@ describe("useUserModels", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult13 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -550,7 +562,8 @@ describe("useUserModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult13);
 
     const { result } = renderHook(() => useUserModels(), { wrapper });
 
@@ -573,7 +586,7 @@ describe("useSelectedTeamModels", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult14 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -582,7 +595,8 @@ describe("useSelectedTeamModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult14);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -645,7 +659,7 @@ describe("useSelectedTeamModels", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult15 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -654,7 +668,8 @@ describe("useSelectedTeamModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult15);
 
     const { result } = renderHook(() => useSelectedTeamModels("team-1"), { wrapper });
 
@@ -665,7 +680,7 @@ describe("useSelectedTeamModels", () => {
   });
 
   it("should not execute query when userId is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult16 = {
       accessToken: "test-access-token",
       userId: null,
       userRole: "Admin",
@@ -674,7 +689,8 @@ describe("useSelectedTeamModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult16);
 
     const { result } = renderHook(() => useSelectedTeamModels("team-1"), { wrapper });
 
@@ -685,7 +701,7 @@ describe("useSelectedTeamModels", () => {
   });
 
   it("should not execute query when userRole is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult17 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: null,
@@ -694,7 +710,8 @@ describe("useSelectedTeamModels", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult17);
 
     const { result } = renderHook(() => useSelectedTeamModels("team-1"), { wrapper });
 
@@ -744,7 +761,7 @@ describe("useInfiniteModelInfo", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult18 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -753,7 +770,8 @@ describe("useInfiniteModelInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult18);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -873,7 +891,7 @@ describe("useInfiniteModelInfo", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult19 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -882,7 +900,8 @@ describe("useInfiniteModelInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult19);
 
     const { result } = renderHook(() => useInfiniteModelInfo(), { wrapper });
 
@@ -893,7 +912,7 @@ describe("useInfiniteModelInfo", () => {
   });
 
   it("should not execute query when userId is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult20 = {
       accessToken: "test-access-token",
       userId: null,
       userRole: "Admin",
@@ -902,7 +921,8 @@ describe("useInfiniteModelInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult20);
 
     const { result } = renderHook(() => useInfiniteModelInfo(), { wrapper });
 
@@ -913,7 +933,7 @@ describe("useInfiniteModelInfo", () => {
   });
 
   it("should not execute query when userRole is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult21 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: null,
@@ -922,7 +942,8 @@ describe("useInfiniteModelInfo", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult21);
 
     const { result } = renderHook(() => useInfiniteModelInfo(), { wrapper });
 
@@ -1012,7 +1033,7 @@ describe("useAutoRouterModelGroups", () => {
   beforeEach(() => {
     queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     vi.clearAllMocks();
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult22 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -1021,14 +1042,15 @@ describe("useAutoRouterModelGroups", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult22);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
     React.createElement(QueryClientProvider, { client: queryClient }, children);
 
   it("resolves the set of auto-router model groups from the deployment list", async () => {
-    (modelInfoCall as any).mockResolvedValue({
+    const modelInfoCallResult23 = {
       data: [
         { model_name: "smart-router", litellm_params: { model: "auto_router/complexity_router" } },
         { model_name: "claude-haiku", litellm_params: { model: "anthropic/claude-haiku-4-5" } },
@@ -1037,7 +1059,8 @@ describe("useAutoRouterModelGroups", () => {
       current_page: 1,
       total_pages: 1,
       size: 1000,
-    });
+    };
+    (modelInfoCall as any).mockResolvedValue(modelInfoCallResult23);
 
     const { result } = renderHook(() => useAutoRouterModelGroups(), { wrapper });
 
@@ -1047,13 +1070,14 @@ describe("useAutoRouterModelGroups", () => {
   });
 
   it("requests a single large page when the proxy reports only one page of deployments", async () => {
-    (modelInfoCall as any).mockResolvedValue({
+    const modelInfoCallResult24 = {
       data: [],
       total_count: 0,
       current_page: 1,
       total_pages: 1,
       size: 1000,
-    });
+    };
+    (modelInfoCall as any).mockResolvedValue(modelInfoCallResult24);
 
     renderHook(() => useAutoRouterModelGroups(), { wrapper });
 

@@ -18,14 +18,15 @@ export function ObjectPermissionsView({
   className = "",
   accessToken,
 }: ObjectPermissionsViewProps) {
-  const vectorStores = objectPermission?.vector_stores || [];
-  const mcpServers = objectPermission?.mcp_servers || [];
-  const mcpAccessGroups = objectPermission?.mcp_access_groups || [];
-  const mcpToolPermissions = objectPermission?.mcp_tool_permissions || {};
-  const mcpToolsets = objectPermission?.mcp_toolsets || [];
-  const agents = objectPermission?.agents || [];
-  const agentAccessGroups = objectPermission?.agent_access_groups || [];
-  const searchTools = objectPermission?.search_tools || [];
+  const permission = objectPermission ?? {};
+  const vectorStores = permission.vector_stores || [];
+  const mcpServers = permission.mcp_servers || [];
+  const mcpAccessGroups = permission.mcp_access_groups || [];
+  const mcpToolPermissions = permission.mcp_tool_permissions || {};
+  const mcpToolsets = permission.mcp_toolsets || [];
+  const agents = permission.agents || [];
+  const agentAccessGroups = permission.agent_access_groups || [];
+  const searchTools = permission.search_tools || [];
 
   const content = (
     <div className={variant === "card" ? "grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-6" : "space-y-4"}>
@@ -42,7 +43,8 @@ export function ObjectPermissionsView({
         <p className="text-sm font-medium text-foreground">{i18n.t("ui.Search tools")}</p>
         {searchTools.length === 0 ? (
           <p className="mt-1 block text-xs text-muted-foreground">
-            {i18n.t("ui.No restriction — all configured search tools are allowed for this team.")}</p>
+            {i18n.t("ui.No restriction — all configured search tools are allowed for this team.")}
+          </p>
         ) : (
           <p className="mt-1 block text-xs break-words text-foreground">{searchTools.join(", ")}</p>
         )}
@@ -56,7 +58,9 @@ export function ObjectPermissionsView({
         <div className="flex items-center gap-2 mb-6">
           <div>
             <p className="font-semibold text-foreground">{i18n.t("ui.Object Permissions")}</p>
-            <p className="text-xs text-muted-foreground">{i18n.t("ui.Access control for Vector Stores and MCP Servers")}</p>
+            <p className="text-xs text-muted-foreground">
+              {i18n.t("ui.Access control for Vector Stores and MCP Servers")}
+            </p>
           </div>
         </div>
         {content}

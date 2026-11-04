@@ -57,6 +57,7 @@ const log = {
   result: {
     lease_id: "event-one",
     http_status: 499,
+    response_completed: false,
     model_cooldown_seconds: 0,
     retry_after_seconds: 0,
     cost_source: "unknown",
@@ -99,7 +100,7 @@ describe("FullLogsPanel", () => {
         unknown_cost_attempts: 1,
       },
     });
-    vi.mocked(listFullLogSessions).mockResolvedValue({
+    const listFullLogSessionsResult1 = {
       items: [{ ...log, session_title: "测试会话", requests: 2, attempts: 2, last_activity: log.started_at }],
       total: 1,
       has_more: false,
@@ -112,13 +113,15 @@ describe("FullLogsPanel", () => {
         cache_creation_input_tokens: 0,
         unknown_cost_attempts: 0,
       },
-    });
-    vi.mocked(fullLogStorage).mockResolvedValue({
+    };
+    vi.mocked(listFullLogSessions).mockResolvedValue(listFullLogSessionsResult1);
+    const fullLogStorageResult2 = {
       backend: "sqlite-gzip",
       location: "/full/conversations.sqlite3",
       row_count: 1,
       allocated_bytes: 4096,
-    });
+    };
+    vi.mocked(fullLogStorage).mockResolvedValue(fullLogStorageResult2);
     vi.mocked(getFullLog).mockResolvedValue(log);
     vi.mocked(clearFullLogs).mockResolvedValue({ deleted: 1 });
   });
@@ -232,7 +235,7 @@ describe("FullLogsPanel", () => {
 
   it("jumps pages and changes page size in 完整 logs requests", async () => {
     const user = userEvent.setup();
-    vi.mocked(listFullLogSessions).mockResolvedValue({
+    const listFullLogSessionsResult3 = {
       items: [{ ...log, requests: 1, attempts: 1, last_activity: log.started_at }],
       total: 205,
       has_more: true,
@@ -245,7 +248,8 @@ describe("FullLogsPanel", () => {
         cache_creation_input_tokens: 0,
         unknown_cost_attempts: 205,
       },
-    });
+    };
+    vi.mocked(listFullLogSessions).mockResolvedValue(listFullLogSessionsResult3);
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
         <FullLogsPanel accessToken="admin" environments={[]} />

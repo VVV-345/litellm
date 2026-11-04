@@ -5,9 +5,10 @@
  * @returns A simplified error message string
  */
 export const simplifyKeyGenerateError = (error: any): string => {
+  const isErrorObject = error && typeof error === "object" && !(error instanceof Error);
   // Handle plain objects by stringifying them first
   let errorString: string;
-  if (error && typeof error === "object" && !(error instanceof Error)) {
+  if (isErrorObject) {
     errorString = JSON.stringify(error);
   } else {
     errorString = String(error);
@@ -22,7 +23,7 @@ export const simplifyKeyGenerateError = (error: any): string => {
   let errorMessage = errorString;
   try {
     // If error is already an object, extract message directly
-    if (error && typeof error === "object" && !(error instanceof Error)) {
+    if (isErrorObject) {
       const errorObj = error?.error || error;
       if (errorObj?.message) {
         errorMessage = errorObj.message;

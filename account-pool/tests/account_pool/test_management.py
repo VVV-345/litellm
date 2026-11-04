@@ -394,6 +394,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
     assert migrated.status_code == 200
     assert "openai_compatible" not in migrated.json()["policy"]
     assert migrated.json()["policy"]["codex"] == {
+        "allow_valid_access_after_refresh_failure": True,
         "identity_fingerprint_mode": "off",
         "cli_only": False,
         "allow_app_server": False,

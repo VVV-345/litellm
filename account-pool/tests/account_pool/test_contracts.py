@@ -159,6 +159,24 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
 
     assert authorization.model_dump(mode="json") == {
         "environment": {
+            "access_token_fallback": {
+                "enabled": False,
+                "active": False,
+                "reason": "not_needed",
+                "expires_at": None,
+                "verified_models": [],
+                "failure_source": None,
+            },
+            "credential_refresh": {
+                "access_expires_at": None,
+                "next_refresh_at": None,
+                "schedule_reason": "unavailable",
+                "last_attempt_at": None,
+                "last_success_at": None,
+                "last_result": "unknown",
+                "running": False,
+                "save_pending": False,
+            },
             "id": str(authorization.environment.id),
             "version": 1,
             "desired_state": None,
@@ -203,6 +221,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "cooldown_until": None,
             "automatic_cooldown": False,
             "last_error": None,
+            "spend_usd": 0.0,
             "created_at": now.isoformat().replace("+00:00", "Z"),
             "updated_at": now.isoformat().replace("+00:00", "Z"),
         },

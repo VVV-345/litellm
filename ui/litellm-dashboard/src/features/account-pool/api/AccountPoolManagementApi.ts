@@ -156,7 +156,10 @@ export const startAccountPoolOAuthBrowserSession = async (
   return session;
 };
 
-export const attachAccountPoolOAuthBrowserSession = async ({ ticket, ...session }: AccountPoolOAuthBrowserSessionStart) => {
+export const attachAccountPoolOAuthBrowserSession = async ({
+  ticket,
+  ...session
+}: AccountPoolOAuthBrowserSessionStart) => {
   await apiClient.post<void>(`/account_pool/oauth-browser-sessions/${encodeURIComponent(session.id)}/browser`, {
     accessToken: ticket,
   });

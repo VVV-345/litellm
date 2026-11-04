@@ -165,7 +165,9 @@ def main(snapshot_file: Path = SNAPSHOT_FILE, generate: Callable[[], SnapshotRes
             f"snapshot: {', '.join(result.skipped)}\n"
         )
         return 1
-    snapshot_file.write_text(json.dumps(result.fragments, indent=2, sort_keys=True) + "\n")
+    snapshot_file.write_text(
+        json.dumps(result.fragments, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+    )
     sys.stdout.write(f"wrote {len(result.fragments)} feature fragments to {snapshot_file}\n")
     return 0
 

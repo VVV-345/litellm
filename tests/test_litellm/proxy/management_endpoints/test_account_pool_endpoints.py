@@ -172,7 +172,7 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
 
     assert policy.codex is not None
     assert policy.codex.responses_compact_enabled is True
-    assert policy.codex.allow_valid_access_after_refresh_failure is False
+    assert policy.codex.allow_valid_access_after_refresh_failure is True
     assert set(policy.codex.model_dump()) == {
         "identity_fingerprint_mode",
         "cli_only",

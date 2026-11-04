@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 
 // ---- Hoisted shared mocks (safe to use inside vi.mock factories) ----
 const { keyUpdateCallMock, keyDeleteCallMock, mockUseAuthorized } = vi.hoisted(() => {
@@ -216,7 +217,7 @@ const baseKeyData = {
 
 const renderView = (premiumUser: boolean) => {
   // Configure the mock for this test
-  mockUseAuthorized.mockReturnValue({
+  const useAuthorizedResult1 = {
     accessToken: "access_abc",
     userId: "user_1",
     userRole: "Admin",
@@ -225,7 +226,8 @@ const renderView = (premiumUser: boolean) => {
     userEmail: "test@example.com",
     disabledPersonalKeyCreation: false,
     showSSOBanner: false,
-  });
+  };
+  mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
 
   return render(
     <KeyInfoView
@@ -238,7 +240,8 @@ const renderView = (premiumUser: boolean) => {
   );
 };
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("en-US");
   vi.clearAllMocks();
   (globalThis as any).__TEST_FORM_VALUES = undefined;
 });
@@ -247,7 +250,7 @@ beforeEach(() => {
 describe("KeyInfoView handleKeyUpdate guardrails guard", () => {
   it("should remove guardrails & prompts for non-premium key owner without write access role", async () => {
     const keyDataWithOwner = { ...baseKeyData, user_id: "user_1" };
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: "access_abc",
       userId: "user_1",
       userRole: "viewer",
@@ -256,7 +259,8 @@ describe("KeyInfoView handleKeyUpdate guardrails guard", () => {
       userEmail: "test@example.com",
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     render(
       <KeyInfoView
@@ -423,7 +427,7 @@ describe("KeyInfoView handleKeyUpdate budget_duration", () => {
       budget_duration: null,
       budget_reset_at: null,
     });
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: "access_abc",
       userId: "user_1",
       userRole: "Admin",
@@ -432,7 +436,8 @@ describe("KeyInfoView handleKeyUpdate budget_duration", () => {
       userEmail: "test@example.com",
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     render(
       <KeyInfoView

@@ -27,6 +27,7 @@ class ModelAcceptance(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     chat: bool
     responses: bool
+    failure_detail: str | None = None
 
 
 def _objects(value: JsonValue) -> tuple[dict[str, JsonValue], ...]:
@@ -112,11 +113,17 @@ class AutomationWorker:
             or endpoint.api_base != f"http://cliproxy-{endpoint.id.hex}:8317/v1"
         ):
             return ModelAcceptance(chat=False, responses=False)
-        chat: Final = await self._infer(endpoint, model, "chat")
-        responses: Final = await self._infer(endpoint, model, "responses")
-        return ModelAcceptance(chat=chat, responses=responses)
+        chat, chat_detail = await self._infer(endpoint, model, "chat")
+        responses, responses_detail = await self._infer(endpoint, model, "responses")
+        return ModelAcceptance(
+            chat=chat,
+            responses=responses,
+            failure_detail=None if chat and responses else f"Chat: {chat_detail}; Responses: {responses_detail}",
+        )
 
-    async def _infer(self, endpoint: GatewayEnvironment, model: str, mode: Literal["chat", "responses"]) -> bool:
+    async def _infer(
+        self, endpoint: GatewayEnvironment, model: str, mode: Literal["chat", "responses"]
+    ) -> tuple[bool, str]:
         payload: Final = {
             "model": model,
             "stream": False,
@@ -137,8 +144,13 @@ class AutomationWorker:
                 timeout=30,
                 follow_redirects=False,
             )
-            if not response.is_success or len(response.content) > 1024 * 1024:
-                return False
-            return complete_text(TypeAdapter(dict[str, JsonValue]).validate_json(response.content), mode)
-        except (httpx.HTTPError, ValueError):
-            return False
+            if not response.is_success:
+                return False, f"HTTP {response.status_code}"
+            if len(response.content) > 1024 * 1024:
+                return False, "响应过大"
+            complete: Final = complete_text(TypeAdapter(dict[str, JsonValue]).validate_json(response.content), mode)
+            return complete, "通过" if complete else "未返回完整文本"
+        except httpx.HTTPError:
+            return False, "网络错误或超时，结果未知"
+        except ValueError:
+            return False, "响应格式无效"

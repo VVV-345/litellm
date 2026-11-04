@@ -357,7 +357,7 @@ describe("UsagePage", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en-US");
     testQueryClient.clear();
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       isLoading: false,
       isAuthorized: true,
       token: "mock-token",
@@ -370,7 +370,8 @@ describe("UsagePage", () => {
       premiumUser: true,
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
     mockUseCurrentUser.mockReturnValue({
       data: {
         user_id: "user-123",
@@ -653,7 +654,7 @@ describe("UsagePage", () => {
   });
 
   it("should show tag usage selector option for internal users", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       isLoading: false,
       isAuthorized: true,
       token: "mock-token",
@@ -666,7 +667,8 @@ describe("UsagePage", () => {
       premiumUser: true,
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     renderWithProviders(<UsagePage {...defaultProps} />);
 
@@ -982,7 +984,7 @@ describe("UsagePage", () => {
 
   describe("non-admin user behavior", () => {
     it("should not render user selector for non-admin users", async () => {
-      mockUseAuthorized.mockReturnValue({
+      const useAuthorizedResult3 = {
         isLoading: false,
         isAuthorized: true,
         token: "mock-token",
@@ -995,7 +997,8 @@ describe("UsagePage", () => {
         premiumUser: false,
         disabledPersonalKeyCreation: false,
         showSSOBanner: false,
-      });
+      };
+      mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
       renderWithProviders(<UsagePage {...defaultProps} />);
 
@@ -1009,7 +1012,7 @@ describe("UsagePage", () => {
     });
 
     it("should always pass own userId for non-admin users", async () => {
-      mockUseAuthorized.mockReturnValue({
+      const useAuthorizedResult4 = {
         isLoading: false,
         isAuthorized: true,
         token: "mock-token",
@@ -1022,7 +1025,8 @@ describe("UsagePage", () => {
         premiumUser: false,
         disabledPersonalKeyCreation: false,
         showSSOBanner: false,
-      });
+      };
+      mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
       renderWithProviders(<UsagePage {...defaultProps} />);
 

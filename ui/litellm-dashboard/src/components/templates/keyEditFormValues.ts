@@ -61,56 +61,61 @@ const readMetadata = (keyData: KeyResponse, key: string): unknown =>
     ? (keyData.metadata as Record<string, unknown>)[key]
     : undefined;
 
-export const toKeyEditFormValues = (keyData: KeyResponse): KeyEditFormValues => ({
-  key_alias: keyData.key_alias,
-  models: keyData.models,
-  allowed_routes:
-    Array.isArray(keyData.allowed_routes) && keyData.allowed_routes.length > 0 ? keyData.allowed_routes.join(", ") : "",
-  max_budget: keyData.max_budget,
-  budget_duration: canonicalBudgetDuration(keyData.budget_duration),
-  tpm_limit: keyData.tpm_limit,
-  tpm_limit_type: (keyData as { tpm_limit_type?: string | null }).tpm_limit_type ?? null,
-  rpm_limit: keyData.rpm_limit,
-  rpm_limit_type: (keyData as { rpm_limit_type?: string | null }).rpm_limit_type ?? null,
-  throttle_on_budget_exceeded: Boolean(readMetadata(keyData, "throttle_on_budget_exceeded")),
-  enable_prompt_caching: Boolean(readMetadata(keyData, "enable_prompt_caching")),
-  max_parallel_requests: keyData.max_parallel_requests,
-  model_tpm_limit: (keyData as { model_tpm_limit?: string }).model_tpm_limit,
-  model_rpm_limit: (keyData as { model_rpm_limit?: string }).model_rpm_limit,
-  ...(estimateFields(keyData.metadata as Record<string, unknown> | null | undefined) as {
-    default_estimated_output_tokens?: number | string | null;
-    default_estimated_output_tokens_per_model?: string;
-  }),
-  guardrails: readMetadata(keyData, "guardrails") as string[] | undefined,
-  disable_global_guardrails: Boolean(readMetadata(keyData, "disable_global_guardrails")),
-  policies: (keyData as { policies?: string[] }).policies,
-  tags: readMetadata(keyData, "tags") as string[] | undefined,
-  prompts: readMetadata(keyData, "prompts") as string[] | undefined,
-  access_group_ids: keyData.access_group_ids || [],
-  allowed_passthrough_routes: (keyData as { allowed_passthrough_routes?: string[] }).allowed_passthrough_routes,
-  vector_stores: keyData.object_permission?.vector_stores || [],
-  mcp_servers_and_groups: {
-    servers: keyData.object_permission?.mcp_servers || [],
-    accessGroups: keyData.object_permission?.mcp_access_groups || [],
-    toolsets: keyData.object_permission?.mcp_toolsets || [],
-  },
-  mcp_tool_permissions: keyData.object_permission?.mcp_tool_permissions || {},
-  agents_and_groups: {
-    agents: keyData.object_permission?.agents || [],
-    accessGroups: keyData.object_permission?.agent_access_groups || [],
-  },
-  organization_id: keyData.organization_id,
-  team_id: keyData.team_id,
-  logging_settings: extractLoggingSettings(keyData.metadata),
-  metadata: formatMetadataForDisplay(stripTagsFromMetadata(keyData.metadata)),
-  duration: (keyData as { duration?: string }).duration ?? "",
-  token: keyData.token || keyData.token_id,
-  disabled_callbacks: Array.isArray(readMetadata(keyData, "litellm_disabled_callbacks"))
-    ? mapInternalToDisplayNames(readMetadata(keyData, "litellm_disabled_callbacks") as string[])
-    : [],
-  auto_rotate: keyData.auto_rotate || false,
-  rotation_interval: keyData.rotation_interval,
-});
+export const toKeyEditFormValues = (keyData: KeyResponse): KeyEditFormValues => {
+  const permission = keyData.object_permission ?? {};
+  return {
+    key_alias: keyData.key_alias,
+    models: keyData.models,
+    allowed_routes:
+      Array.isArray(keyData.allowed_routes) && keyData.allowed_routes.length > 0
+        ? keyData.allowed_routes.join(", ")
+        : "",
+    max_budget: keyData.max_budget,
+    budget_duration: canonicalBudgetDuration(keyData.budget_duration),
+    tpm_limit: keyData.tpm_limit,
+    tpm_limit_type: (keyData as { tpm_limit_type?: string | null }).tpm_limit_type ?? null,
+    rpm_limit: keyData.rpm_limit,
+    rpm_limit_type: (keyData as { rpm_limit_type?: string | null }).rpm_limit_type ?? null,
+    throttle_on_budget_exceeded: Boolean(readMetadata(keyData, "throttle_on_budget_exceeded")),
+    enable_prompt_caching: Boolean(readMetadata(keyData, "enable_prompt_caching")),
+    max_parallel_requests: keyData.max_parallel_requests,
+    model_tpm_limit: (keyData as { model_tpm_limit?: string }).model_tpm_limit,
+    model_rpm_limit: (keyData as { model_rpm_limit?: string }).model_rpm_limit,
+    ...(estimateFields(keyData.metadata as Record<string, unknown> | null | undefined) as {
+      default_estimated_output_tokens?: number | string | null;
+      default_estimated_output_tokens_per_model?: string;
+    }),
+    guardrails: readMetadata(keyData, "guardrails") as string[] | undefined,
+    disable_global_guardrails: Boolean(readMetadata(keyData, "disable_global_guardrails")),
+    policies: (keyData as { policies?: string[] }).policies,
+    tags: readMetadata(keyData, "tags") as string[] | undefined,
+    prompts: readMetadata(keyData, "prompts") as string[] | undefined,
+    access_group_ids: keyData.access_group_ids || [],
+    allowed_passthrough_routes: (keyData as { allowed_passthrough_routes?: string[] }).allowed_passthrough_routes,
+    vector_stores: permission.vector_stores || [],
+    mcp_servers_and_groups: {
+      servers: permission.mcp_servers || [],
+      accessGroups: permission.mcp_access_groups || [],
+      toolsets: permission.mcp_toolsets || [],
+    },
+    mcp_tool_permissions: permission.mcp_tool_permissions || {},
+    agents_and_groups: {
+      agents: permission.agents || [],
+      accessGroups: permission.agent_access_groups || [],
+    },
+    organization_id: keyData.organization_id,
+    team_id: keyData.team_id,
+    logging_settings: extractLoggingSettings(keyData.metadata),
+    metadata: formatMetadataForDisplay(stripTagsFromMetadata(keyData.metadata)),
+    duration: (keyData as { duration?: string }).duration ?? "",
+    token: keyData.token || keyData.token_id,
+    disabled_callbacks: Array.isArray(readMetadata(keyData, "litellm_disabled_callbacks"))
+      ? mapInternalToDisplayNames(readMetadata(keyData, "litellm_disabled_callbacks") as string[])
+      : [],
+    auto_rotate: keyData.auto_rotate || false,
+    rotation_interval: keyData.rotation_interval,
+  };
+};
 
 export const keyEditFormSchema = z.object({
   key_alias: z.custom<string | undefined>(),

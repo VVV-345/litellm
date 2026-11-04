@@ -178,20 +178,18 @@ export const ModelSelect = (props: ModelSelectProps) => {
                     {
                       label: MODEL_SELECT_ALL_PROXY_MODELS_SPECIAL_VALUE.label,
                       value: MODEL_SELECT_ALL_PROXY_MODELS_SPECIAL_VALUE.value,
-                      disabled:
-                        value.length > 0 &&
-                        value.some(
-                          (v) => isSpecialOption(v) && v !== MODEL_SELECT_ALL_PROXY_MODELS_SPECIAL_VALUE.value,
-                        ),
+                      disabled: value.some(
+                        (v) => isSpecialOption(v) && v !== MODEL_SELECT_ALL_PROXY_MODELS_SPECIAL_VALUE.value,
+                      ),
                     },
                   ]
                 : []),
               {
                 label: MODEL_SELECT_NO_DEFAULT_MODELS_SPECIAL_VALUE.label,
                 value: MODEL_SELECT_NO_DEFAULT_MODELS_SPECIAL_VALUE.value,
-                disabled:
-                  value.length > 0 &&
-                  value.some((v) => isSpecialOption(v) && v !== MODEL_SELECT_NO_DEFAULT_MODELS_SPECIAL_VALUE.value),
+                disabled: value.some(
+                  (v) => isSpecialOption(v) && v !== MODEL_SELECT_NO_DEFAULT_MODELS_SPECIAL_VALUE.value,
+                ),
               },
             ],
           },
@@ -258,7 +256,12 @@ export const ModelSelect = (props: ModelSelectProps) => {
               </>
             )}
           </ComboboxValue>
-          <ComboboxChipsInput id={id} placeholder={i18n.t("ui.Select Models")} aria-label={i18n.t("ui.Select Models")} className="min-w-24" />
+          <ComboboxChipsInput
+            id={id}
+            placeholder={i18n.t("ui.Select Models")}
+            aria-label={i18n.t("ui.Select Models")}
+            className="min-w-24"
+          />
         </ComboboxChips>
         <ComboboxContent anchor={anchor}>
           <ComboboxEmpty>{i18n.t("ui.No models found")}</ComboboxEmpty>

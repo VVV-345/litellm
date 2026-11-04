@@ -32,6 +32,8 @@ Manager 的 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 必须使用 digest。号池的�
 
 资料只通过管理员接口提交并在 Manager 按环境加密，不进入任务查询、浏览器存储或查询缓存；屏幕沿用原来的短期一次性票据，不公开 VNC 端口。不要把账号文件、截图中的私密资料或验收 Key 提交进 Git。实现入口是 [oauth_automation](../../../account-pool/account_pool/oauth_automation)，构建命令见 [worker 说明](../../../account-pool/browser-worker/README.md)，实际验收范围与已知基线失败见 [2026-11-04 验收记录](../../../account-pool/docs/oauth-automation-acceptance-20261104.md)
 
+验收默认跳过仍在冷却的模型；指定冷却模型时停止，不用验收请求解除上游限制。失败消息区分 HTTP 状态、网络结果未知和响应不完整，不包含上游原始正文。后续回归、真实调用结果及未完成的全局门禁见 [2026-11-05 收尾记录](../../../account-pool/docs/oauth-automation-acceptance-20261105.md)
+
 ## 依赖与改动影响
 
 归属使用现有 seed 派生的 HMAC 指纹，生产依赖 PostgreSQL 与跨进程操作锁。授权、上传替换、刷新、删除和配置共享归属约束；改变枚举或回调会影响准入、批量上号、策略同步和 UI 缓存

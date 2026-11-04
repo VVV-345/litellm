@@ -2,6 +2,7 @@ import React from "react";
 import userEvent from "@testing-library/user-event";
 import { renderWithProviders, screen, waitFor } from "@/../tests/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import * as networking from "@/components/networking";
 import ImpactPopover from "./impact_popover";
 import { PolicyAttachment } from "@/components/policies/types";
@@ -26,7 +27,8 @@ const makeAttachment = (overrides: Partial<PolicyAttachment> = {}): PolicyAttach
 });
 
 describe("ImpactPopover", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
     vi.clearAllMocks();
     vi.spyOn(console, "error").mockImplementation(() => {});
   });

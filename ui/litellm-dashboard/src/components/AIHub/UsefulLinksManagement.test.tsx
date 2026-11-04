@@ -3,6 +3,7 @@ import { getProxyBaseUrl, getPublicModelHubInfo, updateUsefulLinksCall } from "@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import UsefulLinksManagement from "./UsefulLinksManagement";
 
 vi.mock("@/components/networking", () => ({
@@ -17,7 +18,8 @@ const mockedGetProxyBaseUrl = vi.mocked(getProxyBaseUrl);
 const mockedNotifications = vi.mocked(toast);
 
 describe("UsefulLinksManagement", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
     mockedGetPublicModelHubInfo.mockResolvedValue({
       docs_title: "Docs",
       custom_docs_description: null,

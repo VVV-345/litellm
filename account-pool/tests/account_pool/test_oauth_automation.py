@@ -175,7 +175,11 @@ async def execution(registry, tmp_path: Path):
     class CredentialCLI(FakeCLIProxy):
         async def read_account(self, record, *, refresh_quota=False):
             observed = await super().read_account(record, refresh_quota=refresh_quota)
-            return observed.model_copy(update={"credential_email": "one@example.test", "credential_fingerprints": ("fixture-credential-owner",)})
+            return observed.model_copy(update={
+                "credential_email": "one@example.test", "credential_fingerprints": ("fixture-credential-owner",),
+                "enabled_models": record.enabled_models or observed.enabled_models,
+                "model_cooldowns": record.model_cooldowns,
+            })
 
     cli: Final = CredentialCLI()
     runtime: Final = FakeRuntime()
@@ -209,12 +213,12 @@ async def execution(registry, tmp_path: Path):
             while "hold-chat" in commands:
                 await asyncio.sleep(0.02)
             if "inference-down" in commands:
-                return httpx.Response(503)
+                return httpx.Response(503, json={"error": {"message": "private-upstream-body-must-not-be-shown"}})
             return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": "Hello"}}]})
         if request.url.path.endswith("/responses"):
             commands.append("responses")
             if "inference-down" in commands:
-                return httpx.Response(503)
+                return httpx.Response(503, json={"error": {"message": "private-upstream-body-must-not-be-shown"}})
             return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "Hello"}]}]})
         action = json.loads(request.content)["action"]
         commands.append(action)
@@ -382,6 +386,8 @@ async def test_saved_credentials_retry_only_inference_and_keep_the_same_fingerpr
     await runner.run_once()
     failed: Final = (await service.view()).jobs[0]
     assert failed.stage == "verification_failed" and failed.credentials_saved
+    assert "Chat: HTTP 503" in failed.message and "Responses: HTTP 503" in failed.message
+    assert "private-upstream-body" not in (await service.view()).model_dump_json()
     commands.remove("inference-down")
     assert isinstance(await runner.action(failed.id, "retry", model="not-on-this-card"), Failure)
     assert isinstance(await runner.action(failed.id, "retry", model="gpt-5"), Success)
@@ -390,6 +396,66 @@ async def test_saved_credentials_retry_only_inference_and_keep_the_same_fingerpr
     assert completed.stage == "completed" and completed.profile_id == submitted.value.profile_id
     assert commands.count("start") == len(starts) == 1
     assert commands.count("chat") == commands.count("responses") == 2
+
+
+@pytest.mark.asyncio
+async def test_automatic_model_verification_skips_an_active_model_cooldown(execution) -> None:
+    from account_pool.domain import ModelCooldown, OAuthCallback
+    from account_pool.oauth_automation.models import AutomationSettings
+
+    service, card, manager, runner, browser, commands, starts, removals, submitted = execution
+    await service.self_check()
+    await service.save_settings(AutomationSettings(enabled=True), (await service.view()).version)
+    await runner.run_once()
+    pending = await service.environments.get(card.id)
+    await manager.submit_oauth_callback(OAuthCallback(state=pending.oauth_state, code="one-use-test-code"), card.id)
+    ready = await service.environments.get(card.id)
+    service.environments.records[card.id] = ready.model_copy(update={
+        "enabled_models": ("gpt-5-cooling", "gpt-5"),
+        "model_cooldowns": (ModelCooldown(model="gpt-5-cooling", retry_at=runner.clock() + timedelta(hours=1)),),
+    })
+
+    await runner.run_once()
+
+    completed = (await service.view()).jobs[0]
+    assert completed.stage == "completed" and completed.model == "gpt-5"
+    assert commands.count("start") == commands.count("chat") == commands.count("responses") == 1
+
+
+@pytest.mark.asyncio
+async def test_cooling_model_is_not_probed_and_verification_retry_never_repeats_login(execution) -> None:
+    from account_pool.domain import ModelCooldown, OAuthCallback
+    from account_pool.oauth_automation.models import AutomationSettings
+
+    service, card, manager, runner, browser, commands, starts, removals, submitted = execution
+    await service.self_check()
+    await service.save_settings(AutomationSettings(enabled=True), (await service.view()).version)
+    await runner.run_once()
+    pending = await service.environments.get(card.id)
+    await manager.submit_oauth_callback(OAuthCallback(state=pending.oauth_state, code="one-use-test-code"), card.id)
+    ready = await service.environments.get(card.id)
+    service.environments.records[card.id] = ready.model_copy(update={
+        "model_cooldowns": (ModelCooldown(model="gpt-5", retry_at=runner.clock() + timedelta(hours=1)),),
+    })
+
+    await runner.run_once()
+    failed = (await service.view()).jobs[0]
+    assert failed.stage == "verification_failed" and failed.credentials_saved
+    assert "冷却" in failed.message
+    assert isinstance(await runner.action(failed.id, "retry", model="gpt-5"), Success)
+    await runner.run_once()
+    assert (await service.view()).jobs[0].stage == "verification_failed"
+    assert commands.count("chat") == commands.count("responses") == 0
+
+    latest = await service.environments.get(card.id)
+    service.environments.records[card.id] = latest.model_copy(update={
+        "model_cooldowns": (ModelCooldown(model="gpt-5", retry_at=runner.clock() - timedelta(seconds=1)),),
+    })
+    assert isinstance(await runner.action(failed.id, "retry", model="gpt-5"), Success)
+    await runner.run_once()
+    assert (await service.view()).jobs[0].stage == "completed"
+    assert commands.count("start") == len(starts) == 1
+    assert commands.count("chat") == commands.count("responses") == 1
 
 
 @pytest.mark.asyncio

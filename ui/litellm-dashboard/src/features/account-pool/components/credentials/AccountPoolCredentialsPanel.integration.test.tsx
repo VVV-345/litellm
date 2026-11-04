@@ -86,7 +86,7 @@ describe("AccountPoolCredentialsPanel", () => {
       type: "text/plain",
     });
     await user.upload(screen.getByLabelText("认证文件"), file);
-    await user.click(screen.getByRole("button", { name: "上传认证文件", exact: true }));
+    await user.click(screen.getByRole("button", { name: "上传认证文件" }));
     await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file, false));
     expect(await screen.findByText(/登录资料已保存，尚未完成认证/)).toBeVisible();
   });
@@ -121,30 +121,33 @@ describe("AccountPoolCredentialsPanel", () => {
     patchAuthFileFields.mockResolvedValue(environment);
     deleteCredential.mockResolvedValue(environment);
     uploadAuthFile.mockResolvedValue(environment);
-    getAuthFileRefreshStatus.mockResolvedValue({
+    const getAuthFileRefreshStatusResult1 = {
       interval_minutes: 15,
       running: true,
       last_started_at: "2026-09-16T10:00:00Z",
       last_completed_at: "2026-09-16T10:01:00Z",
       next_refresh_at: "2026-09-16T10:16:00Z",
       last_failed_count: null,
-    });
-    refreshAuthFiles.mockResolvedValue({
+    };
+    getAuthFileRefreshStatus.mockResolvedValue(getAuthFileRefreshStatusResult1);
+    const refreshAuthFilesResult2 = {
       interval_minutes: 15,
       running: false,
       last_started_at: "2026-09-16T10:00:00Z",
       last_completed_at: "2026-09-16T10:01:00Z",
       next_refresh_at: "2026-09-16T10:16:00Z",
       last_failed_count: 0,
-    });
-    setAuthFileRefreshInterval.mockResolvedValue({
+    };
+    refreshAuthFiles.mockResolvedValue(refreshAuthFilesResult2);
+    const setAuthFileRefreshIntervalResult3 = {
       interval_minutes: 30,
       running: false,
       last_started_at: "2026-09-16T10:00:00Z",
       last_completed_at: "2026-09-16T10:01:00Z",
       next_refresh_at: "2026-09-16T10:31:00Z",
       last_failed_count: null,
-    });
+    };
+    setAuthFileRefreshInterval.mockResolvedValue(setAuthFileRefreshIntervalResult3);
   });
 
   it("identifies the account behind a card without exposing credential contents", async () => {
@@ -457,7 +460,7 @@ describe("AccountPoolCredentialsPanel", () => {
       ),
     );
     expect(patchAuthFileFields).not.toHaveBeenCalled();
-    await user.click(dialog.getByRole("button", { name: "保存", exact: true }));
+    await user.click(dialog.getByRole("button", { name: "保存" }));
     await waitFor(() =>
       expect(patchAuthFileFields).toHaveBeenCalledWith("token", environment.id, { priority: 4, prefix: "team-b" }),
     );

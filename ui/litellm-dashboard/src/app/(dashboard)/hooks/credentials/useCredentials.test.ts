@@ -58,7 +58,7 @@ describe("useCredentials", () => {
     vi.clearAllMocks();
 
     // Set default mock for useAuthorized (enabled state)
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userRole: "Admin",
       userId: "test-user-id",
@@ -67,7 +67,8 @@ describe("useCredentials", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -121,7 +122,7 @@ describe("useCredentials", () => {
 
   it("should not execute query when accessToken is missing", async () => {
     // Mock missing accessToken
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userRole: "Admin",
       userId: "test-user-id",
@@ -130,7 +131,8 @@ describe("useCredentials", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useCredentials(), { wrapper });
 

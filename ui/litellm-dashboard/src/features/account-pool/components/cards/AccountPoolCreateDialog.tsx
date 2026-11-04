@@ -75,8 +75,12 @@ export const AccountPoolCreateDialog = ({
   const [saving, setSaving] = useState(false);
   const requiresOAuthProxy =
     authorization === null && !DIRECT_CREDENTIAL_SUPPLIERS.has(supplier) && !(supplier === "xai" && useApiKey);
-  const { profilesQuery: proxyProfilesQuery, profiles: proxyProfiles, options: proxyOptions, defaultLabel } =
-    useAccountPoolProxyOptions(accessToken, open && requiresOAuthProxy);
+  const {
+    profilesQuery: proxyProfilesQuery,
+    profiles: proxyProfiles,
+    options: proxyOptions,
+    defaultLabel,
+  } = useAccountPoolProxyOptions(accessToken, open && requiresOAuthProxy);
   const selectedProxyProfileExists = proxyProfiles.some((profile) => profile.id === proxyProfileId);
   const proxySelectionReady = selectedProxyProfileExists && proxyProfilesQuery.isSuccess;
   const canStartOAuth = !saving && Boolean(name.trim()) && proxySelectionReady;
@@ -224,12 +228,12 @@ export const AccountPoolCreateDialog = ({
   const renderProxyProfileSelect = () => (
     <div className="grid gap-2">
       <Label htmlFor="account-pool-proxy-profile">{t("accountPool.create.outboundProxy")}</Label>
-      <Select
-        items={proxyOptions}
-        value={proxyProfileId}
-        onValueChange={(value) => setProxyProfileId(value ?? "")}
-      >
-        <SelectTrigger className="w-full" id="account-pool-proxy-profile" aria-label={t("accountPool.create.outboundProxy")}>
+      <Select items={proxyOptions} value={proxyProfileId} onValueChange={(value) => setProxyProfileId(value ?? "")}>
+        <SelectTrigger
+          className="w-full"
+          id="account-pool-proxy-profile"
+          aria-label={t("accountPool.create.outboundProxy")}
+        >
           <SelectValue placeholder={t("accountPool.create.selectProxyProfile")} />
         </SelectTrigger>
         <SelectContent>
@@ -240,7 +244,9 @@ export const AccountPoolCreateDialog = ({
           ))}
         </SelectContent>
       </Select>
-      <p className="text-sm text-muted-foreground" role="status">{defaultLabel}</p>
+      <p className="text-sm text-muted-foreground" role="status">
+        {defaultLabel}
+      </p>
       {proxyProfilesQuery.isError && (
         <p role="alert" className="text-sm text-destructive">
           {t("accountPool.create.proxyProfilesLoadFailed")}
@@ -281,7 +287,7 @@ export const AccountPoolCreateDialog = ({
         />
       );
     }
-    if (supplier === "gemini" || supplier === "gemini_interactions" || (supplier === "xai" && useApiKey)) {
+    if (["gemini", "gemini_interactions"].includes(supplier) || (supplier === "xai" && useApiKey)) {
       return (
         <div className="grid gap-4">
           <div className="grid gap-2">

@@ -36,7 +36,7 @@ describe("useEditSSOSettings", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -45,7 +45,8 @@ describe("useEditSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -105,7 +106,7 @@ describe("useEditSSOSettings", () => {
   });
 
   it("should throw error when accessToken is missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -114,7 +115,8 @@ describe("useEditSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useEditSSOSettings(), { wrapper });
 

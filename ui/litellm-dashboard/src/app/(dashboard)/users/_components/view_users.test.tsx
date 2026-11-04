@@ -4,6 +4,7 @@ import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 
 import { renderWithProviders } from "../../../../../tests/test-utils";
 import ViewUserDashboard from "./view_users";
@@ -92,15 +93,17 @@ const renderDashboard = (overrides: Partial<typeof defaultProps> = {}) =>
   );
 
 describe("ViewUserDashboard", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en-US");
     vi.clearAllMocks();
-    userListCall.mockResolvedValue({
+    const userListCallResult1 = {
       users: [makeUser("user-1", "test@example.com")],
       total: 1,
       page: 1,
       page_size: 25,
       total_pages: 1,
-    });
+    };
+    userListCall.mockResolvedValue(userListCallResult1);
   });
 
   it("should render the ViewUserDashboard component", async () => {
@@ -223,13 +226,14 @@ describe("ViewUserDashboard", () => {
 
   describe("bulk edit selection", () => {
     beforeEach(() => {
-      userListCall.mockResolvedValue({
+      const userListCallResult2 = {
         users: [makeUser("user-1", "ada@example.com"), makeUser("user-2", "grace@example.com")],
         total: 2,
         page: 1,
         page_size: 25,
         total_pages: 1,
-      });
+      };
+      userListCall.mockResolvedValue(userListCallResult2);
     });
 
     it("reveals selection checkboxes only while selection mode is on", async () => {

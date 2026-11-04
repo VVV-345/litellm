@@ -284,7 +284,9 @@ class AccountPoolRefreshCredentialRequest(BaseModel):
 class AccountPoolEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    access_token_fallback: AccountPoolAccessTokenFallbackStatus = Field(default_factory=AccountPoolAccessTokenFallbackStatus)
+    access_token_fallback: AccountPoolAccessTokenFallbackStatus = Field(
+        default_factory=AccountPoolAccessTokenFallbackStatus
+    )
     credential_refresh: AccountPoolCredentialRefreshStatus = Field(default_factory=AccountPoolCredentialRefreshStatus)
     id: UUID
     version: int = Field(ge=0)
@@ -794,7 +796,9 @@ def create_account_pool_router(
     dashboard_reader: DashboardReader = standard_dashboard,
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
-    browser_websocket_connect: Callable[[str], AbstractAsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
+    browser_websocket_connect: Callable[
+        [str], AbstractAsyncContextManager[_BrowserWebSocket]
+    ] = _connect_browser_websocket,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
 
@@ -802,7 +806,11 @@ def create_account_pool_router(
         return await _manager_request(client_factory, method, path, body)
 
     async def feedback_multipart(
-        path: str, fields: dict[str, str], filename: str, content: bytes, content_type: str | None,
+        path: str,
+        fields: dict[str, str],
+        filename: str,
+        content: bytes,
+        content_type: str | None,
     ) -> httpx.Response:
         return await _manager_request_multipart(client_factory, path, fields, filename, content, content_type)
 
@@ -1102,7 +1110,9 @@ def create_account_pool_router(
         response: Final = await _manager_request(client_factory, "POST", f"/api/environments/{environment_id}/refresh")
         return _validate_response(response, _ENVIRONMENT)
 
-    @router.post("/environments/{environment_id}/credentials/refresh", response_model=AccountPoolCredentialRefreshResult)
+    @router.post(
+        "/environments/{environment_id}/credentials/refresh", response_model=AccountPoolCredentialRefreshResult
+    )
     async def refresh_credentials(
         environment_id: UUID,
         request: AccountPoolRefreshCredentialRequest,
@@ -1110,9 +1120,12 @@ def create_account_pool_router(
     ) -> AccountPoolCredentialRefreshResult:
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(
-            client_factory,"POST",f"/api/environments/{environment_id}/credentials/refresh",request.model_dump_json().encode(),
+            client_factory,
+            "POST",
+            f"/api/environments/{environment_id}/credentials/refresh",
+            request.model_dump_json().encode(),
         )
-        return _validate_response(response,TypeAdapter(AccountPoolCredentialRefreshResult))
+        return _validate_response(response, TypeAdapter(AccountPoolCredentialRefreshResult))
 
     @router.get("/environments/{environment_id}/quota-reset", response_model=AccountPoolResetStatus)
     async def quota_reset_status(
@@ -1120,7 +1133,9 @@ def create_account_pool_router(
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
     ) -> AccountPoolResetStatus:
         _require_proxy_admin(user_api_key_dict)
-        response: Final = await _manager_request(client_factory, "GET", f"/api/environments/{environment_id}/quota-reset")
+        response: Final = await _manager_request(
+            client_factory, "GET", f"/api/environments/{environment_id}/quota-reset"
+        )
         return _validate_response(response, TypeAdapter(AccountPoolResetStatus))
 
     @router.post("/environments/{environment_id}/quota-reset/prepare", response_model=AccountPoolResetOperation)
@@ -1168,7 +1183,10 @@ def create_account_pool_router(
         )
         return _validate_response(response, TypeAdapter(AccountPoolResetVerification))
 
-    @router.post("/environments/{environment_id}/access-token-fallback/verify", response_model=AccountPoolAccessTokenFallbackVerification)
+    @router.post(
+        "/environments/{environment_id}/access-token-fallback/verify",
+        response_model=AccountPoolAccessTokenFallbackVerification,
+    )
     async def verify_access_token_fallback(
         environment_id: UUID,
         request: AccountPoolVerifyAccessTokenFallback,
@@ -1176,7 +1194,9 @@ def create_account_pool_router(
     ) -> AccountPoolAccessTokenFallbackVerification:
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(
-            client_factory, "POST", f"/api/environments/{environment_id}/access-token-fallback/verify",
+            client_factory,
+            "POST",
+            f"/api/environments/{environment_id}/access-token-fallback/verify",
             request.model_dump_json().encode(),
         )
         return _validate_response(response, TypeAdapter(AccountPoolAccessTokenFallbackVerification))
@@ -1222,7 +1242,9 @@ def create_account_pool_router(
     ) -> AccountPoolEnvironment:
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(
-            client_factory, "POST", f"/api/environments/{environment_id}/oauth-callback",
+            client_factory,
+            "POST",
+            f"/api/environments/{environment_id}/oauth-callback",
             request.model_dump_json(exclude_none=True).encode("utf-8"),
         )
         return _validate_response(response, _ENVIRONMENT)

@@ -65,10 +65,11 @@ const MCPServerSelector: React.FC<MCPServerSelectorProps> = ({
   ];
 
   // Flatten value for Select — prefix toolset IDs
+  const selection = value ?? { servers: [], accessGroups: [], toolsets: [] };
   const selectedValues = [
-    ...(value?.servers || []),
-    ...(value?.accessGroups || []),
-    ...(value?.toolsets || []).map((id) => `${TOOLSET_PREFIX}${id}`),
+    ...(selection.servers || []),
+    ...(selection.accessGroups || []),
+    ...(selection.toolsets || []).map((id) => `${TOOLSET_PREFIX}${id}`),
   ];
 
   const hasNoMcpServersSelected = allowNoMcpServers && selectedValues.includes(NO_MCP_SERVERS_SENTINEL);

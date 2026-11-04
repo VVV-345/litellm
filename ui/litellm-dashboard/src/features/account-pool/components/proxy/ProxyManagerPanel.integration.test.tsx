@@ -133,43 +133,48 @@ describe("ProxyManagerPanel", () => {
     updateIsp.mockResolvedValue(undefined);
     deleteIsp.mockResolvedValue(undefined);
     bindIsp.mockResolvedValue(undefined);
-    getIspSubscription.mockResolvedValue({
+    const getIspSubscriptionResult1 = {
       configured: false,
       refreshed_at: null,
       node_count: 0,
       enabled_node_count: 0,
-    });
-    configureIspSubscription.mockResolvedValue({
+    };
+    getIspSubscription.mockResolvedValue(getIspSubscriptionResult1);
+    const configureIspSubscriptionResult2 = {
       configured: true,
       refreshed_at: "2026-10-22T00:00:00Z",
       node_count: 1,
       enabled_node_count: 1,
-    });
-    refreshIspSubscription.mockResolvedValue({
+    };
+    configureIspSubscription.mockResolvedValue(configureIspSubscriptionResult2);
+    const refreshIspSubscriptionResult3 = {
       configured: true,
       refreshed_at: "2026-10-22T00:00:00Z",
       node_count: 1,
       enabled_node_count: 1,
-    });
+    };
+    refreshIspSubscription.mockResolvedValue(refreshIspSubscriptionResult3);
     bindFront.mockResolvedValue(undefined);
-    probeGateway.mockResolvedValue({
+    const probeGatewayResult4 = {
       port: 7891,
       checked_at: "2026-10-22T00:00:00Z",
       ip_status: "ok",
       exit_ip: "198.51.100.24",
       openai_status: "response",
       openai_http_status: 401,
-    });
+    };
+    probeGateway.mockResolvedValue(probeGatewayResult4);
   });
 
   it("imports and refreshes one ISP subscription without echoing its URL", async () => {
     const user = userEvent.setup();
-    getIspSubscription.mockResolvedValue({
+    const getIspSubscriptionResult5 = {
       configured: true,
       refreshed_at: "2026-10-22T00:00:00Z",
       node_count: 1,
       enabled_node_count: 1,
-    });
+    };
+    getIspSubscription.mockResolvedValue(getIspSubscriptionResult5);
     renderPanel();
     fireEvent.click(screen.getByRole("tab", { name: /ISP 代理/ }));
 
@@ -747,13 +752,14 @@ describe("ProxyManagerPanel", () => {
       })),
     );
     const pending = Promise.withResolvers<unknown>();
-    probeIsp.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({
+    const promiseResult6 = {
       profile_id: "B",
       status: "timeout",
       exit_ip: null,
       delay_ms: null,
       checked_at: "2026-10-15T00:00:00Z",
-    });
+    };
+    probeIsp.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(promiseResult6);
     renderPanel();
     fireEvent.click(screen.getByRole("tab", { name: /ISP 代理/ }));
     await screen.findByRole("button", { name: "检测 A" });

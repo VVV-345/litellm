@@ -322,9 +322,10 @@ class AutomationRunner:
             await self._finish(row, "verification_failed", "上次模型验收结果未知；请仅重试验收，不重新登录")
             return
         endpoint: Final = self.browser.service.gateway_environment(record)
-        model: Final = row.item.model or next(iter(endpoint.enabled_models), None)
-        if model is None or model not in endpoint.enabled_models or not endpoint.routable:
-            await self._finish(row, "verification_failed", "凭据已保存，但当前卡片没有可路由的选定模型；请仅重试验收")
+        cooling: Final = {item.model for item in record.model_cooldowns if item.retry_at > self.clock()}
+        model: Final = row.item.model or next((item for item in endpoint.enabled_models if item not in cooling), None)
+        if model is None or model not in endpoint.enabled_models or model in cooling or not endpoint.routable:
+            await self._finish(row, "verification_failed", "凭据已保存，但选定模型不可路由或仍在冷却；请仅重试验收")
             return
         checking: Final = await self._save(
             row.model_copy(
@@ -370,7 +371,7 @@ class AutomationRunner:
                 "completed" if accepted.chat and accepted.responses else "verification_failed",
                 "同卡 Chat 与 Responses 验收通过"
                 if accepted.chat and accepted.responses
-                else "凭据已保存，但模型推理未通过；请仅重试验收，不重新登录",
+                else f"凭据已保存，但模型推理未通过（{accepted.failure_detail or '结果未知'}）；请仅重试验收，不重新登录",
             )
         except Exception:
             await self._finish(checking, "verification_failed", "模型验收中断或超时，结果未知；请仅重试验收")

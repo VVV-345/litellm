@@ -26,6 +26,11 @@ const mockSSOSettingsResponse: SSOSettingsResponse = {
     generic_authorization_endpoint: "https://example.com/auth",
     generic_token_endpoint: "https://example.com/token",
     generic_userinfo_endpoint: "https://example.com/userinfo",
+    saml_idp_metadata_url: null,
+    saml_idp_metadata_xml: null,
+    saml_sp_entity_id: null,
+    saml_allow_unsolicited: null,
+    generic_scope: null,
     proxy_base_url: "https://proxy.example.com",
     user_email: "test@example.com",
     ui_access_mode: "proxy_admin",
@@ -71,7 +76,7 @@ describe("useSSOSettings", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -80,7 +85,8 @@ describe("useSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -135,7 +141,7 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when accessToken is missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -144,7 +150,8 @@ describe("useSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -156,7 +163,7 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when userId is missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: "test-access-token",
       userId: null,
       userRole: "Admin",
@@ -165,7 +172,8 @@ describe("useSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -177,7 +185,7 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when userRole is missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult4 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: null,
@@ -186,7 +194,8 @@ describe("useSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -198,7 +207,7 @@ describe("useSSOSettings", () => {
   });
 
   it("should not execute query when all auth values are missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult5 = {
       accessToken: null,
       userId: null,
       userRole: null,
@@ -207,7 +216,8 @@ describe("useSSOSettings", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult5);
 
     const { result } = renderHook(() => useSSOSettings(), { wrapper });
 
@@ -244,6 +254,11 @@ describe("useSSOSettings", () => {
         generic_authorization_endpoint: null,
         generic_token_endpoint: null,
         generic_userinfo_endpoint: null,
+        saml_idp_metadata_url: null,
+        saml_idp_metadata_xml: null,
+        saml_sp_entity_id: null,
+        saml_allow_unsolicited: null,
+        generic_scope: null,
         proxy_base_url: null,
         user_email: null,
         ui_access_mode: null,

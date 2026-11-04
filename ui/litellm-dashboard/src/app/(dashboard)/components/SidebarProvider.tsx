@@ -38,30 +38,31 @@ const SidebarProvider = ({
 
       try {
         const settings = await getUISettings(accessToken);
+        const values = settings?.values;
 
         // API returns 'values' not 'settings'
-        if (settings?.values?.enabled_ui_pages_internal_users !== undefined) {
+        if (values?.enabled_ui_pages_internal_users !== undefined) {
           setEnabledPagesInternalUsers(settings.values.enabled_ui_pages_internal_users);
         } else {
         }
 
-        if (settings?.values?.enable_projects_ui !== undefined) {
+        if (values?.enable_projects_ui !== undefined) {
           setEnableProjectsUI(Boolean(settings.values.enable_projects_ui));
         }
 
-        if (settings?.values?.disable_agents_for_internal_users !== undefined) {
+        if (values?.disable_agents_for_internal_users !== undefined) {
           setDisableAgentsForInternalUsers(Boolean(settings.values.disable_agents_for_internal_users));
         }
 
-        if (settings?.values?.allow_agents_for_team_admins !== undefined) {
+        if (values?.allow_agents_for_team_admins !== undefined) {
           setAllowAgentsForTeamAdmins(Boolean(settings.values.allow_agents_for_team_admins));
         }
 
-        if (settings?.values?.disable_vector_stores_for_internal_users !== undefined) {
+        if (values?.disable_vector_stores_for_internal_users !== undefined) {
           setDisableVectorStoresForInternalUsers(Boolean(settings.values.disable_vector_stores_for_internal_users));
         }
 
-        if (settings?.values?.allow_vector_stores_for_team_admins !== undefined) {
+        if (values?.allow_vector_stores_for_team_admins !== undefined) {
           setAllowVectorStoresForTeamAdmins(Boolean(settings.values.allow_vector_stores_for_team_admins));
         }
       } catch (error) {

@@ -47,7 +47,8 @@ export const accountPoolQueryKeys = {
     [...ACCOUNT_POOL_ROOT, "upstream-sync", target, accessToken] as const,
   quotaRefreshStatus: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "quota-refresh-status", accessToken] as const,
-  dashboardStats: (accessToken: string | null, days = 30) => [...ACCOUNT_POOL_ROOT, "dashboard-stats", accessToken, days] as const,
+  dashboardStats: (accessToken: string | null, days = 30) =>
+    [...ACCOUNT_POOL_ROOT, "dashboard-stats", accessToken, days] as const,
   proxyGatewaysRoot: [...ACCOUNT_POOL_ROOT, "proxy-gateways"] as const,
   proxyGateways: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "proxy-gateways", accessToken] as const,
   proxyGatewayDelays: (accessToken: string | null) =>

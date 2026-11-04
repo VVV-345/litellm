@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { renderWithProviders } from "../../../tests/test-utils";
 import MCPServerSelector from "./MCPServerSelector";
 import { ALL_PROXY_MCP_SERVERS_SENTINEL, NO_MCP_SERVERS_SENTINEL } from "../mcp_tools/constants";
@@ -40,6 +41,10 @@ const setupMcpMocks = () => {
   mockUseMCPAccessGroups.mockReturnValue({ data: [], isLoading: false } as any);
   mockUseMCPToolsets.mockReturnValue({ data: [], isLoading: false } as any);
 };
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en-US");
+});
 
 describe("MCPServerSelector no-mcp-servers option", () => {
   beforeEach(() => {

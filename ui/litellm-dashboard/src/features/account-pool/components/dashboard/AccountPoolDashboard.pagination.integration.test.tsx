@@ -1,30 +1,68 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import { AccountPoolDashboard } from "./AccountPoolDashboard";
 
-const card = (id: string, supplier: AccountPoolEnvironment["supplier"], changes: Partial<AccountPoolEnvironment> = {}): AccountPoolEnvironment => ({
-  id, name: id, version: 1, provider: "openai", channel: "cliproxyapi", supplier,
-  authorization_flow: "browser_oauth", status: "ready", enabled: true, manual_cooldown: false,
-  configuration_pending: false, desired_configuration_version: 1, observed_configuration_version: 1,
-  concurrency_limit: 2, proxy_mode: "default_gateway", proxy_profile_id: null,
-  available_models: ["model"], enabled_models: ["model"], model_quotas: [],
+const card = (
+  id: string,
+  supplier: AccountPoolEnvironment["supplier"],
+  changes: Partial<AccountPoolEnvironment> = {},
+): AccountPoolEnvironment => ({
+  id,
+  name: id,
+  version: 1,
+  provider: "openai",
+  channel: "cliproxyapi",
+  supplier,
+  authorization_flow: "browser_oauth",
+  status: "ready",
+  enabled: true,
+  manual_cooldown: false,
+  configuration_pending: false,
+  desired_configuration_version: 1,
+  observed_configuration_version: 1,
+  concurrency_limit: 2,
+  proxy_mode: "default_gateway",
+  proxy_profile_id: null,
+  available_models: ["model"],
+  enabled_models: ["model"],
+  model_quotas: [],
   quota: { observed_at: null, plan_type: null, windows: [], balances: [] },
-  cooldown_until: null, automatic_cooldown: false, last_error: null,
-  created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z", ...changes,
+  cooldown_until: null,
+  automatic_cooldown: false,
+  last_error: null,
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+  ...changes,
 });
 const cards = [
   ...Array.from({ length: 25 }, (_, index) => card(`Codex ${index + 1}`, "openai_codex")),
   ...Array.from({ length: 13 }, (_, index) => card(`Kimi ${index + 1}`, "kimi")),
 ];
-const renderDashboard = (environments = cards) => render(
-  <AccountPoolDashboard environments={environments} statsByCard={new Map()} statsLoading={false}
-    renderCard={(environment) => <p>{environment.name}</p>} quotaRefreshStatus={null}
-    onRefreshQuotas={vi.fn()} refreshingQuotas={false} />,
-);
-const supplier = (name: string) => within(screen.getByRole("region", { name }));
+const renderDashboard = (environments = cards) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const Wrapper = ({ children }: { children: ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  );
+  return render(
+    <AccountPoolDashboard
+      environments={environments}
+      statsByCard={new Map()}
+      statsLoading={false}
+      renderCard={(environment) => <p>{environment.name}</p>}
+      quotaRefreshStatus={null}
+      onRefreshQuotas={vi.fn()}
+      refreshingQuotas={false}
+    />,
+    { wrapper: Wrapper },
+  );
+};
+const supplier = (name: string) => within(screen.getByRole("tabpanel", { name: new RegExp(`^${name}`) }));
+const selectSupplier = (name: string) => fireEvent.click(screen.getByRole("tab", { name: new RegExp(`^${name}`) }));
 
 describe("supplier dashboard pagination and filters", () => {
   beforeEach(async () => {
@@ -35,12 +73,16 @@ describe("supplier dashboard pagination and filters", () => {
   it("limits each supplier to 4 cards and keeps their pages independent", () => {
     renderDashboard();
     expect(supplier("OpenAI Codex").getAllByRole("listitem")).toHaveLength(4);
+    selectSupplier("Kimi");
     expect(supplier("Kimi").getAllByRole("listitem")).toHaveLength(4);
+    selectSupplier("OpenAI Codex");
     expect(supplier("OpenAI Codex").getByRole("button", { name: "上一页" })).toBeDisabled();
     fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
     expect(supplier("OpenAI Codex").getByText("Codex 5")).toBeInTheDocument();
     expect(supplier("OpenAI Codex").queryByText("Codex 1")).not.toBeInTheDocument();
+    selectSupplier("Kimi");
     expect(supplier("Kimi").getByText("Kimi 1")).toBeInTheDocument();
+    selectSupplier("OpenAI Codex");
     for (let page = 2; page < 7; page += 1) {
       fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
     }
@@ -53,12 +95,15 @@ describe("supplier dashboard pagination and filters", () => {
     const user = userEvent.setup();
     renderDashboard();
     fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
+    selectSupplier("Kimi");
     fireEvent.click(supplier("Kimi").getByRole("button", { name: "下一页" }));
     await user.click(screen.getByRole("combobox", { name: "每页卡片数" }));
     expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["4", "8", "12"]);
     await user.click(screen.getByRole("option", { name: String(pageSize) }));
+    selectSupplier("OpenAI Codex");
     expect(supplier("OpenAI Codex").getAllByRole("listitem")).toHaveLength(pageSize);
     expect(supplier("OpenAI Codex").getByText("Codex 1")).toBeInTheDocument();
+    selectSupplier("Kimi");
     expect(supplier("Kimi").getAllByRole("listitem")).toHaveLength(pageSize);
     expect(supplier("Kimi").getByText("Kimi 1")).toBeInTheDocument();
   });
@@ -69,7 +114,7 @@ describe("supplier dashboard pagination and filters", () => {
     const search = screen.getByRole("textbox", { name: "搜索卡片名称或 ID" });
     fireEvent.change(search, { target: { value: "  codex 25  " } });
     expect(supplier("OpenAI Codex").getByText("Codex 25")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: "Kimi" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /^Kimi/ })).not.toBeInTheDocument();
     expect(screen.getByText("38 / 38")).toBeInTheDocument();
     fireEvent.change(search, { target: { value: "" } });
     expect(supplier("OpenAI Codex").getByText("Codex 1")).toBeInTheDocument();
@@ -95,14 +140,31 @@ describe("supplier dashboard pagination and filters", () => {
   });
 
   it("paginates the stored order and keeps a nonempty page when refreshed data shrinks", () => {
-    window.localStorage.setItem("account-pool.card-order.openai_codex", JSON.stringify(cards.slice(0, 25).map((item) => item.id).reverse()));
+    window.localStorage.setItem(
+      "account-pool.card-order.openai_codex",
+      JSON.stringify(
+        cards
+          .slice(0, 25)
+          .map((item) => item.id)
+          .reverse(),
+      ),
+    );
     const view = renderDashboard();
     expect(supplier("OpenAI Codex").getByText("Codex 25")).toBeInTheDocument();
     expect(supplier("OpenAI Codex").queryByText("Codex 1")).not.toBeInTheDocument();
     fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
     fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
-    view.rerender(<AccountPoolDashboard environments={cards.slice(0, 3)} statsByCard={new Map()} statsLoading={false}
-      renderCard={(environment) => <p>{environment.name}</p>} quotaRefreshStatus={null} onRefreshQuotas={vi.fn()} refreshingQuotas={false} />);
+    view.rerender(
+      <AccountPoolDashboard
+        environments={cards.slice(0, 3)}
+        statsByCard={new Map()}
+        statsLoading={false}
+        renderCard={(environment) => <p>{environment.name}</p>}
+        quotaRefreshStatus={null}
+        onRefreshQuotas={vi.fn()}
+        refreshingQuotas={false}
+      />,
+    );
     expect(supplier("OpenAI Codex").getAllByRole("listitem")).toHaveLength(3);
     expect(supplier("OpenAI Codex").getByText("第 1 / 1 页")).toBeInTheDocument();
   });
@@ -112,11 +174,29 @@ describe("supplier dashboard pagination and filters", () => {
     fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
     fireEvent.click(supplier("OpenAI Codex").getByRole("button", { name: "下一页" }));
     expect(supplier("OpenAI Codex").getByText("第 3 / 3 页")).toBeInTheDocument();
-    view.rerender(<AccountPoolDashboard environments={cards.slice(0, 8)} statsByCard={new Map()} statsLoading={false}
-      renderCard={(environment) => <p>{environment.name}</p>} quotaRefreshStatus={null} onRefreshQuotas={vi.fn()} refreshingQuotas={false} />);
+    view.rerender(
+      <AccountPoolDashboard
+        environments={cards.slice(0, 8)}
+        statsByCard={new Map()}
+        statsLoading={false}
+        renderCard={(environment) => <p>{environment.name}</p>}
+        quotaRefreshStatus={null}
+        onRefreshQuotas={vi.fn()}
+        refreshingQuotas={false}
+      />,
+    );
     expect(supplier("OpenAI Codex").getByText("第 2 / 2 页")).toBeInTheDocument();
-    view.rerender(<AccountPoolDashboard environments={cards.slice(0, 9)} statsByCard={new Map()} statsLoading={false}
-      renderCard={(environment) => <p>{environment.name}</p>} quotaRefreshStatus={null} onRefreshQuotas={vi.fn()} refreshingQuotas={false} />);
+    view.rerender(
+      <AccountPoolDashboard
+        environments={cards.slice(0, 9)}
+        statsByCard={new Map()}
+        statsLoading={false}
+        renderCard={(environment) => <p>{environment.name}</p>}
+        quotaRefreshStatus={null}
+        onRefreshQuotas={vi.fn()}
+        refreshingQuotas={false}
+      />,
+    );
     expect(supplier("OpenAI Codex").getByText("第 2 / 3 页")).toBeInTheDocument();
     expect(supplier("OpenAI Codex").getByText("Codex 5")).toBeInTheDocument();
   });

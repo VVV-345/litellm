@@ -69,7 +69,7 @@ describe("useRouterFields", () => {
     vi.clearAllMocks();
 
     // Set default mock for useAuthorized (enabled state)
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userRole: "Admin",
       userId: "test-user-id",
@@ -78,7 +78,8 @@ describe("useRouterFields", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -152,7 +153,7 @@ describe("useRouterFields", () => {
   });
 
   it("should not execute query when accessToken is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userRole: "Admin",
       userId: "test-user-id",
@@ -161,7 +162,8 @@ describe("useRouterFields", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useRouterFields(), { wrapper });
 
@@ -175,7 +177,7 @@ describe("useRouterFields", () => {
   });
 
   it("should not execute query when userId is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: "test-access-token",
       userRole: "Admin",
       userId: null,
@@ -184,7 +186,8 @@ describe("useRouterFields", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     const { result } = renderHook(() => useRouterFields(), { wrapper });
 
@@ -198,7 +201,7 @@ describe("useRouterFields", () => {
   });
 
   it("should not execute query when userRole is missing", () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult4 = {
       accessToken: "test-access-token",
       userRole: null,
       userId: "test-user-id",
@@ -207,7 +210,8 @@ describe("useRouterFields", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
     const { result } = renderHook(() => useRouterFields(), { wrapper });
 

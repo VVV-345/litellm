@@ -75,7 +75,7 @@ describe("useTags", () => {
     vi.clearAllMocks();
 
     // Set default mock for useAuthorized (enabled state)
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: "Admin",
@@ -84,7 +84,8 @@ describe("useTags", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -138,7 +139,7 @@ describe("useTags", () => {
 
   it("should not execute query when accessToken is missing", async () => {
     // Mock missing accessToken
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -147,7 +148,8 @@ describe("useTags", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useTags(), { wrapper });
 
@@ -162,7 +164,7 @@ describe("useTags", () => {
 
   it("should not execute query when userId is missing", async () => {
     // Mock missing userId
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: "test-access-token",
       userId: null,
       userRole: "Admin",
@@ -171,7 +173,8 @@ describe("useTags", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     const { result } = renderHook(() => useTags(), { wrapper });
 
@@ -186,7 +189,7 @@ describe("useTags", () => {
 
   it("should not execute query when userRole is missing", async () => {
     // Mock missing userRole
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult4 = {
       accessToken: "test-access-token",
       userId: "test-user-id",
       userRole: null,
@@ -195,7 +198,8 @@ describe("useTags", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
     const { result } = renderHook(() => useTags(), { wrapper });
 
@@ -210,7 +214,7 @@ describe("useTags", () => {
 
   it("should not execute query when all auth values are missing", async () => {
     // Mock all auth values missing
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult5 = {
       accessToken: null,
       userId: null,
       userRole: null,
@@ -219,7 +223,8 @@ describe("useTags", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult5);
 
     const { result } = renderHook(() => useTags(), { wrapper });
 

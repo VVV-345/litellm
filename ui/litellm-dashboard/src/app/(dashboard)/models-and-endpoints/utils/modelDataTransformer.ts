@@ -40,15 +40,15 @@ export const transformModelData = (rawModelData: any, getProviderFromModel: (mod
     }
 
     if (model_info) {
-      input_cost = model_info?.input_cost_per_token;
-      output_cost = model_info?.output_cost_per_token;
-      max_tokens = model_info?.max_tokens;
-      max_input_tokens = model_info?.max_input_tokens;
+      input_cost = model_info.input_cost_per_token;
+      output_cost = model_info.output_cost_per_token;
+      max_tokens = model_info.max_tokens;
+      max_input_tokens = model_info.max_input_tokens;
     }
 
     if (curr_model?.litellm_params) {
       cleanedLitellmParams = Object.fromEntries(
-        Object.entries(curr_model?.litellm_params).filter(([key]) => key !== "model" && key !== "api_base"),
+        Object.entries(curr_model.litellm_params).filter(([key]) => key !== "model" && key !== "api_base"),
       );
     }
 

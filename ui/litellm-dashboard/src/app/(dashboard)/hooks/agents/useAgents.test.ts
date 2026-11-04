@@ -73,7 +73,7 @@ describe("useAgents", () => {
     vi.clearAllMocks();
 
     // Set default mock for useAuthorized (enabled state)
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: "test-access-token",
       userRole: "Admin",
       userId: "test-user-id",
@@ -82,7 +82,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
   });
 
   const wrapper = ({ children }: { children: ReactNode }) =>
@@ -136,7 +137,7 @@ describe("useAgents", () => {
 
   it("should not execute query when accessToken is missing", async () => {
     // Mock missing accessToken
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userRole: "Admin",
       userId: "test-user-id",
@@ -145,7 +146,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useAgents(), { wrapper });
 
@@ -160,7 +162,7 @@ describe("useAgents", () => {
 
   it("should not execute query when userRole is not an admin role", async () => {
     // Mock non-admin userRole
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: "test-access-token",
       userRole: "member", // Not in all_admin_roles
       userId: "test-user-id",
@@ -169,7 +171,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     const { result } = renderHook(() => useAgents(), { wrapper });
 
@@ -184,7 +187,7 @@ describe("useAgents", () => {
 
   it("should not execute query when userRole is null", async () => {
     // Mock null userRole
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult4 = {
       accessToken: "test-access-token",
       userRole: null,
       userId: "test-user-id",
@@ -193,7 +196,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
     const { result } = renderHook(() => useAgents(), { wrapper });
 
@@ -208,7 +212,7 @@ describe("useAgents", () => {
 
   it("should not execute query when userRole is empty string", async () => {
     // Mock empty string userRole
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult5 = {
       accessToken: "test-access-token",
       userRole: "",
       userId: "test-user-id",
@@ -217,7 +221,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult5);
 
     const { result } = renderHook(() => useAgents(), { wrapper });
 
@@ -232,7 +237,7 @@ describe("useAgents", () => {
 
   it("should not execute query when both accessToken and userRole are missing", async () => {
     // Mock both auth values missing
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult6 = {
       accessToken: null,
       userRole: null,
       userId: "test-user-id",
@@ -241,7 +246,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult6);
 
     const { result } = renderHook(() => useAgents(), { wrapper });
 
@@ -275,7 +281,7 @@ describe("useAgents", () => {
     (getAgentsList as any).mockResolvedValue(mockAgentsResponse);
 
     // Mock proxy_admin role
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult7 = {
       accessToken: "test-access-token",
       userRole: "proxy_admin",
       userId: "test-user-id",
@@ -284,7 +290,8 @@ describe("useAgents", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult7);
 
     const { result } = renderHook(() => useAgents(), { wrapper });
 

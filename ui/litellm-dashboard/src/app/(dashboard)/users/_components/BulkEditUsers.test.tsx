@@ -49,12 +49,13 @@ describe("BulkEditUserModal", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("en");
     vi.clearAllMocks();
-    mockUserBulkUpdateUserCall.mockResolvedValue({
+    const userBulkUpdateUserCallResult1 = {
       results: [],
       total_requested: 2,
       successful_updates: 2,
       failed_updates: 0,
-    });
+    };
+    mockUserBulkUpdateUserCall.mockResolvedValue(userBulkUpdateUserCallResult1);
     mockTeamBulkMemberAddCall.mockResolvedValue({
       successful_additions: 2,
       failed_additions: 0,
@@ -228,12 +229,13 @@ describe("BulkEditUserModal", () => {
 
   it("should show success message after successful user update", async () => {
     const user = userEvent.setup();
-    mockUserBulkUpdateUserCall.mockResolvedValue({
+    const userBulkUpdateUserCallResult2 = {
       results: [],
       total_requested: 2,
       successful_updates: 2,
       failed_updates: 0,
-    });
+    };
+    mockUserBulkUpdateUserCall.mockResolvedValue(userBulkUpdateUserCallResult2);
 
     renderWithProviders(<BulkEditUserModal {...defaultProps} />);
 
@@ -247,12 +249,13 @@ describe("BulkEditUserModal", () => {
 
   it("should show success message for all users update", async () => {
     const user = userEvent.setup();
-    mockUserBulkUpdateUserCall.mockResolvedValue({
+    const userBulkUpdateUserCallResult3 = {
       results: [],
       total_requested: 100,
       successful_updates: 100,
       failed_updates: 0,
-    });
+    };
+    mockUserBulkUpdateUserCall.mockResolvedValue(userBulkUpdateUserCallResult3);
 
     renderWithProviders(<BulkEditUserModal {...defaultProps} allowAllUsers={true} />);
 

@@ -207,4 +207,4 @@ def test_main_writes_sorted_snapshot_when_every_feature_loads(tmp_path):
 
     assert main(snapshot_file, generate=lambda: SnapshotResult(fragments=fragments, skipped=())) == 0
     assert json.loads(snapshot_file.read_text()) == fragments
-    assert snapshot_file.read_text() == json.dumps(fragments, indent=2, sort_keys=True) + "\n"
+    assert snapshot_file.read_bytes() == (json.dumps(fragments, indent=2, sort_keys=True) + "\n").encode("utf-8")

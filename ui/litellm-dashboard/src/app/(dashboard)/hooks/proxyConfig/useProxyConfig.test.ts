@@ -123,7 +123,7 @@ describe("useProxyConfig", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult1 = {
       accessToken: mockAccessToken,
       userId: "test-user-id",
       userRole: "Admin",
@@ -132,7 +132,8 @@ describe("useProxyConfig", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult1);
 
     fetchSpy = vi.fn();
     global.fetch = fetchSpy;
@@ -212,7 +213,7 @@ describe("useProxyConfig", () => {
   });
 
   it("should not execute query when accessToken is missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult2 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -221,7 +222,8 @@ describe("useProxyConfig", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult2);
 
     const { result } = renderHook(() => useProxyConfig(ConfigType.GENERAL_SETTINGS), { wrapper });
 
@@ -295,7 +297,7 @@ describe("useDeleteProxyConfigField", () => {
 
     vi.clearAllMocks();
 
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult3 = {
       accessToken: mockAccessToken,
       userId: "test-user-id",
       userRole: "Admin",
@@ -304,7 +306,8 @@ describe("useDeleteProxyConfigField", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult3);
 
     fetchSpy = vi.fn();
     global.fetch = fetchSpy;
@@ -383,7 +386,7 @@ describe("useDeleteProxyConfigField", () => {
   });
 
   it("should throw error when accessToken is missing", async () => {
-    mockUseAuthorized.mockReturnValue({
+    const useAuthorizedResult4 = {
       accessToken: null,
       userId: "test-user-id",
       userRole: "Admin",
@@ -392,7 +395,8 @@ describe("useDeleteProxyConfigField", () => {
       premiumUser: false,
       disabledPersonalKeyCreation: null,
       showSSOBanner: false,
-    });
+    };
+    mockUseAuthorized.mockReturnValue(useAuthorizedResult4);
 
     const { result } = renderHook(() => useDeleteProxyConfigField(), { wrapper });
 
