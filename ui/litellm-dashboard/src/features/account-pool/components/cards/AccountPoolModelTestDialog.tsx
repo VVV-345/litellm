@@ -20,7 +20,7 @@ import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 interface Props {
   accessToken: string;
   environment: Pick<AccountPoolEnvironment, "id" | "name" | "enabled_models"> &
-    Partial<Pick<AccountPoolEnvironment, "access_token_fallback" | "model_cooldowns" | "enabled" | "manual_cooldown" | "configuration_pending" | "status">>;
+    Partial<Pick<AccountPoolEnvironment, "access_token_fallback" | "model_cooldowns" | "quota" | "model_quotas" | "enabled" | "manual_cooldown" | "configuration_pending" | "status">>;
   onClose: () => void;
 }
 
@@ -57,7 +57,7 @@ export function AccountPoolModelTestDialog({ accessToken, environment, onClose }
           <div className="grid gap-2">
             <Label htmlFor="card-test-model">{t("accountPool.modelTest.model")}</Label>
             <Select
-              value={model}
+              value={models.includes(model) ? model : null}
               onValueChange={(value) => {
                 if (value) setModel(value);
               }}

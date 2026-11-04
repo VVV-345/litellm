@@ -1,5 +1,5 @@
 import i18n from "@/i18n";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCard } from "./AccountPoolCard";
@@ -16,6 +16,12 @@ const renderCard = (
   policy?: PolicyView,
   requestStats?: ErrorStats,
 ) => {
+  const actions = {
+    onRefreshCredentials: vi.fn(),
+    onVerifyAccess: vi.fn(),
+    onQuotaReset: vi.fn(),
+    onViewLogs: vi.fn(),
+  };
   const environment = {
     id: "env-claude-1",
     version: 1,
@@ -52,14 +58,12 @@ const renderCard = (
       onEnabledChange={vi.fn()}
       onAuthorize={vi.fn()}
       onDelete={vi.fn()}
-      onRefreshCredentials={vi.fn()}
-      onVerifyAccess={vi.fn()}
+      {...actions}
       onManageKey={vi.fn()}
-      onQuotaReset={vi.fn()}
-      onViewLogs={vi.fn()}
       policy={policy}
     />,
   );
+  return { actions, environment };
 };
 
 const createCostStats = (total_cost_usd: number | null, known_cost_requests: number): ErrorStats => ({
@@ -277,4 +281,34 @@ it("keeps egress, request data and small recovery/log buttons visible without ex
   expect(screen.getByText("1.2K")).toBeVisible();
   expect(screen.getByRole("button", {name: /额度重置/})).toBeVisible();
   expect(screen.getByRole("button", {name: /卡片日志/})).toBeVisible();
+});
+
+it("groups all Codex recovery and log actions in one row and keeps their handlers", async () => {
+  await i18n.changeLanguage("zh-CN");
+  const { actions, environment } = renderCard({ supplier: "openai_codex" }, undefined, {
+    card_id: "env-claude-1",
+    version: 1,
+    policy: { codex: { allow_valid_access_after_refresh_failure: true } },
+  } as PolicyView);
+  const row = screen.getByRole("group", { name: "操作" });
+  expect(row).toHaveClass("flex", "flex-wrap");
+  expect(within(row).getAllByRole("button")).toHaveLength(4);
+  for (const [label, handler] of [
+    ["刷新凭据", actions.onRefreshCredentials],
+    ["检查可用性", actions.onVerifyAccess],
+    ["额度重置与验证", actions.onQuotaReset],
+    ["查看卡片日志", actions.onViewLogs],
+  ] as const) {
+    fireEvent.click(within(row).getByRole("button", { name: label }));
+    expect(handler).toHaveBeenCalledExactlyOnceWith(environment);
+  }
+});
+
+it("keeps card logs in the action row for non-Codex cards without Codex recovery actions", async () => {
+  await i18n.changeLanguage("zh-CN");
+  const { actions, environment } = renderCard({ supplier: "kimi" });
+  const row = screen.getByRole("group", { name: "操作" });
+  expect(within(row).getAllByRole("button")).toHaveLength(1);
+  fireEvent.click(within(row).getByRole("button", { name: "查看卡片日志" }));
+  expect(actions.onViewLogs).toHaveBeenCalledExactlyOnceWith(environment);
 });

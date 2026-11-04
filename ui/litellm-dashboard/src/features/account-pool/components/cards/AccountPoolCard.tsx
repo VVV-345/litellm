@@ -302,30 +302,38 @@ const AccountPoolCardComponent = ({
             </p>
           )}
         {environment.last_error && <p className="break-words text-xs text-destructive">{environment.last_error}</p>}
-        {environment.supplier === "openai_codex" && (
-          <div className="flex flex-wrap gap-2">
-            {onRefreshCredentials && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={disabled || !environment.enabled || environment.credential_refresh?.running}
-                onClick={() => onRefreshCredentials(environment)}
-              >
-                {t("accountPool.credential.refresh")}
-              </Button>
-            )}
-            {onVerifyAccess && policyValues?.codex?.allow_valid_access_after_refresh_failure && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={disabled || !environment.enabled}
-                onClick={() => onVerifyAccess(environment)}
-              >
-                {t("accountPool.credential.verify")}
-              </Button>
-            )}
-          </div>
-        )}
+        <div role="group" aria-label={t("ui.Actions")} className="flex flex-wrap gap-2">
+          {environment.supplier === "openai_codex" && onRefreshCredentials && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={disabled || !environment.enabled || environment.credential_refresh?.running}
+              onClick={() => onRefreshCredentials(environment)}
+            >
+              {t("accountPool.credential.refresh")}
+            </Button>
+          )}
+          {environment.supplier === "openai_codex" && onVerifyAccess && policyValues?.codex?.allow_valid_access_after_refresh_failure && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={disabled || !environment.enabled}
+              onClick={() => onVerifyAccess(environment)}
+            >
+              {t("accountPool.credential.verify")}
+            </Button>
+          )}
+          {environment.supplier === "openai_codex" && onQuotaReset && (
+            <Button size="sm" variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>
+              {t("accountPool.quotaReset.action")}
+            </Button>
+          )}
+          {onViewLogs && (
+            <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>
+              {t("accountPool.logs.cardLogs")}
+            </Button>
+          )}
+        </div>
             <div className="min-w-0">
               <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
               <p className="mt-1 break-words font-medium">
@@ -387,18 +395,6 @@ const AccountPoolCardComponent = ({
                   </div>
                 )}
             </div>
-        <div className="flex flex-wrap gap-2">
-          {environment.supplier === "openai_codex" && onQuotaReset && (
-            <Button size="sm" variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>
-              {t("accountPool.quotaReset.action")}
-            </Button>
-          )}
-          {onViewLogs && (
-            <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>
-              {t("accountPool.logs.cardLogs")}
-            </Button>
-          )}
-        </div>
         <details className="min-w-0 border-t pt-2">
           <summary className="cursor-pointer text-xs text-muted-foreground focus-visible:outline-2">
             {t("accountPool.credential.details")}

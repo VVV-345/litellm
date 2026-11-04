@@ -132,7 +132,7 @@ export default function AccountPoolPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams?.get("tab") ?? "dashboard";
-  const [testEnvironment, setTestEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [testEnvironmentId, setTestEnvironmentId] = useState<string | null>(null);
   const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [refreshCredentialEnvironment,setRefreshCredentialEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [verifyAccessEnvironment,setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -198,6 +198,7 @@ export default function AccountPoolPage() {
     () => setDeleteEnvironment(null),
   );
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
+  const testEnvironment = environments.find((environment) => environment.id === testEnvironmentId);
   const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
   const gatewaysByProfile = useMemo(
     () => new Map((gatewaysQuery.data ?? []).map((gateway) => [gateway.profile_id, gateway] as const)),
@@ -296,7 +297,7 @@ export default function AccountPoolPage() {
           onDelete={setDeleteEnvironment}
           onManageKey={handleManageKey}
           onViewLogs={handleViewLogs}
-          onTest={setTestEnvironment}
+          onTest={(environment) => setTestEnvironmentId(environment.id)}
           onQuotaReset={setResetEnvironment}
           onRefreshCredentials={setRefreshCredentialEnvironment}
           onVerifyAccess={setVerifyAccessEnvironment}
@@ -678,7 +679,7 @@ export default function AccountPoolPage() {
           key={testEnvironment.id}
           accessToken={accessToken}
           environment={testEnvironment}
-          onClose={() => setTestEnvironment(null)}
+          onClose={() => setTestEnvironmentId(null)}
         />
       )}
       {resetEnvironment && accessToken && <AccountPoolQuotaResetDialog key={resetEnvironment.id} accessToken={accessToken} environment={resetEnvironment} onClose={() => setResetEnvironment(null)} />}

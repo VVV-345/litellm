@@ -65,5 +65,6 @@ it("does not offer unverified access-only models or submit a stale selection", (
   expect(screen.getByText("proven")).toBeVisible();
   rerender(<AccountPoolModelTestDialog accessToken="admin" environment={{...environment, access_token_fallback: {...environment.access_token_fallback, active: false}}} onClose={vi.fn()} />);
   expect(screen.getByRole("button", {name: "开始测试"})).toBeDisabled();
+  expect(screen.getByRole("combobox", { name: "模型" })).not.toHaveTextContent("proven");
   expect(apiClient.post).not.toHaveBeenCalled();
 });
