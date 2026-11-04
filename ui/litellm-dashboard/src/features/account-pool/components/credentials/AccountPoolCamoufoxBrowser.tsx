@@ -1,4 +1,4 @@
-/** 提供本机 Camoufox 配置与授权入口，密钥只存在于当前账号页面内存中。 */
+/** 提供本机 Camoufox 配置与授权入口，连接信息仅保存在当前浏览器。 */
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,31 @@ import { extractProxyErrorMessage } from "@/lib/http/client";
 import { authorizeAccountPoolEnvironment, exportAccountPoolBrowserProxy } from "../../api/AccountPoolApi";
 import { CamoufoxClient, CamoufoxError, sameProxy } from "../../api/CamoufoxClient";
 import type { AccountPoolAuthorization } from "../../utils/AccountPoolTypes";
+
+const defaultAddress = "http://127.0.0.1:10109";
+const storageKey = "account-pool:camoufox-helper";
+
+function savedConnection(): { address: string; key: string } {
+  try {
+    const value = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+    if (typeof value?.address === "string" && typeof value?.key === "string") {
+      const client = new CamoufoxClient(value.address, value.key);
+      return { address: client.baseUrl, key: value.key };
+    }
+  } catch {
+    return { address: defaultAddress, key: "" };
+  }
+  return { address: defaultAddress, key: "" };
+}
+
+function rememberConnection(address: string, key: string): boolean {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify({ address, key: key.trim() }));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 export function AccountPoolCamoufoxBrowser({
   accessToken,
@@ -24,9 +49,10 @@ export function AccountPoolCamoufoxBrowser({
 }) {
   const { t } = useTranslation();
   const id = useId();
-  const [address, setAddress] = useState("http://127.0.0.1:10109");
-  const [key, setKey] = useState("");
+  const [connection, setConnection] = useState(savedConnection);
+  const { address, key } = connection;
   const [error, setError] = useState<string | null>(null);
+  const [storageFailed, setStorageFailed] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [loggingIn, setLoggingIn] = useState(false);
   const credentialFile = useRef<HTMLInputElement>(null);
@@ -46,12 +72,14 @@ export function AccountPoolCamoufoxBrowser({
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    setStorageFailed(false);
     setMessage(null);
     if (open) onAuthorization(null);
     try {
       const client = new CamoufoxClient(address, key);
       if (!open) {
         await client.testConnection();
+        setStorageFailed(!rememberConnection(client.baseUrl, key));
         if (active.current) setMessage(t("accountPool.camoufox.connected"));
         return;
       }
@@ -69,6 +97,7 @@ export function AccountPoolCamoufoxBrowser({
         if (!active.current) return;
         setMessage(t("accountPool.camoufox.preparing"));
         const profile = await client.prepare(isp, environmentId);
+        setStorageFailed(!rememberConnection(client.baseUrl, key));
         if (!active.current) return;
         const authorization = await authorizeAccountPoolEnvironment(accessToken, environmentId);
         if (!active.current) return;
@@ -123,7 +152,7 @@ export function AccountPoolCamoufoxBrowser({
             id={`${id}-address`}
             value={address}
             disabled={busy}
-            onChange={(event) => setAddress(event.target.value)}
+            onChange={(event) => setConnection({ address: event.target.value, key })}
           />
         </div>
         <div className="grid gap-2">
@@ -134,7 +163,7 @@ export function AccountPoolCamoufoxBrowser({
             autoComplete="off"
             value={key}
             disabled={busy}
-            onChange={(event) => setKey(event.target.value)}
+            onChange={(event) => setConnection({ address, key: event.target.value })}
           />
         </div>
         <p className="text-xs text-muted-foreground">{t("accountPool.camoufox.privacy")}</p>
@@ -156,8 +185,33 @@ export function AccountPoolCamoufoxBrowser({
           <Button type="button" size="sm" disabled={busy || !key.trim()} onClick={() => void run(true)}>
             {t("accountPool.camoufox.open")}
           </Button>
-          {loggingIn && <Button type="button" size="sm" variant="outline" onClick={() => loginController.current?.abort()}>{t("accountPool.camoufox.stopLogin")}</Button>}
+          {loggingIn && (
+            <Button type="button" size="sm" variant="outline" onClick={() => loginController.current?.abort()}>
+              {t("accountPool.camoufox.stopLogin")}
+            </Button>
+          )}
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              try {
+                localStorage.removeItem(storageKey);
+              } catch {
+                setStorageFailed(true);
+              }
+              setConnection({ address: defaultAddress, key: "" });
+            }}
+          >
+            {t("accountPool.camoufox.forget")}
+          </Button>
         </div>
+        {storageFailed && (
+          <p role="alert" className="text-sm text-destructive">
+            {t("accountPool.camoufox.storageFailed")}
+          </p>
+        )}
         {message && (
           <p role="status" className="text-sm text-muted-foreground">
             {message}

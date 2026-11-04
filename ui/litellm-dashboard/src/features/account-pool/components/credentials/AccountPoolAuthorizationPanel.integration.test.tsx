@@ -8,6 +8,8 @@ import { AccountPoolAuthorizationPanel } from "./AccountPoolAuthorizationPanel";
 
 const postMock = vi.fn();
 
+beforeEach(() => localStorage.clear());
+
 vi.mock("@/components/networking", () => ({
   apiClient: {
     post: (...args: unknown[]) => postMock(...args),
@@ -113,7 +115,7 @@ describe("AccountPoolAuthorizationPanel external browser", () => {
     expect(screen.queryByRole("button", { name: "Open server browser" })).not.toBeInTheDocument();
   });
 });
-it("keeps the Camoufox Key local while preparing the ISP and opening fresh authorization", async () => {
+it("keeps the Camoufox Key in this browser while preparing the ISP and opening fresh authorization", async () => {
   await i18n.changeLanguage("en");
   const isp = { proxy_type: "socks5", host: "isp.example", port: 1080, username: "user", password: "secret" };
   const calls: { path: string; body: unknown }[] = [];
@@ -155,6 +157,49 @@ it("keeps the Camoufox Key local while preparing the ISP and opening fresh autho
   ]);
   rerender(view("card-2", "other-admin"));
   fireEvent.click(screen.getByText("Camoufox browser"));
+  expect(screen.getByLabelText("Local helper Key")).toHaveValue("local-key");
+  vi.unstubAllGlobals();
+});
+
+it("remembers a verified helper across visits and lets the user clear it", async () => {
+  await i18n.changeLanguage("en");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response(JSON.stringify({ name: "litellm-camoufox-helper", version: 1 }))),
+  );
+  const first = renderPanel();
+  fireEvent.click(screen.getByText("Camoufox browser"));
+  fireEvent.change(screen.getByLabelText("Local helper URL"), { target: { value: "http://127.0.0.1:10200" } });
+  fireEvent.change(screen.getByLabelText("Local helper Key"), { target: { value: "verified-key" } });
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  expect(await screen.findByText("Camoufox helper connected.")).toBeInTheDocument();
+  first.unmount();
+
+  renderPanel();
+  fireEvent.click(screen.getByText("Camoufox browser"));
+  expect(screen.getByLabelText("Local helper URL")).toHaveValue("http://127.0.0.1:10200");
+  expect(screen.getByLabelText("Local helper Key")).toHaveValue("verified-key");
+  fireEvent.click(screen.getByRole("button", { name: "Forget saved connection" }));
+  expect(screen.getByLabelText("Local helper URL")).toHaveValue("http://127.0.0.1:10109");
+  expect(screen.getByLabelText("Local helper Key")).toHaveValue("");
+  vi.unstubAllGlobals();
+});
+
+it("does not remember a rejected helper Key", async () => {
+  await i18n.changeLanguage("en");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: "unauthorized" }), { status: 401 })),
+  );
+  const first = renderPanel();
+  fireEvent.click(screen.getByText("Camoufox browser"));
+  fireEvent.change(screen.getByLabelText("Local helper Key"), { target: { value: "wrong-key" } });
+  fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("rejected");
+  first.unmount();
+
+  renderPanel();
+  fireEvent.click(screen.getByText("Camoufox browser"));
   expect(screen.getByLabelText("Local helper Key")).toHaveValue("");
   vi.unstubAllGlobals();
 });
@@ -168,12 +213,16 @@ it("authorizes a credential file locally without a consent checkbox and clears i
     expect(new URL(input).origin).toBe("http://127.0.0.1:10109");
     const path = new URL(input).pathname;
     calls.push({ path, body: JSON.parse(String(init.body)) });
-    if (path.endsWith("/prepare")) return new Response(JSON.stringify({ ticket: "a".repeat(64), proxy_id: "b".repeat(64), imported: false }));
+    if (path.endsWith("/prepare"))
+      return new Response(JSON.stringify({ ticket: "a".repeat(64), proxy_id: "b".repeat(64), imported: false }));
     return new Response(JSON.stringify(path.endsWith("/login") ? { status: "callback_received" } : { opened: true }));
   });
-  Object.defineProperty(navigator, "locks", { configurable: true, value: {
-    request: (_name: string, _options: unknown, callback: (lock: object) => Promise<void>) => callback({}),
-  } });
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (_name: string, _options: unknown, callback: (lock: object) => Promise<void>) => callback({}),
+    },
+  });
   postMock.mockReset().mockImplementation(async (path: string, options: object) => {
     expect(JSON.stringify(options)).not.toContain(privateRecord);
     return path.endsWith("/browser-proxy") ? isp : authorization;
@@ -181,12 +230,21 @@ it("authorizes a credential file locally without a consent checkbox and clears i
   renderPanel();
   fireEvent.click(screen.getByText("Camoufox browser"));
   fireEvent.change(screen.getByLabelText("Local helper Key"), { target: { value: "key" } });
-  const file = Object.assign(new File([privateRecord], "account.txt", { type: "text/plain" }), { text: async () => privateRecord });
+  const file = Object.assign(new File([privateRecord], "account.txt", { type: "text/plain" }), {
+    text: async () => privateRecord,
+  });
   fireEvent.change(screen.getByLabelText("Credential file (optional)"), { target: { files: [file] } });
   fireEvent.click(screen.getByRole("button", { name: "Match ISP and open in Camoufox" }));
-  expect(await screen.findByText("Login callback received. Wait for the account pool to confirm channel readiness.")).toBeInTheDocument();
-  expect(calls.at(-1)).toEqual({ path: "/v1/login", body: { ticket: "a".repeat(64), credentials: privateRecord, allow_consent: true } });
+  expect(
+    await screen.findByText("Login callback received. Wait for the account pool to confirm channel readiness."),
+  ).toBeInTheDocument();
+  expect(calls.at(-1)).toEqual({
+    path: "/v1/login",
+    body: { ticket: "a".repeat(64), credentials: privateRecord, allow_consent: true },
+  });
   expect(screen.getByLabelText("Credential file (optional)")).toHaveValue("");
-  expect(screen.queryByRole("checkbox", { name: "Allow this account to authorize the current Codex channel" })).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("checkbox", { name: "Allow this account to authorize the current Codex channel" }),
+  ).not.toBeInTheDocument();
   vi.unstubAllGlobals();
 });
