@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ErrorStats } from "../api/AccountPoolManagementApi";
 import {
+  accountPoolUsableModels,
   accountPoolHiddenModelCount,
   accountPoolVisibleModels,
   filterAccountPoolDashboardEnvironments,
@@ -116,4 +117,58 @@ describe("account pool dashboard selectors", () => {
     const pending = { ...ready, id: "pending", configuration_pending: true };
     expect(summarizeAccountPoolDashboard([ready, waiting, pending], new Map()).enabledCards).toBe(1);
   });
+});
+
+
+it("hides unproven, expired and independently cooling access-only models", () => {
+  const card = { ...environment("fallback", "openai_codex"), enabled_models: ["model-a", "model-b", "model-c"],
+    access_token_fallback: { enabled: true, active: true, failure_source: "refresh", reason: "temporary_access", expires_at: "2090-01-01T00:00:00Z", verified_models: ["model-a", "model-c"] },
+    model_cooldowns: [{model: "model-c", retry_at: "2090-01-01T00:00:00Z", reason: "rate_limit", consecutive_timeouts: 0}],
+  };
+  expect(accountPoolUsableModels(card)).toEqual(["model-a"]);
+  expect(accountPoolVisibleModels(card)).toEqual(["model-a"]);
+  expect(accountPoolHiddenModelCount(card)).toBe(0);
+  expect(accountPoolUsableModels({...card, access_token_fallback: {...card.access_token_fallback, expires_at: "2000-01-01T00:00:00Z"}})).toEqual([]);
+  expect(accountPoolUsableModels({...card, access_token_fallback: {...card.access_token_fallback, enabled: false}})).toEqual([]);
+  expect(accountPoolUsableModels({...card, access_token_fallback: {...card.access_token_fallback, failure_source: null}})).toEqual(card.enabled_models);
+});
+
+it("hides access-only models with exhausted quota until the quota window resets", () => {
+  const card: AccountPoolEnvironment = {
+    ...environment("fallback", "openai_codex"),
+    enabled_models: ["model-a", "model-b"],
+    access_token_fallback: {
+      enabled: true, active: true, failure_source: "refresh", reason: "temporary_access",
+      expires_at: "2090-01-01T00:00:00Z", verified_models: ["model-a", "model-b"],
+    },
+  };
+  const depleted = {
+    ...card.quota,
+    windows: [{ name: "Weekly", remaining_percent: 0, used_percent: 100, window_minutes: 10080, resets_at: "2090-01-01T00:00:00Z" }],
+  };
+  expect(accountPoolUsableModels({ ...card, model_quotas: [{ model: "model-a", quota: depleted }] })).toEqual(["model-b"]);
+  expect(accountPoolUsableModels({ ...card, quota: depleted })).toEqual([]);
+  expect(accountPoolUsableModels({ ...card, quota: depleted, model_quotas: [{ model: "model-a", quota: {
+    ...depleted, windows: [{ ...depleted.windows[0], remaining_percent: 50, used_percent: 50 }],
+  } }] })).toEqual(["model-a"]);
+  expect(accountPoolUsableModels({ ...card, quota: depleted, model_quotas: [{ model: "model-a", quota: {
+    ...depleted, windows: [],
+  } }] })).toEqual([]);
+  expect(accountPoolUsableModels({ ...card, model_quotas: [{ model: "model-a", quota: {
+    ...depleted, windows: [{ ...depleted.windows[0], resets_at: null }],
+  } }] })).toEqual(["model-b"]);
+  expect(accountPoolUsableModels({ ...card, model_quotas: [{ model: "model-a", quota: {
+    ...depleted, windows: [{ ...depleted.windows[0], resets_at: "2000-01-01T00:00:00Z" }],
+  } }] })).toEqual(["model-a", "model-b"]);
+});
+
+it("does not count an access-only card as available when none of its models has valid proof", () => {
+  const card: AccountPoolEnvironment = {
+    ...environment("fallback", "openai_codex"),
+    access_token_fallback: {
+      enabled: true, active: false, failure_source: "refresh", reason: "verification_required",
+      expires_at: "2090-01-01T00:00:00Z", verified_models: [],
+    },
+  };
+  expect(summarizeAccountPoolDashboard([card], new Map()).enabledCards).toBe(0);
 });

@@ -13,6 +13,7 @@ import {
 } from "./AccountPoolReleaseCards";
 import { AccountPoolReleaseConfirmation } from "./AccountPoolReleaseConfirmation";
 import { AccountPoolImageManager } from "./AccountPoolImageManager";
+import { AccountPoolRuntimeCards } from "./AccountPoolRuntimeCards";
 import {
   executeRelease,
   listReleases,
@@ -37,6 +38,7 @@ const actionTitles: Record<ReleaseAction["action"], string> = {
   deploy: "部署新版本",
   recover: "恢复运行版本",
   restore_data: "恢复程序与数据库快照",
+  upgrade_cards: "确认升级所选卡片",
 };
 const jobLabels = {
   queued: "等待执行",
@@ -175,6 +177,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
         </div>
       </div>
       <AccountPoolImageManager accessToken={accessToken} data={data} busy={busy} prepare={prepare} />
+      <AccountPoolRuntimeCards accessToken={accessToken} busy={busy} prepare={prepare} />
       {query.isError && (
         <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
           暂时无法连接，保留上次数据并继续重试。服务切换期间可能短暂中断。

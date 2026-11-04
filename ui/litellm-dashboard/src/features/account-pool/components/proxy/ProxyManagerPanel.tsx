@@ -548,7 +548,8 @@ const GatewayRow = ({
   const chainBound = gateway.isp_profile_id != null;
   const frontAvailable =
     gateway.front_node_name == null || nodeOptions.some((node) => node.name === gateway.front_node_name);
-  const chainReady = chainBound && boundISP?.enabled === true && frontAvailable;
+  const selectedISP = gateway.current_node === `account-pool-isp-${gateway.port}-${gateway.isp_profile_id?.replaceAll("-", "")}`;
+  const chainReady = chainBound && boundISP?.enabled === true && frontAvailable && selectedISP;
   const currentNodeLabel = gateway.current_node
     ? t("accountPool.proxyGateways.currentNode", { node: gateway.current_node })
     : t("accountPool.proxyGateways.currentNodeUnknown");

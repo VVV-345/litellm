@@ -435,8 +435,48 @@ class CleanupProgress(BaseModel):
         return self.routes_removed and self.compose_removed and self.directory_removed
 
 
+class AccessTokenFallbackVerification(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    passed: bool
+    restored: bool
+    reason: str
+    expires_at: datetime | None = None
+
+
+class AccessTokenFallbackStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    enabled: bool = False
+    active: bool = False
+    reason: str = "not_needed"
+    expires_at: datetime | None = None
+    verified_models: tuple[str, ...] = ()
+    failure_source: str | None = None
+
+    def usable_for(self, model: str, now: datetime) -> bool:
+        return (
+            self.enabled and self.active and self.failure_source == "refresh"
+            and self.expires_at is not None and self.expires_at > now and model in self.verified_models
+        )
+
+
+class CredentialRefreshStatus(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    access_expires_at: datetime | None = None
+    next_refresh_at: datetime | None = None
+    schedule_reason: str = "unavailable"
+    last_attempt_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_result: str = "unknown"
+    running: bool = False
+    save_pending: bool = False
+
+
 class EnvironmentRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
+
+    access_token_fallback: AccessTokenFallbackStatus = Field(default_factory=AccessTokenFallbackStatus)
+    credential_refresh: CredentialRefreshStatus = Field(default_factory=CredentialRefreshStatus)
 
     id: UUID
     version: int = Field(default=0, ge=0)
@@ -490,6 +530,9 @@ class EnvironmentRecord(BaseModel):
 
 class EnvironmentView(BaseModel):
     model_config = ConfigDict(frozen=True)
+
+    access_token_fallback: AccessTokenFallbackStatus = Field(default_factory=AccessTokenFallbackStatus)
+    credential_refresh: CredentialRefreshStatus = Field(default_factory=CredentialRefreshStatus)
 
     id: UUID
     version: int = Field(ge=0)
@@ -696,6 +739,8 @@ def utc_now() -> datetime:
 def to_view(record: EnvironmentRecord) -> EnvironmentView:
     # 显式构造公开模型，避免未来新增内部字段时意外泄露 state、签名或代理凭据。
     return EnvironmentView(
+        access_token_fallback=record.access_token_fallback,
+        credential_refresh=record.credential_refresh,
         id=record.id,
         version=record.version,
         desired_state=record.desired_state or record.status,

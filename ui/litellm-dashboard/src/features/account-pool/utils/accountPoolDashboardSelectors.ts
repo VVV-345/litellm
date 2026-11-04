@@ -70,7 +70,7 @@ export const summarizeAccountPoolDashboard = (
         !environment.manual_cooldown &&
         environment.status === "ready" &&
         !environment.configuration_pending &&
-        environment.enabled_models.length > 0,
+        accountPoolUsableModels(environment).length > 0,
     ).length,
     ...totals,
     successRate: completedRequests === 0 ? null : (totals.successfulRequests / completedRequests) * 100,
@@ -91,7 +91,26 @@ export const groupAccountPoolEnvironments = (
 };
 
 export const accountPoolVisibleModels = (environment: AccountPoolEnvironment): readonly string[] =>
-  environment.enabled_models.slice(0, 3);
+  accountPoolUsableModels(environment).slice(0, 3);
 
 export const accountPoolHiddenModelCount = (environment: AccountPoolEnvironment): number =>
-  Math.max(0, environment.enabled_models.length - accountPoolVisibleModels(environment).length);
+  Math.max(0, accountPoolUsableModels(environment).length - accountPoolVisibleModels(environment).length);
+
+export const accountPoolUsableModels = (
+  environment: Pick<AccountPoolEnvironment, "enabled_models"> &
+    Partial<Pick<AccountPoolEnvironment, "access_token_fallback" | "model_cooldowns" | "quota" | "model_quotas" | "enabled" | "manual_cooldown" | "configuration_pending" | "status">>,
+): readonly string[] => {
+  const fallback = environment.access_token_fallback;
+  if (fallback?.failure_source !== "refresh") return environment.enabled_models;
+  if (environment.enabled === false || environment.manual_cooldown || environment.configuration_pending ||
+      (environment.status !== undefined && environment.status !== "ready")) return [];
+  const now = Date.now();
+  if (!fallback.enabled || !fallback.active || !fallback.expires_at || Date.parse(fallback.expires_at) <= now) return [];
+  return environment.enabled_models.filter((model) => {
+    const modelQuota = environment.model_quotas?.find((item) => item.model === model && item.quota.windows.length > 0);
+    const windows = modelQuota?.quota.windows ?? environment.quota?.windows ?? [];
+    return fallback.verified_models?.includes(model) &&
+      !environment.model_cooldowns?.some((cooldown) => cooldown.model === model && Date.parse(cooldown.retry_at) > now) &&
+      !windows.some((window) => window.remaining_percent <= 0 && (!window.resets_at || Date.parse(window.resets_at) > now));
+  });
+};

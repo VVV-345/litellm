@@ -21,3 +21,9 @@ describe("release command cache invalidation", () => {
     client.clear();
   });
 });
+
+
+it("separates dashboard time ranges and login sessions in cache", () => {
+  expect(accountPoolQueryKeys.dashboardStats("one", 7)).not.toEqual(accountPoolQueryKeys.dashboardStats("one", 30));
+  expect(accountPoolQueryKeys.dashboardStats("one", 7)).not.toEqual(accountPoolQueryKeys.dashboardStats("two", 7));
+});

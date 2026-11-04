@@ -10,24 +10,28 @@ from datetime import date
 from typing import Final
 from uuid import UUID
 
+import httpx
 import uvicorn
 from fastapi import FastAPI
 
+from account_pool.access_token_fallback import AccessTokenFallbackService
 from account_pool.api import create_router
-from account_pool.batch_repository import PostgresBatchRepository
-from account_pool.batch_service import BatchService
+from account_pool.batch.repository import PostgresBatchRepository
+from account_pool.batch.service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.channels.base import UnsupportedChannelError
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient
+from account_pool.channels.cliproxyapi.quota_reset import CodexResetClient
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.clash import ClashController
 from account_pool.config import Settings
 from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.direct_isp_profiles import DirectISPProxyProfiles
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
 from account_pool.feedback import FeedbackService
-from account_pool.feedback_repository import PostgresFeedbackRepository
+from account_pool.feedback.repository import PostgresFeedbackRepository
 from account_pool.gateway_repository import PostgresLeaseRepository
 from account_pool.gateway_service import GatewayService
 from account_pool.management_repository import (
@@ -35,8 +39,8 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
-from account_pool.onboarding_repository import PostgresOnboardingRepository
-from account_pool.onboarding_service import OnboardingService
+from account_pool.onboarding.repository import PostgresOnboardingRepository
+from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
@@ -44,9 +48,12 @@ from account_pool.proxy_catalog_repository import PostgresProxyCatalogRepository
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_expiry import ISPExpiryScheduler
 from account_pool.proxy_gateways import ProxyGatewayService
+from account_pool.quota_recovery_scheduler import QuotaRecoveryScheduler
 from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissingTypeStubs]  # The local Manager package does not publish PEP 561 stubs.
     QuotaRefreshTrigger,
 )
+from account_pool.quota_reset import QuotaResetService
+from account_pool.quota_reset_repository import PostgresResetStore
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
     PostgresEnvironmentRepository,
@@ -84,6 +91,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     cooldown_client: Final = HttpCLIProxyClient(secrets)
     ownership: Final = CredentialOwnership(resolved.database_url)
+    reset_http: Final = httpx.AsyncClient(timeout=55.0, trust_env=False, transport=httpx.AsyncHTTPTransport(retries=0))
+    reset_store: Final = PostgresResetStore(resolved.database_url)
+    quota_reset: Final = QuotaResetService(reset_store, environments, CodexResetClient(reset_http, secrets), ownership)
+    quota_recovery: Final = QuotaRecoveryScheduler(environments.list, quota_reset.recover_due, resolved.quota_refresh_max_concurrency)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
@@ -137,6 +148,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service.refresh_auth_files,
         interval=lambda values: values.auth_refresh_interval_minutes,
     )
+    access_fallback: Final = AccessTokenFallbackService(
+        environments, policies, CodexResetClient(reset_http, secrets), ownership, leases,
+    )
+
+    async def discover_access_models() -> tuple[object, ...]:
+        await service.refresh_auth_files()
+        return await access_fallback.discover()
+
+    access_discovery_scheduler: Final = RefreshScheduler(
+        settings_repository, discover_access_models, interval=lambda _: 5,
+    )
+
+    async def discover_access_until_cancelled(stopped: asyncio.Event) -> None:
+        try:
+            await access_discovery_scheduler.track(discover_access_models, len)
+        except Exception as error:
+            _LOGGER.warning("Access model discovery failed: %s", error.__class__.__name__)
+        await access_discovery_scheduler.run_until_cancelled(stopped)
 
     async def sync_global_settings(
         values: AccountPoolSettings,
@@ -152,6 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
+        await reset_store.initialize()
         await ownership.initialize()
         await initialize_management_schema(resolved.database_url)
         await feedback_repository.initialize()
@@ -195,7 +225,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         quota_refresh_task: Final = asyncio.create_task(quota_scheduler.run_until_cancelled(retry_stopped))
         quota_event_task: Final = asyncio.create_task(quota_trigger.run_until_cancelled(retry_stopped))
+        quota_recovery_task: Final = asyncio.create_task(quota_recovery.run_until_cancelled(retry_stopped))
         auth_refresh_task: Final = asyncio.create_task(auth_refresh_scheduler.run_until_cancelled(retry_stopped))
+        access_discovery_task: Final = asyncio.create_task(discover_access_until_cancelled(retry_stopped))
         proxy_expiry_task: Final = asyncio.create_task(proxy_expiry_scheduler.run_until_cancelled(retry_stopped))
         try:
             yield
@@ -208,14 +240,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             onboarding_task.cancel()
             quota_refresh_task.cancel()
             quota_event_task.cancel()
+            quota_recovery_task.cancel()
             auth_refresh_task.cancel()
+            access_discovery_task.cancel()
             proxy_expiry_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(quota_event_task, return_exceptions=True)
+            await asyncio.gather(quota_recovery_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
+            await asyncio.gather(access_discovery_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)
             try:
                 await retry_task
@@ -235,6 +271,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await upstream_sync.close()
             await litellm_upstream_sync.close()
             await cooldown_client.close()
+            await reset_http.aclose()
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
     app.include_router(
@@ -257,6 +294,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 model_cooldowns=cooldown_client.read_model_cooldowns,
                 on_quota_exhausted=quota_trigger.submit,
                 proxy_available=service.proxy_available,
+                on_api_completed=reset_store.confirm_api_call,
             ),
             batch_service=batch_service,
             onboarding_service=onboarding_service,
@@ -270,6 +308,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             auth_refresh_scheduler=auth_refresh_scheduler,
             proxy_catalog=proxy_catalog,
             feedback=feedback,
+            quota_reset=quota_reset,
+            access_token_fallback=access_fallback,
+            ownership=ownership,
+            credential_refresh=CredentialRefreshService(environments, ownership, CodexResetClient(reset_http, secrets)),
         )
     )
     return app

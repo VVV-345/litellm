@@ -3,6 +3,8 @@
 const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
 
 export const accountPoolQueryKeys = {
+  runtimeCards: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "runtime-cards", accessToken] as const,
+  quotaReset: (accessToken: string, id: string) => [...ACCOUNT_POOL_ROOT, "quota-reset", accessToken, id] as const,
   all: ACCOUNT_POOL_ROOT,
   feedbackRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback", accessToken] as const,
   feedback: (accessToken: string, filter: { status: string; q: string; limit: number; offset: number }) =>
@@ -42,7 +44,7 @@ export const accountPoolQueryKeys = {
     [...ACCOUNT_POOL_ROOT, "upstream-sync", target, accessToken] as const,
   quotaRefreshStatus: (accessToken: string | null) =>
     [...ACCOUNT_POOL_ROOT, "quota-refresh-status", accessToken] as const,
-  dashboardStats: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "dashboard-stats", accessToken] as const,
+  dashboardStats: (accessToken: string | null, days = 30) => [...ACCOUNT_POOL_ROOT, "dashboard-stats", accessToken, days] as const,
   proxyGatewaysRoot: [...ACCOUNT_POOL_ROOT, "proxy-gateways"] as const,
   proxyGateways: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "proxy-gateways", accessToken] as const,
   proxyGatewayDelays: (accessToken: string | null) =>

@@ -248,7 +248,40 @@ async def test_authentication_error_blocks_false_available_credentials(code: str
         snapshot: Final = await proxy.read_account(record, SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX))
     assert snapshot.automatic_cooldown is (status == "error")
     assert snapshot.status == (EnvironmentStatus.COOLING_DOWN if status == "error" else EnvironmentStatus.READY)
-    assert snapshot.last_error == ("上游认证失效，请重新认证" if status == "error" else None)
+    expected_error = "上游暂无可用凭据，请核对调度状态" if code == "auth_unavailable" and not plain else "上游认证失效，请重新认证"
+    assert snapshot.last_error == (expected_error if status == "error" else None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scope,code,ready", [("model", "unauthorized", True), ("credential", "unauthorized", False), (None, "unauthorized", False), ("model", "refresh_token_invalidated", False)])
+async def test_scoped_authentication_error_does_not_block_verified_healthy_model(scope, code, ready):
+    record = _record().model_copy(update={"auth_file_name": "selected.json", "enabled_models": ("model-a", "model-b")})
+    async def handler(request):
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200, json={"files": [{
+                "name": "selected.json", "provider": "codex", "status": "error", "unavailable": False,
+                "status_message": json.dumps({"error": {"code": code}}), "error_scope": scope,
+                "model_states": {"model-a": {"unavailable": True, "next_retry_after": "2099-01-01T00:00:00Z"}, "model-b": {"unavailable": False}},
+            }]})
+        return httpx.Response(200, json={"models": [{"id": "model-a"}, {"id": "model-b"}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        snapshot = await HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http).read_account(record)
+    assert (snapshot.status == EnvironmentStatus.READY) is ready
+    assert (snapshot.last_error is None) is ready
+    assert [item.model for item in snapshot.model_cooldowns] == ["model-a"]
+
+
+def test_old_passive_model_quota_cannot_overwrite_new_verified_snapshot():
+    from datetime import timedelta
+
+    from account_pool.channels.cliproxyapi.quota_state import merge_model_quotas
+    from account_pool.domain import ModelQuotaSnapshot
+    now = utc_now()
+    verified = ModelQuotaSnapshot(model="model-a", quota=QuotaSnapshot(observed_at=now, source="provider_api"))
+    old = ModelQuotaSnapshot(model="model-a", quota=QuotaSnapshot(observed_at=now-timedelta(hours=1), windows=(QuotaWindow(name="5h", remaining_percent=0, used_percent=100, window_minutes=300),)))
+    assert merge_model_quotas((verified,), (old,)) == (verified,)
+    newer = old.model_copy(update={"quota": old.quota.model_copy(update={"observed_at": now+timedelta(seconds=1)})})
+    assert merge_model_quotas((verified,), (newer,)) == (newer,)
 
 
 @pytest.mark.asyncio
@@ -1199,6 +1232,39 @@ async def test_apply_configuration_uses_supplier_exclusion_and_no_concurrency_en
 
 
 @pytest.mark.asyncio
+async def test_apply_configuration_syncs_card_proxy_into_auth_file() -> None:
+    record: Final = _record().model_copy(update={"auth_file_name": "codex.json"})
+    supplier: Final = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    requests: list[httpx.Request] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(204, request=request)
+
+    client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=client)
+    await proxy.apply_configuration(
+        record,
+        supplier,
+        EnvironmentConfiguration(
+            name="test",
+            concurrency_limit=2,
+            enabled=True,
+            manual_cooldown=False,
+            proxy_mode=ProxyMode.PROFILE,
+            proxy_profile_id="clash-gateway-7895",
+            enabled_models=("model-a",),
+            proxy_url="http://host.docker.internal:7895",
+        ),
+    )
+    await client.aclose()
+
+    fields: Final = next(request for request in requests if request.url.path.endswith("auth-files/fields"))
+    # 账号级 proxy_url 会覆盖全局设置，改卡片代理时必须同步，否则卡片继续走旧线路。
+    assert json.loads(fields.content) == {"name": "codex.json", "proxy_url": "http://host.docker.internal:7895"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("kind", "path"),
     (
@@ -1629,6 +1695,7 @@ async def test_apply_codex_policy_syncs_auth_file_metadata_and_yaml_settings() -
         "name": "codex.json",
         "request_retry": 0,
         "codex_fingerprint_mode": "session",
+        "codex_allow_valid_access_after_refresh_failure": False,
         "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": True,
         "codex_cli_only_allow_app_server": True,
@@ -1696,6 +1763,7 @@ async def test_managed_identity_and_confusion_sync_only_after_runtime_capability
         "name": "codex.json",
         "request_retry": 0,
         "codex_fingerprint_mode": "managed",
+        "codex_allow_valid_access_after_refresh_failure": False,
         "codex_fingerprint_seed": str(record.id),
         "codex_cli_only": False,
         "codex_cli_only_allow_app_server": False,
@@ -2016,3 +2084,24 @@ async def test_verified_single_credential_releases_stale_ownership_only_after_su
     await registry.claim(uuid4(), old.fingerprints)
     with pytest.raises(CredentialConflict):
         await registry.claim(uuid4(), current.fingerprints)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified", [False, True])
+async def test_refresh_failure_without_model_proof_is_not_ready(verified):
+    from datetime import timedelta
+
+    state = {"enabled":True, "active":verified, "failure_source":"refresh",
+        "reason":"temporary_access" if verified else "verification_required",
+        "expires_at":(utc_now()+timedelta(hours=1)).isoformat(),
+        "verified_models":["model-a"] if verified else []}
+    def handler(request):
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200,json={"files":[{"name":"selected.json","provider":"codex",
+                "status":"active","unavailable":False,"access_token_fallback":state}]})
+        return httpx.Response(200,json={"models":[{"id":"model-a"}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        snapshot = await HttpCLIProxyClient(EnvironmentSecretDeriver("s"*32),client=http).read_account(
+            _record().model_copy(update={"auth_file_name":"selected.json"}))
+    assert snapshot.status == (EnvironmentStatus.READY if verified else EnvironmentStatus.COOLING_DOWN)
+    assert snapshot.automatic_cooldown is not verified

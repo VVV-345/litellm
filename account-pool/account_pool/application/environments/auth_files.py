@@ -98,8 +98,12 @@ class EnvironmentAuthFiles:
             claimed_upload: Final = await self._repository.save_if_version(blocked, record.version)
             if claimed_upload is None:
                 return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            normalized_filename: Final = (
+                filename if filename.lower().endswith(".json") else filename.rsplit(".", 1)[0] + ".json"
+            )
             return await self.upload_auth_file_locked(
-                claimed_upload, filename, normalized, content_type, record.oauth_provider_state or record.oauth_state
+                claimed_upload, normalized_filename, normalized, "application/json",
+                record.oauth_provider_state or record.oauth_state,
             )
 
     async def upload_auth_file_locked(

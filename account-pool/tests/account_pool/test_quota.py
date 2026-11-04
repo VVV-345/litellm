@@ -1,6 +1,7 @@
 """验证 CLIProxy 额度解析模块保持窗口和冷却语义。"""
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from itertools import count
 from typing import Final
@@ -25,6 +26,15 @@ from account_pool.quota import (
 )
 from account_pool.quota_scheduler import QuotaRefreshScheduler
 from account_pool.settings import AccountPoolSettings, AccountPoolSettingsView
+
+
+def test_codex_explicit_model_quota_is_scoped_not_an_account_wide_block():
+    body = {"rate_limit": {"primary_window": {"used_percent": 10, "limit_window_seconds": 18000}},
+            "additional_rate_limits": [{"model": "model-b", "limit_name": "B", "rate_limit": {"primary_window": {"used_percent": 100, "limit_window_seconds": 18000}}}]}
+    result = parse_codex_usage_quota(json.dumps(body), utc_now())
+    assert len(result.model_quotas) == 1 and result.model_quotas[0].model == "model-b"
+    assert result.model_quotas[0].quota.windows[0].remaining_percent == 0
+    assert all(window.remaining_percent > 0 for window in result.quota.windows)
 
 
 def test_quota_compatibility_exports_share_contract_and_parser_identity() -> None:

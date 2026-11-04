@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import time
-from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import Annotated, Final, Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -41,9 +42,22 @@ class AccountPoolModelTestResult(BaseModel):
     error_code: str | None = None
 
 
+class _AccessFallback(BaseModel):
+    enabled: bool = False
+    active: bool = False
+    failure_source: str | None = None
+    verified_models: tuple[str, ...] = ()
+
+
+class _AccessVerification(BaseModel):
+    passed: bool
+    restored: bool
+
+
 class _Card(BaseModel):
     enabled: bool
     enabled_models: tuple[str, ...]
+    access_token_fallback: _AccessFallback = Field(default_factory=_AccessFallback)
 
 
 class _Settings(BaseModel):
@@ -104,6 +118,12 @@ def configured_router() -> ModelTestRouter | None:
     return llm_router
 
 
+async def synchronize_router() -> None:
+    from litellm.proxy.management_endpoints.account_pool_reconciler import reconcile_configured_account_pool
+
+    await reconcile_configured_account_pool()
+
+
 def _complete(response: _Completion, mode: Literal["chat", "responses"]) -> bool:
     if response.error is not None:
         return False
@@ -153,6 +173,7 @@ def create_model_test_router(
     require_admin: Callable[[UserAPIKeyAuth], None],
     router_provider: Callable[[], ModelTestRouter | None] = configured_router,
     choose_greeting: Callable[[tuple[str, ...]], str] = random.choice,
+    synchronize: Callable[[], Awaitable[None]] = synchronize_router,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -172,6 +193,23 @@ def create_model_test_router(
             raise HTTPException(502, "Account configuration is unavailable") from None
         if not card.enabled or request.model not in card.enabled_models:
             raise HTTPException(400, "Select an enabled model on this account")
+        fallback: Final = card.access_token_fallback
+        if fallback.enabled and fallback.failure_source == "refresh" and (
+            not fallback.active or request.model not in fallback.verified_models
+        ):
+            verification_response: Final = await request_manager(
+                "POST", f"/api/environments/{card_id}/access-token-fallback/verify",
+                json.dumps({"model": request.model, "confirmed": True}).encode(),
+            )
+            if verification_response.is_error:
+                raise HTTPException(409, "Access-token verification is unavailable; inspect the account's credentials")
+            try:
+                verification: Final = _AccessVerification.model_validate_json(verification_response.content)
+            except ValueError:
+                raise HTTPException(502, "Access-token verification returned an invalid result") from None
+            if not verification.passed or not verification.restored:
+                raise HTTPException(409, "Access-token verification did not restore this model; inspect the credentials")
+            await synchronize()
         llm_router: Final = router_provider()
         if llm_router is None:
             raise HTTPException(503, "Model routing is not ready")

@@ -1,3 +1,93 @@
+diff --git a/internal/api/handlers/management/api_tools.go b/internal/api/handlers/management/api_tools.go
+index 29f00100c2cf64484df19841afeab0e645975cc4..358adc0161741d2b8360c6751e12ade9a26f0b82 100644
+--- a/internal/api/handlers/management/api_tools.go
++++ b/internal/api/handlers/management/api_tools.go
+@@ -192,7 +192,7 @@ func (h *Handler) executeAPICall(
+ 			return apiCallResponse{}, errRequest
+ 		}
+ 		if result.StatusCode == http.StatusUnauthorized && usedToken && forceRefreshAvailable && !forcedRefresh {
+-			refreshed, errRefresh := h.authManager.RefreshAuth(ctx, auth.ID)
++			refreshed, errRefresh := h.authManager.RefreshAuthAfterUnauthorized(ctx, auth.ID, tokenValueForAuth(auth))
+ 			if errRefresh != nil {
+ 				return apiCallResponse{}, fmt.Errorf("refresh credential after unauthorized response: %w", errRefresh)
+ 			}
+diff --git a/internal/api/handlers/management/api_tools_test.go b/internal/api/handlers/management/api_tools_test.go
+index 066b6bd3b0aaa06b0624154cb012ba0334ab3948..a8f6dd25b68511c2fcec4ad186346f3ae66edf54 100644
+--- a/internal/api/handlers/management/api_tools_test.go
++++ b/internal/api/handlers/management/api_tools_test.go
+@@ -23,7 +23,7 @@ func (f managementRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, e
+ 	return f(req)
+ }
+ 
+-type managementRefreshExecutor struct{}
++type managementRefreshExecutor struct{ calls int }
+ 
+ func (*managementRefreshExecutor) Identifier() string { return "test-refresh" }
+ 
+@@ -35,7 +35,8 @@ func (*managementRefreshExecutor) ExecuteStream(context.Context, *coreauth.Auth,
+ 	return nil, nil
+ }
+ 
+-func (*managementRefreshExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
++func (e *managementRefreshExecutor) Refresh(_ context.Context, auth *coreauth.Auth) (*coreauth.Auth, error) {
++	e.calls++
+ 	auth.Metadata["access_token"] = "new-token"
+ 	auth.Metadata["key"] = "new-token"
+ 	return auth, nil
+@@ -447,3 +448,30 @@ func TestAuthByIndexDistinguishesSharedAPIKeysAcrossProviders(t *testing.T) {
+ 		t.Fatalf("authByIndex(compat) returned %q, want %q", gotCompat.ID, compatAuth.ID)
+ 	}
+ }
++
++func TestExecuteAPICallReusesRefreshForStaleRequest(t *testing.T) {
++	manager := coreauth.NewManager(nil, nil, nil)
++	exec := &managementRefreshExecutor{}
++	manager.RegisterExecutor(exec)
++	auth, err := manager.Register(context.Background(), &coreauth.Auth{ID: "stale-request", Provider: exec.Identifier(), Metadata: map[string]any{"access_token": "old-token", "refresh_token": "synthetic-refresh"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	client := &http.Client{Transport: managementRoundTripFunc(func(req *http.Request) (*http.Response, error) {
++		status := http.StatusUnauthorized
++		if req.Header.Get("Authorization") == "Bearer new-token" {
++			status = http.StatusOK
++		}
++		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("synthetic")), Request: req}, nil
++	})}
++	h := &Handler{authManager: manager}
++	for i := 0; i < 2; i++ {
++		result, err := h.executeAPICall(context.Background(), client, auth, http.MethodGet, "https://synthetic.invalid/usage", "", map[string]string{"Authorization": "Bearer $TOKEN$"}, "")
++		if err != nil || result.StatusCode != 200 {
++			t.Fatalf("request failed: %v", err)
++		}
++	}
++	if exec.calls != 1 {
++		t.Fatalf("stale management request rotated twice: %d", exec.calls)
++	}
++}
+diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
+index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..1f4e03cf67c615e64acad917a878b00d1b6647dc 100644
+--- a/internal/api/handlers/management/auth_files.go
++++ b/internal/api/handlers/management/auth_files.go
+@@ -341,11 +341,18 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
+ 		"source":         "memory",
+ 		"size":           int64(0),
+ 	}
++	entry["access_token_fallback"] = coreauth.AccessTokenFallbackStatus(auth, time.Now())
++	if h.authManager != nil {
++		entry["credential_refresh"] = h.authManager.CredentialRefreshStatus(auth.ID)
++	}
+ 	entry["success"] = auth.Success
+ 	entry["failed"] = auth.Failed
+ 	entry["recent_requests"] = auth.RecentRequestsSnapshot(time.Now())
+ 	entry["quota"] = quotaObservationPayloadForProvider(auth.Provider, auth.Quota)
+ 	entry["model_states"] = modelAvailabilityPayload(auth.ModelStates)
++	if coreauth.ModelScopedAuthenticationError(auth) {
++		entry["error_scope"] = "model"
++	}
+ 	if modelQuotas := modelQuotaObservationPayload(auth.Provider, auth.ModelStates); len(modelQuotas) > 0 {
+ 		entry["model_quotas"] = modelQuotas
+ 	}
 diff --git a/internal/api/handlers/management/auth_files_fields.go b/internal/api/handlers/management/auth_files_fields.go
 index bbe12e5418a273a00f39df24030dacf1e09d21b9..30a218f9f2f1dcfe2b29da2273cb4398440fe12b 100644
 --- a/internal/api/handlers/management/auth_files_fields.go
@@ -75,23 +165,409 @@ index 16368fd5344ec298a3ba880329aec72303ce8474..9ecb69dabcbf3242e0a46ee67a377869
 +		})
 +	}
 +}
+diff --git a/internal/api/handlers/management/credential_refresh.go b/internal/api/handlers/management/credential_refresh.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..e769a49a3bfa33155ab0c6dfa279d110e3e11a55
+--- /dev/null
++++ b/internal/api/handlers/management/credential_refresh.go
+@@ -0,0 +1,44 @@
++// 通过受保护管理入口刷新绑定凭据，只返回安全结果分类。
++package management
++
++import (
++	"errors"
++	"github.com/gin-gonic/gin"
++	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	"net/http"
++)
++
++func (h *Handler) RefreshCodexCredential(c *gin.Context) {
++	var request struct {
++		Name             string `json:"name" binding:"required"`
++		AuthIndex        string `json:"auth_index" binding:"required"`
++		TokenFingerprint string `json:"token_fingerprint" binding:"required,len=64"`
++	}
++	if c.ShouldBindJSON(&request) != nil || h.authManager == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid refresh request"})
++		return
++	}
++	for _, a := range h.authManager.List() {
++		if a.Provider != "codex" || !matchesAuthFileLookup(a, request.Name, request.AuthIndex) {
++			continue
++		}
++		_, err := h.authManager.RefreshCredential(c.Request.Context(), a.ID, request.TokenFingerprint)
++		reason := "saved"
++		switch {
++		case err == nil:
++		case errors.Is(err, coreauth.ErrRefreshPersistence):
++			reason = "save_pending"
++		case errors.Is(err, coreauth.ErrRefreshRejected):
++			reason = "reauthorization_required"
++		case errors.Is(err, coreauth.ErrRefreshStale):
++			reason = "state_changed"
++		case errors.Is(err, coreauth.ErrRefreshBackoff):
++			reason = "backoff"
++		default:
++			reason = "refresh_failed"
++		}
++		c.JSON(http.StatusOK, gin.H{"saved": err == nil, "reason": reason, "status": h.authManager.CredentialRefreshStatus(a.ID)})
++		return
++	}
++	c.JSON(http.StatusConflict, gin.H{"error": "credential binding changed"})
++}
+diff --git a/internal/api/handlers/management/quota_recovery.go b/internal/api/handlers/management/quota_recovery.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..d2d166555414d32ed43f2a465f4b11e130ee3326
+--- /dev/null
++++ b/internal/api/handlers/management/quota_recovery.go
+@@ -0,0 +1,49 @@
++// 管理侧单卡验证入口，固定最小提示词，不接受令牌、目标 URL 或额外请求头。
++package management
++
++import (
++	"net/http"
++
++	"github.com/gin-gonic/gin"
++)
++
++func (h *Handler) VerifyCodexQuota(c *gin.Context) {
++	var request struct {
++		Name             string `json:"name" binding:"required"`
++		AuthIndex        string `json:"auth_index" binding:"required"`
++		Model            string `json:"model" binding:"required,max=100"`
++		Recover          bool   `json:"recover"`
++		TokenFingerprint string `json:"token_fingerprint" binding:"required,len=64"`
++	}
++	if c.ShouldBindJSON(&request) != nil || h.authManager == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification request"})
++		return
++	}
++	for _, a := range h.authManager.List() {
++		if a.Provider == "codex" && matchesAuthFileLookup(a, request.Name, request.AuthIndex) {
++			c.JSON(http.StatusOK, h.authManager.VerifyCodexQuota(c.Request.Context(), a.ID, request.Model, request.Recover, request.TokenFingerprint))
++			return
++		}
++	}
++	c.JSON(http.StatusConflict, gin.H{"error": "credential binding changed"})
++}
++
++func (h *Handler) VerifyAccessTokenFallback(c *gin.Context) {
++	var request struct {
++		Name             string `json:"name" binding:"required"`
++		AuthIndex        string `json:"auth_index" binding:"required"`
++		Model            string `json:"model" binding:"required,max=100"`
++		TokenFingerprint string `json:"token_fingerprint" binding:"required,len=64"`
++	}
++	if c.ShouldBindJSON(&request) != nil || h.authManager == nil {
++		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid verification request"})
++		return
++	}
++	for _, a := range h.authManager.List() {
++		if a.Provider == "codex" && matchesAuthFileLookup(a, request.Name, request.AuthIndex) {
++			c.JSON(http.StatusOK, h.authManager.VerifyAccessTokenFallback(c.Request.Context(), a.ID, request.Model, request.TokenFingerprint))
++			return
++		}
++	}
++	c.JSON(http.StatusConflict, gin.H{"error": "credential binding changed"})
++}
+diff --git a/internal/api/handlers/management/quota_recovery_test.go b/internal/api/handlers/management/quota_recovery_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..99dedc9d27decc3644b9199dc28f0bd60c5d3eef
+--- /dev/null
++++ b/internal/api/handlers/management/quota_recovery_test.go
+@@ -0,0 +1,266 @@
++// 验证使用真实 Codex HTTP 执行器和正常调度器，供应商由本地 HTTP 服务替代。
++package management
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/gin-gonic/gin"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
++	runtime "github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/watcher/synthesizer"
++	auth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
++)
++
++func TestQuotaRecoveryRealExecutorThenNormalSelection(t *testing.T) {
++	var calls atomic.Int32
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls.Add(1)
++		if r.URL.Path != "/responses" || r.Header.Get("Authorization") != "Bearer fixture-access" {
++			t.Errorf("unexpected request %s", r.URL.Path)
++			w.WriteHeader(400)
++			return
++		}
++		w.Header().Set("Content-Type", "text/event-stream")
++		_, _ = w.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}\n\n"))
++		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n"))
++		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture-response\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-6-astra\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n"))
++	}))
++	defer upstream.Close()
++	cfg := &config.Config{}
++	manager := auth.NewManager(nil, nil, nil)
++	manager.SetConfig(cfg)
++	manager.SetCooldownStateStore(auth.NewFileCooldownStateStore(t.TempDir()))
++	manager.RegisterExecutor(runtime.NewCodexAutoExecutor(cfg))
++	entry := &auth.Auth{ID: "local-quota-integration", Provider: "codex", Status: auth.StatusError, StatusMessage: "unauthorized", Unavailable: true, LastError: &auth.Error{HTTPStatus: 401}, Attributes: map[string]string{"base_url": upstream.URL}, Metadata: map[string]any{"access_token": "fixture-access"}}
++	if _, err := manager.Register(context.Background(), entry); err != nil {
++		t.Fatal(err)
++	}
++	registry.GetGlobalRegistry().RegisterClient(entry.ID, "codex", []*registry.ModelInfo{{ID: "gpt-6-astra", Object: "model", OwnedBy: "openai"}})
++	defer registry.GetGlobalRegistry().UnregisterClient(entry.ID)
++	result := manager.VerifyCodexQuota(context.Background(), entry.ID, "gpt-6-astra", true)
++	if !result.Passed || !result.Restored {
++		t.Fatalf("verification: %+v", result)
++	}
++	payload := []byte(`{"model":"gpt-6-astra","input":"Reply with exactly OK.","stream":true,"store":false}`)
++	stream, err := manager.ExecuteStream(context.Background(), []string{"codex"}, exec.Request{Model: "gpt-6-astra", Payload: payload}, exec.Options{Stream: true, SourceFormat: translator.FormatOpenAIResponse})
++	if err != nil {
++		t.Fatalf("normal selector still blocked: %v", err)
++	}
++	for chunk := range stream.Chunks {
++		if chunk.Err != nil {
++			t.Fatal(chunk.Err)
++		}
++	}
++	if calls.Load() != 2 {
++		t.Fatalf("calls=%d; expected one verification and one normal inference", calls.Load())
++	}
++}
++
++// 只有刷新错误用合成响应；验证与正常调用仍走真实 HTTP 执行器。
++type fallbackRealExecutor struct {
++	auth.ProviderExecutor
++	refreshes atomic.Int32
++}
++
++func (e *fallbackRealExecutor) Refresh(context.Context, *auth.Auth) (*auth.Auth, error) {
++	e.refreshes.Add(1)
++	return nil, &auth.Error{HTTPStatus: 401, Code: "refresh_token_reused", Message: "fixture rejected"}
++}
++
++func TestAccessFallbackRealExecutorThenNormalSelection(t *testing.T) {
++	var calls atomic.Int32
++	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls.Add(1)
++		if r.URL.Path != "/responses" || r.Header.Get("Authorization") != "Bearer fixture-access" {
++			t.Errorf("unexpected request %s", r.URL.Path)
++			w.WriteHeader(400)
++			return
++		}
++		w.Header().Set("Content-Type", "text/event-stream")
++		_, _ = w.Write([]byte("event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"status\":\"in_progress\"}}\n\n"))
++		_, _ = w.Write([]byte("event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n"))
++		_, _ = w.Write([]byte("data: {\"type\":\"response.completed\",\"response\":{\"id\":\"fixture-response\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-6-astra\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n"))
++	}))
++	defer upstream.Close()
++	cfg := &config.Config{}
++	manager := auth.NewManager(nil, nil, nil)
++	manager.SetConfig(cfg)
++	manager.SetCooldownStateStore(auth.NewFileCooldownStateStore(t.TempDir()))
++	executor := &fallbackRealExecutor{ProviderExecutor: runtime.NewCodexAutoExecutor(cfg)}
++	manager.RegisterExecutor(executor)
++	directory := t.TempDir()
++	metadata, err := json.Marshal(map[string]any{"type": "codex", "access_token": "fixture-access", "refresh_token": "fixture-refresh", "expired": time.Now().Add(time.Hour).Format(time.RFC3339), "codex_allow_valid_access_after_refresh_failure": true})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := os.WriteFile(filepath.Join(directory, "fallback.json"), metadata, 0600); err != nil {
++		t.Fatal(err)
++	}
++	entries, err := synthesizer.NewFileSynthesizer().Synthesize(&synthesizer.SynthesisContext{Config: cfg, AuthDir: directory, Now: time.Now(), IDGenerator: synthesizer.NewStableIDGenerator()})
++	if err != nil || len(entries) != 1 {
++		t.Fatalf("file synthesis: count=%d err=%v", len(entries), err)
++	}
++	entry := entries[0]
++	entry.Attributes["base_url"] = upstream.URL
++	if entry.FileName != "" {
++		t.Fatal("file loader unexpectedly populated FileName")
++	}
++	if _, err := manager.Register(context.Background(), entry); err != nil {
++		t.Fatal(err)
++	}
++	registry.GetGlobalRegistry().RegisterClient(entry.ID, "codex", []*registry.ModelInfo{{ID: "gpt-6-astra", Object: "model", OwnedBy: "openai"}})
++	defer registry.GetGlobalRegistry().UnregisterClient(entry.ID)
++	_, _ = manager.RefreshAuth(context.Background(), entry.ID)
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte("fixture-access")))
++	handler := &Handler{cfg: cfg, authManager: manager}
++	listed := handler.buildAuthFileEntry(entry)
++	requestBody, err := json.Marshal(map[string]any{"name": listed["name"], "auth_index": listed["auth_index"], "model": "gpt-6-astra", "token_fingerprint": fp})
++	if err != nil {
++		t.Fatal(err)
++	}
++	router := gin.New()
++	router.POST("/verify", handler.VerifyAccessTokenFallback)
++	staleBody, err := json.Marshal(map[string]any{"name": listed["name"], "auth_index": listed["auth_index"], "model": "gpt-6-astra", "token_fingerprint": fmt.Sprintf("%064d", 0)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	staleResponse := httptest.NewRecorder()
++	staleRequest := httptest.NewRequest(http.MethodPost, "/verify", bytes.NewReader(staleBody))
++	staleRequest.Header.Set("Content-Type", "application/json")
++	router.ServeHTTP(staleResponse, staleRequest)
++	var stale auth.QuotaVerification
++	if err := json.Unmarshal(staleResponse.Body.Bytes(), &stale); err != nil || staleResponse.Code != 200 || stale.Passed || stale.Restored || stale.Reason != "credential_changed" || calls.Load() != 0 {
++		t.Fatalf("unexpected stale fingerprint response or upstream invocation: %s", staleResponse.Body.String())
++	}
++	response := httptest.NewRecorder()
++	request := httptest.NewRequest(http.MethodPost, "/verify", bytes.NewReader(requestBody))
++	request.Header.Set("Content-Type", "application/json")
++	router.ServeHTTP(response, request)
++	if response.Code != http.StatusOK {
++		t.Fatalf("advertised file binding rejected: HTTP %d body=%s", response.Code, response.Body.String())
++	}
++	var result auth.QuotaVerification
++	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
++		t.Fatal(err)
++	}
++	if !result.Passed || !result.Restored {
++		t.Fatalf("verification: %+v", result)
++	}
++	payload := []byte(`{"model":"gpt-6-astra","input":"Reply with exactly OK.","stream":true,"store":false}`)
++	stream, err := manager.ExecuteStream(context.Background(), []string{"codex"}, exec.Request{Model: "gpt-6-astra", Payload: payload}, exec.Options{Stream: true, SourceFormat: translator.FormatOpenAIResponse})
++	if err != nil {
++		t.Fatalf("normal selector still blocked: %v", err)
++	}
++	for chunk := range stream.Chunks {
++		if chunk.Err != nil {
++			t.Fatal(chunk.Err)
++		}
++	}
++	if _, err := manager.RefreshCredential(context.Background(), entry.ID, fp); err == nil {
++		t.Fatal("consumed token retried")
++	}
++	if executor.refreshes.Load() != 1 {
++		t.Fatal("unexpected OAuth refresh")
++	}
++	if calls.Load() != 2 {
++		t.Fatalf("calls=%d; expected one verification and one normal inference", calls.Load())
++	}
++	after, err := os.ReadFile(filepath.Join(directory, "fallback.json"))
++	if err != nil || !bytes.Equal(after, metadata) {
++		t.Fatal("fallback verification or normal request changed credential bytes")
++	}
++	t.Log("FALLBACK_HTTP status=200 passed=true restored=true; stale_fingerprint_rejected=true; credential_bytes_unchanged=true; verification_and_normal_inference_calls=2; no_additional_OAuth_refresh")
++}
++
++func TestCodexManagementBindingMatchesAuthFileLookup(t *testing.T) {
++	for _, endpoint := range []string{"fallback", "quota", "refresh"} {
++		for _, test := range []struct {
++			name     string
++			fileName string
++			provider string
++			change   string
++			wantHTTP int
++		}{
++			{name: "file-loaded-ID", provider: "codex", wantHTTP: 200},
++			{name: "uploaded-file-name", fileName: "uploaded.json", provider: "codex", wantHTTP: 200},
++			{name: "existing-ID-alias", fileName: "uploaded.json", provider: "codex", change: "ID-alias", wantHTTP: 200},
++			{name: "wrong-name", provider: "codex", change: "wrong-name", wantHTTP: 409},
++			{name: "other-credential-index", provider: "codex", change: "other-index", wantHTTP: 409},
++			{name: "wrong-provider", provider: "claude", wantHTTP: 409},
++			{name: "missing-name", provider: "codex", change: "missing-name", wantHTTP: 400},
++			{name: "missing-index", provider: "codex", change: "missing-index", wantHTTP: 400},
++			{name: "invalid-fingerprint", provider: "codex", change: "invalid-fingerprint", wantHTTP: 400},
++		} {
++			t.Run(endpoint+"/"+test.name, func(t *testing.T) {
++				manager := auth.NewManager(nil, nil, nil)
++				entry, err := manager.Register(context.Background(), &auth.Auth{ID: "fixture.json", FileName: test.fileName, Provider: test.provider, Status: auth.StatusActive, Attributes: map[string]string{"path": filepath.Join(t.TempDir(), "fixture.json")}, Metadata: map[string]any{"access_token": "fixture-access"}})
++				if err != nil {
++					t.Fatal(err)
++				}
++				other, err := manager.Register(context.Background(), &auth.Auth{ID: "other.json", Provider: "codex", Status: auth.StatusActive})
++				if err != nil {
++					t.Fatal(err)
++				}
++				handler := &Handler{cfg: &config.Config{}, authManager: manager}
++				listed := handler.buildAuthFileEntry(entry)
++				body := map[string]any{"name": listed["name"], "auth_index": listed["auth_index"], "model": "gpt-6-astra", "token_fingerprint": fmt.Sprintf("%064d", 0)}
++				switch test.change {
++				case "ID-alias":
++					body["name"] = entry.ID
++				case "wrong-name":
++					body["name"] = other.ID
++				case "other-index":
++					body["auth_index"] = other.Index
++				case "missing-name":
++					delete(body, "name")
++				case "missing-index":
++					delete(body, "auth_index")
++				case "invalid-fingerprint":
++					body["token_fingerprint"] = "invalid"
++				}
++				if endpoint == "refresh" {
++					delete(body, "model")
++				}
++				payload, err := json.Marshal(body)
++				if err != nil {
++					t.Fatal(err)
++				}
++				router := gin.New()
++				router.POST("/fallback", handler.VerifyAccessTokenFallback)
++				router.POST("/quota", handler.VerifyCodexQuota)
++				router.POST("/refresh", handler.RefreshCodexCredential)
++				response := httptest.NewRecorder()
++				request := httptest.NewRequest(http.MethodPost, "/"+endpoint, bytes.NewReader(payload))
++				request.Header.Set("Content-Type", "application/json")
++				router.ServeHTTP(response, request)
++				if response.Code != test.wantHTTP {
++					t.Fatalf("HTTP %d, want %d: %s", response.Code, test.wantHTTP, response.Body.String())
++				}
++				if test.wantHTTP == 200 {
++					var result struct {
++						Passed   bool `json:"passed"`
++						Restored bool `json:"restored"`
++						Saved    bool `json:"saved"`
++					}
++					if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Passed || result.Restored || result.Saved {
++						t.Fatal("binding lookup bypassed verification eligibility or fingerprint checks")
++					}
++				}
++			})
++		}
++	}
++}
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go
-index fef08895bc42519fcabe795052410c3d6ccd8854..0f902b155cb73cf11b010c8eeee1f0afb05253a4 100644
+index fef08895bc42519fcabe795052410c3d6ccd8854..6998b89e5e159ece855694e7f53e96960616a8d6 100644
 --- a/internal/api/server_management.go
 +++ b/internal/api/server_management.go
-@@ -27,6 +27,7 @@ func (s *Server) registerManagementRoutes() {
+@@ -27,6 +27,16 @@ func (s *Server) registerManagementRoutes() {
  	mgmt := s.engine.Group("/v0/management")
  	mgmt.Use(s.managementAvailabilityMiddleware(), s.mgmt.Middleware())
  	{
 +		mgmt.GET("/codex/managed-identity", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"supported": true, "version": 1}) })
++		mgmt.GET("/codex/quota-verification", func(c *gin.Context) {
++			c.JSON(http.StatusOK, gin.H{"supported": true, "version": 1, "token_refresh": false})
++		})
++		mgmt.POST("/codex/quota-verification", s.mgmt.VerifyCodexQuota)
++		mgmt.GET("/codex/access-token-fallback", func(c *gin.Context) {
++			c.JSON(http.StatusOK, gin.H{"supported": true, "version": 1, "token_refresh": false})
++		})
++		mgmt.POST("/codex/access-token-fallback", s.mgmt.VerifyAccessTokenFallback)
++		mgmt.POST("/codex/credential-refresh", s.mgmt.RefreshCodexCredential)
  		mgmt.GET("/config", s.mgmt.GetConfig)
  		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
  		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
 diff --git a/internal/api/server_test.go b/internal/api/server_test.go
-index 8eb33721ff8f0c209353046c843f2c2220887463..112646a02e26a4df56abc3c56ff066ca797e9984 100644
+index 8eb33721ff8f0c209353046c843f2c2220887463..f480637cf3a007e4dcc6c68d23e7e5419a85c6b2 100644
 --- a/internal/api/server_test.go
 +++ b/internal/api/server_test.go
-@@ -1521,6 +1521,28 @@ func TestNewServerWithoutPluginHostLeavesHandlerInterceptorsDisabled(t *testing.
+@@ -1521,6 +1521,41 @@ func TestNewServerWithoutPluginHostLeavesHandlerInterceptorsDisabled(t *testing.
  	}
  }
  
@@ -117,9 +593,138 @@ index 8eb33721ff8f0c209353046c843f2c2220887463..112646a02e26a4df56abc3c56ff066ca
 +	}
 +}
 +
++func TestQuotaRecoveryManagementRequiresAuth(t *testing.T) {
++	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
++	server := newTestServer(t)
++	for _, method := range []string{http.MethodGet, http.MethodPost} {
++		request := httptest.NewRequest(method, "/v0/management/codex/quota-verification", nil)
++		response := httptest.NewRecorder()
++		server.engine.ServeHTTP(response, request)
++		if response.Code != http.StatusUnauthorized {
++			t.Fatalf("unauthorized %s status=%d", method, response.Code)
++		}
++	}
++}
++
  func TestManagementUsageRequiresManagementAuthAndPopsArray(t *testing.T) {
  	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
  
+diff --git a/internal/auth/codex/openai_auth.go b/internal/auth/codex/openai_auth.go
+index 074146ffdfc51234eb6a59aae72b1b17af7c4215..8a63a902198bd1a031bead0299eb5dceea157bfa 100644
+--- a/internal/auth/codex/openai_auth.go
++++ b/internal/auth/codex/openai_auth.go
+@@ -244,7 +244,7 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+ 	}
+ 
+ 	if resp.StatusCode != http.StatusOK {
+-		return nil, fmt.Errorf("token refresh failed with status %d: %s", resp.StatusCode, string(body))
++		return nil, redactedRefreshError(resp.StatusCode, body)
+ 	}
+ 
+ 	var tokenResp struct {
+@@ -282,6 +282,27 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+ 	}, nil
+ }
+ 
++func redactedRefreshError(status int, body []byte) error {
++	var payload struct {
++		Code  string          `json:"code"`
++		Error json.RawMessage `json:"error"`
++	}
++	_ = json.Unmarshal(body, &payload)
++	var nested struct {
++		Code string `json:"code"`
++	}
++	var name string
++	_ = json.Unmarshal(payload.Error, &nested)
++	_ = json.Unmarshal(payload.Error, &name)
++	for _, code := range []string{payload.Code, nested.Code, name} {
++		switch code {
++		case "refresh_token_reused", "refresh_token_expired", "refresh_token_revoked", "invalid_grant":
++			return fmt.Errorf("token refresh failed with status %d: %s", status, code)
++		}
++	}
++	return fmt.Errorf("token refresh failed with status %d", status)
++}
++
+ // CreateTokenStorage creates a new CodexTokenStorage from a CodexAuthBundle.
+ // It populates the storage struct with token data, user information, and timestamps.
+ func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStorage {
+@@ -335,7 +356,9 @@ func isNonRetryableRefreshErr(err error) bool {
+ 		return false
+ 	}
+ 	raw := strings.ToLower(err.Error())
+-	return strings.Contains(raw, "refresh_token_reused")
++	return strings.Contains(raw, "refresh_token_reused") || strings.Contains(raw, "refresh_token_expired") ||
++		strings.Contains(raw, "refresh_token_revoked") || strings.Contains(raw, "invalid_grant") ||
++		strings.Contains(raw, "status 401")
+ }
+ 
+ // UpdateTokenStorage updates an existing CodexTokenStorage with new token data.
+diff --git a/internal/auth/codex/openai_auth_test.go b/internal/auth/codex/openai_auth_test.go
+index 6144f0e53821b34054ee55669c149c38808a53f2..7eeb17662d88cb735c240ff5c8f321daba605d70 100644
+--- a/internal/auth/codex/openai_auth_test.go
++++ b/internal/auth/codex/openai_auth_test.go
+@@ -223,3 +223,13 @@ func TestNewCodexAuthWithProxyURL_OverrideProxyTakesPrecedence(t *testing.T) {
+ 		t.Fatalf("proxy URL = %v, want http://override.example.com:8081", proxyURL)
+ 	}
+ }
++
++func TestRefreshErrorDoesNotExposeProviderBody(t *testing.T) {
++	auth := &CodexAuth{httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
++		return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"refresh_token_reused","message":"synthetic-secret"}}`)), Header: make(http.Header), Request: req}, nil
++	})}}
++	_, err := auth.RefreshTokens(context.Background(), "fixture-redaction")
++	if err == nil || strings.Contains(err.Error(), "synthetic-secret") || !strings.Contains(err.Error(), "refresh_token_reused") {
++		t.Fatalf("unsafe refresh error: %v", err)
++	}
++}
+diff --git a/internal/runtime/executor/codex_executor_auth.go b/internal/runtime/executor/codex_executor_auth.go
+index e200d69021c90394433314b37d80d9e598f978b2..b14c997cae8fa27262194210ac3503710d78eb0c 100644
+--- a/internal/runtime/executor/codex_executor_auth.go
++++ b/internal/runtime/executor/codex_executor_auth.go
+@@ -34,24 +34,36 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
+ 	if err != nil {
+ 		return nil, err
+ 	}
++	applyCodexRefreshTokens(auth, td)
++	return auth, nil
++}
++
++func applyCodexRefreshTokens(auth *cliproxyauth.Auth, td *codexauth.CodexTokenData) {
+ 	if auth.Metadata == nil {
+ 		auth.Metadata = make(map[string]any)
+ 	}
+-	auth.Metadata["id_token"] = td.IDToken
+-	auth.Metadata["access_token"] = td.AccessToken
++	if td.IDToken != "" {
++		auth.Metadata["id_token"] = td.IDToken
++	}
++	if td.AccessToken != "" {
++		auth.Metadata["access_token"] = td.AccessToken
++	}
+ 	if td.RefreshToken != "" {
+ 		auth.Metadata["refresh_token"] = td.RefreshToken
+ 	}
+ 	if td.AccountID != "" {
+ 		auth.Metadata["account_id"] = td.AccountID
+ 	}
+-	auth.Metadata["email"] = td.Email
++	if td.Email != "" {
++		auth.Metadata["email"] = td.Email
++	}
+ 	// Use unified key in files
+-	auth.Metadata["expired"] = td.Expire
++	if td.Expire != "" {
++		auth.Metadata["expired"] = td.Expire
++	}
+ 	auth.Metadata["type"] = "codex"
+ 	now := time.Now().Format(time.RFC3339)
+ 	auth.Metadata["last_refresh"] = now
+-	return auth, nil
+ }
+ 
+ func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
 diff --git a/internal/runtime/executor/codex_executor_execute.go b/internal/runtime/executor/codex_executor_execute.go
 index d7c6dbd7f6d2583f0fe38c8e8cb3de41bad0fc07..a2d8a69d9596eccf2a4ffbf9a9ba0bd44deb9eba 100644
 --- a/internal/runtime/executor/codex_executor_execute.go
@@ -146,6 +751,32 @@ index d7c6dbd7f6d2583f0fe38c8e8cb3de41bad0fc07..a2d8a69d9596eccf2a4ffbf9a9ba0bd4
  	baseModel := thinking.ParseSuffix(req.Model).ModelName
  
  	apiKey, baseURL := codexCreds(auth)
+diff --git a/internal/runtime/executor/codex_executor_refresh_test.go b/internal/runtime/executor/codex_executor_refresh_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..c9f9d92c9901ced9be2d6e0236f03209e7dcd5ea
+--- /dev/null
++++ b/internal/runtime/executor/codex_executor_refresh_test.go
+@@ -0,0 +1,20 @@
++// 验证上游未返回的可选令牌字段不会覆盖已有凭据。
++package executor
++
++import (
++	codexauth "github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
++	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++	"testing"
++)
++
++func TestCodexRefreshRetainsOmittedTokens(t *testing.T) {
++	a := &cliproxyauth.Auth{Metadata: map[string]any{"access_token": "old-access", "refresh_token": "old-refresh", "id_token": "old-id", "email": "fixture@example.invalid"}}
++	applyCodexRefreshTokens(a, &codexauth.CodexTokenData{AccessToken: "new-access", Expire: "2030-01-01T00:00:00Z"})
++	if a.Metadata["access_token"] != "new-access" || a.Metadata["refresh_token"] != "old-refresh" || a.Metadata["id_token"] != "old-id" || a.Metadata["email"] != "fixture@example.invalid" {
++		t.Fatal("omitted credential fields erased")
++	}
++	applyCodexRefreshTokens(a, &codexauth.CodexTokenData{AccessToken: "next-access", RefreshToken: "next-refresh", IDToken: "next-id"})
++	if a.Metadata["access_token"] != "next-access" || a.Metadata["refresh_token"] != "next-refresh" || a.Metadata["id_token"] != "next-id" {
++		t.Fatal("returned credential fields not applied")
++	}
++}
 diff --git a/internal/runtime/executor/codex_executor_request.go b/internal/runtime/executor/codex_executor_request.go
 index 88f2d40f6e539b35c97112a9b27efe91b83b74a5..430f253a1a0a77ead2b19b4796a3038e6507381d 100644
 --- a/internal/runtime/executor/codex_executor_request.go
@@ -1410,3 +2041,2622 @@ index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb
  }
  
  // addConfigHeadersToAttrs adds header configuration to auth attributes.
+diff --git a/sdk/auth/filestore.go b/sdk/auth/filestore.go
+index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..520eee8547fded199c2500442b93ab0f1b71f9d4 100644
+--- a/sdk/auth/filestore.go
++++ b/sdk/auth/filestore.go
+@@ -117,7 +117,7 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
+ 		if setter, ok := auth.Storage.(metadataSetter); ok {
+ 			setter.SetMetadata(auth.Metadata)
+ 		}
+-		if err = auth.Storage.SaveTokenToFile(path); err != nil {
++		if err = atomicTokenSave(path, auth.Storage.SaveTokenToFile); err != nil {
+ 			return "", err
+ 		}
+ 	case auth.Metadata != nil:
+@@ -130,22 +130,10 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
+ 			if jsonEqual(existing, raw) {
+ 				break
+ 			}
+-			file, errOpen := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0o600)
+-			if errOpen != nil {
+-				return "", fmt.Errorf("auth filestore: open existing failed: %w", errOpen)
+-			}
+-			if _, errWrite := file.Write(raw); errWrite != nil {
+-				_ = file.Close()
+-				return "", fmt.Errorf("auth filestore: write existing failed: %w", errWrite)
+-			}
+-			if errClose := file.Close(); errClose != nil {
+-				return "", fmt.Errorf("auth filestore: close existing failed: %w", errClose)
+-			}
+-			break
+ 		} else if !os.IsNotExist(errRead) {
+ 			return "", fmt.Errorf("auth filestore: read existing failed: %w", errRead)
+ 		}
+-		if errWrite := os.WriteFile(path, raw, 0o600); errWrite != nil {
++		if errWrite := atomicTokenSave(path, func(stage string) error { return os.WriteFile(stage, raw, 0o600) }); errWrite != nil {
+ 			return "", fmt.Errorf("auth filestore: write file failed: %w", errWrite)
+ 		}
+ 	default:
+@@ -166,6 +154,37 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
+ 	return path, nil
+ }
+ 
++func atomicTokenSave(path string, write func(string) error) error {
++	stage, err := os.CreateTemp(filepath.Dir(path), ".auth-save-*")
++	if err != nil {
++		return err
++	}
++	name := stage.Name()
++	defer func() { _ = os.Remove(name) }()
++	if err = stage.Close(); err != nil {
++		return err
++	}
++	if err = write(name); err != nil {
++		return err
++	}
++	file, err := os.OpenFile(name, os.O_RDWR, 0o600)
++	if err != nil {
++		return err
++	}
++	if err = file.Chmod(0o600); err != nil {
++		_ = file.Close()
++		return err
++	}
++	if err = file.Sync(); err != nil {
++		_ = file.Close()
++		return err
++	}
++	if err = file.Close(); err != nil {
++		return err
++	}
++	return os.Rename(name, path)
++}
++
+ // List enumerates all auth JSON files under the configured directory.
+ func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error) {
+ 	dir := s.baseDirSnapshot()
+@@ -178,6 +197,9 @@ func (s *FileTokenStore) List(ctx context.Context) ([]*cliproxyauth.Auth, error)
+ 			return walkErr
+ 		}
+ 		if d.IsDir() {
++			if d.Name() == ".codex-managed-identity" {
++				return filepath.SkipDir
++			}
+ 			return nil
+ 		}
+ 		if !strings.HasSuffix(strings.ToLower(d.Name()), ".json") {
+diff --git a/sdk/auth/filestore_test.go b/sdk/auth/filestore_test.go
+index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..cde1f171b097299492687f180ee569293d779810 100644
+--- a/sdk/auth/filestore_test.go
++++ b/sdk/auth/filestore_test.go
+@@ -2,14 +2,84 @@ package auth
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"os"
+ 	"path/filepath"
+ 	"testing"
+ 
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/auth/codex"
++
+ 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+ 	"github.com/router-for-me/CLIProxyAPI/v7/sdk/pluginapi"
+ )
+ 
++type partialTokenStorage struct{}
++
++func (partialTokenStorage) SaveTokenToFile(path string) error {
++	if err := os.WriteFile(path, []byte(`{"partial":`), 0o600); err != nil {
++		return err
++	}
++	return errors.New("synthetic write failure")
++}
++
++func TestFileTokenStoreAtomicFailurePreservesOriginal(t *testing.T) {
++	for _, storage := range []bool{false, true} {
++		t.Run(map[bool]string{false: "partial_write", true: "codex_serialization"}[storage], func(t *testing.T) {
++			dir := t.TempDir()
++			path := filepath.Join(dir, "auth.json")
++			original := `{"type":"codex","refresh_token":"synthetic-old"}`
++			if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
++				t.Fatal(err)
++			}
++			s := NewFileTokenStore()
++			s.SetBaseDir(dir)
++			a := &cliproxyauth.Auth{ID: "auth.json", Metadata: map[string]any{}, Storage: partialTokenStorage{}}
++			if storage {
++				a.Storage = &codex.CodexTokenStorage{RefreshToken: "synthetic-new"}
++				a.Metadata["bad"] = make(chan int)
++			}
++			if _, err := s.Save(context.Background(), a); err == nil {
++				t.Fatal("expected save failure")
++			}
++			got, err := os.ReadFile(path)
++			if err != nil || string(got) != original {
++				t.Fatalf("original file damaged: %q, %v", got, err)
++			}
++			files, err := os.ReadDir(dir)
++			if err != nil || len(files) != 1 {
++				t.Fatalf("staging file leaked: %v", err)
++			}
++		})
++	}
++}
++
++func TestFileTokenStoreAtomicSaveReloadsLatest(t *testing.T) {
++	for _, storage := range []bool{false, true} {
++		t.Run(map[bool]string{false: "metadata", true: "storage"}[storage], func(t *testing.T) {
++			dir := t.TempDir()
++			s := NewFileTokenStore()
++			s.SetBaseDir(dir)
++			a := &cliproxyauth.Auth{ID: "auth.json", Metadata: map[string]any{"type": "codex", "refresh_token": "synthetic-old"}}
++			if _, err := s.Save(context.Background(), a); err != nil {
++				t.Fatal(err)
++			}
++			a.Metadata["refresh_token"] = "synthetic-new"
++			if storage {
++				a.Storage = &codex.CodexTokenStorage{RefreshToken: "synthetic-new"}
++			}
++			if _, err := s.Save(context.Background(), a); err != nil {
++				t.Fatal(err)
++			}
++			restarted := NewFileTokenStore()
++			restarted.SetBaseDir(dir)
++			loaded, err := restarted.List(context.Background())
++			if err != nil || len(loaded) != 1 || loaded[0].Metadata["refresh_token"] != "synthetic-new" {
++				t.Fatalf("latest pair not restart-readable: %v", err)
++			}
++		})
++	}
++}
++
+ func TestExtractAccessToken(t *testing.T) {
+ 	t.Parallel()
+ 
+@@ -401,3 +471,41 @@ func (f fileStoreMultiAuthParserFunc) ParseAuth(context.Context, pluginapi.AuthP
+ func (f fileStoreMultiAuthParserFunc) ParseAuths(ctx context.Context, req pluginapi.AuthParseRequest) ([]*cliproxyauth.Auth, bool, error) {
+ 	return f(ctx, req)
+ }
++
++func TestFileTokenStoreListExcludesManagedIdentity(t *testing.T) {
++	dir := t.TempDir()
++	identityDir := filepath.Join(dir, ".codex-managed-identity")
++	nestedDir := filepath.Join(dir, "accounts")
++	for _, folder := range []string{identityDir, nestedDir} {
++		if err := os.MkdirAll(folder, 0700); err != nil {
++			t.Fatal(err)
++		}
++	}
++	identityPath := filepath.Join(identityDir, "scope.json")
++	identity := []byte(`{"version":1,"installation_id":"fixture","scope":"fixture"}`)
++	if err := os.WriteFile(identityPath, identity, 0600); err != nil {
++		t.Fatal(err)
++	}
++	for _, folder := range []string{dir, nestedDir} {
++		if err := os.WriteFile(filepath.Join(folder, "auth.json"), []byte(`{"type":"codex","access_token":"synthetic"}`), 0600); err != nil {
++			t.Fatal(err)
++		}
++	}
++	store := NewFileTokenStore()
++	store.SetBaseDir(dir)
++	for i := 0; i < 2; i++ {
++		loaded, err := store.List(context.Background())
++		if err != nil || len(loaded) != 2 {
++			t.Fatalf("expected two real credentials, got %d: %v", len(loaded), err)
++		}
++		for _, auth := range loaded {
++			if auth.Provider != "codex" {
++				t.Fatalf("internal state loaded as %s", auth.Provider)
++			}
++		}
++	}
++	raw, err := os.ReadFile(identityPath)
++	if err != nil || string(raw) != string(identity) {
++		t.Fatal("internal identity was modified")
++	}
++}
+diff --git a/sdk/cliproxy/auth/access_token_fallback.go b/sdk/cliproxy/auth/access_token_fallback.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..ee937c9e1629e9664fa9447b022590fd715f40a7
+--- /dev/null
++++ b/sdk/cliproxy/auth/access_token_fallback.go
+@@ -0,0 +1,234 @@
++// 仅允许经过完整推理验证的现有访问令牌降级，不解除独立额度和人工限制。
++package auth
++
++import (
++	"context"
++	"crypto/sha256"
++	"encoding/base64"
++	"encoding/json"
++	"fmt"
++	"reflect"
++	"sort"
++	"strings"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
++)
++
++const accessFallbackSetting = "codex_allow_valid_access_after_refresh_failure"
++const accessFallbackVersion = "codex_access_fallback_version"
++
++type AccessFallbackState struct {
++	ConfigVersion   string    `json:"config_version,omitempty"`
++	Credential      string    `json:"credential"`
++	Proxy           string    `json:"proxy"`
++	FailedAt        time.Time `json:"failed_at"`
++	RefreshError    *Error    `json:"refresh_error,omitempty"`
++	RefreshRejected bool      `json:"refresh_rejected"`
++	AccessRejected  bool      `json:"access_rejected"`
++	ExpiresAt       time.Time `json:"expires_at"`
++	Models          []string  `json:"models,omitempty"`
++}
++
++func (s *AccessFallbackState) Clone() *AccessFallbackState {
++	if s == nil {
++		return nil
++	}
++	c := *s
++	c.RefreshError = cloneError(s.RefreshError)
++	c.Models = append([]string(nil), s.Models...)
++	return &c
++}
++
++type AccessFallbackView struct {
++	Enabled        bool       `json:"enabled"`
++	Active         bool       `json:"active"`
++	Reason         string     `json:"reason"`
++	ExpiresAt      *time.Time `json:"expires_at"`
++	VerifiedModels []string   `json:"verified_models"`
++	FailureSource  string     `json:"failure_source,omitempty"`
++}
++
++func accessFallbackEnabled(a *Auth) bool { v, _ := a.Metadata[accessFallbackSetting].(bool); return v }
++func accessFallbackBound(a *Auth) bool {
++	return a != nil && a.AccessFallback != nil && a.AccessFallback.Credential == refreshCredentialFingerprint(a)
++}
++func accessFallbackProxy(a *Auth) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(a.ProxyURL))) }
++func accessFallbackExpiry(a *Auth) time.Time {
++	expiry, _ := a.ExpirationTime()
++	parts := strings.Split(authAccessToken(a), ".")
++	if len(parts) == 3 {
++		raw, err := base64.RawURLEncoding.DecodeString(parts[1])
++		var claims struct {
++			Exp int64 `json:"exp"`
++		}
++		if err == nil && json.Unmarshal(raw, &claims) == nil && claims.Exp > 0 {
++			claimed := time.Unix(claims.Exp, 0)
++			if expiry.IsZero() || claimed.Before(expiry) {
++				expiry = claimed
++			}
++		}
++	}
++	return expiry
++}
++func accessFallbackProven(a *Auth, model string, now time.Time) bool {
++	if !accessFallbackBound(a) || !accessFallbackEnabled(a) || a.AccessFallback.AccessRejected || a.AccessFallback.Proxy != accessFallbackProxy(a) || a.AccessFallback.ConfigVersion != authMetadataString(a, accessFallbackVersion) {
++		return false
++	}
++	expiry := accessFallbackExpiry(a)
++	if expiry.IsZero() || !expiry.After(now) || !a.AccessFallback.ExpiresAt.After(now) {
++		return false
++	}
++	for _, verified := range a.AccessFallback.Models {
++		if canonicalModelKey(model) == verified {
++			return true
++		}
++	}
++	return false
++}
++func withoutRefreshFailure(a *Auth) *Auth {
++	next := a.Clone()
++	next.AccessFallback = nil
++	if next.LastError != nil && a.AccessFallback != nil && reflect.DeepEqual(next.LastError, a.AccessFallback.RefreshError) && !a.AccessFallback.AccessRejected {
++		next.LastError = nil
++		next.StatusMessage = ""
++		next.Unavailable = false
++		if next.Status == StatusError {
++			next.Status = StatusActive
++		}
++	}
++	return next
++}
++func AccessTokenFallbackStatus(a *Auth, now time.Time) AccessFallbackView {
++	view := AccessFallbackView{VerifiedModels: []string{}, Reason: "not_needed"}
++	if a == nil {
++		return view
++	}
++	view.Enabled = accessFallbackEnabled(a)
++	expiry := accessFallbackExpiry(a)
++	if !expiry.IsZero() {
++		view.ExpiresAt = &expiry
++	}
++	if !accessFallbackBound(a) {
++		return view
++	}
++	view.FailureSource = "refresh"
++	view.Reason = "verification_required"
++	if !view.Enabled {
++		view.Reason = "disabled"
++		return view
++	}
++	if a.AccessFallback.AccessRejected {
++		view.Reason = "access_rejected"
++		return view
++	}
++	if expiry.IsZero() || !expiry.After(now) {
++		view.Reason = "access_expired"
++		return view
++	}
++	for _, model := range a.AccessFallback.Models {
++		if accessFallbackProven(a, model, now) {
++			if blocked, _, _ := isAuthBlockedForModel(withoutRefreshFailure(a), model, now); !blocked {
++				view.VerifiedModels = append(view.VerifiedModels, model)
++			}
++		}
++	}
++	sort.Strings(view.VerifiedModels)
++	view.Active = len(view.VerifiedModels) > 0
++	if view.Active {
++		view.Reason = "temporary_access"
++	}
++	return view
++}
++func (m *Manager) VerifyAccessTokenFallback(ctx context.Context, id, model, fingerprint string) QuotaVerification {
++	before, ok := m.GetByID(id)
++	if !ok || before.Provider != "codex" || !accessFallbackEnabled(before) || !accessFallbackBound(before) || before.AccessFallback.AccessRejected {
++		return QuotaVerification{Reason: "not_eligible"}
++	}
++	expiry := accessFallbackExpiry(before)
++	if expiry.IsZero() || !expiry.After(time.Now()) {
++		return QuotaVerification{Reason: "access_expired"}
++	}
++	if blocked, _, _ := isAuthBlockedForModel(withoutRefreshFailure(before), model, time.Now()); blocked {
++		return QuotaVerification{Reason: "independent_block"}
++	}
++	result := m.VerifyCodexQuota(ctx, id, model, false, fingerprint)
++	if !result.Passed {
++		if result.Reason == "authentication_failed" {
++			m.rejectFallbackAccess(ctx, before)
++		}
++		return result
++	}
++	lock := m.authRefreshLock(id)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
++	m.configCooldownMu.Lock()
++	defer m.configCooldownMu.Unlock()
++	m.mu.Lock()
++	current := m.auths[id]
++	if current == nil || current.Generation != before.Generation || current.RegistrationEpoch != before.RegistrationEpoch || !sameRefreshCredential(current, before) || current.ProxyURL != before.ProxyURL || !reflect.DeepEqual(current.Metadata, before.Metadata) {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "state_changed"}
++	}
++	if m.cooldownStore == nil {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "persistence_unavailable"}
++	}
++	next := current.Clone()
++	next.AccessFallback.Proxy = accessFallbackProxy(next)
++	next.AccessFallback.ExpiresAt = expiry
++	next.AccessFallback.ConfigVersion = authMetadataString(next, accessFallbackVersion)
++	key := canonicalModelKey(model)
++	found := false
++	for _, v := range next.AccessFallback.Models {
++		found = found || v == key
++	}
++	if !found {
++		next.AccessFallback.Models = append(next.AccessFallback.Models, key)
++	}
++	next.Generation++
++	next.UpdatedAt = time.Now()
++	records := []CooldownStateRecord{}
++	for authID, a := range m.auths {
++		if authID == id {
++			a = next
++		}
++		records = append(records, m.cooldownStateRecordsForAuthLocked(a, time.Now())...)
++	}
++	if err := m.cooldownStore.Save(ctx, records); err != nil {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "persistence_failed"}
++	}
++	m.auths[id] = next
++	m.mu.Unlock()
++	m.refreshFallbackProjection(next)
++	return QuotaVerification{Passed: true, Restored: true, Reason: "temporary_access", ExpiresAt: &expiry}
++}
++func (m *Manager) refreshFallbackProjection(a *Auth) {
++	if m.scheduler != nil {
++		m.scheduler.upsertAuth(a.Clone())
++	}
++	models, epoch := registry.GetGlobalRegistry().GetModelsAndEpochForClient(a.ID)
++	projections := make([]registry.ClientModelProjection, 0, len(models))
++	for _, model := range models {
++		if model != nil {
++			projections = append(projections, m.clientModelProjectionForAuth(a, model.ID, time.Now()))
++		}
++	}
++	registry.GetGlobalRegistry().ApplyClientModelProjections(a.ID, epoch, a.Generation, projections)
++}
++func (m *Manager) rejectFallbackAccess(ctx context.Context, before *Auth) {
++	m.mu.Lock()
++	current := m.auths[before.ID]
++	if current == nil || !sameRefreshCredential(current, before) || !accessFallbackBound(current) {
++		m.mu.Unlock()
++		return
++	}
++	current.AccessFallback = current.AccessFallback.Clone()
++	current.AccessFallback.AccessRejected = true
++	current.Generation++
++	next := current.Clone()
++	m.mu.Unlock()
++	m.persistCooldownStates(context.WithoutCancel(ctx))
++	m.refreshFallbackProjection(next)
++}
+diff --git a/sdk/cliproxy/auth/access_token_fallback_test.go b/sdk/cliproxy/auth/access_token_fallback_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..077d56aa7a0008764da6e081cd4d435d4395d09d
+--- /dev/null
++++ b/sdk/cliproxy/auth/access_token_fallback_test.go
+@@ -0,0 +1,246 @@
++// 用合成凭据验证临时访问证明、生命周期和持久化边界。
++package auth
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"fmt"
++	"strings"
++	"testing"
++	"time"
++)
++
++type fallbackExecutor struct{ quotaRecoveryExecutor }
++
++func (e *fallbackExecutor) Refresh(context.Context, *Auth) (*Auth, error) {
++	e.refreshes++
++	return nil, &Error{HTTPStatus: 401, Code: "unauthorized", Message: "synthetic refresh rejected"}
++}
++func fallbackFixture(t *testing.T) (*Manager, *fallbackExecutor, *Auth) {
++	t.Helper()
++	m := NewManager(nil, nil, nil)
++	e := &fallbackExecutor{}
++	m.RegisterExecutor(e)
++	m.cooldownStore = &recordingCooldownStateStore{}
++	a, err := m.Register(context.Background(), &Auth{ID: "quota-first", Provider: "codex", Status: StatusActive, Metadata: map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh", "expired": time.Now().Add(time.Hour).Format(time.RFC3339)}, ModelStates: map[string]*ModelState{}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	a, _ = m.GetByID(a.ID)
++	return m, e, a
++}
++func fallbackVerify(t *testing.T, m *Manager) QuotaVerification {
++	t.Helper()
++	v, ok := any(m).(interface {
++		VerifyAccessTokenFallback(context.Context, string, string, string) QuotaVerification
++	})
++	if !ok {
++		t.Fatal("verified access-token fallback capability missing")
++	}
++	return v.VerifyAccessTokenFallback(context.Background(), "quota-first", "gpt-6-astra", fmt.Sprintf("%x", sha256.Sum256([]byte("fixture-access"))))
++}
++func TestAccessTokenFallbackRequiresCompleteBoundProof(t *testing.T) {
++	m, e, a := fallbackFixture(t)
++	if got := fallbackVerify(t, m); got.Restored || got.Passed {
++		t.Fatal("default-off accepted")
++	}
++	a.Metadata["codex_allow_valid_access_after_refresh_failure"] = true
++	if _, err := m.Update(context.Background(), a); err != nil {
++		t.Fatal(err)
++	}
++	current, _ := m.GetByID(a.ID)
++	if blocked, _, _ := isAuthBlockedForModel(current, "gpt-6-astra", time.Now()); !blocked {
++		t.Fatal("setting alone bypassed proof")
++	}
++	got := fallbackVerify(t, m)
++	if !got.Passed || !got.Restored || e.refreshes != 1 {
++		t.Fatalf("proof failed or refreshed: %+v / %d", got, e.refreshes)
++	}
++	current, _ = m.GetByID(a.ID)
++	if blocked, _, _ := isAuthBlockedForModel(current, "gpt-6-astra", time.Now()); blocked {
++		t.Fatal("verified model blocked")
++	}
++	if blocked, _, _ := isAuthBlockedForModel(current, "gpt-6-luna", time.Now()); !blocked {
++		t.Fatal("proof leaked to unverified model")
++	}
++	if m.shouldRefresh(current, time.Now().Add(2*time.Hour)) {
++		t.Fatal("rejected refresh scheduled")
++	}
++	for _, change := range []string{"expired", "proxy", "credential", "disabled", "off", "quota", "model"} {
++		t.Run(change, func(t *testing.T) {
++			next := current.Clone()
++			switch change {
++			case "expired":
++				next.Metadata["expired"] = time.Now().Add(-time.Second).Format(time.RFC3339)
++			case "proxy":
++				next.ProxyURL = "http://new-proxy.invalid"
++			case "credential":
++				next.Metadata["access_token"] = "replacement"
++			case "disabled":
++				next.Disabled = true
++			case "off":
++				next.Metadata["codex_allow_valid_access_after_refresh_failure"] = false
++			case "quota":
++				next.Quota = QuotaState{Exceeded: true, Reason: "credential_quota", NextRecoverAt: time.Now().Add(time.Hour)}
++			case "model":
++				next.ModelStates = map[string]*ModelState{"gpt-6-astra": {Status: StatusDisabled}}
++			}
++			if blocked, _, _ := isAuthBlockedForModel(next, "gpt-6-astra", time.Now()); !blocked {
++				t.Fatal("independent constraint bypassed")
++			}
++		})
++	}
++}
++func TestAccessTokenFallbackRejectsToolsAndIncomplete(t *testing.T) {
++	for _, payload := range []string{
++		"data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"function_call\"},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n",
++		"data: {\"type\":\"response.incomplete\"}\n\n", "data: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n", strings.Repeat("x", 512*1024+1),
++	} {
++		m, e, a := fallbackFixture(t)
++		a.Metadata["codex_allow_valid_access_after_refresh_failure"] = true
++		_, _ = m.Update(context.Background(), a)
++		e.payload = []byte(payload)
++		got := fallbackVerify(t, m)
++		if got.Passed || got.Restored || e.refreshes != 1 {
++			t.Fatalf("invalid proof accepted: %+v", got)
++		}
++	}
++}
++
++func TestAccessTokenFallbackInvalidationSurvivesRestart(t *testing.T) {
++	for _, change := range []string{"off", "disabled", "proxy"} {
++		t.Run(change, func(t *testing.T) {
++			m, _, a := fallbackFixture(t)
++			store := NewFileCooldownStateStore(t.TempDir())
++			m.cooldownStore = store
++			a.Metadata[accessFallbackSetting] = true
++			_, _ = m.Update(context.Background(), a)
++			if got := fallbackVerify(t, m); !got.Restored {
++				t.Fatalf("proof: %+v", got)
++			}
++			a, _ = m.GetByID(a.ID)
++			switch change {
++			case "off":
++				a.Metadata[accessFallbackSetting] = false
++			case "disabled":
++				a.Disabled = true
++			case "proxy":
++				a.ProxyURL = "http://fixture-proxy.invalid"
++			}
++			if _, err := m.Update(context.Background(), a); err != nil {
++				t.Fatal(err)
++			}
++			a, _ = m.GetByID(a.ID)
++			a.AccessFallback = nil
++			restarted := NewManager(nil, nil, nil)
++			restarted.cooldownStore = store
++			// Restore runtime state over the token-file view, then re-enable explicitly.
++			a.Disabled = false
++			a.Status = StatusActive
++			a.LastError = nil
++			a.Unavailable = false
++			a.Metadata[accessFallbackSetting] = true
++			a.ProxyURL = ""
++			if _, err := restarted.Register(context.Background(), a); err != nil {
++				t.Fatal(err)
++			}
++			if err := restarted.RestoreCooldownStates(context.Background()); err != nil {
++				t.Fatal(err)
++			}
++			current, _ := restarted.GetByID(a.ID)
++			if accessFallbackProven(current, "gpt-6-astra", time.Now()) {
++				t.Fatal("invalidated proof resurrected")
++			}
++		})
++	}
++}
++
++func TestAccessTokenFallbackRejectsIntermediateToolEvent(t *testing.T) {
++	m, e, a := fallbackFixture(t)
++	a.Metadata[accessFallbackSetting] = true
++	_, _ = m.Update(context.Background(), a)
++	e.payload = []byte("data: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
++	if got := fallbackVerify(t, m); got.Passed || got.Restored {
++		t.Fatalf("tool stream accepted: %+v", got)
++	}
++}
++
++func TestAccessTokenFallbackAllowsReasoningWithoutTools(t *testing.T) {
++	m, e, a := fallbackFixture(t)
++	a.Metadata[accessFallbackSetting] = true
++	_, _ = m.Update(context.Background(), a)
++	e.payload = []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"summary\":[]},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
++	if got := fallbackVerify(t, m); !got.Passed || !got.Restored {
++		t.Fatalf("valid reasoning rejected: %+v", got)
++	}
++}
++
++func TestAccessTokenFallbackRejectsConcurrentStateChange(t *testing.T) {
++	for _, change := range []string{"disable", "credential", "proxy", "remove", "replace"} {
++		t.Run(change, func(t *testing.T) {
++			m, e, a := fallbackFixture(t)
++			a.Metadata[accessFallbackSetting] = true
++			_, _ = m.Update(context.Background(), a)
++			e.during = func() {
++				current, _ := m.GetByID(a.ID)
++				switch change {
++				case "disable":
++					current.Disabled = true
++				case "credential":
++					current.Metadata["access_token"] = "new-fixture"
++				case "proxy":
++					current.ProxyURL = "http://fixture.invalid"
++				case "remove":
++					m.Remove(context.Background(), a.ID)
++					return
++				case "replace":
++					m.Remove(context.Background(), a.ID)
++					current.AccessFallback = nil
++					_, _ = m.Register(context.Background(), current)
++				}
++				_, _ = m.Update(context.Background(), current)
++			}
++			if got := fallbackVerify(t, m); got.Restored {
++				t.Fatalf("stale proof committed: %+v", got)
++			}
++		})
++	}
++}
++
++type failFallbackStateSave struct{ CooldownStateStore }
++
++func (s failFallbackStateSave) Save(context.Context, []CooldownStateRecord) error {
++	return errors.New("fixture disk unavailable")
++}
++func TestAccessFallbackInvalidationSurvivesStateSaveFailure(t *testing.T) {
++	m, _, a := fallbackFixture(t)
++	store := NewFileCooldownStateStore(t.TempDir())
++	m.cooldownStore = store
++	a.Metadata[accessFallbackSetting] = true
++	_, _ = m.Update(context.Background(), a)
++	if got := fallbackVerify(t, m); !got.Restored {
++		t.Fatal(got)
++	}
++	m.cooldownStore = failFallbackStateSave{store}
++	for _, enabled := range []bool{false, true} {
++		a, _ = m.GetByID(a.ID)
++		a.Metadata[accessFallbackSetting] = enabled
++		if _, err := m.Update(context.Background(), a); err != nil {
++			t.Fatal(err)
++		}
++	}
++	a, _ = m.GetByID(a.ID)
++	a.AccessFallback = nil
++	restarted := NewManager(nil, nil, nil)
++	restarted.cooldownStore = store
++	_, _ = restarted.Register(context.Background(), a)
++	if err := restarted.RestoreCooldownStates(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	current, _ := restarted.GetByID(a.ID)
++	if AccessTokenFallbackStatus(current, time.Now()).Active {
++		t.Fatal("stale proof revived after failed state save")
++	}
++}
+diff --git a/sdk/cliproxy/auth/auto_refresh_loop.go b/sdk/cliproxy/auth/auto_refresh_loop.go
+index b4217b31636627b64f50941a6b1c8223d281183e..2e59d26f867ec84c149521c703354b46566a315a 100644
+--- a/sdk/cliproxy/auth/auto_refresh_loop.go
++++ b/sdk/cliproxy/auth/auto_refresh_loop.go
+@@ -339,6 +339,12 @@ func nextRefreshCheckAt(now time.Time, auth *Auth, interval time.Duration) (time
+ 	if auth == nil {
+ 		return time.Time{}, false
+ 	}
++	if auth.refreshSavePending {
++		if auth.NextRefreshAfter.After(now) {
++			return auth.NextRefreshAfter, true
++		}
++		return now, true
++	}
+ 	if hasUnauthorizedAuthFailure(auth) {
+ 		return time.Time{}, false
+ 	}
+diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
+index c245ff3715384256a2230d4a39aeff68640223c2..fbbf3663f38769e3decc1d04069b8e2e3e35728a 100644
+--- a/sdk/cliproxy/auth/conductor.go
++++ b/sdk/cliproxy/auth/conductor.go
+@@ -44,6 +44,7 @@ type ExecutionSessionCloser interface {
+ 
+ // Result captures execution outcome used to adjust auth state.
+ type Result struct {
++	CredentialFingerprint string
+ 	// AuthID references the auth that produced this result.
+ 	AuthID string
+ 	// Provider is copied for convenience when emitting hooks.
+diff --git a/sdk/cliproxy/auth/conductor_cooldown.go b/sdk/cliproxy/auth/conductor_cooldown.go
+index d69cd9913b2a62f2f49c9de2aad30d4ec4c71f77..a8ecbbb21ace9426519b9d7ef78adcfe997c4b36 100644
+--- a/sdk/cliproxy/auth/conductor_cooldown.go
++++ b/sdk/cliproxy/auth/conductor_cooldown.go
+@@ -7,6 +7,7 @@ import (
+ 	"fmt"
+ 	"io"
+ 	"net/http"
++	"reflect"
+ 	"sort"
+ 	"strings"
+ 	"sync/atomic"
+@@ -334,6 +335,26 @@ func (m *Manager) RestoreCooldownStates(ctx context.Context) error {
+ 
+ func (m *Manager) restoreCooldownRecordLocked(record CooldownStateRecord, now time.Time) bool {
+ 	authID := strings.TrimSpace(record.AuthID)
++	if state := record.CredentialRefresh; state != nil {
++		auth := m.auths[authID]
++		if auth == nil || state.Credential != refreshCredentialFingerprint(auth) {
++			return false
++		}
++		auth.refreshAttemptedAt = state.AttemptedAt
++		auth.refreshLastResult = state.Result
++		auth.LastRefreshedAt = state.SuccessAt
++		auth.NextRefreshAfter = state.RetryAt
++		return true
++	}
++	if record.AccessFallback != nil {
++		auth := m.auths[authID]
++		if auth == nil || record.AccessFallback.Credential != refreshCredentialFingerprint(auth) {
++			return false
++		}
++		auth.AccessFallback = record.AccessFallback.Clone()
++		auth.Generation++
++		return true
++	}
+ 	if authID == "" || record.NextRetryAfter.IsZero() || !record.NextRetryAfter.After(now) {
+ 		return false
+ 	}
+@@ -604,10 +625,19 @@ func (m *Manager) cooldownStateRecordsSnapshot() []CooldownStateRecord {
+ }
+ 
+ func (m *Manager) cooldownStateRecordsForAuthLocked(auth *Auth, now time.Time) []CooldownStateRecord {
+-	if auth == nil || auth.ID == "" || auth.Disabled || auth.Status == StatusDisabled || m.cooldownDisabledForAuth(auth) {
++	if auth == nil || auth.ID == "" {
+ 		return nil
+ 	}
+-	records := make([]CooldownStateRecord, 0, 1+len(auth.ModelStates))
++	records := make([]CooldownStateRecord, 0, 2+len(auth.ModelStates))
++	if !auth.refreshAttemptedAt.IsZero() && auth.refreshLastResult != "" {
++		records = append(records, CooldownStateRecord{Provider: auth.Provider, AuthID: auth.ID, AuthFile: cooldownAuthFile(auth), Model: "$credential_refresh", CredentialRefresh: &CredentialRefreshState{Credential: refreshCredentialFingerprint(auth), AttemptedAt: auth.refreshAttemptedAt, SuccessAt: auth.LastRefreshedAt, RetryAt: auth.NextRefreshAfter, Result: auth.refreshLastResult}})
++	}
++	if accessFallbackBound(auth) {
++		records = append(records, CooldownStateRecord{Provider: auth.Provider, AuthID: auth.ID, AuthFile: cooldownAuthFile(auth), Model: "$access_token_fallback", AccessFallback: auth.AccessFallback.Clone()})
++	}
++	if auth.Disabled || auth.Status == StatusDisabled || m.cooldownDisabledForAuth(auth) {
++		return records
++	}
+ 	if record, ok := authCooldownStateRecord(auth, now); ok {
+ 		records = append(records, record)
+ 	}
+@@ -635,7 +665,7 @@ func cooldownStateRecordsEqual(a, b []CooldownStateRecord) bool {
+ }
+ 
+ func cooldownStateRecordEqual(a, b CooldownStateRecord) bool {
+-	if a.Provider != b.Provider ||
++	if !reflect.DeepEqual(a.CredentialRefresh, b.CredentialRefresh) || !reflect.DeepEqual(a.AccessFallback, b.AccessFallback) || a.Provider != b.Provider ||
+ 		a.AuthID != b.AuthID ||
+ 		a.AuthFile != b.AuthFile ||
+ 		a.Model != b.Model ||
+@@ -749,6 +779,15 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
+ 		if trackCooldownState {
+ 			cooldownRecordsBefore = m.cooldownStateRecordsForAuthLocked(auth, now)
+ 		}
++		if result.CredentialFingerprint != "" && result.CredentialFingerprint != refreshCredentialFingerprint(auth) {
++			m.mu.Unlock()
++			return
++		}
++		if accessFallbackBound(auth) && !result.Success && result.Error != nil && result.Error.HTTPStatus == 401 && !shouldSkipCredentialCooldown(result.Error) && !isModelSupportResultError(result.Error) {
++			auth.AccessFallback = auth.AccessFallback.Clone()
++			auth.AccessFallback.AccessRejected = true
++			result.Error = cloneError(result.Error)
++		}
+ 		auth.recordRecentRequest(now, result.Success)
+ 		if result.Success {
+ 			auth.Success++
+@@ -1493,7 +1532,10 @@ func isUnauthorizedError(err error) bool {
+ 		return true
+ 	}
+ 	raw := strings.ToLower(err.Error())
+-	return strings.Contains(raw, "status 401") || strings.Contains(raw, "401 unauthorized")
++	return strings.Contains(raw, "status 401") || strings.Contains(raw, "401 unauthorized") ||
++		strings.Contains(raw, "refresh_token_reused") || strings.Contains(raw, "refresh_token_expired") ||
++		strings.Contains(raw, "refresh_token_revoked") ||
++		(strings.Contains(raw, "token refresh failed") && strings.Contains(raw, "invalid_grant"))
+ }
+ 
+ func hasUnauthorizedAuthFailure(auth *Auth) bool {
+@@ -1512,7 +1554,7 @@ func refreshErrorFromError(err error) *Error {
+ 		statusCode = http.StatusUnauthorized
+ 	}
+ 	authErr := &Error{Message: err.Error(), HTTPStatus: statusCode}
+-	if statusCode == http.StatusUnauthorized {
++	if isUnauthorizedError(err) {
+ 		authErr.Code = "unauthorized"
+ 		authErr.Retryable = false
+ 	}
+diff --git a/sdk/cliproxy/auth/conductor_execution.go b/sdk/cliproxy/auth/conductor_execution.go
+index 3aa1f67d3411641ecdd28e3b2cd7be8a97bef409..30ba610209cee59dcd732ff685cb2caffd2469c7 100644
+--- a/sdk/cliproxy/auth/conductor_execution.go
++++ b/sdk/cliproxy/auth/conductor_execution.go
+@@ -479,7 +479,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req
+ 			if stateModel == "" {
+ 				stateModel = canonicalModelKey(routeModel)
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: stateModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: pickOpts}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: stateModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: pickOpts}
+ 			m.MarkResult(execCtx, result)
+ 			lastErr = errPrepare
+ 			continue
+@@ -539,7 +539,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req
+ 			if errCancel := claudeOAuthRequestCancellation(execCtx, auth, errExec); errCancel != nil {
+ 				return cliproxyexecutor.Response{}, errCancel
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts}
+ 			if errExec != nil {
+ 				result.Error = resultErrorFromError(errExec)
+ 				if ra := retryAfterFromError(errExec); ra != nil {
+@@ -670,7 +670,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
+ 			if stateModel == "" {
+ 				stateModel = canonicalModelKey(routeModel)
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: stateModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: pickOpts, SkipQuotaObservation: true}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: stateModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: pickOpts, SkipQuotaObservation: true}
+ 			m.MarkResult(execCtx, result)
+ 			lastErr = errPrepare
+ 			continue
+@@ -730,7 +730,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
+ 			if errCancel := claudeOAuthRequestCancellation(execCtx, auth, errExec); errCancel != nil {
+ 				return cliproxyexecutor.Response{}, errCancel
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true}
+ 			if errExec != nil {
+ 				result.Error = resultErrorFromError(errExec)
+ 				if ra := retryAfterFromError(errExec); ra != nil {
+@@ -994,7 +994,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
+ 			if stateModel == "" {
+ 				stateModel = canonicalModelKey(routeModel)
+ 			}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: stateModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: pickOpts}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: stateModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(errPrepare), Options: pickOpts}
+ 			if selection != nil {
+ 				m.reportHomeResult(execCtx, result, auth)
+ 				releaseAttempt()
+diff --git a/sdk/cliproxy/auth/conductor_lifecycle.go b/sdk/cliproxy/auth/conductor_lifecycle.go
+index d14b66155b7e51e282dd336edda2c6daaaf8d5c3..2ed846abedea7a8e7e435cd0a9e3ae8411b44ed2 100644
+--- a/sdk/cliproxy/auth/conductor_lifecycle.go
++++ b/sdk/cliproxy/auth/conductor_lifecycle.go
+@@ -3,6 +3,7 @@ package auth
+ import (
+ 	"context"
+ 	"fmt"
++	"reflect"
+ 	"strings"
+ 	"time"
+ 
+@@ -76,6 +77,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+ 	if auth.ID == "" {
+ 		auth.ID = uuid.NewString()
+ 	}
++	lock := m.authRefreshLock(auth.ID)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
+ 	now := time.Now()
+ 	if auth.Generation == 0 {
+ 		auth.Generation = 1
+@@ -122,6 +126,16 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+ 
+ // Update replaces an existing auth entry and notifies hooks.
+ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
++	if auth == nil || auth.ID == "" {
++		return nil, nil
++	}
++	lock := m.authRefreshLock(auth.ID)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
++	return m.updateAuth(ctx, auth)
++}
++
++func (m *Manager) updateAuth(ctx context.Context, auth *Auth) (*Auth, error) {
+ 	if auth == nil || auth.ID == "" {
+ 		return nil, nil
+ 	}
+@@ -135,6 +149,11 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 		m.mu.Unlock()
+ 		return nil, nil
+ 	}
++	if shouldSkipPersist(ctx) && existing.refreshConsumedCredential == refreshCredentialFingerprint(auth) && !sameRefreshCredential(existing, auth) {
++		current := existing.Clone()
++		m.mu.Unlock()
++		return current, nil
++	}
+ 	if m.authEpochs == nil {
+ 		m.authEpochs = make(map[string]uint64)
+ 	}
+@@ -154,6 +173,45 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 		auth.Index = existing.Index
+ 		auth.indexAssigned = existing.indexAssigned
+ 	}
++	if existing.refreshSavePending && sameRefreshCredential(existing, auth) {
++		auth.refreshSavePending = true
++	}
++	if sameRefreshCredential(existing, auth) {
++		auth.refreshConsumedCredential = existing.refreshConsumedCredential
++		if auth.refreshAttemptedAt.IsZero() {
++			auth.refreshAttemptedAt = existing.refreshAttemptedAt
++			auth.refreshLastResult = existing.refreshLastResult
++			auth.refreshInProgress = existing.refreshInProgress
++			auth.NextRefreshAfter = existing.NextRefreshAfter
++			auth.LastRefreshedAt = existing.LastRefreshedAt
++		}
++	}
++	if auth.refreshSavePending && auth.Generation < existing.Generation {
++		auth.Disabled = existing.Disabled
++		auth.Status = existing.Status
++		auth.StatusMessage = existing.StatusMessage
++		auth.Unavailable = existing.Unavailable
++		auth.LastError = existing.LastError
++		auth.Quota = existing.Quota.Clone()
++		auth.NextRetryAfter = existing.NextRetryAfter
++		auth.ModelStates = existing.Clone().ModelStates
++	}
++	if auth.Provider == "codex" && (accessFallbackEnabled(existing) != accessFallbackEnabled(auth) || existing.ProxyURL != auth.ProxyURL || existing.Disabled != auth.Disabled || (existing.Status == StatusDisabled) != (auth.Status == StatusDisabled)) {
++		if auth.Metadata == nil {
++			auth.Metadata = make(map[string]any)
++		}
++		// 将失效代际一并保存到认证文件，独立状态文件写失败也不能恢复旧证明。
++		auth.Metadata[accessFallbackVersion] = time.Now().UTC().Format(time.RFC3339Nano)
++	}
++	if sameRefreshCredential(existing, auth) && existing.AccessFallback != nil {
++		auth.AccessFallback = existing.AccessFallback.Clone()
++		if accessFallbackEnabled(existing) != accessFallbackEnabled(auth) || existing.ProxyURL != auth.ProxyURL || auth.Disabled || auth.Status == StatusDisabled {
++			auth.AccessFallback.Models = nil
++		}
++	} else if !sameRefreshCredential(existing, auth) {
++		auth.AccessFallback = nil
++	}
++	fallbackChanged := !reflect.DeepEqual(existing.AccessFallback, auth.AccessFallback)
+ 	auth.Success = existing.Success
+ 	auth.Failed = existing.Failed
+ 	auth.recentRequests = existing.recentRequests
+@@ -177,7 +235,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 	}
+ 	now := time.Now()
+ 	auth.UpdatedAt = now
+-	cooldownStateChanged := normalizeModelStates(auth)
++	cooldownStateChanged := normalizeModelStates(auth) || fallbackChanged
+ 	if m.cooldownDisabledForAuth(auth) || auth.Disabled || auth.Status == StatusDisabled {
+ 		cooldownStateChanged = clearCooldownStateForAuth(auth, now) || cooldownStateChanged
+ 	}
+@@ -192,12 +250,24 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
+ 		m.scheduler.upsertAuth(authClone.Clone())
+ 	}
+ 	m.queueRefreshReschedule(auth.ID)
+-	_ = m.persist(ctx, auth)
++	errPersist := m.persist(ctx, auth)
++	if auth.refreshSavePending && !shouldSkipPersist(ctx) {
++		m.mu.Lock()
++		if current := m.auths[auth.ID]; current != nil {
++			current.refreshSavePending = errPersist != nil
++			if errPersist != nil {
++				current.NextRefreshAfter = time.Now().Add(refreshFailureBackoff)
++			}
++			auth = current.Clone()
++		}
++		m.mu.Unlock()
++		m.queueRefreshReschedule(auth.ID)
++	}
+ 	m.hook.OnAuthUpdated(ctx, auth.Clone())
+ 	if cooldownStateChanged {
+ 		m.persistCooldownStates(context.Background())
+ 	}
+-	return auth.Clone(), nil
++	return auth.Clone(), errPersist
+ }
+ 
+ // Remove deletes an auth from runtime state without persisting.
+@@ -211,6 +281,9 @@ func (m *Manager) Remove(ctx context.Context, id string) {
+ 		return
+ 	}
+ 	_ = ctx
++	lock := m.authRefreshLock(id)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
+ 
+ 	m.mu.Lock()
+ 	existing := m.auths[id]
+diff --git a/sdk/cliproxy/auth/conductor_refresh.go b/sdk/cliproxy/auth/conductor_refresh.go
+index aedd26f3a789c0dda6a047d84458c1d25e7174ee..2df2982593c0701b00e14efd27b8b3bc45167e06 100644
+--- a/sdk/cliproxy/auth/conductor_refresh.go
++++ b/sdk/cliproxy/auth/conductor_refresh.go
+@@ -2,9 +2,12 @@ package auth
+ 
+ import (
+ 	"context"
++	"crypto/sha256"
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"net/http"
++	"reflect"
+ 	"strconv"
+ 	"strings"
+ 	"sync"
+@@ -115,6 +118,12 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
+ 	if a == nil {
+ 		return false
+ 	}
++	if a.refreshSavePending {
++		return !now.Before(a.NextRefreshAfter)
++	}
++	if accessFallbackBound(a) && a.AccessFallback.RefreshRejected {
++		return false
++	}
+ 	if hasUnauthorizedAuthFailure(a) {
+ 		return false
+ 	}
+@@ -341,7 +350,45 @@ func (m *Manager) markRefreshPending(id string, now time.Time) bool {
+ }
+ 
+ type authRefreshLock struct {
+-	mu sync.Mutex
++	mu       sync.Mutex
++	commitMu sync.Mutex
++}
++
++var ErrRefreshPersistence = errors.New("refreshed credentials retained in memory; persistence pending")
++
++func (m *Manager) authRefreshLock(id string) *authRefreshLock {
++	lock, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
++	return lock.(*authRefreshLock)
++}
++
++func sameRefreshCredential(a, b *Auth) bool {
++	if a == nil || b == nil || a.RegistrationEpoch != b.RegistrationEpoch || a.Provider != b.Provider {
++		return false
++	}
++	for _, key := range []string{"access_token", "accessToken", "refresh_token", "refreshToken", "id_token", "account_id", "token"} {
++		if !reflect.DeepEqual(a.Metadata[key], b.Metadata[key]) {
++			return false
++		}
++	}
++	return true
++}
++
++func refreshCredentialFingerprint(auth *Auth) string {
++	raw, _ := json.Marshal([]string{auth.Provider, authAccessToken(auth), authMetadataString(auth, "refresh_token"), authMetadataString(auth, "refreshToken")})
++	return fmt.Sprintf("%x", sha256.Sum256(raw))
++}
++
++func (m *Manager) persistRefreshedAuth(ctx context.Context, auth *Auth) (*Auth, error) {
++	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
++	defer cancel()
++	saveCtx = context.WithValue(saveCtx, skipPersistContextKey{}, false)
++	auth.refreshSavePending = true
++	saved, err := m.updateAuth(saveCtx, auth)
++	if err != nil {
++		log.Warn("refreshed credential persistence pending")
++		return saved, ErrRefreshPersistence
++	}
++	return saved, nil
+ }
+ 
+ func authAccessToken(auth *Auth) string {
+@@ -413,9 +460,13 @@ func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, e
+ 	if !isUnauthorizedError(execErr) || !authHasRefreshCredential(auth) {
+ 		return auth, false
+ 	}
++	if accessFallbackBound(auth) && auth.AccessFallback.RefreshRejected {
++		m.rejectFallbackAccess(ctx, auth)
++		return auth, false
++	}
+ 	log.Debugf("unauthorized response for %s (%s), refreshing credentials before fallback", auth.Provider, auth.ID)
+ 	refreshed, errRefresh := m.refreshAuthForRequest(ctx, auth.ID, authAccessToken(auth))
+-	if errRefresh != nil || refreshed == nil {
++	if (errRefresh != nil && !errors.Is(errRefresh, ErrRefreshPersistence)) || refreshed == nil {
+ 		log.Debugf("credential refresh before fallback failed for %s (%s): %v", auth.Provider, auth.ID, errRefresh)
+ 		return auth, false
+ 	}
+@@ -423,7 +474,7 @@ func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, e
+ }
+ 
+ func (m *Manager) refreshAuth(ctx context.Context, id string) {
+-	_, _ = m.refreshAuthForRequest(ctx, id, "")
++	_, _ = m.refreshAuthCoordinated(ctx, id, "", true)
+ }
+ 
+ // RefreshAuth forces one provider credential refresh and persists the result.
+@@ -431,10 +482,18 @@ func (m *Manager) RefreshAuth(ctx context.Context, id string) (*Auth, error) {
+ 	return m.refreshAuthForRequest(ctx, id, "")
+ }
+ 
++func (m *Manager) RefreshAuthAfterUnauthorized(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
++	return m.refreshAuthForRequest(ctx, id, failedAccessToken)
++}
++
+ // refreshAuthForRequest performs a synchronous credential refresh for the given auth.
+ // failedAccessToken lets concurrent callers reuse a refresh that already replaced the
+ // access token that produced the unauthorized response.
+ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
++	return m.refreshAuthCoordinated(ctx, id, failedAccessToken, false)
++}
++
++func (m *Manager) refreshAuthCoordinated(ctx context.Context, id, failedAccessToken string, background bool, expected ...string) (*Auth, error) {
+ 	if m == nil {
+ 		return nil, errors.New("auth manager is nil")
+ 	}
+@@ -446,17 +505,13 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		return nil, errors.New("auth id is empty")
+ 	}
+ 
+-	lockValue, _ := m.refreshLocks.LoadOrStore(id, &authRefreshLock{})
+-	lock, _ := lockValue.(*authRefreshLock)
+-	if lock == nil {
+-		lock = &authRefreshLock{}
+-		m.refreshLocks.Store(id, lock)
+-	}
++	started := time.Now()
++	lock := m.authRefreshLock(id)
+ 	lock.mu.Lock()
+ 	defer lock.mu.Unlock()
+ 
+ 	m.mu.RLock()
+-	auth := m.auths[id]
++	auth := m.auths[id].Clone()
+ 	var exec ProviderExecutor
+ 	if auth != nil {
+ 		// Use the same effective provider key as request execution so OpenAI-compat
+@@ -468,30 +523,112 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		return nil, errors.New("auth or executor not found")
+ 	}
+ 
++	if auth.refreshSavePending {
++		lock.commitMu.Lock()
++		defer lock.commitMu.Unlock()
++		current, ok := m.GetByID(id)
++		if !ok {
++			return nil, errors.New("auth removed during refresh")
++		}
++		if !current.refreshSavePending {
++			return current, nil
++		}
++		current.NextRefreshAfter = time.Time{}
++		return m.persistRefreshedAuth(ctx, current)
++	}
++	if auth.Disabled || auth.Status == StatusDisabled {
++		return nil, errors.New("auth is disabled")
++	}
++	if accessFallbackBound(auth) && auth.AccessFallback.RefreshRejected {
++		return nil, ErrRefreshRejected
++	}
++	if len(expected) > 0 {
++		if hasUnauthorizedAuthFailure(auth) {
++			return nil, ErrRefreshRejected
++		}
++		if expected[0] == "" || expected[0] != fmt.Sprintf("%x", sha256.Sum256([]byte(authAccessToken(auth)))) {
++			return nil, ErrRefreshStale
++		}
++		if !authHasRefreshCredential(auth) {
++			return nil, errors.New("refresh credential missing")
++		}
++		if auth.NextRefreshAfter.After(time.Now()) && auth.refreshLastResult == "failed" {
++			return nil, ErrRefreshBackoff
++		}
++	}
++	if auth.LastRefreshedAt.After(started) {
++		return auth, nil
++	}
++	if background {
++		candidate := auth.Clone()
++		candidate.NextRefreshAfter = time.Time{}
++		if !m.shouldRefresh(candidate, time.Now()) {
++			return auth, nil
++		}
++	}
++
+ 	// Another request may already have refreshed this credential.
+ 	if failedAccessToken != "" {
+ 		if currentToken := authAccessToken(auth); currentToken != "" && currentToken != failedAccessToken {
+ 			return auth.Clone(), nil
+ 		}
++		if hasUnauthorizedAuthFailure(auth) {
++			return nil, errors.New("credential refresh already rejected; reauthentication required")
++		}
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, err
+ 	}
+ 
+ 	cloned := auth.Clone()
++	m.mu.Lock()
++	if current := m.auths[id]; current != nil {
++		current.refreshAttemptedAt = started
++		current.refreshInProgress = true
++	}
++	m.mu.Unlock()
++	defer func() {
++		m.mu.Lock()
++		if current := m.auths[id]; current != nil && current.RegistrationEpoch == auth.RegistrationEpoch {
++			current.refreshInProgress = false
++		}
++		m.mu.Unlock()
++		m.persistCooldownStates(context.Background())
++	}()
+ 	updated, err := exec.Refresh(ctx, cloned)
+ 	if err != nil && errors.Is(err, context.Canceled) {
+ 		log.Debugf("refresh canceled for %s, %s", auth.Provider, auth.ID)
+ 		return nil, err
+ 	}
+ 	log.Debugf("refreshed %s, %s, %v", auth.Provider, auth.ID, err)
++	lock.commitMu.Lock()
++	defer lock.commitMu.Unlock()
++	current, ok := m.GetByID(id)
++	if !ok {
++		return nil, errors.New("auth removed during refresh")
++	}
++	if !sameRefreshCredential(auth, current) {
++		return current, errors.New("credential changed during refresh; stale result discarded")
++	}
+ 	now := time.Now()
+ 	if err != nil {
+ 		unauthorized := isUnauthorizedError(err)
+ 		shouldReschedule := false
+ 		m.mu.Lock()
+-		if current := m.auths[id]; current != nil {
++		if current := m.auths[id]; current != nil && !current.Disabled && current.Status != StatusDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
+ 			current.Generation++
+ 			current.UpdatedAt = now
+ 			current.LastError = refreshErrorFromError(err)
++			current.refreshLastResult = "failed"
++			if current.Provider == "codex" && unauthorized {
++				previous := current.AccessFallback
++				current.AccessFallback = &AccessFallbackState{Credential: refreshCredentialFingerprint(current), Proxy: accessFallbackProxy(current), FailedAt: now, RefreshRejected: true, RefreshError: cloneError(current.LastError)}
++				if previous != nil && previous.Credential == current.AccessFallback.Credential {
++					current.AccessFallback = previous.Clone()
++				}
++			}
+ 			if unauthorized {
++				current.refreshLastResult = "rejected"
+ 				current.NextRefreshAfter = time.Time{}
+ 				current.Unavailable = true
+ 				current.Status = StatusError
+@@ -507,6 +644,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		}
+ 		m.mu.Unlock()
+ 		if shouldReschedule {
++			m.persistCooldownStates(context.Background())
+ 			m.queueRefreshReschedule(id)
+ 		}
+ 		return nil, err
+@@ -514,25 +652,45 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 	if updated == nil {
+ 		updated = cloned
+ 	}
+-	// Preserve runtime created by the executor during Refresh.
+-	// If executor didn't set one, fall back to the previous runtime.
+-	if updated.Runtime == nil {
+-		updated.Runtime = auth.Runtime
+-	}
+-	updated.LastRefreshedAt = now
+-	updated.NextRefreshAfter = time.Time{}
+-	updated.LastError = nil
+-	updated.StatusMessage = ""
+-	updated.Unavailable = false
+-	if updated.Status == StatusError {
+-		updated.Status = StatusActive
+-	}
+-	updated.UpdatedAt = now
+-	_ = clearUnauthorizedModelStates(updated, now)
+-	if m.shouldRefresh(updated, now) {
+-		updated.NextRefreshAfter = now.Add(refreshIneffectiveBackoff)
+-	}
+-	saved, errUpdate := m.Update(ctx, updated)
++	merged := current.Clone()
++	merged.AccessFallback = nil
++	merged.refreshConsumedCredential = refreshCredentialFingerprint(auth)
++	if merged.Metadata == nil {
++		merged.Metadata = make(map[string]any)
++	}
++	for key, value := range updated.Metadata {
++		if !reflect.DeepEqual(value, auth.Metadata[key]) {
++			merged.Metadata[key] = value
++		}
++	}
++	if updated.Runtime != nil {
++		merged.Runtime = updated.Runtime
++	}
++	if updated.Storage != nil {
++		merged.Storage = updated.Storage
++	}
++	merged.LastRefreshedAt = now
++	merged.refreshLastResult = "saved"
++	merged.NextRefreshAfter = time.Time{}
++	if !merged.Disabled && merged.Status != StatusDisabled {
++		if hasUnauthorizedAuthFailure(merged) && reflect.DeepEqual(current.LastError, auth.LastError) {
++			merged.LastError = nil
++			merged.StatusMessage = ""
++			merged.Unavailable = false
++			if merged.Status == StatusError {
++				merged.Status = StatusActive
++			}
++		}
++		if reflect.DeepEqual(current.ModelStates, auth.ModelStates) {
++			_ = clearUnauthorizedModelStates(merged, now)
++		}
++	}
++	merged.UpdatedAt = now
++	if m.shouldRefresh(merged, now) {
++		merged.NextRefreshAfter = now.Add(refreshIneffectiveBackoff)
++	}
++	updated = merged
++	saved, errUpdate := m.persistRefreshedAuth(ctx, updated)
+ 	targetAuth := saved
+ 	if targetAuth == nil {
+ 		targetAuth = updated
+@@ -549,7 +707,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 		registry.GetGlobalRegistry().ApplyClientModelProjections(id, regEpoch, targetAuth.Generation, projections)
+ 	}
+ 	if errUpdate != nil {
+-		log.Debugf("persist refreshed auth %s (%s) failed: %v", auth.Provider, auth.ID, errUpdate)
++		return saved, errUpdate
+ 	}
+ 	if saved != nil {
+ 		return saved, nil
+diff --git a/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go b/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
+index 8ccae636a530e61e81bb6f0f87570d13e3e1907c..cac139d7c05fe4e648d6108121e38356c0bbd577 100644
+--- a/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
++++ b/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
+@@ -56,7 +56,8 @@ func TestManager_RefreshAuthUnauthorizedFailureStopsAutoRefreshRetry(t *testing.
+ 		ID:       "unauthorized-refresh",
+ 		Provider: "codex",
+ 		Metadata: map[string]any{
+-			"email": "x@example.com",
++			"email":                    "x@example.com",
++			"refresh_interval_seconds": 60,
+ 		},
+ 	}
+ 	if _, errRegister := manager.Register(ctx, auth); errRegister != nil {
+diff --git a/sdk/cliproxy/auth/conductor_stream.go b/sdk/cliproxy/auth/conductor_stream.go
+index d0d46e07eeb9270a3eecec29b0e2ebe44a95a706..70ca6d14d3684c751611fb8fb581037de66f181a 100644
+--- a/sdk/cliproxy/auth/conductor_stream.go
++++ b/sdk/cliproxy/auth/conductor_stream.go
+@@ -138,7 +138,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
+ 				warnLogUpstreamFailure(ctx, entry, provider, resultModel, auth, time.Since(streamStart), chunk.Err)
+ 				rerr := resultErrorFromError(chunk.Err)
+ 				action, okAction := matchRequestScopedErrorAction(auth, chunk.Err, m.runtimeConfigSnapshot())
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: opts}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: opts}
+ 				applyRequestScopedActionToResult(action, okAction, &result)
+ 				m.recordExecutionResult(ctx, result, auth, ephemeralResult)
+ 			}
+@@ -197,7 +197,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
+ 			}
+ 		}
+ 		if !failed && (ephemeralResult || claudeOAuthRequestCancellation(ctx, auth, nil) == nil) {
+-			m.recordExecutionResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: true, Options: opts}, auth, ephemeralResult)
++			m.recordExecutionResult(ctx, Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: true, Options: opts}, auth, ephemeralResult)
+ 		}
+ 	}()
+ 	return &cliproxyexecutor.StreamResult{Headers: headers, Chunks: out}
+@@ -281,7 +281,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 		if errStream != nil {
+ 			rerr := resultErrorFromError(errStream)
+ 			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+ 			result.RetryAfter = retryAfterFromError(errStream)
+ 			if isCredentialScopedError(errStream) {
+ 				result.CredentialScope = true
+@@ -367,7 +367,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 			action, okAction := matchRequestScopedErrorAction(auth, bootstrapErr, m.runtimeConfigSnapshot())
+ 			if okAction {
+ 				rerr := resultErrorFromError(bootstrapErr)
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+ 				result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 				if isCredentialScopedError(bootstrapErr) {
+ 					result.CredentialScope = true
+@@ -387,7 +387,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 			}
+ 			if isRequestInvalidError(bootstrapErr) {
+ 				rerr := resultErrorFromError(bootstrapErr)
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+ 				result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 				if isCredentialScopedError(bootstrapErr) {
+ 					result.CredentialScope = true
+@@ -398,7 +398,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 			}
+ 			if idx < len(execModels)-1 {
+ 				rerr := resultErrorFromError(bootstrapErr)
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+ 				result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 				if isCredentialScopedError(bootstrapErr) {
+ 					result.CredentialScope = true
+@@ -413,7 +413,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 				continue
+ 			}
+ 			rerr := resultErrorFromError(bootstrapErr)
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+ 			result.RetryAfter = retryAfterFromError(bootstrapErr)
+ 			if isCredentialScopedError(bootstrapErr) {
+ 				result.CredentialScope = true
+@@ -431,7 +431,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+ 				upstreamErr = currentErr
+ 			}
+ 			warnLogUpstreamFailure(ctx, entry, provider, execModel, auth, time.Since(startStream), emptyErr)
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(emptyErr), Options: execOpts}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(emptyErr), Options: execOpts}
+ 			m.recordExecutionResult(ctx, result, auth, ephemeralResult)
+ 			if idx < len(execModels)-1 {
+ 				lastErr = emptyErr
+diff --git a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
+index 37451925076ee1e16b5a79f92f5d597f51b3190f..155a00f5d885fcbdfd004c903c4370a07b1a90a8 100644
+--- a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
++++ b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
+@@ -2,9 +2,11 @@ package auth
+ 
+ import (
+ 	"context"
++	"errors"
+ 	"net/http"
+ 	"sync"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
+ 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
+@@ -334,3 +336,319 @@ func TestManager_Execute_UnauthorizedRefreshThenRetryStillFailsFallsBackOnce(t *
+ 		t.Fatalf("Execute calls = %v, want [primary, primary, backup]", got)
+ 	}
+ }
++
++type refreshPersistenceStore struct {
++	fail   bool
++	stored *Auth
++}
++
++func (s *refreshPersistenceStore) List(context.Context) ([]*Auth, error) { return nil, nil }
++func (s *refreshPersistenceStore) Delete(context.Context, string) error  { return nil }
++func (s *refreshPersistenceStore) Save(ctx context.Context, a *Auth) (string, error) {
++	if ctx.Err() != nil {
++		return "", ctx.Err()
++	}
++	if s.fail {
++		return "", errors.New("synthetic secret must not appear")
++	}
++	s.stored = a.Clone()
++	return a.ID, nil
++}
++
++type refreshPersistenceExecutor struct {
++	ProviderExecutor
++	calls   int
++	during  func()
++	failure error
++}
++
++func (e *refreshPersistenceExecutor) Identifier() string { return "synthetic-refresh" }
++func (e *refreshPersistenceExecutor) Refresh(ctx context.Context, a *Auth) (*Auth, error) {
++	e.calls++
++	if e.during != nil {
++		e.during()
++	}
++	if e.failure != nil {
++		return nil, e.failure
++	}
++	a.Metadata["access_token"] = "synthetic-new-access"
++	a.Metadata["refresh_token"] = "synthetic-new-refresh"
++	a.Metadata["expired"] = time.Now().Add(time.Hour).Format(time.RFC3339)
++	return a, nil
++}
++func newRefreshPersistenceFixture(t *testing.T) (*Manager, *refreshPersistenceStore, *refreshPersistenceExecutor, *Auth) {
++	t.Helper()
++	setRefreshLeadFactory(t, "synthetic-refresh", func() *time.Duration { lead := 10 * time.Minute; return &lead })
++	store := &refreshPersistenceStore{}
++	exec := &refreshPersistenceExecutor{}
++	manager := NewManager(store, nil, nil)
++	manager.RegisterExecutor(exec)
++	a, err := manager.Register(context.Background(), &Auth{ID: "synthetic-auth", Provider: exec.Identifier(), Status: StatusActive, Metadata: map[string]any{"access_token": "synthetic-old-access", "refresh_token": "synthetic-old-refresh"}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return manager, store, exec, a
++}
++func TestRefreshPersistenceRetriesSaveOnly(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	rotated, err := m.RefreshAuth(context.Background(), a.ID)
++	if err == nil {
++		t.Error("save failure hidden")
++	}
++	if err != nil && err.Error() != "refreshed credentials retained in memory; persistence pending" {
++		t.Errorf("unsafe/unclassified storage error: %v", err)
++	}
++	current, _ := m.GetByID(a.ID)
++	if rotated == nil || current.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Fatal("rotated pair lost")
++	}
++	if hasUnauthorizedAuthFailure(current) {
++		t.Fatal("storage failure marked unauthorized")
++	}
++	now := time.Now().Add(2 * refreshFailureBackoff)
++	if !m.shouldRefresh(current, now) {
++		t.Error("pending save not due")
++	}
++	next, scheduled := nextRefreshCheckAt(now, current, time.Second)
++	if !scheduled || next.After(now) {
++		t.Error("pending save unscheduled")
++	}
++	s.fail = false
++	if _, err = m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if e.calls != 1 {
++		t.Errorf("OAuth refresh repeated: %d", e.calls)
++	}
++	if s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Error("latest pair not saved")
++	}
++}
++func TestRefreshPersistenceSurvivesCallerCancellation(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	ctx, cancel := context.WithCancel(context.Background())
++	defer cancel()
++	e.during = cancel
++	if _, err := m.RefreshAuth(ctx, a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Fatal("completed rotation lost on caller cancellation")
++	}
++}
++func TestRefreshPersistenceConcurrentChange(t *testing.T) {
++	for _, change := range []string{"import", "disable", "remove", "reregister", "quota"} {
++		for _, failure := range []bool{false, true} {
++			name := change + map[bool]string{false: "_success", true: "_error"}[failure]
++			t.Run(name, func(t *testing.T) {
++				m, s, e, a := newRefreshPersistenceFixture(t)
++				if failure {
++					e.failure = &Error{HTTPStatus: 401, Code: "unauthorized", Message: "synthetic invalid"}
++				}
++				e.during = func() {
++					current, _ := m.GetByID(a.ID)
++					switch change {
++					case "import":
++						current.Metadata["access_token"] = "synthetic-imported"
++						current.Metadata["refresh_token"] = "synthetic-imported-refresh"
++					case "disable":
++						current.Disabled = true
++						current.Status = StatusDisabled
++					case "remove":
++						m.Remove(context.Background(), a.ID)
++						return
++					case "reregister":
++						m.Remove(context.Background(), a.ID)
++						_, err := m.Register(context.Background(), current)
++						if err != nil {
++							t.Fatal(err)
++						}
++						return
++					case "quota":
++						current.Quota = QuotaState{Exceeded: true, Reason: "credential_quota", NextRecoverAt: time.Now().Add(time.Hour)}
++						current.Unavailable = true
++						current.Status = StatusError
++						current.LastError = &Error{HTTPStatus: 429, Code: "quota"}
++					}
++					if _, err := m.Update(context.Background(), current); err != nil {
++						t.Fatal(err)
++					}
++				}
++				_, _ = m.RefreshAuth(context.Background(), a.ID)
++				current, exists := m.GetByID(a.ID)
++				if change == "remove" {
++					if exists {
++						t.Fatal("removed auth resurrected")
++					}
++					return
++				}
++				if !exists {
++					t.Fatal("auth lost")
++				}
++				switch change {
++				case "import":
++					if current.Metadata["access_token"] != "synthetic-imported" || s.stored.Metadata["refresh_token"] != "synthetic-imported-refresh" || hasUnauthorizedAuthFailure(current) {
++						t.Fatal("stale refresh overwrote import")
++					}
++				case "reregister":
++					if current.Metadata["access_token"] != "synthetic-old-access" || hasUnauthorizedAuthFailure(current) {
++						t.Fatal("stale refresh crossed registration epoch")
++					}
++				case "disable":
++					if !current.Disabled || current.Status != StatusDisabled {
++						t.Fatal("manual disable lost")
++					}
++					if !failure && s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++						t.Fatal("disabled auth lost rotated pair")
++					}
++				case "quota":
++					if !current.Quota.Exceeded || !current.Unavailable || current.LastError == nil || current.LastError.HTTPStatus != 429 {
++						t.Fatal("concurrent quota state lost")
++					}
++				}
++			})
++		}
++	}
++}
++func TestRefreshPersistenceUpdateReportsFailure(t *testing.T) {
++	m, s, _, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	if _, err := m.Update(context.Background(), a); err == nil {
++		t.Fatal("Update swallowed persistence failure")
++	}
++}
++
++func TestRefreshPersistenceWatcherDoesNotAcknowledgePendingSave(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	current, _ := m.GetByID(a.ID)
++	if _, err := m.Update(WithSkipPersist(context.Background()), current); err != nil {
++		t.Fatal(err)
++	}
++	s.fail = false
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if e.calls != 1 {
++		t.Fatal("watcher acknowledged a save that never happened")
++	}
++}
++func TestRefreshPersistenceQueuedBackgroundRechecksFreshness(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	m.refreshAuth(context.Background(), a.ID)
++	if e.calls != 1 {
++		t.Fatal("queued background job refreshed already-fresh credential")
++	}
++}
++func TestRefreshPersistenceRequestCanUseUnsavedPair(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	next, retry := m.tryRefreshAfterUnauthorized(context.Background(), a, &Error{HTTPStatus: 401}, false)
++	if !retry || next == nil || authAccessToken(next) != "synthetic-new-access" || e.calls != 1 {
++		t.Fatal("storage failure discarded usable request credential")
++	}
++}
++func TestRefreshPersistencePendingSavePreservesNewUnauthorized(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	current, _ := m.GetByID(a.ID)
++	current.LastError = &Error{HTTPStatus: 401, Code: "unauthorized"}
++	current.Unavailable = true
++	current.Status = StatusError
++	_, _ = m.Update(context.Background(), current)
++	s.fail = false
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	current, _ = m.GetByID(a.ID)
++	if !hasUnauthorizedAuthFailure(current) || !current.Unavailable || e.calls != 1 {
++		t.Fatal("saving credentials cleared genuine upstream failure")
++	}
++}
++
++func TestRefreshPersistenceStaleWatcherCannotRestoreConsumedPair(t *testing.T) {
++	m, s, e, a := newRefreshPersistenceFixture(t)
++	s.fail = true
++	_, _ = m.RefreshAuth(context.Background(), a.ID)
++	_, _ = m.Update(WithSkipPersist(context.Background()), a.Clone())
++	current, _ := m.GetByID(a.ID)
++	if authAccessToken(current) != "synthetic-new-access" {
++		t.Fatal("stale watcher restored consumed pair")
++	}
++	s.fail = false
++	if _, err := m.RefreshAuth(context.Background(), a.ID); err != nil {
++		t.Fatal(err)
++	}
++	if e.calls != 1 || s.stored.Metadata["refresh_token"] != "synthetic-new-refresh" {
++		t.Fatal("stale watcher broke persistence retry")
++	}
++}
++func TestRefreshPersistenceOverlappingEntrypoints(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	entered, release := make(chan struct{}), make(chan struct{})
++	e.during = func() { close(entered); <-release }
++	finished := make(chan error, 9)
++	go func() { _, err := m.RefreshAuth(context.Background(), a.ID); finished <- err }()
++	<-entered
++	for i := 0; i < 4; i++ {
++		go func() {
++			_, err := m.RefreshAuthAfterUnauthorized(context.Background(), a.ID, "synthetic-old-access")
++			finished <- err
++		}()
++		go func() { m.refreshAuth(context.Background(), a.ID); finished <- nil }()
++	}
++	close(release)
++	for i := 0; i < 9; i++ {
++		if err := <-finished; err != nil {
++			t.Fatal(err)
++		}
++	}
++	if e.calls != 1 {
++		t.Fatalf("overlapping entrypoints rotated %d times", e.calls)
++	}
++}
++
++func TestRefreshPersistenceFailedRequestDoesNotRetryInvalidRefresh(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	e.failure = &Error{HTTPStatus: 401, Code: "unauthorized", Message: "synthetic invalid refresh"}
++	for i := 0; i < 2; i++ {
++		if _, err := m.RefreshAuthAfterUnauthorized(context.Background(), a.ID, "synthetic-old-access"); err == nil {
++			t.Fatal("invalid refresh accepted")
++		}
++	}
++	if e.calls != 1 {
++		t.Fatalf("invalid refresh retried by stale request: %d", e.calls)
++	}
++}
++
++func TestRefreshPersistenceCommitPreservesNewerRequestState(t *testing.T) {
++	m, _, _, a := newRefreshPersistenceFixture(t)
++	rotated := a.Clone()
++	rotated.Metadata["access_token"] = "synthetic-new-access"
++	rotated.refreshSavePending = true
++	latest, _ := m.GetByID(a.ID)
++	latest.Status = StatusError
++	latest.StatusMessage = "quota"
++	latest.Unavailable = true
++	latest.LastError = &Error{HTTPStatus: 429, Code: "quota"}
++	latest.ModelStates = map[string]*ModelState{"other": {Status: StatusError, Unavailable: true, LastError: &Error{HTTPStatus: 429, Code: "quota"}, NextRetryAfter: time.Now().Add(time.Hour)}}
++	if _, err := m.Update(context.Background(), latest); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := m.Update(context.Background(), rotated); err != nil {
++		t.Fatal(err)
++	}
++	current, _ := m.GetByID(a.ID)
++	if current.LastError == nil || current.LastError.HTTPStatus != 429 || current.Status != StatusError || !current.Unavailable {
++		t.Fatal("refresh commit overwrote newer request state")
++	}
++	if authAccessToken(current) != "synthetic-new-access" {
++		t.Fatal("state merge discarded rotation")
++	}
++}
+diff --git a/sdk/cliproxy/auth/cooldown_state.go b/sdk/cliproxy/auth/cooldown_state.go
+index 830a2e6e91e0cc2c389e9fdc6ca9c800e142383c..460748332c98646a6f415e08d4cc9f0eb54ed2ca 100644
+--- a/sdk/cliproxy/auth/cooldown_state.go
++++ b/sdk/cliproxy/auth/cooldown_state.go
+@@ -17,16 +17,18 @@ import (
+ 
+ // CooldownStateRecord is a persisted runtime cooldown snapshot for one auth/model pair.
+ type CooldownStateRecord struct {
+-	Provider       string     `json:"provider,omitempty"`
+-	AuthID         string     `json:"auth_id"`
+-	AuthFile       string     `json:"-"`
+-	Model          string     `json:"model,omitempty"`
+-	Status         string     `json:"status,omitempty"`
+-	NextRetryAfter time.Time  `json:"next_retry_after"`
+-	Reason         string     `json:"reason,omitempty"`
+-	Quota          QuotaState `json:"quota,omitempty"`
+-	LastError      *Error     `json:"last_error,omitempty"`
+-	UpdatedAt      time.Time  `json:"updated_at"`
++	CredentialRefresh *CredentialRefreshState `json:"credential_refresh,omitempty"`
++	AccessFallback    *AccessFallbackState    `json:"access_token_fallback,omitempty"`
++	Provider          string                  `json:"provider,omitempty"`
++	AuthID            string                  `json:"auth_id"`
++	AuthFile          string                  `json:"-"`
++	Model             string                  `json:"model,omitempty"`
++	Status            string                  `json:"status,omitempty"`
++	NextRetryAfter    time.Time               `json:"next_retry_after"`
++	Reason            string                  `json:"reason,omitempty"`
++	Quota             QuotaState              `json:"quota,omitempty"`
++	LastError         *Error                  `json:"last_error,omitempty"`
++	UpdatedAt         time.Time               `json:"updated_at"`
+ }
+ 
+ // CooldownStateStore persists runtime cooldown state independently from auth tokens.
+diff --git a/sdk/cliproxy/auth/credential_refresh.go b/sdk/cliproxy/auth/credential_refresh.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..78bc314d72024d95cc7bcd7c43ddf3f4af5cb002
+--- /dev/null
++++ b/sdk/cliproxy/auth/credential_refresh.go
+@@ -0,0 +1,101 @@
++// 公开单卡刷新协调入口和脱敏调度状态，不把刷新成功当作推理成功。
++package auth
++
++import (
++	"context"
++	"errors"
++	"time"
++)
++
++var ErrRefreshRejected = errors.New("refresh rejected; reauthorization required")
++var ErrRefreshStale = errors.New("credential changed; reload before refreshing")
++var ErrRefreshBackoff = errors.New("credential refresh is in backoff")
++
++type CredentialRefreshView struct {
++	AccessExpiresAt *time.Time `json:"access_expires_at"`
++	NextRefreshAt   *time.Time `json:"next_refresh_at"`
++	ScheduleReason  string     `json:"schedule_reason"`
++	LastAttemptAt   *time.Time `json:"last_attempt_at"`
++	LastSuccessAt   *time.Time `json:"last_success_at"`
++	LastResult      string     `json:"last_result"`
++	Running         bool       `json:"running"`
++	SavePending     bool       `json:"save_pending"`
++}
++
++type CredentialRefreshState struct {
++	Credential  string    `json:"credential"`
++	AttemptedAt time.Time `json:"attempted_at"`
++	SuccessAt   time.Time `json:"success_at"`
++	RetryAt     time.Time `json:"retry_at"`
++	Result      string    `json:"result"`
++}
++
++func (m *Manager) RefreshCredential(ctx context.Context, id, fingerprint string) (*Auth, error) {
++	return m.refreshAuthCoordinated(ctx, id, "", false, fingerprint)
++}
++
++func (m *Manager) CredentialRefreshStatus(id string) CredentialRefreshView {
++	view := CredentialRefreshView{ScheduleReason: "unavailable", LastResult: "unknown"}
++	m.mu.RLock()
++	a := m.auths[id].Clone()
++	loop := m.refreshLoop
++	m.mu.RUnlock()
++	if a == nil {
++		return view
++	}
++	if expiry := accessFallbackExpiry(a); !expiry.IsZero() {
++		view.AccessExpiresAt = &expiry
++	}
++	if !a.refreshAttemptedAt.IsZero() {
++		at := a.refreshAttemptedAt
++		view.LastAttemptAt = &at
++	}
++	last := a.LastRefreshedAt
++	if last.IsZero() {
++		last, _ = authLastRefreshTimestamp(a)
++	}
++	if !last.IsZero() {
++		view.LastSuccessAt = &last
++	}
++	if a.refreshLastResult != "" {
++		view.LastResult = a.refreshLastResult
++	}
++	view.Running = a.refreshInProgress
++	view.SavePending = a.refreshSavePending
++	if view.SavePending {
++		view.LastResult = "save_pending"
++	}
++	switch {
++	case a.Disabled || a.Status == StatusDisabled:
++		view.ScheduleReason = "disabled"
++	case view.Running:
++		view.ScheduleReason = "running"
++	case hasUnauthorizedAuthFailure(a) && !view.SavePending:
++		view.ScheduleReason = "reauthorization_required"
++	case !authHasRefreshCredential(a) && !view.SavePending:
++		view.ScheduleReason = "no_refresh_token"
++	case loop == nil:
++		view.ScheduleReason = "scheduler_stopped"
++	default:
++		loop.mu.Lock()
++		_, dirty := loop.dirty[id]
++		if item := loop.index[id]; item != nil && !dirty {
++			at := item.next
++			view.NextRefreshAt = &at
++		}
++		loop.mu.Unlock()
++		switch {
++		case dirty:
++			view.ScheduleReason = "rescheduling"
++		case view.NextRefreshAt == nil:
++			view.ScheduleReason = "not_scheduled"
++		case view.SavePending:
++			view.ScheduleReason = "save_retry"
++		case a.NextRefreshAfter.After(time.Now()):
++			view.ScheduleReason = "backoff"
++		default:
++			view.ScheduleReason = "scheduled"
++		}
++	}
++	return view
++}
+diff --git a/sdk/cliproxy/auth/credential_refresh_test.go b/sdk/cliproxy/auth/credential_refresh_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..e5fa926470d0f8740f4229ab6a4d906bb030033a
+--- /dev/null
++++ b/sdk/cliproxy/auth/credential_refresh_test.go
+@@ -0,0 +1,124 @@
++// 验证手动刷新去重、待保存补偿和重启后的调度状态。
++package auth
++
++import (
++	"context"
++	"crypto/sha256"
++	"fmt"
++	"testing"
++	"time"
++)
++
++func manualRefresh(t *testing.T, m *Manager, id, fingerprint string) (*Auth, error) {
++	t.Helper()
++	api, ok := any(m).(interface {
++		RefreshCredential(context.Context, string, string) (*Auth, error)
++	})
++	if !ok {
++		t.Fatal("manual credential refresh capability missing")
++	}
++	return api.RefreshCredential(context.Background(), id, fingerprint)
++}
++
++func TestManualCredentialRefreshDeduplicatesAndRetriesSave(t *testing.T) {
++	m, store, e, a := newRefreshPersistenceFixture(t)
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte("synthetic-old-access")))
++	store.fail = true
++	if _, err := manualRefresh(t, m, a.ID, fp); err == nil {
++		t.Fatal("save failure hidden")
++	}
++	store.fail = false
++	if _, err := manualRefresh(t, m, a.ID, fp); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := manualRefresh(t, m, a.ID, fp); err == nil {
++		t.Fatal("stale duplicate accepted")
++	}
++	if e.calls != 1 {
++		t.Fatalf("rotated %d times", e.calls)
++	}
++}
++
++func TestManualCredentialRefreshNeverReusesRejectedToken(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	e.failure = &Error{HTTPStatus: 401, Code: "refresh_token_reused"}
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte("synthetic-old-access")))
++	for i := 0; i < 2; i++ {
++		if _, err := manualRefresh(t, m, a.ID, fp); err == nil {
++			t.Fatal("rejected refresh accepted")
++		}
++	}
++	if e.calls != 1 {
++		t.Fatalf("rejected token retried %d times", e.calls)
++	}
++}
++
++func TestFallbackRejectedRefreshNotScheduledAfterRequestSuccess(t *testing.T) {
++	m, _, a := fallbackFixture(t)
++	a.LastError = nil
++	a.StatusMessage = ""
++	a.Status = StatusActive
++	a.Unavailable = false
++	_, _ = m.Update(context.Background(), a)
++	current, _ := m.GetByID(a.ID)
++	if _, ok := nextRefreshCheckAt(time.Now(), current, time.Second); ok {
++		t.Fatal("rejected refresh scheduled after request state changed")
++	}
++}
++
++func TestCredentialRefreshOutcomeSurvivesRestart(t *testing.T) {
++	m, _, e, a := newRefreshPersistenceFixture(t)
++	store := NewFileCooldownStateStore(t.TempDir())
++	m.cooldownStore = store
++	e.failure = &Error{HTTPStatus: 503, Code: "upstream_unavailable"}
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte("synthetic-old-access")))
++	_, _ = manualRefresh(t, m, a.ID, fp)
++	restarted := NewManager(nil, nil, nil)
++	restarted.cooldownStore = store
++	if _, err := restarted.Register(context.Background(), a); err != nil {
++		t.Fatal(err)
++	}
++	if err := restarted.RestoreCooldownStates(context.Background()); err != nil {
++		t.Fatal(err)
++	}
++	status := restarted.CredentialRefreshStatus(a.ID)
++	if status.LastResult != "failed" || status.LastAttemptAt == nil {
++		t.Fatalf("lost outcome: %+v", status)
++	}
++	current, _ := restarted.GetByID(a.ID)
++	if !current.NextRefreshAfter.After(time.Now()) {
++		t.Fatal("lost refresh backoff")
++	}
++}
++
++func TestManualCredentialRefreshRejectsConsumedTokenAfterSuccessfulAccess(t *testing.T) {
++	m, e, a := fallbackFixture(t)
++	a.LastError = nil
++	a.Status = StatusActive
++	a.Unavailable = false
++	_, _ = m.Update(context.Background(), a)
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte(authAccessToken(a))))
++	_, err := manualRefresh(t, m, a.ID, fp)
++	if err == nil || e.refreshes != 1 {
++		t.Fatalf("consumed refresh retried: err=%v calls=%d", err, e.refreshes)
++	}
++}
++
++func TestCredentialRefreshWatcherPreservesOutcome(t *testing.T) {
++	m, _, _, a := newRefreshPersistenceFixture(t)
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte("synthetic-old-access")))
++	current, err := manualRefresh(t, m, a.ID, fp)
++	if err != nil {
++		t.Fatal(err)
++	}
++	current.refreshAttemptedAt = time.Time{}
++	current.refreshLastResult = ""
++	current.refreshInProgress = false
++	if _, err = m.Update(context.Background(), current); err != nil {
++		t.Fatal(err)
++	}
++	status := m.CredentialRefreshStatus(a.ID)
++	if status.LastResult != "saved" || status.LastAttemptAt == nil {
++		t.Fatalf("watcher erased refresh result: %+v", status)
++	}
++}
+diff --git a/sdk/cliproxy/auth/error_scope.go b/sdk/cliproxy/auth/error_scope.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..eafe8d812f7ff5331bf1a06f6d11cbe414088d3f
+--- /dev/null
++++ b/sdk/cliproxy/auth/error_scope.go
+@@ -0,0 +1,27 @@
++// 仅以晚于聚合错误的成功模型状态证明错误属于模型，未知来源保持保守处理。
++package auth
++
++import "reflect"
++
++func ModelScopedAuthenticationError(a *Auth) bool {
++	if a == nil || a.Disabled || a.Status != StatusError || a.Unavailable || !a.NextRetryAfter.IsZero() || a.LastError == nil || a.Quota.Reason == "credential_quota" {
++		return false
++	}
++	switch a.LastError.Code {
++	case "refresh_token_invalidated", "refresh_token_reused", "invalid_api_key":
++		return false
++	}
++	matched, healthy := false, false
++	for _, state := range a.ModelStates {
++		if state == nil {
++			continue
++		}
++		if state.LastError != nil && reflect.DeepEqual(state.LastError, a.LastError) && state.StatusMessage == a.StatusMessage {
++			matched = true
++		}
++		if state.Status == StatusActive && !state.Unavailable && state.LastError == nil && !state.UpdatedAt.IsZero() && !state.UpdatedAt.Before(a.UpdatedAt) {
++			healthy = true
++		}
++	}
++	return matched && healthy
++}
+diff --git a/sdk/cliproxy/auth/error_scope_test.go b/sdk/cliproxy/auth/error_scope_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..19deb7b84f89871155ecfe84bc0eed907f76afe4
+--- /dev/null
++++ b/sdk/cliproxy/auth/error_scope_test.go
+@@ -0,0 +1,35 @@
++// 验证模型聚合错误需要更新的成功模型证据，不能覆盖独立凭据失效。
++package auth
++
++import (
++	"context"
++	"testing"
++)
++
++func TestModelScopedAuthenticationError(t *testing.T) {
++	m := NewManager(nil, nil, nil)
++	ctx := WithSkipPersist(context.Background())
++	a := &Auth{ID: "scope-fixture", Provider: "codex", Status: StatusActive}
++	if _, err := m.Register(ctx, a); err != nil {
++		t.Fatal(err)
++	}
++	m.MarkResult(ctx, Result{AuthID: a.ID, Provider: "codex", Model: "model-a", Error: &Error{Code: "unauthorized", HTTPStatus: 401, Message: "unauthorized"}})
++	before, _ := m.GetByID(a.ID)
++	if ModelScopedAuthenticationError(before) {
++		t.Fatal("failure alone cannot establish scope")
++	}
++	m.MarkResult(ctx, Result{AuthID: a.ID, Provider: "codex", Model: "model-b", Success: true})
++	after, _ := m.GetByID(a.ID)
++	if !ModelScopedAuthenticationError(after) {
++		t.Fatal("healthy newer model should establish model scope")
++	}
++	after.LastError = &Error{Code: "refresh_token_invalidated", HTTPStatus: 401, Message: "revoked"}
++	if ModelScopedAuthenticationError(after) {
++		t.Fatal("must retain credential invalidation")
++	}
++	after.LastError = before.LastError
++	after.Unavailable = true
++	if ModelScopedAuthenticationError(after) {
++		t.Fatal("must retain independent unavailable")
++	}
++}
+diff --git a/sdk/cliproxy/auth/quota_recovery.go b/sdk/cliproxy/auth/quota_recovery.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..6f847f0b4403670149bed8bd15f7cb9616a9a49f
+--- /dev/null
++++ b/sdk/cliproxy/auth/quota_recovery.go
+@@ -0,0 +1,209 @@
++// 单卡额度恢复使用现有 Codex 执行器验证，不调用刷新、重试或备用账号。
++package auth
++
++import (
++	"bytes"
++	"context"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"reflect"
++	"strings"
++	"time"
++
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
++	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++	"github.com/router-for-me/CLIProxyAPI/v7/sdk/translator"
++	"github.com/tidwall/gjson"
++)
++
++type QuotaVerification struct {
++	ExpiresAt *time.Time `json:"expires_at,omitempty"`
++	Passed    bool       `json:"passed"`
++	Restored  bool       `json:"restored"`
++	Reason    string     `json:"reason"`
++}
++
++func (m *Manager) VerifyCodexQuota(ctx context.Context, authID, model string, recover bool, expected ...string) QuotaVerification {
++	snapshot, ok := m.GetByID(authID)
++	if !ok || snapshot.Provider != "codex" || snapshot.Disabled || snapshot.Status == StatusDisabled || strings.TrimSpace(model) == "" {
++		return QuotaVerification{Reason: "blocked"}
++	}
++	if len(expected) > 0 {
++		digest := sha256.Sum256([]byte(authAccessToken(snapshot)))
++		if hex.EncodeToString(digest[:]) != expected[0] || snapshot.Attributes["api_key"] != "" {
++			return QuotaVerification{Reason: "credential_changed"}
++		}
++	}
++	executor, ok := m.Executor("codex")
++	if !ok {
++		return QuotaVerification{Reason: "unsupported"}
++	}
++	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
++	defer cancel()
++	payload, _ := json.Marshal(map[string]any{"model": model, "instructions": "Reply with exactly OK.", "input": []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "input_text", "text": "Reply with exactly OK."}}}}, "stream": true, "store": false, "tools": []any{}, "reasoning": map[string]any{"effort": "low"}})
++	// 直接复用正常 HTTP 模型执行器，不经过会在 401 自动 Refresh 的重试编排。
++	stream, err := executor.ExecuteStream(ctx, snapshot.Clone(), exec.Request{Model: model, Payload: payload}, exec.Options{Stream: true, SourceFormat: translator.FormatOpenAIResponse, OriginalRequest: payload})
++	if err != nil {
++		if statusCodeFromError(err) == 401 {
++			return QuotaVerification{Reason: "authentication_failed"}
++		}
++		return QuotaVerification{Reason: "inference_failed"}
++	}
++	if stream == nil || stream.Chunks == nil {
++		return QuotaVerification{Reason: "incomplete"}
++	}
++	responseBytes := 0
++	complete := false
++	for !complete {
++		select {
++		case <-ctx.Done():
++			return QuotaVerification{Reason: "timeout"}
++		case chunk, open := <-stream.Chunks:
++			if !open {
++				return QuotaVerification{Reason: "incomplete"}
++			}
++			if chunk.Err != nil {
++				if statusCodeFromError(chunk.Err) == 401 {
++					return QuotaVerification{Reason: "authentication_failed"}
++				}
++				return QuotaVerification{Reason: "inference_failed"}
++			}
++			responseBytes += len(chunk.Payload)
++			if responseBytes > 512*1024 {
++				return QuotaVerification{Reason: "response_limit"}
++			}
++			// Codex 执行器按完整 SSE 行输出，翻译后的行不一定保留换行符。
++			for _, line := range bytes.Split(chunk.Payload, []byte("\n")) {
++				if !bytes.HasPrefix(line, []byte("data:")) {
++					continue
++				}
++				body := bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
++				if !gjson.ValidBytes(body) {
++					continue
++				}
++				event := gjson.GetBytes(body, "type").String()
++				if event == "error" || event == "response.failed" || event == "response.incomplete" {
++					return QuotaVerification{Reason: "inference_failed"}
++				}
++				if event == "response.output_item.added" || event == "response.output_item.done" {
++					kind := gjson.GetBytes(body, "item.type").String()
++					if kind != "message" && kind != "reasoning" {
++						return QuotaVerification{Reason: "unexpected_output"}
++					}
++				}
++				if strings.Contains(event, "function_call") || strings.Contains(event, "tool_call") {
++					return QuotaVerification{Reason: "unexpected_output"}
++				}
++				if event == "response.completed" && gjson.GetBytes(body, "response.status").String() == "completed" {
++					text := ""
++					for _, item := range gjson.GetBytes(body, "response.output").Array() {
++						if item.Get("type").String() == "reasoning" {
++							continue
++						}
++						if item.Get("type").String() != "message" {
++							return QuotaVerification{Reason: "unexpected_output"}
++						}
++						for _, part := range item.Get("content").Array() {
++							if part.Get("type").String() == "output_text" {
++								text += part.Get("text").String()
++							}
++						}
++					}
++					if strings.TrimSpace(text) != "OK" {
++						return QuotaVerification{Reason: "unexpected_reply"}
++					}
++					complete = true
++				}
++			}
++		}
++	}
++	if !recover {
++		return QuotaVerification{Passed: true, Reason: "verified"}
++	}
++	return m.commitQuotaVerification(ctx, snapshot, model)
++}
++
++func recoverableQuotaError(err *Error, message string) bool {
++	if err != nil {
++		if err.StatusCode() == 401 || err.Code == "unauthorized" {
++			return true
++		}
++		// HTTP 429 也可能是独立的容量或速率限制，不能仅凭状态码清除。
++		switch err.Code {
++		case "usage_limit_reached", "insufficient_quota", "quota_exceeded", "quota_exhausted":
++			return true
++		default:
++			return false
++		}
++	}
++	return message == "" || message == "unauthorized"
++}
++
++func (m *Manager) commitQuotaVerification(ctx context.Context, before *Auth, model string) QuotaVerification {
++	m.configCooldownMu.Lock()
++	defer m.configCooldownMu.Unlock()
++	m.mu.Lock()
++	current := m.auths[before.ID]
++	if current == nil || current.Generation != before.Generation || current.RegistrationEpoch != before.RegistrationEpoch ||
++		current.Disabled || current.Status == StatusDisabled || !reflect.DeepEqual(current.Metadata, before.Metadata) ||
++		!reflect.DeepEqual(current.Attributes, before.Attributes) || current.ProxyURL != before.ProxyURL {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "state_changed"}
++	}
++	if !recoverableQuotaError(current.LastError, current.StatusMessage) ||
++		current.Unavailable && current.LastError == nil && current.StatusMessage == "" && !current.Quota.Exceeded ||
++		current.Quota.Exceeded && current.Quota.Reason != "quota" && current.Quota.Reason != "credential_quota" {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "independent_block"}
++	}
++	key := canonicalModelKey(model)
++	if state := current.ModelStates[key]; state != nil && (state.Status == StatusDisabled || !recoverableQuotaError(state.LastError, state.StatusMessage) || state.Unavailable && state.LastError == nil && !state.Quota.Exceeded || state.Quota.Exceeded && state.Quota.Reason != "quota" && state.Quota.Reason != "credential_quota") {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "independent_block"}
++	}
++	if m.cooldownStore == nil {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "persistence_unavailable"}
++	}
++	now := time.Now()
++	next := current.Clone()
++	next.Status = StatusActive
++	next.StatusMessage = ""
++	next.LastError = nil
++	next.Unavailable = false
++	next.NextRetryAfter = time.Time{}
++	next.Quota = QuotaState{}
++	if next.ModelStates == nil {
++		next.ModelStates = make(map[string]*ModelState)
++	}
++	next.ModelStates[key] = &ModelState{Status: StatusActive, UpdatedAt: now}
++	next.Generation++
++	next.UpdatedAt = now
++	records := []CooldownStateRecord{}
++	for id, a := range m.auths {
++		if id == next.ID {
++			a = next
++		}
++		records = append(records, m.cooldownStateRecordsForAuthLocked(a, now)...)
++	}
++	// 只提交冷却元数据；不调用 token Store.Save，不改写认证文件正文。
++	if err := m.cooldownStore.Save(ctx, records); err != nil {
++		m.mu.Unlock()
++		return QuotaVerification{Passed: true, Reason: "persistence_failed"}
++	}
++	m.auths[next.ID] = next
++	m.mu.Unlock()
++	if m.scheduler != nil {
++		m.scheduler.upsertAuth(next.Clone())
++	}
++	models, epoch := registry.GetGlobalRegistry().GetModelsAndEpochForClient(next.ID)
++	projections := make([]registry.ClientModelProjection, 0, len(models))
++	for _, item := range models {
++		if item != nil {
++			projections = append(projections, m.clientModelProjectionForAuth(next, item.ID, now))
++		}
++	}
++	registry.GetGlobalRegistry().ApplyClientModelProjections(next.ID, epoch, next.Generation, projections)
++	return QuotaVerification{Passed: true, Restored: true, Reason: "restored"}
++}
+diff --git a/sdk/cliproxy/auth/quota_recovery_test.go b/sdk/cliproxy/auth/quota_recovery_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..5786ee900e928877cb9509f1574faccf27aa72af
+--- /dev/null
++++ b/sdk/cliproxy/auth/quota_recovery_test.go
+@@ -0,0 +1,202 @@
++// 单卡恢复测试只使用模拟执行器，确认失败无副作用且成功不触碰其他凭据。
++package auth
++
++import (
++	"context"
++	"crypto/sha256"
++	"errors"
++	"fmt"
++	"reflect"
++	"strings"
++	"testing"
++	"time"
++
++	exec "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
++)
++
++type quotaRecoveryExecutor struct {
++	compactTestExecutor
++	failure   error
++	during    func()
++	refreshes int
++	payload   []byte
++	chunks    [][]byte
++}
++
++func (e *quotaRecoveryExecutor) Identifier() string { return "codex" }
++func (e *quotaRecoveryExecutor) Refresh(_ context.Context, a *Auth) (*Auth, error) {
++	e.refreshes++
++	return a, nil
++}
++func (e *quotaRecoveryExecutor) ExecuteStream(_ context.Context, a *Auth, r exec.Request, o exec.Options) (*exec.StreamResult, error) {
++	e.calls++
++	if a.ID != "quota-first" || r.Model != "gpt-6-astra" || o.SourceFormat.String() != "openai-response" {
++		return nil, errors.New("wrong binding")
++	}
++	if e.during != nil {
++		e.during()
++	}
++	if e.failure != nil {
++		return nil, e.failure
++	}
++	chunks := make(chan exec.StreamChunk, 1+len(e.chunks))
++	payload := e.payload
++	if payload == nil {
++		payload = []byte("data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"OK\"}]}]}}\n\n")
++	}
++	if e.chunks != nil {
++		for _, chunk := range e.chunks {
++			chunks <- exec.StreamChunk{Payload: chunk}
++		}
++	} else {
++		chunks <- exec.StreamChunk{Payload: payload}
++	}
++	close(chunks)
++	return &exec.StreamResult{Chunks: chunks}, nil
++}
++
++func TestQuotaRecoveryPreservesUnknown429AndModelQuotaReasons(t *testing.T) {
++	for _, mode := range []string{"overload", "model-quota", "model-wait"} {
++		t.Run(mode, func(t *testing.T) {
++			m, _ := quotaRecoveryFixture(t)
++			a := m.auths["quota-first"]
++			switch mode {
++			case "overload":
++				a.LastError = &Error{HTTPStatus: 429, Code: "server_is_overloaded"}
++			case "model-quota":
++				a.ModelStates["gpt-6-astra"].Quota = QuotaState{Exceeded: true, Reason: "independent_throttle"}
++			case "model-wait":
++				a.ModelStates["gpt-6-astra"].LastError = nil
++			}
++			before := a.Clone()
++			result := m.VerifyCodexQuota(context.Background(), a.ID, "gpt-6-astra", true)
++			after, _ := m.GetByID(a.ID)
++			if result.Restored || result.Reason != "independent_block" || !reflect.DeepEqual(before, after) {
++				t.Fatalf("independent block removed: %+v", result)
++			}
++		})
++	}
++}
++
++func TestQuotaRecoveryInvalidStreamNeverChangesState(t *testing.T) {
++	for _, payload := range []string{"", "data: {\"type\":\"response.incomplete\"}\n\n", "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[]}}\n\n", strings.Repeat("x", 512*1024+1)} {
++		m, e := quotaRecoveryFixture(t)
++		e.payload = []byte(payload)
++		before, _ := m.GetByID("quota-first")
++		result := m.VerifyCodexQuota(context.Background(), before.ID, "gpt-6-astra", true)
++		after, _ := m.GetByID(before.ID)
++		if result.Passed || result.Restored || e.refreshes != 0 || !reflect.DeepEqual(before, after) {
++			t.Fatalf("invalid stream accepted: %+v", result)
++		}
++	}
++}
++
++type failedQuotaRecoveryStore struct{ recordingCooldownStateStore }
++
++func (*failedQuotaRecoveryStore) Save(context.Context, []CooldownStateRecord) error {
++	return errors.New("fixture persistence failure")
++}
++
++func TestQuotaRecoveryPersistenceFailureAndFingerprint(t *testing.T) {
++	m, e := quotaRecoveryFixture(t)
++	before, _ := m.GetByID("quota-first")
++	m.cooldownStore = &failedQuotaRecoveryStore{}
++	bad := m.VerifyCodexQuota(context.Background(), before.ID, "gpt-6-astra", true, strings.Repeat("0", 64))
++	if bad.Reason != "credential_changed" || e.calls != 0 {
++		t.Fatalf("wrong fingerprint dispatched: %+v", bad)
++	}
++	result := m.VerifyCodexQuota(context.Background(), before.ID, "gpt-6-astra", true, fmt.Sprintf("%x", sha256.Sum256([]byte("fixture-access"))))
++	after, _ := m.GetByID(before.ID)
++	if !result.Passed || result.Restored || result.Reason != "persistence_failed" || !reflect.DeepEqual(before, after) {
++		t.Fatalf("persistence failure exposed recovered state: %+v", result)
++	}
++}
++
++func TestQuotaRecoveryFailureNeverRefreshesOrChangesState(t *testing.T) {
++	m, e := quotaRecoveryFixture(t)
++	before, _ := m.GetByID("quota-first")
++	e.failure = compactTestStatusError{code: 401, msg: "unauthorized"}
++	result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", true)
++	after, _ := m.GetByID("quota-first")
++	if result.Passed || result.Restored || result.Reason != "authentication_failed" || e.refreshes != 0 || !reflect.DeepEqual(before, after) {
++		t.Fatalf("unexpected result: %+v", result)
++	}
++}
++
++func TestQuotaRecoverySuccessClearsOnlyProvenStateWithoutTokenWrites(t *testing.T) {
++	m, e := quotaRecoveryFixture(t)
++	second, _ := m.GetByID("quota-second")
++	result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", true)
++	first, _ := m.GetByID("quota-first")
++	afterSecond, _ := m.GetByID("quota-second")
++	if !result.Passed || !result.Restored || first.Unavailable || first.StatusMessage != "" || e.refreshes != 0 {
++		t.Fatalf("unexpected result: %+v, %+v", result, first)
++	}
++	if first.Metadata["access_token"] != "fixture-access" || !reflect.DeepEqual(second, afterSecond) || !first.ModelStates["gpt-6-luna"].Unavailable {
++		t.Fatal("unrelated state changed")
++	}
++}
++
++func TestQuotaRecoveryProbeOnlyAndConcurrentChangeNeverRestore(t *testing.T) {
++	for _, mode := range []string{"probe", "disabled", "race"} {
++		t.Run(mode, func(t *testing.T) {
++			m, e := quotaRecoveryFixture(t)
++			if mode == "disabled" {
++				m.mu.Lock()
++				m.auths["quota-first"].Disabled = true
++				m.mu.Unlock()
++			}
++			if mode == "race" {
++				e.during = func() { m.mu.Lock(); m.auths["quota-first"].Generation++; m.mu.Unlock() }
++			}
++			result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", mode != "probe")
++			first, _ := m.GetByID("quota-first")
++			if result.Restored || first.StatusMessage != "unauthorized" || (mode == "disabled" && e.calls != 0) {
++				t.Fatalf("state was bypassed: %+v", result)
++			}
++		})
++	}
++}
++
++func quotaRecoveryFixture(t *testing.T) (*Manager, *quotaRecoveryExecutor) {
++	t.Helper()
++	m := NewManager(nil, nil, nil)
++	e := &quotaRecoveryExecutor{}
++	m.RegisterExecutor(e)
++	m.cooldownStore = &recordingCooldownStateStore{}
++	for _, id := range []string{"quota-first", "quota-second"} {
++		_, err := m.Register(context.Background(), &Auth{ID: id, Provider: "codex", Status: StatusError, StatusMessage: "unauthorized", Unavailable: true, LastError: &Error{HTTPStatus: 401, Code: "unauthorized"}, Metadata: map[string]any{"access_token": "fixture-access", "refresh_token": "fixture-refresh"}, ModelStates: map[string]*ModelState{
++			"gpt-6-astra": {Status: StatusError, Unavailable: true, NextRetryAfter: time.Now().Add(time.Hour), LastError: &Error{HTTPStatus: 401}},
++			"gpt-6-luna":  {Status: StatusError, Unavailable: true, NextRetryAfter: time.Now().Add(time.Hour), LastError: &Error{HTTPStatus: 429}},
++		}})
++		if err != nil {
++			t.Fatal(err)
++		}
++	}
++	return m, e
++}
++
++func TestQuotaRecoveryChecksEveryTranslatedEventAndTotalSize(t *testing.T) {
++	complete := []byte(`data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"OK"}]}]}}`)
++	for _, test := range []struct {
++		name   string
++		chunks [][]byte
++		passed bool
++		reason string
++	}{
++		{"complete", [][]byte{[]byte(`data: {"type":"response.created"}`), []byte(`data: {"type":"response.output_text.delta","delta":"OK"}`), complete}, true, "restored"},
++		{"tool", [][]byte{[]byte(`data: {"type":"response.output_item.added","item":{"type":"function_call"}}`), complete}, false, "unexpected_output"},
++		{"failed", [][]byte{[]byte(`data: {"type":"response.failed"}`), complete}, false, "inference_failed"},
++		{"incomplete", [][]byte{[]byte(`data: {"type":"response.output_text.delta","delta":"OK"}`)}, false, "incomplete"},
++		{"total-limit", [][]byte{[]byte(strings.Repeat(" ", 300*1024)), []byte(strings.Repeat(" ", 300*1024)), complete}, false, "response_limit"},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			m, e := quotaRecoveryFixture(t)
++			e.chunks = test.chunks
++			result := m.VerifyCodexQuota(context.Background(), "quota-first", "gpt-6-astra", true)
++			if result.Passed != test.passed || result.Restored != test.passed || result.Reason != test.reason || e.refreshes != 0 {
++				t.Fatalf("invalid event handling: %+v refreshes=%d", result, e.refreshes)
++			}
++		})
++	}
++}
+diff --git a/sdk/cliproxy/auth/selector.go b/sdk/cliproxy/auth/selector.go
+index 657be2379717200904fdb79eb80c5e4995c0e684..3e402b10a1f569a8e591b1ecaec1788127c02bf7 100644
+--- a/sdk/cliproxy/auth/selector.go
++++ b/sdk/cliproxy/auth/selector.go
+@@ -588,6 +588,12 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
+ 	if auth.Disabled || auth.Status == StatusDisabled {
+ 		return true, blockReasonDisabled, time.Time{}
+ 	}
++	if accessFallbackBound(auth) {
++		if !accessFallbackProven(auth, model, now) {
++			return true, blockReasonOther, time.Time{}
++		}
++		auth = withoutRefreshFailure(auth)
++	}
+ 	if auth.Quota.Exceeded && auth.Quota.Reason == "credential_quota" && auth.Quota.NextRecoverAt.After(now) {
+ 		return true, blockReasonCooldown, auth.Quota.NextRecoverAt
+ 	}
+diff --git a/sdk/cliproxy/auth/types.go b/sdk/cliproxy/auth/types.go
+index 3bfcd3d16b3673acb78ac1cdd73550fd0ed25a62..68b0493eeaa37d4450e792350ff71bf4cd46e029 100644
+--- a/sdk/cliproxy/auth/types.go
++++ b/sdk/cliproxy/auth/types.go
+@@ -45,6 +45,7 @@ func GetRequestInfo(ctx context.Context) *RequestInfo {
+ 
+ // Auth encapsulates the runtime state and metadata associated with a single credential.
+ type Auth struct {
++	AccessFallback *AccessFallbackState `json:"-"`
+ 	// ID uniquely identifies the auth record across restarts.
+ 	ID string `json:"id"`
+ 	// RegistrationEpoch tracks monotonic registration cycles across unregister/re-register.
+@@ -100,8 +101,13 @@ type Auth struct {
+ 	Success int64 `json:"-"`
+ 	Failed  int64 `json:"-"`
+ 
+-	recentRequests recentRequestRing `json:"-"`
+-	indexAssigned  bool              `json:"-"`
++	refreshSavePending        bool
++	refreshAttemptedAt        time.Time
++	refreshLastResult         string
++	refreshInProgress         bool
++	refreshConsumedCredential string
++	recentRequests            recentRequestRing `json:"-"`
++	indexAssigned             bool              `json:"-"`
+ }
+ 
+ const (
+@@ -289,6 +295,7 @@ func (a *Auth) Clone() *Auth {
+ 		return nil
+ 	}
+ 	copyAuth := *a
++	copyAuth.AccessFallback = a.AccessFallback.Clone()
+ 	copyAuth.Quota = a.Quota.Clone()
+ 	if len(a.Attributes) > 0 {
+ 		copyAuth.Attributes = make(map[string]string, len(a.Attributes))

@@ -1,11 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountPoolPage from "./page";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import i18n from "@/i18n";
 import { preloadAccountPoolModules } from "@/features/account-pool/preloadModules";
+import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 
 const push = vi.fn();
 const listAccounts = vi.fn();
@@ -110,6 +111,35 @@ describe("account card local configuration", () => {
     expect(await screen.findByTestId(`account-pool-card-${environment.id}`)).toBeInTheDocument();
   });
 
+  it("updates an open model test when query refresh removes access proof, and closes it after card deletion", async () => {
+    const user = userEvent.setup();
+    const fallbackCard: AccountPoolEnvironment = {
+      ...environment,
+      access_token_fallback: {
+        enabled: true, active: true, failure_source: "refresh", reason: "temporary_access",
+        expires_at: "2090-01-01T00:00:00Z", verified_models: environment.enabled_models,
+      },
+    };
+    listAccounts.mockResolvedValue([fallbackCard]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const { unmount } = render(<QueryClientProvider client={client}><AccountPoolPage /></QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: `测试 ${environment.name} 的模型连接` }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("button", { name: "开始测试" })).toBeEnabled();
+    listAccounts.mockResolvedValue([{
+      ...fallbackCard,
+      access_token_fallback: { ...fallbackCard.access_token_fallback, verified_models: [] },
+    }]);
+    await act(() => client.refetchQueries({ queryKey: accountPoolQueryKeys.environments("token") }));
+    expect(listAccounts).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "开始测试" })).toBeDisabled());
+    listAccounts.mockResolvedValue([]);
+    await act(() => client.refetchQueries({ queryKey: accountPoolQueryKeys.environments("token") }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    unmount();
+    client.clear();
+  });
+
   it("refreshes visible dashboard statistics without polling inactive tabs", async () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const page = () => (
@@ -171,4 +201,13 @@ describe("account card local configuration", () => {
       ),
     );
   });
+});
+
+
+it("passes the selected statistics range to the request client", async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await user.click(await screen.findByRole("combobox", {name: "统计天数"}));
+  await user.click(await screen.findByRole("option", {name: "近 7 天"}));
+  await waitFor(() => expect(loadStats).toHaveBeenCalledWith("token", 7));
 });

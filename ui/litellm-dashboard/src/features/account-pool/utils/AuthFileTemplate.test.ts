@@ -45,6 +45,22 @@ describe("auth-file form templates", () => {
     ).toEqual({ proxy_url: "", refresh_token: "fixture" });
   });
 
+  it.each([
+    "fixture@example.test----fixture-password----JBSWY3DPEHPK3PXP",
+    "卡密导出\n\nfixture@example.test----fixture-password----JBSWY3DPEHPK3PXP",
+    '[{"platform":"openai","type":"oauth","credentials":{"refresh_token":"fixture"}}]',
+    '{"accounts":[{"credentials":{"refresh_token":"fixture"}}]}',
+  ])("explains how to import valid formats that cannot use a template", (content) => {
+    expect(() => mergeAuthFileTemplate(content, { priority: 1 })).toThrow(/请取消.*模板后导入/);
+  });
+
+  it("does not mistake JSON values containing separators for two-factor text", () => {
+    expect(JSON.parse(mergeAuthFileTemplate('{"refresh_token":"fixture----token"}', { priority: 1 }))).toEqual({
+      refresh_token: "fixture----token",
+      priority: 1,
+    });
+  });
+
   it.each(["[]", "null", '{"access_token":"secret",'])(
     "rejects invalid auth JSON without echoing credential contents",
     (content) => {

@@ -132,6 +132,28 @@ ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS: Final = (
     b"REFERENCES account_pool_isp_subscription_nodes(id) ON DELETE CASCADE )",
 )
 
+QUOTA_RESET_SCHEMA_ADDITIONS: Final = tuple(sorted((
+    b"CREATE TABLE IF NOT EXISTS account_pool_quota_resets ( request_id uuid PRIMARY KEY, "
+    b"environment_id uuid NOT NULL REFERENCES account_pool_environments(id) ON DELETE CASCADE, "
+    b"created_at timestamptz NOT NULL, payload jsonb NOT NULL )",
+    b"CREATE INDEX IF NOT EXISTS account_pool_quota_resets_environment_idx "
+    b"ON account_pool_quota_resets (environment_id, created_at DESC)",
+)))
+QUOTA_VERIFICATION_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_quota_verifications ( "
+    b"environment_id uuid PRIMARY KEY REFERENCES account_pool_environments(id) ON DELETE CASCADE, payload jsonb NOT NULL )",
+)
+
+RUNTIME_ROLLOUT_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_runtime_rollouts ( environment_id uuid PRIMARY KEY "
+    b"REFERENCES account_pool_environments(id) ON DELETE CASCADE, phase text NOT NULL "
+    b"CHECK (phase IN ('draining', 'backup', 'switching', 'verified', 'failed')), "
+    b"payload jsonb NOT NULL, updated_at timestamptz NOT NULL DEFAULT now() )",
+)
+QUOTA_CALL_SCHEMA_ADDITIONS: Final = (
+    b"ALTER TABLE account_pool_quota_verifications ADD COLUMN IF NOT EXISTS api_call jsonb",
+)
+
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
     return hashlib.sha256(
@@ -183,7 +205,7 @@ def schema_member_contract(name: str, source: bytes, *, omit_read_timeout_field:
         for node in ast.walk(tree)
         if isinstance(node, ast.Constant)
         and isinstance(node.value, str)
-        and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
+        and re.search(r"\b(?:CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX)|CREATE\s+(?:UNIQUE\s+)?INDEX)\b", node.value, re.I)
     )
     if not statements:
         return b""
@@ -265,6 +287,20 @@ def additive_manager_schema_upgrade(
         ),
     )
     if additions not in (
+        RUNTIME_ROLLOUT_SCHEMA_ADDITIONS,
+        *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
+            QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
+            QUOTA_CALL_SCHEMA_ADDITIONS,
+            (*QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
+        )),
+        QUOTA_RESET_SCHEMA_ADDITIONS,
+        QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
+        tuple(sorted((*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS))),
+        *(tuple(sorted((*group, *QUOTA_CALL_SCHEMA_ADDITIONS))) for group in (
+            (), QUOTA_RESET_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS),
+        )),
         *reviewed_additions,
         ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *ISP_SUBSCRIPTION_PROBE_SCHEMA_ADDITIONS))) for group in reviewed_additions),
@@ -274,6 +310,7 @@ def additive_manager_schema_upgrade(
         line.startswith(b"CREATE TABLE IF NOT EXISTS account_pool_")
         or line.startswith(b"CREATE INDEX IF NOT EXISTS account_pool_")
         or line.startswith(b"CREATE UNIQUE INDEX IF NOT EXISTS account_pool_")
+        or line in QUOTA_CALL_SCHEMA_ADDITIONS
         for line in additions
     ) and all(line in after.splitlines() for line in before.splitlines())
 

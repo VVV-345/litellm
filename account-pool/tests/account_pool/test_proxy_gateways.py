@@ -443,6 +443,39 @@ async def test_isp_chain_uses_independent_fronts_and_preserves_subscription_conf
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("subscription", (False, True))
+async def test_optional_front_connects_isp_directly_and_survives_reconcile(tmp_path: Path, subscription: bool) -> None:
+    profile: Final = (
+        ISPSubscriptionNodeProfile(
+            id=uuid4(), name="subscription", proxy_type="socks5",
+            config={"type": "socks5", "server": "isp.test", "port": 1080, "dialer-proxy": "obsolete-front"},
+        ) if subscription else ISPProxyProfile(id=uuid4(), name="manual", protocol="http", host="isp.test", port=8080)
+    )
+    config_path: Final = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({"listeners": [], "proxy-groups": [], "proxies": []}), encoding="utf-8")
+    settings: Final = _settings((7891,)).model_copy(update={"clash_config_path": str(config_path)})
+    catalog: Final = FakeCatalog((profile,))
+    controller: Final = FakeController(nodes=(ClashProxyNode("airport", "Socks5"),))
+    service: Final = ProxyGatewayService(settings, FakeProfiles(), controller, catalog=cast(ProxyCatalogRepository, catalog))
+    chain: Final = service.isp_node_name(profile.id, 7891)
+
+    direct: Final = await service.bind_isp_gateway(7891, profile.id)
+    assert direct.current_node == chain
+    assert "dialer-proxy" not in yaml.safe_load(config_path.read_text())["proxies"][0]
+    await service.bind_front_node(7891, "airport")
+    assert yaml.safe_load(config_path.read_text())["proxies"][0]["dialer-proxy"] == service.front_selector_name(7891)
+    detached: Final = await service.bind_front_node(7891, None)
+    assert detached.front_node_name is None
+    assert detached.current_node == chain
+    assert "dialer-proxy" not in yaml.safe_load(config_path.read_text())["proxies"][0]
+    restarted: Final = ProxyGatewayService(settings, FakeProfiles(), controller, catalog=cast(ProxyCatalogRepository, catalog))
+    await restarted.reconcile_isp_bindings(date.today())
+    assert controller.current["clash-gateway-7891"] == chain
+    assert "dialer-proxy" not in yaml.safe_load(config_path.read_text())["proxies"][0]
+    assert catalog.fronts == {}
+
+
+@pytest.mark.asyncio
 async def test_missing_front_or_subscription_isp_blocks_then_recovers_same_binding(tmp_path: Path) -> None:
     subscription: Final = ISPSubscriptionNodeProfile(
         id=uuid4(),
@@ -589,7 +622,7 @@ async def test_clearing_front_connects_to_isp_directly_and_can_restore_front(tmp
     assert node["server"] == "isp.example"
     assert node["port"] == 1080
     assert node["password"] == "secret"
-    assert node["dialer-proxy"] == "DIRECT"
+    assert "dialer-proxy" not in node
     assert catalog.fronts == {}
     assert direct.front_node_name is None
     await service.reconcile_isp_bindings(date.today())

@@ -1,7 +1,8 @@
 import { AccountPoolCamoufoxBrowser } from "./AccountPoolCamoufoxBrowser";
 
 import { ExternalLink } from "lucide-react";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import CopyButton from "@/components/shared/CopyButton";
@@ -11,7 +12,9 @@ import { Label } from "@/components/ui/label";
 import { extractProxyErrorMessage } from "@/lib/http/client";
 
 import { formatDateTime } from "../../utils/AccountPoolFormatters";
-import { authorizeAccountPoolEnvironment } from "../../api/AccountPoolApi";
+import { authorizeAccountPoolEnvironment, submitAccountPoolOAuthCallback } from "../../api/AccountPoolApi";
+import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { parseOAuthCallback } from "../../utils/oauthCallback";
 
 interface AccountPoolAuthorizationDetails {
   flow: "browser_oauth" | "device_code";
@@ -37,8 +40,18 @@ export function AccountPoolAuthorizationPanel({
   environmentId?: string | null;
 }) {
   const { t, i18n } = useTranslation();
-  const isBrowserFlow = authorization.flow === "browser_oauth";
-  const showOriginalExpiry = !isBrowserFlow || !accessToken || !environmentId;
+  const [latestAuthorization, setLatestAuthorization] = useState<{
+    sourceIdentity: string;
+    value: AccountPoolAuthorizationDetails;
+  } | null>(null);
+  const sourceIdentity = `${accessToken}:${environmentId}:${authorization.authorization_url}`;
+  const activeAuthorization = latestAuthorization?.sourceIdentity === sourceIdentity
+    ? latestAuthorization.value
+    : authorization;
+  const onAuthorization = (value: AccountPoolAuthorizationDetails | null) =>
+    setLatestAuthorization(value === null ? null : { sourceIdentity, value });
+  const isBrowserFlow = activeAuthorization.flow === "browser_oauth";
+  const canSubmitCallback = isBrowserFlow && accessToken && environmentId;
 
   return (
     <div className="grid gap-5" data-testid="account-pool-authorization-panel">
@@ -47,12 +60,40 @@ export function AccountPoolAuthorizationPanel({
           {error}
         </p>
       )}
+      <div className="grid gap-2">
+        <Label htmlFor={idPrefix + "-authorization-link"}>{t("accountPool.create.authorizationLink")}</Label>
+        <div className="flex items-center gap-2">
+          <Input id={idPrefix + "-authorization-link"} value={activeAuthorization.authorization_url} readOnly className="text-xs" />
+          <CopyButton value={activeAuthorization.authorization_url} label={t("accountPool.create.copyAuthorizationLink")} />
+        </div>
+        {isBrowserFlow ? (
+          <Button type="button" nativeButton={false} size="sm" render={<a href={activeAuthorization.authorization_url} target="_blank" rel="noopener noreferrer" />}>
+            <ExternalLink />
+            {t("accountPool.create.openLocalBrowser")}
+          </Button>
+        ) : (
+          <Button type="button" nativeButton={false} size="sm" render={<a href={activeAuthorization.authorization_url} target="_blank" rel="noopener noreferrer" />}>
+            <ExternalLink />
+            {t("accountPool.create.openAuthorization")}
+          </Button>
+        )}
+        {isBrowserFlow && <p className="text-xs text-muted-foreground">{t("accountPool.create.localBrowserHelp")}</p>}
+        {isBrowserFlow && activeAuthorization.ssh_command && (
+          <details>
+            <summary className="cursor-pointer text-sm">{t("accountPool.create.remoteBrowserCallback")}</summary>
+            <div className="mt-2 flex items-center gap-2">
+              <code className="break-all text-xs">{activeAuthorization.ssh_command}</code>
+              <CopyButton value={activeAuthorization.ssh_command} label={t("accountPool.create.copySshTunnelCommand")} />
+            </div>
+          </details>
+        )}
+      </div>
       {isBrowserFlow && accessToken && environmentId ? (
         <AccountPoolExternalBrowser
           key={`${accessToken}:${environmentId}`}
           accessToken={accessToken}
           environmentId={environmentId}
-          expiresAt={authorization.expires_at}
+          onAuthorization={onAuthorization}
         />
       ) : null}
       {authorization.flow === "device_code" && authorization.user_code && (
@@ -69,29 +110,20 @@ export function AccountPoolAuthorizationPanel({
           </div>
         </div>
       )}
-      {!isBrowserFlow && (
-        <div className="rounded-md border border-border bg-muted/30 p-4">
-          <p className="text-sm font-medium">{t("accountPool.create.authorizationLink")}</p>
-          <p className="mt-1 break-all text-xs text-muted-foreground">{authorization.authorization_url}</p>
-          <Button
-            type="button"
-            nativeButton={false}
-            className="mt-3"
-            size="sm"
-            render={<a href={authorization.authorization_url} target="_blank" rel="noreferrer" />}
-          >
-            <ExternalLink />
-            {t("accountPool.create.openAuthorization")}
-          </Button>
-        </div>
+      {canSubmitCallback && (
+        <ManualOAuthCallback
+          key={accessToken + ":" + environmentId + ":" + activeAuthorization.authorization_url}
+          accessToken={accessToken}
+          environmentId={environmentId}
+          authorizationUrl={activeAuthorization.authorization_url}
+          idPrefix={idPrefix}
+        />
       )}
-      {showOriginalExpiry && (
-        <p className="text-xs text-muted-foreground">
-          {t("accountPool.create.authorizationExpires", {
-            time: formatDateTime(authorization.expires_at, i18n.language),
-          })}
-        </p>
-      )}
+      <p className="text-xs text-muted-foreground">
+        {t("accountPool.create.authorizationExpires", {
+          time: formatDateTime(activeAuthorization.expires_at, i18n.language),
+        })}
+      </p>
       {children}
     </div>
   );
@@ -100,23 +132,21 @@ export function AccountPoolAuthorizationPanel({
 function AccountPoolExternalBrowser({
   accessToken,
   environmentId,
-  expiresAt,
+  onAuthorization,
 }: {
   accessToken: string;
   environmentId: string;
-  expiresAt: string;
+  onAuthorization: (authorization: AccountPoolAuthorizationDetails | null) => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [externalAuthorization, setExternalAuthorization] = useState<AccountPoolAuthorizationDetails | null>(null);
 
   const prepareExternalBrowser = async () => {
     setBusy(true);
     setError(null);
-    setExternalAuthorization(null);
     try {
-      setExternalAuthorization(await authorizeAccountPoolEnvironment(accessToken, environmentId));
+      onAuthorization(await authorizeAccountPoolEnvironment(accessToken, environmentId));
     } catch (authorizationError) {
       setError(extractProxyErrorMessage(authorizationError));
     } finally {
@@ -142,50 +172,81 @@ function AccountPoolExternalBrowser({
         environmentId={environmentId}
         busy={busy}
         setBusy={setBusy}
-        onAuthorization={setExternalAuthorization}
+        onAuthorization={onAuthorization}
       />
-      {externalAuthorization && <ExternalBrowserLink authorization={externalAuthorization} />}
-      <p className="text-xs text-muted-foreground">
-        {t("accountPool.create.authorizationExpires", {
-          time: formatDateTime(externalAuthorization?.expires_at ?? expiresAt, i18n.language),
-        })}
-      </p>
     </div>
   );
 }
 
-function ExternalBrowserLink({ authorization }: { authorization: AccountPoolAuthorizationDetails }) {
+function ManualOAuthCallback({
+  accessToken,
+  environmentId,
+  authorizationUrl,
+  idPrefix,
+}: {
+  accessToken: string;
+  environmentId: string;
+  authorizationUrl: string;
+  idPrefix: string;
+}) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [callbackUrl, setCallbackUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [complete, setComplete] = useState(false);
+  const [errorKey, setErrorKey] = useState<string | null>(null);
+  const inFlight = useRef(false);
+
+  const submit = async () => {
+    if (inFlight.current || complete) return;
+    setErrorKey(null);
+    let callback;
+    try {
+      callback = parseOAuthCallback(callbackUrl, authorizationUrl);
+    } catch {
+      setErrorKey("accountPool.create.invalidCallback");
+      return;
+    }
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      await submitAccountPoolOAuthCallback(accessToken, environmentId, callback);
+      setCallbackUrl("");
+      setComplete(true);
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
+      void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+    } catch {
+      setErrorKey("accountPool.create.callbackFailed");
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
+  };
+
   return (
-    <div className="grid gap-3 rounded-md border border-border bg-muted/30 p-4">
-      <p className="text-sm text-muted-foreground">{t("accountPool.create.localBrowserHelp")}</p>
-      <div className="flex items-center gap-2">
-        <Input
-          aria-label={t("accountPool.create.authorizationLink")}
-          value={authorization.authorization_url}
-          readOnly
-          className="font-mono text-xs"
-        />
-        <CopyButton value={authorization.authorization_url} label={t("accountPool.create.copyAuthorizationLink")} />
-      </div>
-      <Button
-        type="button"
-        nativeButton={false}
-        size="sm"
-        render={<a href={authorization.authorization_url} target="_blank" rel="noopener noreferrer" />}
-      >
-        <ExternalLink />
-        {t("accountPool.create.openLocalBrowser")}
+    <div className="grid gap-2">
+      <Label htmlFor={`${idPrefix}-callback`}>{t("accountPool.create.callbackUrl")}</Label>
+      <Input
+        id={`${idPrefix}-callback`}
+        value={callbackUrl}
+        onChange={(event) => setCallbackUrl(event.target.value)}
+        autoComplete="off"
+        spellCheck={false}
+        disabled={busy || complete}
+      />
+      <p className="text-xs text-muted-foreground">{t("accountPool.create.callbackHelp")}</p>
+      <Button type="button" onClick={submit} disabled={busy || complete || !callbackUrl.trim()}>
+        {t("accountPool.create.submitCallback")}
       </Button>
-      <p className="text-xs text-muted-foreground">{t("accountPool.create.localBrowserCallbackHelp")}</p>
-      {authorization.ssh_command && (
-        <details>
-          <summary className="cursor-pointer text-sm">{t("accountPool.create.remoteBrowserCallback")}</summary>
-          <div className="mt-2 flex items-center gap-2">
-            <code className="break-all text-xs">{authorization.ssh_command}</code>
-            <CopyButton value={authorization.ssh_command} label={t("accountPool.create.copySshTunnelCommand")} />
-          </div>
-        </details>
+      {errorKey && (
+        <p role="alert" className="text-sm text-destructive">
+          {t(errorKey)}
+        </p>
+      )}
+      {complete && (
+        <p role="status" className="text-sm">
+          {t("accountPool.create.callbackAccepted")}
+        </p>
       )}
     </div>
   );

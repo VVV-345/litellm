@@ -89,8 +89,8 @@ export const getAccountPoolRoutingStatus = (accessToken: string, cardId: string,
   return apiClient.get<AccountPoolRoutingStatus>(`/account_pool/routing-status?${params.toString()}`, { accessToken });
 };
 
-export const getAccountPoolDashboardStats = (accessToken: string): Promise<AccountPoolDashboardStats> =>
-  apiClient.get<AccountPoolDashboardStats>("/account_pool/dashboard", { accessToken });
+export const getAccountPoolDashboardStats = (accessToken: string, days = 30): Promise<AccountPoolDashboardStats> =>
+  apiClient.get<AccountPoolDashboardStats>(`/account_pool/dashboard?days=${days}`, { accessToken });
 
 export const listAccountPoolCredentials = (accessToken: string) =>
   apiClient.get<AccountPoolCredential[]>("/account_pool/auth-files", { accessToken });

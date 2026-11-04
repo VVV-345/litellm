@@ -253,6 +253,6 @@ describe("AccountPoolBatchPanel", () => {
     await user.click(await screen.findByRole("button", { name: /查看授权信息|View authorization/i }));
 
     expect(await screen.findByDisplayValue("ABCD-1234")).toBeInTheDocument();
-    expect(screen.getByText("https://auth.example.com/device")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("https://auth.example.com/device")).toBeInTheDocument();
   });
 });

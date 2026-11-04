@@ -50,12 +50,25 @@ class IncompleteStreamError(ValueError):
     pass
 
 
+def completed_response(data: dict[str, JsonValue], *, responses_api: bool) -> bool:
+    if data.get("error") is not None:
+        return False
+    if responses_api:
+        return data.get("status") == "completed" and isinstance(data.get("output"), list) and bool(data["output"])
+    choices: Final = data.get("choices")
+    return isinstance(choices, list) and bool(choices) and all(
+        isinstance(choice, dict) and choice.get("finish_reason") in ("stop", "tool_calls", "function_call")
+        for choice in choices
+    )
+
+
 class EventStream:
     def __init__(self, *, responses_api: bool = False, anthropic_messages: bool = False) -> None:
         self.responses_api: Final = responses_api
         self.anthropic_messages: Final = anthropic_messages
         self.pending = b""
         self.terminal = False
+        self.completed = False
         self.failed = False
         self.meaningful = False
         self.error_code: str | None = None
@@ -140,6 +153,11 @@ class EventStream:
         return final
 
     def observe_payload(self, event: dict[str, JsonValue]) -> None:
+        response: Final = event.get("response")
+        if self.responses_api and event.get("type") == "response.completed" and isinstance(response, dict):
+            self.completed = completed_response(response, responses_api=True)
+        elif not self.responses_api and not self.anthropic_messages and completed_response(event, responses_api=False):
+            self.completed = True
         sequence_number: Final = event.get("sequence_number")
         if type(sequence_number) is int:
             self.last_sequence_number = max(self.last_sequence_number, sequence_number)
@@ -188,7 +206,6 @@ class EventStream:
         if event.get("type") in ("error", "response.failed") or event.get("error") is not None:
             self.failed = True
             self.terminal = True
-            response: Final = event.get("response")
             nested: Final = response.get("error") if isinstance(response, dict) else event.get("error")
             error: Final = nested if isinstance(nested, dict) else event
             self.error_info = MappingProxyType(

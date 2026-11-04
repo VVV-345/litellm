@@ -8,7 +8,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from account_pool.domain import ModelCooldown, ProviderEndpointFailure
+from account_pool.domain import AccessTokenFallbackStatus, CredentialRefreshStatus, ModelCooldown, ProviderEndpointFailure
 from account_pool.providers.usage.contracts import QuotaObservation
 
 
@@ -70,6 +70,9 @@ class _ModelState(BaseModel):
 class _AuthFile(BaseModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
+    access_token_fallback: AccessTokenFallbackStatus = Field(default_factory=AccessTokenFallbackStatus)
+    credential_refresh: CredentialRefreshStatus = Field(default_factory=CredentialRefreshStatus)
+
     name: str
     auth_index: str | None = None
     email: str | None = None
@@ -80,6 +83,7 @@ class _AuthFile(BaseModel):
     unavailable: bool = False
     status: str | None = None
     status_message: str | None = None
+    error_scope: str | None = None
     next_retry_after: datetime | None = None
     quota: QuotaObservation = QuotaObservation()
     model_quotas: Mapping[str, QuotaObservation] = Field(default_factory=dict)
@@ -112,6 +116,12 @@ class _APICallResponse(BaseModel):
     status_code: int
     header: Mapping[str, tuple[str, ...]] = Field(default_factory=dict)
     body: str
+
+
+# 新适配器使用公开协议名，保留历史私有导入以兼容既有调用方。
+AuthFile = _AuthFile
+AuthFilesResponse = _AuthFilesResponse
+APICallResponse = _APICallResponse
 
 
 class _UpstreamError(BaseModel):

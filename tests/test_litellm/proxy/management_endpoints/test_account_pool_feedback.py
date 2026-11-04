@@ -130,7 +130,7 @@ def test_admin_cas_conflict_is_preserved_for_cli_and_ui():
 
 
 def test_feedback_models_match_manager_validation_boundaries():
-    from account_pool.feedback_models import FeedbackCreate as ManagerCreate
+    from account_pool.feedback.models import FeedbackCreate as ManagerCreate
     from pydantic import ValidationError
 
     from litellm.proxy.management_endpoints.account_pool_feedback_models import FeedbackCreate as ProxyCreate

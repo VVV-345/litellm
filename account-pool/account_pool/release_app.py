@@ -26,6 +26,7 @@ from account_pool.release_models import (
     ReleaseImageView,
     ReleaseJob,
     ReleaseView,
+    RuntimeCardsView,
 )
 from account_pool.release_runtime import DockerReleaseRuntime, ReleaseSettings
 from account_pool.release_service import ReleaseService
@@ -134,6 +135,9 @@ def release_application(service: ReleaseService, token: str, *, initialize_backu
     def execute(body: ReleaseExecute, actor: Annotated[str, Depends(authenticate)]) -> ReleaseJob:
         return service.execute(body.token, actor, body.acknowledgement)
 
+    def cards(_actor: Annotated[str, Depends(authenticate)]) -> RuntimeCardsView:
+        return service.runtime.runtime_cards()
+
     def commands(version_id: ReleaseId, _actor: Annotated[str, Depends(authenticate)]) -> ReleaseCommands:
         return service.commands(version_id)
 
@@ -152,6 +156,7 @@ def release_application(service: ReleaseService, token: str, *, initialize_backu
     app.exception_handler(ReleaseError)(release_error)
     app.add_api_route("/health", health, methods=["GET"])
     app.add_api_route("/api/releases/images", images, methods=["GET"])
+    app.get("/api/releases/cards")(cards)
     app.add_api_route("/api/releases", view, methods=["GET"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/prepare", prepare, methods=["POST"], response_model_exclude_none=True)
     app.add_api_route("/api/releases/execute", execute, methods=["POST"], response_model_exclude_none=True)

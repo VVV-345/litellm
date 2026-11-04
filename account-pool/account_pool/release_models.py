@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated, Literal, TypeAlias
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -138,7 +139,9 @@ class ReleaseAction(BaseModel):
         "backup_selected",
         "delete_backups",
         "delete_images",
+        "upgrade_cards",
     ]
+    card_ids: tuple[UUID, ...] | None = Field(default=None, min_length=1, max_length=100)
     version_id: ReleaseId | None = None
     version_ids: tuple[ReleaseId, ...] | None = Field(default=None, max_length=100)
     text: str = Field(default="", max_length=12000)
@@ -224,3 +227,17 @@ class ReleaseView(BaseModel):
 class ReleaseCommands(BaseModel):
     branch: str
     revert: str
+
+
+class RuntimeCardView(BaseModel):
+    environment_id: UUID
+    name: str
+    current_image_id: str | None = None
+    target_image_id: str | None = None
+    status: Literal["current", "update_available", "unknown", "maintenance"]
+    phase: str | None = None
+
+
+class RuntimeCardsView(BaseModel):
+    default_image: str
+    cards: tuple[RuntimeCardView, ...]

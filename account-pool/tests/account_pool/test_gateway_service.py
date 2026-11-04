@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 from account_pool.card_keys import CardKeyService
 from account_pool.domain import (
+    AccessTokenFallbackStatus,
     EnvironmentRecord,
     EnvironmentStatus,
     GatewayEnvironment,
@@ -30,7 +31,7 @@ from account_pool.gateway_contracts import (
     ResolveRequest,
 )
 from account_pool.gateway_service import GatewayService, binding_hash
-from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView, RoutingPolicy
+from account_pool.policies import AccountPolicy, CodexPolicy, PolicyUpdate, PolicyView, RoutingPolicy
 from account_pool.result import Success
 from account_pool.settings import (
     AccountPoolSettings,
@@ -43,7 +44,7 @@ from account_pool.settings import (
     StreamingSettingsValues,
 )
 from fastapi import HTTPException
-from test_account_pool import MemoryRepository, _record
+from test_account_pool import MemoryRepository, _record, _settings
 from test_management import MemoryKeys, MemoryLogs, MemoryPolicies
 
 
@@ -857,8 +858,13 @@ async def test_finish_keeps_cache_rate_unknown_for_zero_input_tokens() -> None:
 
 
 @pytest.mark.asyncio
-async def test_token_budget_reserves_active_requests_and_settles_successful_usage() -> None:
-    card: Final = _record(status=EnvironmentStatus.READY)
+@pytest.mark.parametrize("access_fallback", [False, True])
+@pytest.mark.parametrize("virtual_key", [False, True])
+async def test_token_budget_reserves_active_requests_and_settles_successful_usage(access_fallback, virtual_key, tmp_path) -> None:
+    from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+    from account_pool.shared.secrets import EnvironmentSecretDeriver
+    state = AccessTokenFallbackStatus(enabled=True, active=True, failure_source="refresh", reason="temporary_access", verified_models=("gpt-5",), expires_at=utc_now()+timedelta(minutes=5)) if access_fallback else AccessTokenFallbackStatus()
+    card: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"access_token_fallback":state})
     environments: Final = MemoryRepository(card)
     keys: Final = CardKeyService(MemoryKeys())
     issued: Final = await keys.issue(card.id)
@@ -868,16 +874,19 @@ async def test_token_budget_reserves_active_requests_and_settles_successful_usag
         card.id,
         PolicyUpdate(
             version=0,
-            policy=AccountPolicy(routing=RoutingPolicy(token_budget_limit=100, token_budget_window_seconds=3600)),
+            policy=AccountPolicy(routing=RoutingPolicy(token_budget_limit=100, token_budget_window_seconds=3600), codex=CodexPolicy(allow_valid_access_after_refresh_failure=access_fallback)),
         ),
     )
     logs: Final = MemoryLogs()
     leases: Final = MemoryLeases()
-    service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(logs), gateway)
-    resolution: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    await policies.set_runtime_status(card.id, 1, "synced")
+    channel = CLIProxyAPIChannel(_settings(tmp_path), EnvironmentSecretDeriver("s"*32))
+    service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(logs), channel.gateway)
+    scope = {"trusted_card_id":card.id,"trusted_key_id":uuid4()} if virtual_key else {"card_key":issued.value.key}
+    resolution: Final = await service.resolve(ResolveRequest(**scope))
     candidate: Final = resolution.candidates[0]
     request: Final = AcquireRequest(
-        card_key=issued.value.key,
+        **scope,
         account_id=card.id,
         request_id=uuid4(),
         model="gpt-5",
@@ -907,9 +916,31 @@ async def test_token_budget_reserves_active_requests_and_settles_successful_usag
         )
     )
     assert leases.settled_tokens[card.id] == 30
+    assert logs.events[0].input_tokens == 20 and logs.events[0].output_tokens == 10
+    assert logs.events[0].account_id == card.id and logs.events[0].final_status == "succeeded"
     assert (
         await service.acquire(request.model_copy(update={"request_id": uuid4(), "estimated_tokens": 70}))
     ).reserved_tokens == 70
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('block', ['disabled_policy', 'pending_policy', 'expired', 'access_rejected', 'unverified_model', 'disabled_card'])
+async def test_fallback_normal_admission_rechecks_proof_and_policy(block, tmp_path):
+    from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+    from account_pool.shared.secrets import EnvironmentSecretDeriver
+    state = AccessTokenFallbackStatus(enabled=True, active=True, failure_source='refresh', reason='temporary_access', verified_models=('gpt-5',), expires_at=utc_now()+timedelta(minutes=5))
+    if block == 'expired': state = state.model_copy(update={'expires_at':utc_now()-timedelta(seconds=1)})
+    if block == 'access_rejected': state = state.model_copy(update={'active':False, 'reason':'access_rejected'})
+    if block == 'unverified_model': state = state.model_copy(update={'verified_models':('other-model',)})
+    card = _record(status=EnvironmentStatus.READY).model_copy(update={'access_token_fallback':state, 'enabled':block != 'disabled_card'})
+    keys = CardKeyService(MemoryKeys()); issued = await keys.issue(card.id)
+    policies = MemoryPolicies()
+    await policies.save(card.id, PolicyUpdate(version=0,policy=AccountPolicy(codex=CodexPolicy(allow_valid_access_after_refresh_failure=block != 'disabled_policy'))))
+    await policies.set_runtime_status(card.id, 1, 'partial' if block == 'pending_policy' else 'synced')
+    channel = CLIProxyAPIChannel(_settings(tmp_path), EnvironmentSecretDeriver('s'*32))
+    service = GatewayService(keys,MemoryRepository(card),policies,MemoryLeases(),ErrorLogService(MemoryLogs()),channel.gateway)
+    with pytest.raises(HTTPException):
+        await service.acquire(AcquireRequest(card_key=issued.value.key,account_id=card.id,request_id=uuid4(),model='gpt-5',card_version=card.version,policy_version=1,account_version=card.version,account_policy_version=1,timeout_seconds=30,attempt=1))
 
 
 @pytest.mark.asyncio
@@ -1243,3 +1274,30 @@ async def test_only_explicit_quota_failures_enqueue_refresh_after_release(
 
     assert len(leases.bindings) == expected_bindings
     assert refreshes == ([card.id] if reason == "quota_exhausted" else [])
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changes,expected", [
+    ({}, True), ({"response_completed": False}, False), ({"http_status": 502}, False),
+    ({"retryable": True}, False), ({"failure_reason": "upstream_unavailable"}, False),
+    ({"stage": "upstream"}, False), ({"endpoint": "/v1/models"}, False),
+])
+async def test_completed_api_hook_uses_actual_lease_and_never_replaces_accounting(changes, expected):
+    card = _record(status=EnvironmentStatus.READY)
+    leases, logs = MemoryLeases(), MemoryLogs()
+    calls = []
+
+    async def completed(lease, request):
+        assert not leases.leases and logs.events
+        calls.append((lease.account_id, lease.model, lease.request_id))
+
+    service = GatewayService(CardKeyService(MemoryKeys()), MemoryRepository(card), MemoryPolicies(), leases,
+                             ErrorLogService(logs), gateway, on_api_completed=completed)
+    lease = Lease(lease_id=uuid4(), card_id=uuid4(), key_id=uuid4(), account_id=card.id, request_id=uuid4(),
+                  channel=card.channel, supplier=card.supplier, model="gpt-5", started_at=utc_now())
+    leases.leases[lease.lease_id] = lease
+    request = FinishRequest.model_validate({"lease_id": lease.lease_id, "http_status": 200, "stage": "response",
+        "message": "Request completed", "endpoint": "/v1/responses", "response_completed": True, **changes})
+    await service.finish(request)
+    await service.finish(request)
+    assert calls == ([(card.id, "gpt-5", lease.request_id)] if expected else [])
+    assert len(logs.events) == 1 and not leases.leases

@@ -14,11 +14,14 @@ export type ReleaseJob = components["schemas"]["ReleaseJob"];
 export type ReleaseVersion = components["schemas"]["ReleaseVersion"];
 export type ReleaseCommands = components["schemas"]["ReleaseCommands"];
 export type ReleaseImageView = components["schemas"]["ReleaseImageView"];
+export type RuntimeCardsView = components["schemas"]["RuntimeCardsView"];
 export type AutoUpdateView = components["schemas"]["AutoUpdateView"];
 export type AutoUpdateSettings = components["schemas"]["AutoUpdateSettings"];
 
 export const listReleases = (accessToken: string) =>
   apiClient.get<ReleaseView>("/account_pool/releases", { accessToken });
+export const listRuntimeCards = (accessToken: string) =>
+  apiClient.get<RuntimeCardsView>("/account_pool/releases/cards", { accessToken });
 export const scanReleaseImages = (accessToken: string) =>
   apiClient.get<ReleaseImageView>("/account_pool/releases/images", { accessToken });
 export const prepareRelease = (accessToken: string, body: ReleaseAction) =>

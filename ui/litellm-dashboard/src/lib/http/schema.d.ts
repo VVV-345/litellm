@@ -946,6 +946,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/access-token-fallback/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Access Token Fallback */
+        post: operations["verify_access_token_fallback_account_pool_environments__environment_id__access_token_fallback_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/auth-file": {
         parameters: {
             query?: never;
@@ -1059,6 +1076,40 @@ export interface paths {
         put?: never;
         /** Export Browser Proxy */
         post: operations["export_browser_proxy_account_pool_environments__environment_id__browser_proxy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/credentials/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Refresh Credentials */
+        post: operations["refresh_credentials_account_pool_environments__environment_id__credentials_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/oauth-callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Submit Manual Oauth Callback */
+        post: operations["submit_manual_oauth_callback_account_pool_environments__environment_id__oauth_callback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1179,6 +1230,74 @@ export interface paths {
         put?: never;
         /** Install Card Plugin */
         post: operations["install_card_plugin_account_pool_environments__environment_id__plugins__plugin_id__install_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quota Reset Status */
+        get: operations["quota_reset_status_account_pool_environments__environment_id__quota_reset_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Consume Quota Reset */
+        post: operations["consume_quota_reset_account_pool_environments__environment_id__quota_reset_consume_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Prepare Quota Reset */
+        post: operations["prepare_quota_reset_account_pool_environments__environment_id__quota_reset_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/environments/{environment_id}/quota-reset/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify Quota Reset */
+        post: operations["verify_quota_reset_account_pool_environments__environment_id__quota_reset_verify_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2110,6 +2229,23 @@ export interface paths {
         put?: never;
         /** Auto Check */
         post: operations["auto_check_account_pool_releases_auto_update_check_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/releases/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Cards */
+        get: operations["cards_account_pool_releases_cards_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -24494,6 +24630,44 @@ export interface components {
             transport?: components["schemas"]["TransportPolicy"];
             xai?: components["schemas"]["XaiPolicy"] | null;
         };
+        /** AccountPoolAccessTokenFallbackStatus */
+        AccountPoolAccessTokenFallbackStatus: {
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** Expires At */
+            expires_at?: string | null;
+            /** Failure Source */
+            failure_source?: string | null;
+            /**
+             * Reason
+             * @default not_needed
+             */
+            reason: string;
+            /**
+             * Verified Models
+             * @default []
+             */
+            verified_models: string[];
+        };
+        /** AccountPoolAccessTokenFallbackVerification */
+        AccountPoolAccessTokenFallbackVerification: {
+            /** Expires At */
+            expires_at?: string | null;
+            /** Passed */
+            passed: boolean;
+            /** Reason */
+            reason: string;
+            /** Restored */
+            restored: boolean;
+        };
         /** AccountPoolAuthFileFieldsRequest */
         AccountPoolAuthFileFieldsRequest: {
             /** Fields */
@@ -24575,6 +24749,19 @@ export interface components {
             /** Proxy Type */
             proxy_type: string;
         };
+        /** AccountPoolConsumeReset */
+        AccountPoolConsumeReset: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+        };
         /** AccountPoolCreateRequest */
         AccountPoolCreateRequest: {
             /**
@@ -24655,6 +24842,45 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** AccountPoolCredentialRefreshResult */
+        AccountPoolCredentialRefreshResult: {
+            /** Reason */
+            reason: string;
+            /** Saved */
+            saved: boolean;
+            status?: components["schemas"]["AccountPoolCredentialRefreshStatus"];
+        };
+        /** AccountPoolCredentialRefreshStatus */
+        AccountPoolCredentialRefreshStatus: {
+            /** Access Expires At */
+            access_expires_at?: string | null;
+            /** Last Attempt At */
+            last_attempt_at?: string | null;
+            /**
+             * Last Result
+             * @default unknown
+             */
+            last_result: string;
+            /** Last Success At */
+            last_success_at?: string | null;
+            /** Next Refresh At */
+            next_refresh_at?: string | null;
+            /**
+             * Running
+             * @default false
+             */
+            running: boolean;
+            /**
+             * Save Pending
+             * @default false
+             */
+            save_pending: boolean;
+            /**
+             * Schedule Reason
+             * @default unavailable
+             */
+            schedule_reason: string;
+        };
         /** AccountPoolCredentialRequest */
         AccountPoolCredentialRequest: {
             /** Api Key */
@@ -24730,6 +24956,7 @@ export interface components {
         };
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
+            access_token_fallback?: components["schemas"]["AccountPoolAccessTokenFallbackStatus"];
             /**
              * Authorization Flow
              * @default browser_oauth
@@ -24760,6 +24987,7 @@ export interface components {
             cooldown_until: string | null;
             /** Created At */
             created_at: string;
+            credential_refresh?: components["schemas"]["AccountPoolCredentialRefreshStatus"];
             /**
              * Desired Configuration Version
              * @default 0
@@ -25070,6 +25298,17 @@ export interface components {
             /** Success */
             success: boolean;
         };
+        /** AccountPoolOAuthCallback */
+        AccountPoolOAuthCallback: {
+            /** Code */
+            code?: string | null;
+            /** Error */
+            error?: string | null;
+            /** Error Description */
+            error_description?: string | null;
+            /** State */
+            state: string;
+        };
         /** AccountPoolOpenAICompatibleConfig */
         AccountPoolOpenAICompatibleConfig: {
             /** Api Keys */
@@ -25173,6 +25412,11 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /** AccountPoolPrepareReset */
+        AccountPoolPrepareReset: {
+            /** Previous Request Id */
+            previous_request_id?: string | null;
         };
         /** AccountPoolProviderFamily */
         AccountPoolProviderFamily: {
@@ -25391,6 +25635,88 @@ export interface components {
             used_percent: number;
             /** Window Minutes */
             window_minutes: number;
+        };
+        /** AccountPoolRefreshCredentialRequest */
+        AccountPoolRefreshCredentialRequest: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Version */
+            version: number;
+        };
+        /** AccountPoolResetObservation */
+        AccountPoolResetObservation: {
+            /** Available */
+            available: number;
+            /** Credit Id */
+            credit_id?: string | null;
+            /** Eligible */
+            eligible: boolean;
+            quota: components["schemas"]["AccountPoolQuotaSnapshot"];
+        };
+        /** AccountPoolResetOperation */
+        AccountPoolResetOperation: {
+            after?: components["schemas"]["AccountPoolResetObservation"] | null;
+            before: components["schemas"]["AccountPoolResetObservation"];
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /** Message */
+            message?: string | null;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "prepared" | "uncertain" | "reset" | "nothing_to_reset" | "no_credit" | "already_redeemed";
+            /**
+             * Verification
+             * @enum {string}
+             */
+            verification: "not_run" | "failed" | "passed" | "restored" | "blocked";
+            /** Windows Reset */
+            windows_reset: number;
+        };
+        /** AccountPoolResetStatus */
+        AccountPoolResetStatus: {
+            last_api_call?: components["schemas"]["AccountPoolVerifiedAPICall"] | null;
+            last_verification?: components["schemas"]["AccountPoolResetVerificationRecord"] | null;
+            observation: components["schemas"]["AccountPoolResetObservation"] | null;
+            operation?: components["schemas"]["AccountPoolResetOperation"] | null;
+        };
+        /** AccountPoolResetVerification */
+        AccountPoolResetVerification: {
+            /** Passed */
+            passed: boolean;
+            /** Reason */
+            reason: string;
+            /** Restored */
+            restored: boolean;
+        };
+        /** AccountPoolResetVerificationRecord */
+        AccountPoolResetVerificationRecord: {
+            /** Model */
+            model: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            result: components["schemas"]["AccountPoolResetVerification"];
+            /**
+             * Source
+             * @default manual
+             * @enum {string}
+             */
+            source: "manual" | "natural";
         };
         /** AccountPoolRoutingConfig */
         AccountPoolRoutingConfig: {
@@ -25846,6 +26172,56 @@ export interface components {
             proxy_profile_id?: string | null;
             /** Version */
             version: number;
+        };
+        /** AccountPoolVerifiedAPICall */
+        AccountPoolVerifiedAPICall: {
+            /**
+             * Endpoint
+             * @enum {string}
+             */
+            endpoint: "/v1/responses" | "/v1/chat/completions";
+            /** Model */
+            model: string;
+            /**
+             * Observed At
+             * Format: date-time
+             */
+            observed_at: string;
+            /**
+             * Request Id
+             * Format: uuid
+             */
+            request_id: string;
+            /**
+             * Verification At
+             * Format: date-time
+             */
+            verification_at: string;
+        };
+        /** AccountPoolVerifyAccessTokenFallback */
+        AccountPoolVerifyAccessTokenFallback: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Model */
+            model: string;
+        };
+        /** AccountPoolVerifyReset */
+        AccountPoolVerifyReset: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Model */
+            model: string;
+            /**
+             * Recover
+             * @default false
+             */
+            recover: boolean;
         };
         /**
          * ActiveUsersAnalyticsResponse
@@ -28718,6 +29094,11 @@ export interface components {
              */
             allow_app_server_clients: string[];
             /**
+             * Allow Valid Access After Refresh Failure
+             * @default false
+             */
+            allow_valid_access_after_refresh_failure: boolean;
+            /**
              * Cli Only
              * @default false
              */
@@ -31179,6 +31560,11 @@ export interface components {
             output_tokens?: number | null;
             /** Proxy Endpoint */
             proxy_endpoint?: string | null;
+            /**
+             * Response Completed
+             * @default false
+             */
+            response_completed: boolean;
             /**
              * Retry After Seconds
              * @default 0
@@ -39458,8 +39844,10 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data" | "backup_selected" | "delete_backups" | "delete_images";
+            action: "apply" | "delete" | "note" | "guide" | "scan" | "deploy" | "recover" | "restore_data" | "backup_selected" | "delete_backups" | "delete_images" | "upgrade_cards";
             candidate?: components["schemas"]["ReleaseCandidate"] | null;
+            /** Card Ids */
+            card_ids?: string[] | null;
             /**
              * Force
              * @default false
@@ -40510,6 +40898,34 @@ export interface components {
             object: string | null;
             /** Run Id */
             run_id: string;
+        };
+        /** RuntimeCardView */
+        RuntimeCardView: {
+            /** Current Image Id */
+            current_image_id?: string | null;
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /** Name */
+            name: string;
+            /** Phase */
+            phase?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "current" | "update_available" | "unknown" | "maintenance";
+            /** Target Image Id */
+            target_image_id?: string | null;
+        };
+        /** RuntimeCardsView */
+        RuntimeCardsView: {
+            /** Cards */
+            cards: components["schemas"]["RuntimeCardView"][];
+            /** Default Image */
+            default_image: string;
         };
         /** SCIMEnterpriseUser */
         SCIMEnterpriseUser: {
@@ -45916,7 +46332,9 @@ export interface operations {
     };
     dashboard_stats_account_pool_dashboard_get: {
         parameters: {
-            query?: never;
+            query?: {
+                days?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -45930,6 +46348,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolDashboardStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -46325,6 +46752,41 @@ export interface operations {
             };
         };
     };
+    verify_access_token_fallback_account_pool_environments__environment_id__access_token_fallback_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolVerifyAccessTokenFallback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolAccessTokenFallbackVerification"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     delete_auth_file_account_pool_environments__environment_id__auth_file_delete: {
         parameters: {
             query?: never;
@@ -46539,6 +47001,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolBrowserProxy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    refresh_credentials_account_pool_environments__environment_id__credentials_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolRefreshCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolCredentialRefreshResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    submit_manual_oauth_callback_account_pool_environments__environment_id__oauth_callback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolOAuthCallback"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolEnvironment"];
                 };
             };
             /** @description Validation Error */
@@ -46822,6 +47354,142 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    quota_reset_status_account_pool_environments__environment_id__quota_reset_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    consume_quota_reset_account_pool_environments__environment_id__quota_reset_consume_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolConsumeReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetOperation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prepare_quota_reset_account_pool_environments__environment_id__quota_reset_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolPrepareReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetOperation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    verify_quota_reset_account_pool_environments__environment_id__quota_reset_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolVerifyReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolResetVerification"];
                 };
             };
             /** @description Validation Error */
@@ -48716,6 +49384,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutoUpdateView"];
+                };
+            };
+        };
+    };
+    cards_account_pool_releases_cards_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RuntimeCardsView"];
                 };
             };
         };

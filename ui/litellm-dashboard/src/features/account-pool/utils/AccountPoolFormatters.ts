@@ -8,6 +8,11 @@ import type {
 } from "./AccountPoolTypes";
 import type { TFunction } from "i18next";
 
+export const formatCount = (value: number, compact = true): string =>
+  new Intl.NumberFormat("en-US", compact
+    ? { notation: "compact", maximumFractionDigits: 1 }
+    : { maximumFractionDigits: 0 }).format(value);
+
 export const concurrencyLimitLabel = (t: TFunction): string => t("accountPool.config.concurrencyLimit");
 
 export const statusLabel = (t: TFunction, status: AccountPoolStatus): string => t(`accountPool.status.${status}`);

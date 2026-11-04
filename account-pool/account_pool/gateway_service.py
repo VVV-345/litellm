@@ -55,6 +55,7 @@ class GatewayService:
         model_cooldowns: Callable[[EnvironmentRecord], Awaitable[tuple[ModelCooldown, ...]]] | None = None,
         on_quota_exhausted: Callable[[UUID], None] | None = None,
         proxy_available: Callable[[EnvironmentRecord], Awaitable[bool]] | None = None,
+        on_api_completed: Callable[[Lease, FinishRequest], Awaitable[None]] | None = None,
     ) -> None:
         self.keys: Final = keys
         self.environments: Final = environments
@@ -67,6 +68,7 @@ class GatewayService:
         self.model_cooldowns: Final = model_cooldowns
         self.on_quota_exhausted: Final = on_quota_exhausted
         self.proxy_available: Final = proxy_available
+        self.on_api_completed: Final = on_api_completed
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
         key: Final = await self.keys.authenticate(request.card_key) if request.card_key else None
@@ -185,7 +187,7 @@ class GatewayService:
             supplier=record.supplier,
             environment_version=record.version,
             policy_version=policy.version,
-            enabled_models=endpoint.enabled_models,
+            enabled_models=endpoint.enabled_models if record.access_token_fallback.failure_source != "refresh" or (candidate_policy.codex is not None and candidate_policy.codex.allow_valid_access_after_refresh_failure and policy.runtime_status == "synced") else (),
             proxy_endpoint=record.proxy_profile_id or "default",
             api_base=endpoint.api_base,
             api_key=endpoint.api_key,
@@ -381,6 +383,12 @@ class GatewayService:
                     self.on_quota_exhausted(lease.account_id)
                 except Exception as error:
                     logging.getLogger(__name__).warning("Quota refresh enqueue failed: %s", type(error).__name__)
+
+        if request.completed_successfully and self.on_api_completed is not None:
+            try:
+                await self.on_api_completed(lease, request)
+            except Exception as error:
+                logging.getLogger(__name__).warning("Quota call verification persistence failed: %s", type(error).__name__)
 
     async def cooldown_delay(self, lease: Lease) -> int:
         if self.model_cooldowns is None or lease.channel != ChannelKind.CLIPROXYAPI:

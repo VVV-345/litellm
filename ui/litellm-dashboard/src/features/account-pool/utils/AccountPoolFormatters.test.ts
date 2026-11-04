@@ -9,6 +9,7 @@ import {
   canToggleEnvironment,
 } from "./AccountPoolPermissions";
 import {
+  formatCount,
   concurrencyLimitLabel,
   formatQuota,
   formatQuotaAmounts,
@@ -163,3 +164,9 @@ describe("account pool lifecycle controls", () => {
     expect(quotaWindowLabel(chinese, "Codex Spark Weekly")).toBe("Codex Spark 周额度");
   });
 });
+
+
+it.each([[0, "0"], [999, "999"], [1200, "1.2K"], [1500000, "1.5M"], [2300000000, "2.3B"]])("formats %i as %s", (value, expected) => {
+  expect(formatCount(Number(value))).toBe(expected);
+});
+it("keeps full counts available", () => { expect(formatCount(1234567, false)).toBe("1,234,567"); });

@@ -16,6 +16,7 @@ from account_pool.card_keys import hash_card_key
 from account_pool.domain import EnvironmentRecord, ModelCooldown, utc_now
 from account_pool.gateway_contracts import AcquireRejected, AcquireRequest, Candidate, Lease, Resolution
 from account_pool.repository import database_connection
+from account_pool.runtime_rollout_repository import RUNTIME_ROLLOUT_SCHEMA
 
 _SCHEMA: Final = (
     """CREATE TABLE IF NOT EXISTS account_pool_leases (
@@ -72,7 +73,7 @@ class PostgresLeaseRepository:
 
     async def initialize(self) -> None:
         async with database_connection(self._database_url) as connection:
-            for statement in _SCHEMA:
+            for statement in (*_SCHEMA, RUNTIME_ROLLOUT_SCHEMA):
                 await connection.execute(statement)
             await connection.execute(
                 """CREATE TABLE IF NOT EXISTS account_pool_token_budget_windows (
@@ -464,6 +465,11 @@ async def lock_version(
     )
     row: Final = await cursor.fetchone()
     if row is None or row["version"] != version:
+        return False
+    maintenance_cursor: Final = await connection.execute(
+        "SELECT 1 FROM account_pool_runtime_rollouts WHERE environment_id = %s AND phase <> 'verified'", (identifier,)
+    )
+    if await maintenance_cursor.fetchone() is not None:
         return False
     policy_cursor: Final = await connection.execute(
         "SELECT version FROM account_pool_policies WHERE card_id = %s",

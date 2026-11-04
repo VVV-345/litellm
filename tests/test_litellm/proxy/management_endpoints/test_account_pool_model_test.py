@@ -162,3 +162,40 @@ def test_real_router_resolves_card_by_deployment_id(monkeypatch, mode):
         assert calls[0]["model_info"]["id"] == "selected-id"
     finally:
         router.discard()
+
+
+@pytest.mark.parametrize("passed,restored,status", [(True, True, 200), (True, False, 409), (False, False, 409)])
+@pytest.mark.parametrize("mode", ["chat", "responses"])
+def test_access_only_model_test_verifies_then_synchronizes_exact_card(passed, restored, status, mode):
+    import json
+
+    events = []
+    router = RouterDouble({"choices":[{"message":{"content":"Hello"},"finish_reason":"stop"}],
+        "status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"Hello"}]}]})
+    async def manager(method, path, body):
+        if path.endswith("/access-token-fallback/verify"):
+            assert method == "POST" and path == f"/api/environments/{CARD}/access-token-fallback/verify"
+            assert json.loads(body) == {"model":"test-model", "confirmed":True}
+            events.append("verify")
+            return httpx.Response(200,json={"passed":passed,"restored":restored})
+        if path == "/api/settings":
+            return httpx.Response(200,json={"values":{}})
+        return httpx.Response(200,json={"enabled":True,"enabled_models":["test-model"],
+            "access_token_fallback":{"enabled":True,"active":False,"failure_source":"refresh","verified_models":[]}})
+    async def synchronize():
+        assert events == ["verify"]
+        events.append("synchronize")
+    def provider():
+        assert events == ["verify", "synchronize"]
+        return router
+    app = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(api_key="hashed-admin")
+    app.include_router(create_model_test_router(manager, lambda user: None, provider, synchronize=synchronize),prefix="/account_pool")
+    response = TestClient(app).post(f"/account_pool/environments/{CARD}/test",json={"model":"test-model","mode":mode})
+    assert response.status_code == status
+    assert events == (["verify", "synchronize"] if restored else ["verify"])
+    assert len(router.calls) == int(restored)
+    if restored:
+        assert response.json()["success"] is True
+        assert router.calls[0][1].card_id == CARD
+        assert router.calls[0][0]["model"] == "selected"

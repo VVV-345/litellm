@@ -1,5 +1,7 @@
 # LiteLLM 号池管理服务
 
+集中使用与维护入口：[总手册](../docs/handbook/README.md)。当前行为、逐卡升级与排障以集中手册和源码为准；下文保留既有安装及接口背景，带日期的验证记录不代表当前线上验收
+
 本目录提供 LiteLLM 号池的独立控制面。每个账号使用不可变 UUID 创建一个 Docker Compose 项目和独立网络，运行固定版本的 CLIProxyAPI。CLIProxyAPI 不发布宿主机端口，只能由号池管理服务和 LiteLLM 网关经该环境网络访问
 
 ## 架构

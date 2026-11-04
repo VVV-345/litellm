@@ -1,5 +1,6 @@
 """发布清单必须有三个组件在所选架构上通过探测及固定补丁来源。"""
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -55,7 +56,9 @@ def test_release_manifest_records_all_components_and_adapter_provenance(
     assert manifest["images"]["litellm"]["source_revision"] == REVISION
     adapted: Final = manifest["images"]["cliproxyapi"]
     assert adapted["source_revision"] == "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
-    assert adapted["patch_sha256"] == "b1d310d5c106626ffe2177d7f2864fa540c08e1aebceeb6b049ef9e92c190e83"
+    assert adapted["patch_sha256"] == hashlib.sha256(
+        (ROOT / "account-pool/cliproxy-adapter/settings-adaptation.patch").read_bytes()
+    ).hexdigest()
     assert adapted["managed_identity_version"] == 1
 
 
@@ -134,6 +137,32 @@ def test_architecture_selector_emits_validated_matrix(selection: str, expected: 
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout == "architectures=" + json.dumps(expected, separators=(",", ":")) + "\n"
+
+
+@pytest.mark.parametrize("broken", ["", "key", "revision", "probe", "missing-key"])
+def test_independent_cpa_receipt_is_bound_to_manager(tmp_path: Path, broken: str) -> None:
+    _receipts(tmp_path)
+    for component in ("manager", "cliproxyapi"):
+        path = tmp_path / f"{component}-arm64.json"
+        receipt = json.loads(path.read_bytes())
+        receipt["cpa_build_key"] = "e" * 64
+        if component == "cliproxyapi":
+            receipt["revision"] = "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
+            if broken == "key":
+                receipt["cpa_build_key"] = "f" * 64
+            elif broken == "revision":
+                receipt["revision"] = REVISION
+            elif broken == "probe":
+                receipt["probe"] = "failed"
+            elif broken == "missing-key":
+                del receipt["cpa_build_key"]
+        path.write_text(json.dumps(receipt), encoding="utf-8")
+    result = _run(tmp_path)
+    assert result.returncode == (2 if broken else 0), result.stderr
+    if not broken:
+        manifest = json.loads((tmp_path / "release-manifest.json").read_bytes())
+        assert manifest["schema"] == 3
+        assert manifest["images"]["cliproxyapi"]["build_keys"] == {"linux/arm64": "e" * 64}
 
 
 @pytest.mark.parametrize("selection", ["", "arm64,arm64", "s390x", "amd64,", "arm64;echo bad"])

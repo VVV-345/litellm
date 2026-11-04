@@ -268,7 +268,7 @@ describe("ProxyManagerPanel", () => {
       ...gateways[0],
       isp_profile_id: "isp-1",
       front_node_name: null,
-      current_node: "account-pool-isp-7891-test",
+      current_node: "account-pool-isp-7891-isp1",
     };
     listGateways.mockResolvedValue([{ ...direct, front_node_name: "机场A" }]);
     listNodes.mockResolvedValue([{ name: "机场A", proxy_type: "Shadowsocks" }]);
@@ -280,7 +280,7 @@ describe("ProxyManagerPanel", () => {
     renderPanel();
     await user.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
     await user.click(await screen.findByRole("combobox", { name: "机场前置：Clash 端口 7891" }));
-    await user.click(screen.getByRole("option", { name: "无前置，ISP 直连" }));
+    await user.click(await screen.findByRole("option", { name: "无前置，ISP 直连" }));
     await waitFor(() => expect(bindFront).toHaveBeenCalledWith("token", 7891, null));
     await waitFor(() =>
       expect(screen.getByRole("combobox", { name: "机场前置：Clash 端口 7891" })).toHaveTextContent("无前置，ISP 直连"),
@@ -298,7 +298,42 @@ describe("ProxyManagerPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
 
     expect(await screen.findByText("ISP 链路未就绪，端口已阻断：ISP A")).toBeInTheDocument();
-    expect(screen.getByText("请选择可用的机场前置节点以恢复 ISP 链路，不会自动直连 ISP")).toBeVisible();
+    expect(screen.getByText("已配置的前置节点不可用，链路已阻断。请选择可用节点，或明确选择无前置直连 ISP")).toBeVisible();
+  });
+
+  it("allows direct ISP and explicitly removing an existing front", async () => {
+    const user = userEvent.setup();
+    listGateways.mockResolvedValue([
+      { ...gateways[0], isp_profile_id: "isp-1", front_node_name: null, current_node: "account-pool-isp-7891-isp1" },
+    ]);
+    listNodes.mockResolvedValue([{ name: "airport-a", proxy_type: "Shadowsocks" }]);
+    listIsps.mockResolvedValue([ispProfile]);
+    renderPanel();
+    await user.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
+    expect(await screen.findByText("当前 ISP：ISP A")).toBeVisible();
+    const front = screen.getByRole("combobox", { name: "机场前置：Clash 端口 7891" });
+    expect(front).toHaveTextContent("无前置，ISP 直连");
+    expect(screen.queryByText(/已配置的前置节点不可用/)).not.toBeInTheDocument();
+    bindFront.mockImplementation(async (_token: string, _port: number, node: string | null) => {
+      const updated = { ...gateways[0], isp_profile_id: "isp-1", front_node_name: node, current_node: "account-pool-isp-7891-isp1" };
+      listGateways.mockResolvedValue([updated]);
+      return updated;
+    });
+    await user.click(front);
+    await user.click(await screen.findByRole("option", { name: "airport-a" }));
+    await waitFor(() => expect(front).toHaveTextContent("airport-a"));
+    await user.click(front);
+    await user.click(await screen.findByRole("option", { name: "无前置，ISP 直连" }));
+    await waitFor(() => expect(bindFront).toHaveBeenLastCalledWith("token", 7891, null));
+    await waitFor(() => expect(front).toHaveTextContent("无前置，ISP 直连"));
+  });
+
+  it("does not label a rejected direct ISP chain as ready", async () => {
+    listGateways.mockResolvedValue([{ ...gateways[0], isp_profile_id: "isp-1", front_node_name: null, current_node: "REJECT" }]);
+    listIsps.mockResolvedValue([ispProfile]);
+    renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /Clash 端口设置/ }));
+    expect(await screen.findByText("ISP 链路未就绪，端口已阻断：ISP A")).toBeVisible();
   });
 
   it("keeps ISP and configuration visible with port settings collapsed until opened", async () => {

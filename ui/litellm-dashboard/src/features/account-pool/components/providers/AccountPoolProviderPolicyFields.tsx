@@ -154,6 +154,12 @@ export function AccountPoolProviderPolicyFields({
       return (
         <>
           {summary}
+          {toggleField({
+            label: t("accountPool.credential.fallback"),
+            description: t("accountPool.credential.fallbackHelp"),
+            checked: codex.allow_valid_access_after_refresh_failure ?? false,
+            onChange: (next) => onCodexChange("allow_valid_access_after_refresh_failure", next),
+          })}
           {selectField({
             label: t("accountPool.policy.identity_fingerprint_mode"),
             description: t("accountPool.policy.identityFingerprintModeDescription"),

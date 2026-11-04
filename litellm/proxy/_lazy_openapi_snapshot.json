@@ -17131,6 +17131,58 @@
   "mcp_discoverable": {
     "components": {
       "schemas": {
+        "AccountPoolAccessTokenFallbackStatus": {
+          "properties": {
+            "active": {
+              "default": false,
+              "title": "Active",
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": false,
+              "title": "Enabled",
+              "type": "boolean"
+            },
+            "expires_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Expires At"
+            },
+            "failure_source": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Failure Source"
+            },
+            "reason": {
+              "default": "not_needed",
+              "title": "Reason",
+              "type": "string"
+            },
+            "verified_models": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "title": "Verified Models",
+              "type": "array"
+            }
+          },
+          "title": "AccountPoolAccessTokenFallbackStatus",
+          "type": "object"
+        },
         "AccountPoolAuthorization": {
           "properties": {
             "authorization_url": {
@@ -17189,8 +17241,85 @@
           "title": "AccountPoolAuthorization",
           "type": "object"
         },
+        "AccountPoolCredentialRefreshStatus": {
+          "properties": {
+            "access_expires_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Access Expires At"
+            },
+            "last_attempt_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Attempt At"
+            },
+            "last_result": {
+              "default": "unknown",
+              "title": "Last Result",
+              "type": "string"
+            },
+            "last_success_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Success At"
+            },
+            "next_refresh_at": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next Refresh At"
+            },
+            "running": {
+              "default": false,
+              "title": "Running",
+              "type": "boolean"
+            },
+            "save_pending": {
+              "default": false,
+              "title": "Save Pending",
+              "type": "boolean"
+            },
+            "schedule_reason": {
+              "default": "unavailable",
+              "title": "Schedule Reason",
+              "type": "string"
+            }
+          },
+          "title": "AccountPoolCredentialRefreshStatus",
+          "type": "object"
+        },
         "AccountPoolEnvironment": {
           "properties": {
+            "access_token_fallback": {
+              "$ref": "#/components/schemas/AccountPoolAccessTokenFallbackStatus"
+            },
             "authorization_flow": {
               "default": "browser_oauth",
               "enum": [
@@ -17247,6 +17376,9 @@
             "created_at": {
               "title": "Created At",
               "type": "string"
+            },
+            "credential_refresh": {
+              "$ref": "#/components/schemas/AccountPoolCredentialRefreshStatus"
             },
             "desired_configuration_version": {
               "default": 0,

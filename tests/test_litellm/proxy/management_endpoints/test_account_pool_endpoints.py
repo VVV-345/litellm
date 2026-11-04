@@ -32,6 +32,52 @@ _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
 
 
+@pytest.mark.parametrize("action,extra", [("quota-reset", {"recover": True}), ("access-token-fallback", {})])
+def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard(action, extra) -> None:
+    calls = []
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={"passed": False, "restored": False, "reason": "authentication_failed"})
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+    payload = {"model": "gpt-6-astra", "confirmed": True, **extra}
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/{action}/verify", json=payload)
+        assert response.status_code == 200
+        assert response.json()["restored"] is False
+    assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/{action}/verify"
+    assert calls[0].extensions["timeout"]["read"] == 120.0
+    assert json.loads(calls[0].content) == payload
+    assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/{action}/verify", json=payload)
+        assert response.status_code == 403
+    assert len(calls) == 1
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/{action}/verify", json={**payload, "confirmed": False})
+        assert response.status_code == 422
+    assert len(calls) == 1
+
+
+def test_credential_refresh_proxy_requires_confirmation_version_and_admin():
+    calls = []
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200,json={"saved":True,"reason":"saved","status":{"last_result":"saved"}})
+    def factory():
+        return AccountPoolManagerClient("http://manager.test",_MANAGER_TOKEN,client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    path = f"/account_pool/environments/{_ENVIRONMENT_ID}/credentials/refresh"
+    payload = {"version":4,"confirmed":True}
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(path,json=payload)
+        assert response.status_code == 200 and response.json()["saved"] is True
+        assert client.post(path,json={"version":4,"confirmed":False}).status_code == 422
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER),factory)) as client:
+        assert client.post(path,json=payload).status_code == 403
+    assert len(calls) == 1 and json.loads(calls[0].content) == payload
+
+
 def test_retired_channel_logs_remain_parseable_at_the_proxy_boundary() -> None:
     current: Final = ErrorLogRecord(
         channel="cliproxyapi",
@@ -70,6 +116,7 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
 
     assert policy.codex is not None
     assert policy.codex.responses_compact_enabled is True
+    assert policy.codex.allow_valid_access_after_refresh_failure is False
     assert set(policy.codex.model_dump()) == {
         "identity_fingerprint_mode",
         "cli_only",
@@ -78,6 +125,7 @@ def test_legacy_desktop_policy_fields_are_ignored_at_the_proxy_boundary() -> Non
         "responses_compact_enabled",
         "identity_confuse",
         "disable_codex_cloaking",
+        "allow_valid_access_after_refresh_failure",
     }
 
 
@@ -434,11 +482,15 @@ def test_proxy_admin_can_read_channel_and_supplier_metadata() -> None:
 
 
 @pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.INTERNAL_USER))
-def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUserRoles) -> None:
+@pytest.mark.parametrize("days", [1, 7, 14, 30, 90])
+def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUserRoles, days: int) -> None:
     def factory() -> AccountPoolManagerClient:
         pytest.fail("Standard statistics must not depend on the account manager")
 
-    async def read_dashboard() -> AccountPoolDashboardStats:
+    expected_days = days
+
+    async def read_dashboard(*, days: int = 30) -> AccountPoolDashboardStats:
+        assert days == expected_days
         assert role == LitellmUserRoles.PROXY_ADMIN
         return AccountPoolDashboardStats(
             summary=ErrorStats(total_requests=4, succeeded_requests=3, failed_requests=1, statistics_source="litellm"),
@@ -451,7 +503,7 @@ def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUser
     app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=role)
 
     with TestClient(app) as client:
-        response: Final = client.get("/account_pool/dashboard")
+        response: Final = client.get(f"/account_pool/dashboard?days={days}")
 
     assert response.status_code == (200 if role == LitellmUserRoles.PROXY_ADMIN else 403)
     if role == LitellmUserRoles.PROXY_ADMIN:
@@ -1133,3 +1185,36 @@ def test_browser_proxy_export_requires_admin_and_disables_caching(role: LitellmU
         assert response.json()["password"] == "secret"
     else:
         assert "secret" not in response.text
+def test_manual_oauth_callback_admin_guard_and_manager_forwarding() -> None:
+    calls: Final[list[httpx.Request]] = []
+    payload: Final = {"state": "synthetic-state-value", "code": "synthetic-code"}
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(409, json={"detail": "OAuth callback has already been consumed"})
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+    path: Final = f"/account_pool/environments/{_ENVIRONMENT_ID}/oauth-callback"
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.post(path, json=payload).status_code == 403
+    assert not calls
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        assert client.post(path, json=payload).status_code == 409
+        invalid: Final = client.post(path, json={"code": "synthetic-code"})
+        assert invalid.status_code == 422
+        assert "synthetic-code" not in invalid.text
+    assert len(calls) == 1
+    assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/oauth-callback"
+    assert json.loads(calls[0].content) == payload
+    assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+
+
+@pytest.mark.parametrize("days", ["0", "91", "-1", "invalid"])
+def test_dashboard_rejects_invalid_range_without_reading_statistics(days):
+    async def reader(*, days=30):
+        pytest.fail("invalid range must be rejected before querying")
+    app = FastAPI()
+    app.include_router(create_account_pool_router(dashboard_reader=reader))
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        assert client.get(f"/account_pool/dashboard?days={days}").status_code == 422

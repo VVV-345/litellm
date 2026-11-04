@@ -53,6 +53,9 @@
 
 | 路径 | 职责 |
 | --- | --- |
+| `account_pool/batch/` | 批量任务模型、持久化及完整执行服务 |
+| `account_pool/onboarding/` | 账号接入模型、持久化、任务编排及 API |
+| `account_pool/feedback/` | 反馈模型、持久化、状态编排、API 及附件校验 |
 | `account_pool/application/authorization.py` | 授权有效期和回调 URL 的纯计算 |
 | `account_pool/application/environment_state.py` | 配置补偿和冷却状态判断 |
 | `account_pool/application/profile_updates.py` | 命名配置与卡片原配置的差异计算 |
@@ -513,3 +516,13 @@ Mac 本地测试更新为 `litellm-local-test:external-oauth-only` 和 `account-
 定向回归 383 项通过，覆盖真实 Compose 参数、失败幂等请求、ISP、账号生命周期、镜像维护和发布备份边界。先观察到四项回归失败，再实现修复并通过。Ruff 通过；ComposeRuntime 定向类型检查仍有九项既有诊断，位于本轮未修改代码，不计为通过
 
 本轮上游拉取网络超时，工作基于本地 `9d697da7e0`。本地修复需保留失败卡片的原标识、Compose 和数据卷，只在确认从未授权且认证目录为空后补齐容器与网络；不得通过重新播种配置覆盖已有凭据
+
+## 2026-11-03：批量、账号接入及反馈按职责归组
+
+12 个平铺实现文件移入 `account_pool/batch/`、`account_pool/onboarding/`、`account_pool/feedback/`，5 个原有测试跟随相应职责目录，包根层 Python 文件从 76 个减为 64 个。同步更新组装入口、认证导入、验收脚本、跨服务测试、CI 单测路径和集中手册引用
+
+移动保留完整服务、事务和锁，不改默认值、SQL、接口、网络调用顺序或部署。`account_pool.feedback` 以显式导出保留 `FeedbackActor`、`FeedbackFailure`、`FeedbackRepository`、`FeedbackService`，没有为其他旧内部模块逐个新增转发文件。已有 `quota`、`provider_quota` 等兼容入口保留
+
+整理前后相关回归均为 417 项通过，36 个模型、144 个应用路由的 OpenAPI 及数据库声明契约校验值一致。Manager 全量前后均为 1229 通过、32 跳过、2 失败：`test_authorization_view_contract_has_only_public_authorization_instructions` 的快照未包含新增状态字段，`test_policy_versions_and_supplier_scope` 的预期未包含 `allow_valid_access_after_refresh_failure`。这些既有失败未混入本轮修改，缺少隔离数据库或 Docker 显式开关的检查没有计作通过
+
+CI 独立运行的上号契约测试通过，反馈 CLI 本机 fixture 为 17 通过及 26 个子测试通过。构建 wheel 内含 134 个 Python 文件，21 个入口从解包后的 wheel 实际导入，命令行入口仍是 `account_pool.app:main`。集中手册 186 个本地链接通过检查。以上是本地结构检查，不代表已构建生产镜像、部署或完成真实账号授权

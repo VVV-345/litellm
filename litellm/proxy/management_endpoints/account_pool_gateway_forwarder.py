@@ -72,6 +72,7 @@ from litellm.proxy.management_endpoints.account_pool_stream import (
     EventStream,
     IncompleteStreamError,
     cache_usage_tokens,
+    completed_response,
     usage_tokens,
 )
 from litellm.proxy.management_endpoints.account_pool_timing import RequestTiming
@@ -959,13 +960,10 @@ async def execute(
                         )
                         bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
                         try:
-                            await bootstrap.prepare()
-                            if (
-                                bootstrap.buffer.tell() >= 65536
-                                and not bootstrap.state.meaningful and not bootstrap.state.terminal
-                            ):
-                                attempt.stream_state.signature_recovery_reason = "preflight_limit"
-                                bootstrap.state.signature_recovery_reason = "preflight_limit"
+                            await bootstrap.prepare(deadline)
+                            if bootstrap.limit_reason is not None:
+                                attempt.stream_state.signature_recovery_reason = bootstrap.limit_reason
+                                bootstrap.state.signature_recovery_reason = bootstrap.limit_reason
                             if (
                                 bootstrap.state.failed and not bootstrap.state.meaningful
                                 and bootstrap.state.signature_rejected
@@ -1035,6 +1033,7 @@ async def execute(
                     attempt.outcome(
                         response.status_code,
                         "Request completed",
+                        stage="response",
                         input_tokens=usage_in,
                         output_tokens=usage_out,
                         cache_read_input_tokens=cache_read,
@@ -1051,6 +1050,9 @@ async def execute(
                         status_code=response.status_code,
                         headers={**public_response_headers(response.headers), **degraded_headers(request)},
                     )(request.scope, request.receive, attempt.emit)
+                    attempt.result = attempt.result.model_copy(update={
+                        "response_completed": completed_response(parsed, responses_api=attempt.result.endpoint == "/v1/responses"),
+                    })
                 return True
             finally:
                 await response.aclose()
@@ -1374,13 +1376,10 @@ async def guarded_stream_response(
     bootstrap.state.signature_recovery_reason = attempt.stream_state.signature_recovery_reason
     try:
         if prepared is None:
-            await bootstrap.prepare()
-            if (
-                bootstrap.buffer.tell() >= 65536
-                and not bootstrap.state.meaningful and not bootstrap.state.terminal
-            ):
-                attempt.stream_state.signature_recovery_reason = "preflight_limit"
-                bootstrap.state.signature_recovery_reason = "preflight_limit"
+            await bootstrap.prepare(deadline)
+            if bootstrap.limit_reason is not None:
+                attempt.stream_state.signature_recovery_reason = bootstrap.limit_reason
+                bootstrap.state.signature_recovery_reason = bootstrap.limit_reason
         if bootstrap.state.failed and not bootstrap.state.meaningful:
             if bootstrap.state.signature_rejected:
                 attempt.signature_failure_reason = bootstrap.state.signature_recovery_reason
@@ -1545,6 +1544,7 @@ async def stream_response(
                 response.status_code,
                 "Request completed",
                 stage="response",
+                response_completed=state.completed,
                 input_tokens=state.input_tokens,
                 output_tokens=state.output_tokens,
                 cache_read_input_tokens=state.cache_read_input_tokens,

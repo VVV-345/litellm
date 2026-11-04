@@ -5,8 +5,22 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Final
 
-from account_pool.domain import ProviderEndpointFailure, QuotaBalance, QuotaSnapshot, QuotaWindow
+from account_pool.domain import ModelQuotaSnapshot, ProviderEndpointFailure, QuotaBalance, QuotaSnapshot, QuotaWindow
 from account_pool.providers.usage.contracts import ProviderQuotaRefresh
+
+
+def merge_model_quotas(
+    previous: tuple[ModelQuotaSnapshot, ...], incoming: tuple[ModelQuotaSnapshot, ...]
+) -> tuple[ModelQuotaSnapshot, ...]:
+    merged = {item.model: item for item in previous}
+    for item in incoming:
+        old = merged.get(item.model)
+        if old is not None and old.quota.observed_at is not None and (
+            item.quota.observed_at is None or item.quota.observed_at < old.quota.observed_at
+        ):
+            continue
+        merged[item.model] = item
+    return tuple(merged.values())
 
 
 def _merge_quota_snapshots(

@@ -282,6 +282,53 @@ def test_new_deployment_backs_up_running_images_and_rejects_schema_changes(
     assert service.store.jobs()[0].status == ("succeeded" if compatible else "failed")
 
 
+def test_per_card_release_failure_keeps_new_manager_and_same_version_resumes(tmp_path: Path) -> None:
+    from account_pool.release_runtime import PRODUCT_REPOSITORY
+
+    def product(selected):
+        return selected.model_copy(update={"images": tuple(
+            image.model_copy(update={"repository": PRODUCT_REPOSITORY}) for image in selected.images
+        )})
+
+    class ProductRuntime(Runtime):
+        def __init__(self):
+            super().__init__()
+            self.running = product(CURRENT)
+            self.remaining = ("card-a", "card-b")
+            self.fail_card = True
+
+        def pull(self, tag):
+            self.events += ("pull:" + tag,)
+            return product(NEW)
+
+        def product_configuration(self, selected, configuration):
+            return configuration
+
+        def rollout_cards(self, selected, configuration, progress):
+            for card in self.remaining:
+                progress("逐卡运行时升级 " + card)
+                self.events += (card,)
+                if self.fail_card and card == "card-b":
+                    self.remaining = ("card-b",)
+                    raise ReleaseError("card-b failed; gate retained")
+            self.remaining = ()
+
+    runtime = ProductRuntime()
+    clock = Clock()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0)
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert runtime.running == product(NEW)
+    assert service.store.jobs()[0].status == "failed"
+    assert "card-b" in service.store.jobs()[0].phase
+    assert not any(event == "load:" + CURRENT.id for event in runtime.events)
+    runtime.fail_card = False
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    assert service.store.jobs()[0].status == "succeeded"
+    assert runtime.events.count("card-a") == 1
+    assert runtime.events.count("card-b") == 2
+    assert runtime.events.count("apply:" + NEW.id) == 1
+
+
 def test_configured_compatibility_bypass_allows_incompatible_deployment(
     setup: tuple[ReleaseService, Runtime, Clock],
 ) -> None:
@@ -734,3 +781,34 @@ def test_skip_compatibility_cannot_execute_unsafe_manager_startup(setup):
     bypassed.run(job)
     assert service.store.jobs()[0].status == "failed"
     assert not any(event.startswith("apply:") for event in runtime.events)
+
+
+@pytest.mark.parametrize("fail", [False, True])
+def test_selected_card_update_uses_confirmed_job_without_deploying_or_backing_up_product(setup, monkeypatch, fail):
+    from uuid import UUID
+    service, runtime, clock = setup
+    ids = (UUID(int=1), UUID(int=2))
+    calls = []
+    monkeypatch.setattr(runtime, "pull", lambda tag: runtime.running)
+    def rollout(pair, configuration, progress, *, card_ids=None):
+        assert pair == CURRENT and card_ids == ids
+        calls.append(card_ids)
+        progress("selected card")
+        if fail:
+            raise ReleaseError("card failed; gate retained")
+    monkeypatch.setattr(runtime, "rollout_cards", rollout, raising=False)
+    job = queued(service, clock, ReleaseAction(action="upgrade_cards", card_ids=ids, revision=0))
+    service.run(job)
+    saved = service.store.jobs()[0]
+    assert saved.status == ("failed" if fail else "succeeded")
+    assert calls == [ids]
+    assert runtime.events == ()
+    assert runtime.running == CURRENT
+
+
+@pytest.mark.parametrize("operation,ids", [("upgrade_cards", None), ("scan", ("00000000-0000-0000-0000-000000000001",)),
+    ("upgrade_cards", ("00000000-0000-0000-0000-000000000001",) * 2)])
+def test_card_update_rejects_missing_unrelated_or_duplicate_selection(setup, operation, ids):
+    service, _, _ = setup
+    with pytest.raises(ReleaseError):
+        service.prepare(ReleaseAction(action=operation, card_ids=ids, revision=0), "admin")

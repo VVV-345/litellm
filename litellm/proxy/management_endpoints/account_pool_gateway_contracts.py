@@ -158,6 +158,7 @@ class Lease(BaseModel):
 
 class FinishRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+    response_completed: bool = False
     lease_id: UUID
     http_status: int = Field(ge=100, le=599)
     stage: Literal["connection", "upstream", "response"] = "upstream"
@@ -183,6 +184,14 @@ class FinishRequest(BaseModel):
     cost_details: dict[str, JsonValue] = Field(default_factory=dict)
     full_log_state: Literal["disabled", "stored", "truncated", "failed"] = "disabled"
     spend_sync_state: Literal["pending", "synced", "failed", "unavailable", "standard"] = "pending"
+
+    @property
+    def completed_successfully(self) -> bool:
+        return (
+            self.response_completed and self.http_status == 200 and self.stage == "response"
+            and not self.retryable and self.failure_reason is None and self.upstream_code is None
+            and self.method == "POST" and self.endpoint in ("/v1/responses", "/v1/chat/completions")
+        )
 
 
 class AcquireRejected(BaseModel):

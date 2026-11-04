@@ -854,16 +854,114 @@ def test_wrapped_request_rejection_never_retries_or_cools_account(code: str) -> 
 async def test_stream_bootstrap_bounds_buffer_and_replays_every_byte() -> None:
     from litellm.proxy.management_endpoints.account_pool_retry import StreamBootstrap
 
-    oversized: Final = b":" + b" " * 70000 + b"\n\ndata: [DONE]\n\n"
+    oversized: Final = b": ping\n\n" * (4 * 1024 * 1024 // 8 + 1) + b"data: [DONE]\n\n"
 
     async def chunks():
         yield oversized
 
     bootstrap: Final = StreamBootstrap(chunks())
     await bootstrap.prepare()
-    assert bootstrap.buffer.tell() == 65536
+    assert bootstrap.buffer.tell() == 4 * 1024 * 1024
+    assert bootstrap.limit_reason == "preflight_limit"
     assert b"".join([chunk async for chunk in bootstrap.replay()]) == oversized
     await bootstrap.close()
+
+
+@pytest.mark.asyncio
+async def test_stream_bootstrap_timeout_keeps_pending_success_for_replay() -> None:
+    from litellm.proxy.management_endpoints.account_pool_retry import StreamBootstrap
+
+    ready = asyncio.Event()
+    done = b'data: {"type":"response.completed"}\n\n'
+
+    async def chunks():
+        await ready.wait()
+        yield done
+
+    bootstrap = StreamBootstrap(chunks(), responses_api=True)
+    try:
+        await bootstrap.prepare(asyncio.get_running_loop().time() + 0.01)
+        assert bootstrap.limit_reason == "preflight_timeout"
+        ready.set()
+        assert b"".join([chunk async for chunk in bootstrap.replay()]) == done
+    finally:
+        await bootstrap.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunk_size", [17, 1000000])
+@pytest.mark.parametrize("kind", ["65535", "65536", "65537", "comments", "ping", "metadata", "large_error", "tool"])
+async def test_signature_preflight_crosses_soft_limit_without_replaying_tools(kind, chunk_size) -> None:
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    error = b'data: {"type":"error","error":{"code":"thinking_signature_invalid"}}\n\n'
+    done = b'data: {"type":"response.completed"}\n\n'
+    if kind.isdigit():
+        data = b": " + b"x" * (int(kind) - len(error) - 4) + b"\n\n" + error
+    elif kind == "comments":
+        data = b": ping\n\n" * 8192 + error
+    elif kind == "ping":
+        data = b'data: {"type":"ping"}\n\n' * 3000 + error
+    elif kind == "metadata":
+        data = b'data: {"type":"response.metadata","padding":"' + b"x" * 65536 + b'"}\n\n' + error
+    elif kind == "large_error":
+        data = b'data: {"type":"error","error":{"code":"thinking_signature_invalid","message":"' + b"x" * 65536 + b'"}}\n\n'
+    else:
+        data = b'data: {"type":"response.output_item.added","item":{"type":"function_call","call_id":"new","name":"lookup","arguments":"{}"}}\n\n' + error
+
+    class Chunks(httpx.AsyncByteStream):
+        def __init__(self, content):
+            self.content = content
+
+        async def __aiter__(self):
+            for index in range(0, len(self.content), chunk_size):
+                yield self.content[index:index + chunk_size]
+
+    captured = []
+    emitted = []
+    history = [
+        {"role": "user", "content": "fixture task"},
+        {"type": "reasoning", "encrypted_content": "fixture-state"},
+        {"type": "function_call", "call_id": "old", "name": "lookup", "arguments": "{}"},
+        {"type": "function_call_output", "call_id": "old", "output": "fixture result"},
+    ]
+    payload = {"model": "model-a", "stream": True, "input": history,
+               "tools": [{"type": "function", "name": "lookup", "parameters": {"type": "object"}}],
+               "tool_choice": "auto"}
+
+    def upstream(request):
+        captured.append(request)
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              stream=Chunks(data if len(captured) == 1 else done))
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    async def send(message):
+        emitted.append(message)
+
+    _, control = setup_gateway(upstream, max_attempts=3)
+    request = Request({"type": "http", "path": "/v1/responses", "method": "POST", "headers": [],
+                       "query_string": b"", "asgi": {"spec_version": "2.4"}}, receive)
+    request.state.account_pool_standard_accounting = True
+    selected = routes(control.resolution, "model-a", request.url.path, Headers())
+    assert not isinstance(selected, Rejected)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        await forward(request, payload, _KEY, None, control.resolution, selected, control, client, send)
+    assert len(captured) == (1 if kind == "tool" else 2)
+    assert all(call.url == captured[0].url for call in captured)
+    for call in captured:
+        body = json.loads(call.content)
+        assert body["tools"] == payload["tools"] and body["tool_choice"] == "auto"
+        assert [item for item in body["input"] if item.get("type") in ("function_call", "function_call_output")] == history[2:]
+    body = b"".join(message.get("body", b"") for message in emitted)
+    assert control.finished[0].http_status == (400 if kind == "tool" else 200)
+    if kind == "tool":
+        assert body.count(b"response.output_item.added") == 1
+    else:
+        assert body == done
 
 
 @pytest.mark.asyncio
@@ -933,6 +1031,33 @@ async def test_nonreplayable_stream_forwards_handshake_before_waiting_for_output
         await response.aclose()
     assert delivered.is_set()
     assert attempt.result.http_status == 200
+
+
+@pytest.mark.parametrize("endpoint,body,stream,expected", [
+    ("/v1/responses", {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "ok"}]}]}, False, True),
+    ("/v1/responses", {"status": "incomplete", "output": []}, False, False),
+    ("/v1/responses", {"error": {"code": "invalid_request_error"}}, False, False),
+    ("/v1/responses", {"id": "empty"}, False, False),
+    ("/v1/chat/completions", {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]}, False, True),
+    ("/v1/chat/completions", {"choices": [{"message": {"content": "partial"}, "finish_reason": None}]}, False, False),
+    ("/v1/responses", 'data: {"type":"response.completed","response":{"status":"completed","output":[{"type":"message"}]}}\n\n', True, True),
+    ("/v1/responses", 'data: {"type":"response.incomplete","response":{"status":"incomplete"}}\n\n', True, False),
+    ("/v1/responses", 'data: {"type":"response.output_text.delta","delta":"partial"}\n\n', True, False),
+    ("/v1/responses", 'data: {"type":"error","error":{"code":"server_error"}}\n\n', True, False),
+    ("/v1/chat/completions", 'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}\n\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n', True, True),
+    ("/v1/chat/completions", 'data: [DONE]\n\n', True, False),
+])
+def test_quota_call_proof_requires_completed_response(endpoint, body, stream, expected):
+    response = (httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+                if stream else httpx.Response(200, json=body))
+    client, control = setup_gateway(lambda _: response)
+    with client:
+        client.post(endpoint, headers={"Authorization": f"Bearer {_KEY}"}, json={
+            "model": "model-a", "stream": stream,
+            **({"input": "hello"} if endpoint.endswith("responses") else {"messages": [{"role": "user", "content": "hello"}]}),
+        })
+    assert control.finished
+    assert all(getattr(item, "response_completed", False) is expected for item in control.finished)
 
 
 class Control:
@@ -2419,8 +2544,8 @@ async def test_bootstrap_deadline_does_not_expose_unfinished_handshake_and_close
 
     bootstrap = StreamBootstrap(chunks(), responses_api=True)
     try:
-        with pytest.raises(TimeoutError):
-            await bootstrap.prepare(asyncio.get_running_loop().time() + 0.03)
+        await bootstrap.prepare(asyncio.get_running_loop().time() + 0.03)
+        assert bootstrap.limit_reason == "preflight_timeout"
         assert not bootstrap.state.meaningful
     finally:
         await bootstrap.close()
@@ -2949,7 +3074,7 @@ async def test_signature_diagnostics_match_observed_recovery(endpoint, accountin
             'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"visible"}}\n\n'
         ) if case == "output_started" else ""
         if case == "preflight_limit":
-            prefix = ": " + "x" * 65536 + "\n\n"
+            prefix = ": ping\n\n" * (4 * 1024 * 1024 // 8)
         event = (
             {"type": "response.completed" if responses_api else "message_stop"} if recovered else
             {"type": "error", "error": {"code": code}}

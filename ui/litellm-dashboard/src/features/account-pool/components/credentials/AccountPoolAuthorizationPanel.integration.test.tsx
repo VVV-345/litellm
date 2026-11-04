@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -25,17 +26,20 @@ const authorization = {
 };
 
 const renderPanel = () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
   const view = (
     environmentId = "card-1",
     accessToken = "admin-token",
     authorizationUrl = authorization.authorization_url,
   ) => (
-    <AccountPoolAuthorizationPanel
-      authorization={{ ...authorization, authorization_url: authorizationUrl }}
-      accessToken={accessToken}
-      environmentId={environmentId}
-      idPrefix="authorization"
-    />
+    <QueryClientProvider client={client}>
+      <AccountPoolAuthorizationPanel
+        authorization={{ ...authorization, authorization_url: authorizationUrl }}
+        accessToken={accessToken}
+        environmentId={environmentId}
+        idPrefix="authorization"
+      />
+    </QueryClientProvider>
   );
   return { ...render(view()), view };
 };
@@ -85,7 +89,10 @@ describe("AccountPoolAuthorizationPanel external browser", () => {
     fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Authorization unavailable");
-    expect(screen.queryByRole("button", { name: "Open in this browser" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open in this browser" })).toHaveAttribute(
+      "href",
+      authorization.authorization_url,
+    );
     expect(screen.getByRole("button", { name: "Generate local browser link" })).toBeEnabled();
   });
 
@@ -96,7 +103,10 @@ describe("AccountPoolAuthorizationPanel external browser", () => {
     await screen.findByRole("button", { name: "Open in this browser" });
 
     rerender(view("card-2", "another-admin"));
-    expect(screen.queryByRole("button", { name: "Open in this browser" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open in this browser" })).toHaveAttribute(
+      "href",
+      authorization.authorization_url,
+    );
   });
 
   it("preserves the verification link and code for device authorization", () => {
@@ -159,6 +169,95 @@ it("keeps the Camoufox Key in this browser while preparing the ISP and opening f
   fireEvent.click(screen.getByText("Camoufox browser"));
   expect(screen.getByLabelText("Local helper Key")).toHaveValue("local-key");
   vi.unstubAllGlobals();
+});
+
+const manualAuthorization = {
+  ...authorization,
+  authorization_url:
+    "https://auth.example/authorize?state=current&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback",
+};
+const manualCallback = "http://localhost:1455/auth/callback?state=current&code=fixture-code";
+
+describe("AccountPoolAuthorizationPanel manual callback", () => {
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    await i18n.changeLanguage("en");
+  });
+
+  it("submits once and clears the callback after success", async () => {
+    postMock.mockResolvedValue({ status: "ready" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AccountPoolAuthorizationPanel
+          authorization={manualAuthorization}
+          accessToken="admin-token"
+          environmentId="card-1"
+          idPrefix="manual"
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("Callback URL"), { target: { value: manualCallback } });
+    const submit = screen.getByRole("button", { name: "Submit callback" });
+    fireEvent.click(submit);
+    fireEvent.click(submit);
+    expect(await screen.findByRole("status")).toHaveTextContent("Callback accepted");
+    expect(postMock).toHaveBeenCalledExactlyOnceWith("/account_pool/environments/card-1/oauth-callback", {
+      accessToken: "admin-token",
+      body: { state: "current", code: "fixture-code" },
+    });
+    expect(screen.getByLabelText("Callback URL")).toHaveValue("");
+  });
+
+  it("binds manual callback validation to the newest local authorization link", async () => {
+    const freshAuthorization = {
+      ...manualAuthorization,
+      authorization_url: manualAuthorization.authorization_url.replace("state=current", "state=fresh"),
+    };
+    postMock.mockResolvedValueOnce(freshAuthorization).mockResolvedValueOnce({ status: "ready" });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AccountPoolAuthorizationPanel
+          authorization={manualAuthorization}
+          accessToken="admin-token"
+          environmentId="card-1"
+          idPrefix="manual"
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Generate local browser link" }));
+    expect(await screen.findByDisplayValue(freshAuthorization.authorization_url)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Callback URL"), {
+      target: { value: manualCallback.replace("state=current", "state=fresh") },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit callback" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Callback accepted");
+    expect(postMock).toHaveBeenLastCalledWith("/account_pool/environments/card-1/oauth-callback", {
+      accessToken: "admin-token",
+      body: { state: "fresh", code: "fixture-code" },
+    });
+  });
+
+  it("rejects a callback for another OAuth state before sending it", async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(
+      <QueryClientProvider client={client}>
+        <AccountPoolAuthorizationPanel
+          authorization={manualAuthorization}
+          accessToken="admin-token"
+          environmentId="card-1"
+          idPrefix="manual"
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByLabelText("Callback URL"), {
+      target: { value: manualCallback.replace("state=current", "state=other") },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit callback" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("does not match");
+    expect(postMock).not.toHaveBeenCalled();
+  });
 });
 
 it("remembers a verified helper across visits", async () => {

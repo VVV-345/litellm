@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from typing import Final
@@ -10,7 +12,8 @@ from uuid import UUID
 from weakref import WeakValueDictionary
 
 import httpx
-from pydantic import TypeAdapter
+import yaml
+from pydantic import JsonValue, TypeAdapter
 
 from account_pool.application.quota_state import effective_cooldown_until as effective_cooldown_until_value
 from account_pool.channels.cliproxyapi.protocol import (
@@ -33,6 +36,7 @@ from account_pool.channels.cliproxyapi.provider_requests import (
 )
 from account_pool.channels.cliproxyapi.quota_state import (
     _merge_quota_snapshots,
+    merge_model_quotas,
 )
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
@@ -55,7 +59,7 @@ from account_pool.domain import (
     QuotaSnapshot,
     SupplierKind,
 )
-from account_pool.policies import ManagedIdentityUnavailableError
+from account_pool.policies import ManagedIdentityUnavailableError, PolicyRuntimeRejected
 from account_pool.providers.usage.contracts import ProviderQuotaError, ProviderQuotaRefresh, QuotaObservation
 from account_pool.providers.usage.signals import parse_quota as parse_quota_snapshot
 from account_pool.shared.secrets import EnvironmentSecretDeriver
@@ -281,20 +285,16 @@ class HttpCLIProxyClient:
             ModelQuotaSnapshot(model=model, quota=selected_supplier.quota_parser(observation))
             for model, observation in sorted(auth_file.model_quotas.items())
         )
-        model_quotas: Final = (
+        model_quotas = merge_model_quotas(record.model_quotas, (
             refreshed_quota.model_quotas
             if refreshed_quota is not None and refreshed_quota.model_quotas
             else passive_model_quotas
             if passive_model_quotas
-            else record.model_quotas
-        )
+            else ()
+        ))
         if refreshed_quota is not None and refreshed_quota.quota.refresh_status == "complete":
             observed = datetime.now(timezone.utc)
             quota = quota.model_copy(update={"observed_at": observed})
-            model_quotas = tuple(
-                item.model_copy(update={"quota": item.quota.model_copy(update={"observed_at": observed})})
-                for item in model_quotas
-            )
         now: Final = datetime.now().astimezone()
         model_cooldowns: Final = model_cooldowns_from_auth(auth_file)
         model_aggregate: Final = any(item.retry_at == auth_file.next_retry_after for item in model_cooldowns)
@@ -310,6 +310,13 @@ class HttpCLIProxyClient:
                 "unauthorized",
             }
             or (auth_file.status_message or "").strip().lower() == "unauthorized"
+        )
+        # 只有 CPA 明确给出更新的成功模型证据，才把聚合认证错误限制在失败模型。
+        credential_revoked: Final = upstream_code in ("refresh_token_invalidated", "refresh_token_reused", "invalid_api_key")
+        fallback: Final = auth_file.access_token_fallback
+        fallback_active: Final = any(fallback.usable_for(model, now) for model in enabled_models)
+        authentication_blocked: Final = authentication_failed and not fallback_active and (
+            credential_revoked or auth_file.error_scope != "model"
         )
         overload_elapsed: Final = (
             auth_file.next_retry_after is not None
@@ -340,8 +347,9 @@ class HttpCLIProxyClient:
         )
         automatically_cooling: Final = (
             auth_file.disabled
-            or authentication_failed
-            or (auth_file.unavailable and not model_aggregate and not overload_elapsed and not quota_recovered)
+            or authentication_blocked
+            or (fallback.failure_source == "refresh" and not fallback_active)
+            or (auth_file.unavailable and not fallback_active and not model_aggregate and not overload_elapsed and not quota_recovered)
             or (cooldown_until is not None and cooldown_until > now)
         )
         status: Final = (
@@ -355,6 +363,8 @@ class HttpCLIProxyClient:
             await self._ownership.retain(record.id, credential.fingerprints)
         return record.model_copy(
             update={
+                "access_token_fallback": fallback,
+                "credential_refresh": auth_file.credential_refresh,
                 "auth_file_name": auth_file.name,
                 "auth_index": auth_file.auth_index,
                 "credential_fingerprints": () if credential is None else credential.fingerprints,
@@ -377,7 +387,10 @@ class HttpCLIProxyClient:
                 "cooldown_until": cooldown_until,
                 "automatic_cooldown": automatically_cooling,
                 "status": status,
-                "last_error": "上游认证失效，请重新认证" if authentication_failed else None,
+                "last_error": (
+                    "上游暂无可用凭据，请核对调度状态" if authentication_blocked and upstream_code == "auth_unavailable"
+                    else "上游认证失效，请重新认证" if authentication_blocked else None
+                ),
             }
         )
 
@@ -667,6 +680,51 @@ class HttpCLIProxyClient:
         response: Final = await self._request(record, "GET", "/v0/management/config.yaml")
         return response.text
 
+    async def runtime_state_digest(self, record: EnvironmentRecord, *, require_unique: bool) -> str:
+        response: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        payload: Final = TypeAdapter(dict[str, JsonValue]).validate_json(response.content)
+        files: Final = TypeAdapter(tuple[dict[str, JsonValue], ...]).validate_python(payload.get("files", ()))
+        if require_unique and len(files) != (1 if record.auth_file_name else 0):
+            raise ValueError("runtime rollout requires the original unique credential")
+        selected: Final = next((item for item in files if item.get("name") == record.auth_file_name), None)
+        if record.auth_file_name and selected is None:
+            raise ValueError("runtime rollout original credential is missing")
+        if selected is not None and selected.get("disabled", False) != record.auth_file_disabled:
+            raise ValueError("runtime credential enabled state differs from the card configuration")
+        content: Final = (
+            (await self.download_auth_file(record, record.auth_file_name))[0] if record.auth_file_name else None
+        )
+        identity: Final = None if content is None else credential_identity(content, record.supplier.value, self._secrets)
+        fields: Final = (
+            "proxy_url", "proxy-url", "prefix", "priority", "weight", "request_retry",
+            "codex_allow_valid_access_after_refresh_failure", "codex_fingerprint_mode", "codex_fingerprint_seed",
+            "codex_cli_only", "codex_cli_only_allow_app_server", "fingerprint_profile", "cloak_mode",
+            "rebuild_mid_system_message",
+        )
+        state: Final[dict[str, JsonValue]] = {
+            "config": TypeAdapter(JsonValue).validate_python(yaml.safe_load(await self.get_config_yaml(record))),
+            "credential": [] if identity is None else list(identity.fingerprints),
+            "auth_settings": {} if selected is None else {
+                section: {key: value for key, value in source.items() if key in fields}
+                for section, source in (("fields", selected), ("metadata", selected.get("metadata", {})),
+                                        ("attributes", selected.get("attributes", {})))
+                if isinstance(source, dict)
+            },
+            "disabled": None if selected is None else selected.get("disabled", False),
+        }
+        return hashlib.sha256(json.dumps(state, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    async def require_access_token_fallback(self, record: EnvironmentRecord) -> None:
+        try:
+            response: Final = await self._request(record, "GET", "/v0/management/codex/access-token-fallback")
+            capability: Final = _JSON_OBJECT_ADAPTER.validate_json(response.content)
+        except (ValueError, httpx.HTTPError) as error:
+            raise PolicyRuntimeRejected("运行时尚不支持已验证访问令牌降级；配置未生效") from error
+        version: Final = capability.get("version")
+        if (capability.get("supported") is not True or type(version) is not int or version != 1
+                or capability.get("token_refresh") is not False):
+            raise PolicyRuntimeRejected("运行时尚不支持已验证访问令牌降级；配置未生效")
+
     async def require_managed_identity(self, record: EnvironmentRecord) -> None:
         try:
             response: Final = await self._request(record, "GET", "/v0/management/codex/managed-identity")
@@ -711,6 +769,11 @@ class HttpCLIProxyClient:
             selected_supplier = supplier
             selected_configuration = configuration
         await self.set_proxy_url(record, selected_configuration.proxy_url)
+        # 账号级 proxy_url 优先于全局配置：只改全局会让卡片继续走旧的出站线路。
+        if record.auth_file_name is not None:
+            await self.patch_auth_file_fields(
+                record, record.auth_file_name, {"proxy_url": selected_configuration.proxy_url or ""}
+            )
         await self.set_enabled_models(record, selected_supplier, selected_configuration.enabled_models)
         await self.set_credential_enabled(record, selected_configuration.credential_enabled)
 

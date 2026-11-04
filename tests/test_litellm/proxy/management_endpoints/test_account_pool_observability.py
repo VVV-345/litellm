@@ -92,3 +92,14 @@ async def test_statistics_query_against_postgres_prisma_binding() -> None:
         assert report.summary.total_requests >= 0
     finally:
         await client.disconnect()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("days", [1, 7, 14, 30, 90])
+async def test_dashboard_selected_days_filter_summary_and_cards(days):
+    now = datetime(2026, 11, 4, tzinfo=timezone.utc)
+    async def query(sql, since):
+        assert since == now - timedelta(days=days)
+        return []
+    result = await standard_dashboard(query, now=now, days=days, timing_query=GatewayLatencyStats)
+    assert result.occurred_from == now - timedelta(days=days)

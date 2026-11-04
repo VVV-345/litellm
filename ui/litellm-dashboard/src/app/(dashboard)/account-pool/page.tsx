@@ -96,6 +96,8 @@ const AccountPoolModelTestDialog = dynamic(
     ),
   { loading: ModuleLoading },
 );
+const AccountPoolQuotaResetDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolQuotaResetDialog").then((module) => module.AccountPoolQuotaResetDialog));
+const AccountPoolCredentialDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolCredentialDialog").then((module) => module.AccountPoolCredentialDialog));
 
 const PAGE_SIZE = 24;
 const POOL_TABS = [
@@ -130,7 +132,10 @@ export default function AccountPoolPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedTab = searchParams?.get("tab") ?? "dashboard";
-  const [testEnvironment, setTestEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [testEnvironmentId, setTestEnvironmentId] = useState<string | null>(null);
+  const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [refreshCredentialEnvironment,setRefreshCredentialEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [verifyAccessEnvironment,setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -193,6 +198,7 @@ export default function AccountPoolPage() {
     () => setDeleteEnvironment(null),
   );
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
+  const testEnvironment = environments.find((environment) => environment.id === testEnvironmentId);
   const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
   const gatewaysByProfile = useMemo(
     () => new Map((gatewaysQuery.data ?? []).map((gateway) => [gateway.profile_id, gateway] as const)),
@@ -202,9 +208,11 @@ export default function AccountPoolPage() {
     () => new Map((policiesQuery.data ?? []).map((item) => [item.card_id, item] as const)),
     [policiesQuery.data],
   );
+  const [statsDays, setStatsDays] = useState(30);
+  const [compactNumbers, setCompactNumbers] = useState(true);
   const dashboardStatsQuery = useQuery({
-    ...accountPoolDashboardStatsOptions(accessToken),
-    enabled: canManage && accessToken !== null && dashboardActive,
+    ...accountPoolDashboardStatsOptions(accessToken, statsDays),
+    enabled: canManage && accessToken !== null && cardTabActive,
     refetchInterval: 15_000,
   });
   const statsByCard = useMemo(
@@ -278,7 +286,9 @@ export default function AccountPoolPage() {
           key={environment.id}
           environment={environment}
           requestStats={requestStats}
+          compactNumbers={compactNumbers}
           proxyGateway={gateway}
+          proxyName={proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.name}
           proxyDelay={gatewayDelaysQuery.data?.find((delay) => delay.port === gateway?.port)}
           ispProbe={!gateway ? proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.last_probe : undefined}
           onConfigure={setConfigEnvironment}
@@ -287,7 +297,10 @@ export default function AccountPoolPage() {
           onDelete={setDeleteEnvironment}
           onManageKey={handleManageKey}
           onViewLogs={handleViewLogs}
-          onTest={setTestEnvironment}
+          onTest={(environment) => setTestEnvironmentId(environment.id)}
+          onQuotaReset={setResetEnvironment}
+          onRefreshCredentials={setRefreshCredentialEnvironment}
+          onVerifyAccess={setVerifyAccessEnvironment}
           tags={policyView?.policy?.tags}
           group={policyView?.policy?.group}
           policy={policyView}
@@ -295,7 +308,7 @@ export default function AccountPoolPage() {
         />
       );
     },
-    [busy, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
+    [busy, compactNumbers, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
   );
   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
 
@@ -304,7 +317,7 @@ export default function AccountPoolPage() {
   const renderContent = () => {
     if (environmentsQuery.isLoading) {
       return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {["one", "two", "three"].map((key) => (
             <Skeleton key={key} className="h-64 w-full" />
           ))}
@@ -343,7 +356,7 @@ export default function AccountPoolPage() {
     }
     return (
       <>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {visibleEnvironments.map((environment) => renderCard(environment, statsByCard.get(environment.id)))}
         </div>
         {filteredEnvironments.length === 0 && (
@@ -472,6 +485,10 @@ export default function AccountPoolPage() {
               renderContent()
             ) : (
               <AccountPoolDashboard
+                statsDays={statsDays}
+                onStatsDaysChange={setStatsDays}
+                compactNumbers={compactNumbers}
+                onCompactNumbersChange={setCompactNumbers}
                 environments={environments}
                 statsByCard={statsByCard}
                 statsLoading={statsLoading}
@@ -662,9 +679,12 @@ export default function AccountPoolPage() {
           key={testEnvironment.id}
           accessToken={accessToken}
           environment={testEnvironment}
-          onClose={() => setTestEnvironment(null)}
+          onClose={() => setTestEnvironmentId(null)}
         />
       )}
+      {resetEnvironment && accessToken && <AccountPoolQuotaResetDialog key={resetEnvironment.id} accessToken={accessToken} environment={resetEnvironment} onClose={() => setResetEnvironment(null)} />}
+      {refreshCredentialEnvironment && accessToken && <AccountPoolCredentialDialog key={refreshCredentialEnvironment.id} mode="refresh" accessToken={accessToken} environment={refreshCredentialEnvironment} onClose={() => setRefreshCredentialEnvironment(null)} />}
+      {verifyAccessEnvironment && accessToken && <AccountPoolCredentialDialog key={verifyAccessEnvironment.id} mode="verify" accessToken={accessToken} environment={verifyAccessEnvironment} onClose={() => setVerifyAccessEnvironment(null)} />}
       {configEnvironment && (
         <RuntimeConfigDialog
           key={configEnvironment.id}

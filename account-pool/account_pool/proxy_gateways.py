@@ -640,9 +640,10 @@ class ProxyGatewayService:
         return f"account-pool-front-{port}"
 
     @staticmethod
-    def _isp_proxy_config(profile: ISPProxyCatalogProfile, node_name: str, front_name: str) -> dict[str, object]:
+    def _isp_proxy_config(profile: ISPProxyCatalogProfile, node_name: str, front_name: str | None) -> dict[str, object]:
+        front_config: Final = {"dialer-proxy": front_name} if front_name is not None else {}
         if isinstance(profile, ISPSubscriptionNodeProfile):
-            return {**profile.config, "name": node_name, "dialer-proxy": front_name}
+            return {**{key: value for key, value in profile.config.items() if key != "dialer-proxy"}, "name": node_name, **front_config}
         return {
             "name": node_name,
             "type": "http" if profile.protocol == "https" else profile.protocol,
@@ -651,7 +652,7 @@ class ProxyGatewayService:
             **({"tls": True} if profile.protocol == "https" else {}),
             **({"username": profile.username} if profile.username else {}),
             **({"password": profile.password} if profile.password else {}),
-            "dialer-proxy": front_name,
+            **front_config,
         }
 
     async def _reconcile_gateway_chain(
@@ -704,8 +705,7 @@ class ProxyGatewayService:
         chain_proxy: Final = (
             ()
             if not chain_active or profile is None or chain_name is None
-            # 显式 DIRECT 只直连 ISP 服务器，覆盖订阅自带的 dialer-proxy，目标请求仍经过 ISP。
-            else (self._isp_proxy_config(profile, chain_name, "DIRECT" if front_node_name is None else front_selector),)
+            else (self._isp_proxy_config(profile, chain_name, front_selector if front_node_name is not None else None),)
         )
         available_choices: Final = [*sorted(available_nodes), "REJECT"]
         gateway_choices: Final = (

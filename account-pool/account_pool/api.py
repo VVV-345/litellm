@@ -19,13 +19,16 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg import Error as DatabaseError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from account_pool.access_token_fallback import AccessTokenFallbackService, create_access_token_fallback_router
 from account_pool.application.environments.contracts import AuthorizationPending
-from account_pool.batch_models import BatchJob, BatchRequest
-from account_pool.batch_service import BatchService
+from account_pool.batch.models import BatchJob, BatchRequest
+from account_pool.batch.service import BatchService
 from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.credential_import import is_two_factor_text
+from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_refresh import CredentialRefreshService, create_credential_refresh_router
 from account_pool.direct_isp_profiles import BrowserProxy
 from account_pool.domain import (
     ChannelKind,
@@ -40,12 +43,12 @@ from account_pool.domain import (
 )
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.feedback import FeedbackService
-from account_pool.feedback_api import create_feedback_router
+from account_pool.feedback.api import create_feedback_router
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.isp_probe import GatewayISPProbeResult, ISPProbeResult
 from account_pool.management_api import create_management_router
-from account_pool.onboarding_api import create_onboarding_router
-from account_pool.onboarding_service import OnboardingService
+from account_pool.onboarding.api import create_onboarding_router
+from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository
@@ -53,6 +56,8 @@ from account_pool.provider_families import PROVIDER_FAMILIES
 from account_pool.proxy_catalog import ISPProxyProfileView, ISPSubscriptionView, ProxyConfigurationProfileView
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
+from account_pool.quota_reset import QuotaResetService
+from account_pool.quota_reset_api import create_quota_reset_router
 from account_pool.quota_scheduler import (
     AuthFileRefreshStatus,
     QuotaRefreshScheduler,
@@ -83,6 +88,20 @@ class ISPCatalogRoute(APIRoute):
                 raise HTTPException(422, "Invalid ISP request; check fields and import size") from None
             except DatabaseError:
                 raise HTTPException(503, "ISP catalog storage unavailable; retry") from None
+
+        return validated
+
+
+class OAuthCallbackRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                # 校验错误不得回显一次性授权码或完整回调地址。
+                raise HTTPException(422, "Invalid OAuth callback") from None
 
         return validated
 
@@ -291,6 +310,10 @@ def create_router(
     auth_refresh_scheduler: RefreshScheduler | None = None,
     proxy_catalog: ProxyCatalogService | None = None,
     feedback: FeedbackService | None = None,
+    quota_reset: QuotaResetService | None = None,
+    access_token_fallback: AccessTokenFallbackService | None = None,
+    credential_refresh: CredentialRefreshService | None = None,
+    ownership: CredentialOwnership | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
 
@@ -301,6 +324,12 @@ def create_router(
         if not hmac.compare_digest(supplied, manager_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
 
+    if access_token_fallback is not None:
+        router.include_router(create_access_token_fallback_router(access_token_fallback, require_manager))
+    if credential_refresh is not None:
+        router.include_router(create_credential_refresh_router(credential_refresh, require_manager))
+    if quota_reset is not None:
+        router.include_router(create_quota_reset_router(quota_reset, require_manager))
 
     @router.get("/health", include_in_schema=False)
     async def health() -> dict[str, str]:
@@ -647,6 +676,14 @@ def create_router(
         operation_id: Annotated[str | None, Header(alias="Idempotency-Key", max_length=160)] = None,
     ) -> AuthorizationView:
         return _unwrap(await service.authorize_environment(environment_id, operation_id))
+
+    callback_router: Final = APIRouter(route_class=OAuthCallbackRoute)
+
+    @callback_router.post("/api/environments/{environment_id}/oauth-callback", dependencies=[Depends(require_manager)])
+    async def submit_manual_oauth_callback(environment_id: UUID, callback: OAuthCallback) -> EnvironmentView:
+        return _unwrap(await service.submit_oauth_callback(callback, environment_id))
+
+    router.include_router(callback_router)
 
     @router.delete("/api/environments/{environment_id}/oauth-session", dependencies=[Depends(require_manager)])
     async def cancel_oauth_session(environment_id: UUID) -> EnvironmentView:

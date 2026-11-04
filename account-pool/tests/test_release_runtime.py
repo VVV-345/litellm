@@ -55,6 +55,20 @@ def test_release_settings_accepts_private_release_proxy_but_manager_does_not(tmp
         Settings.validate_docker_host(endpoint)
 
 
+def test_runtime_rollout_schema_upgrade_is_exact_and_cannot_be_reversed() -> None:
+    root = Path(__file__).resolve().parents[1] / "account_pool"
+    baseline = tuple((str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
+                     if path.name != "runtime_rollout_repository.py") + (("schema.prisma", b"unchanged"),)
+    source = (root / "runtime_rollout_repository.py").read_bytes()
+    target = (*baseline, ("runtime_rollout_repository.py", source))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, (
+        "runtime_rollout_repository.py", source.replace(b"phase text NOT NULL", b"phase integer NOT NULL"),
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE old"')))
+
+
 def schema_contract(source: str, name: str = "account_pool/settings.py") -> bytes:
     data: Final = source.encode()
     output: Final = io.BytesIO()
@@ -774,6 +788,38 @@ def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
     assert not additive_manager_schema_upgrade(baseline, (*baseline, (catalog[0], catalog[1].replace(b"enabled boolean", b"enabled text"))))
 
 
+def test_quota_reset_upgrade_allows_only_exact_additive_table_and_index() -> None:
+    root = Path(__file__).resolve().parents[1] / "account_pool"
+    baseline = tuple((str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
+                     if path.name != "quota_reset_repository.py") + (("schema.prisma", b"model A { id String @id }"),)
+    source = (root / "quota_reset_repository.py").read_bytes()
+    target = (*baseline, ("quota_reset_repository.py", source))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, ("quota_reset_repository.py", source.replace(b"request_id uuid", b"request_id text"))))
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE account_pool_environments"')))
+
+
+def test_quota_verification_schema_is_additive_without_relaxing_existing_tables() -> None:
+    from account_pool.release_compatibility import QUOTA_RESET_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS
+
+    old = (("reset.py", repr(tuple(item.decode() for item in QUOTA_RESET_SCHEMA_ADDITIONS)).encode()),)
+    new = (*old, ("verification.py", repr(tuple(item.decode() for item in QUOTA_VERIFICATION_SCHEMA_ADDITIONS)).encode()))
+    assert additive_manager_schema_upgrade(old, new)
+    assert not additive_manager_schema_upgrade(new, old)
+    assert not additive_manager_schema_upgrade(old, (*old, ("verification.py", new[1][1].replace(b"jsonb", b"text"))))
+
+
+def test_api_call_evidence_column_is_exact_additive_upgrade() -> None:
+    from account_pool.release_compatibility import QUOTA_CALL_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS
+
+    old = (("verification.py", repr(tuple(item.decode() for item in QUOTA_VERIFICATION_SCHEMA_ADDITIONS)).encode()),)
+    column = ("call.py", repr(QUOTA_CALL_SCHEMA_ADDITIONS[0].decode()).encode())
+    assert additive_manager_schema_upgrade(old, (*old, column))
+    assert not additive_manager_schema_upgrade((*old, column), old)
+    assert not additive_manager_schema_upgrade(old, (*old, (column[0], column[1].replace(b"jsonb", b"text"))))
+
+
 @pytest.mark.parametrize("change,allowed", (("isp", True), ("prisma", False), ("extra", False), ("modified", False)))
 def test_additive_upgrade_runtime_inspects_both_images(tmp_path: Path, change: str, allowed: bool) -> None:
     from account_pool.proxy_catalog_repository import _SCHEMA
@@ -955,6 +1001,103 @@ def product_runtime(tmp_path: Path, command: ProductCommands) -> DockerReleaseRu
     return DockerReleaseRuntime(
         ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy", reserve_bytes=0), command
     )
+
+
+@pytest.mark.parametrize("key", ["e" * 64, "f" * 64, "", "invalid"])
+def test_product_accepts_independent_cpa_only_with_matching_manager_build_key(tmp_path: Path, key: str) -> None:
+    from account_pool.release_store import ReleaseError
+
+    class IndependentCommands(ProductCommands):
+        def __call__(self, *args: str, timeout: int = 120) -> bytes:
+            raw = super().__call__(*args, timeout=timeout)
+            if args[:2] != ("image", "inspect"):
+                return raw
+            images = json.loads(raw)
+            labels = images[0]["Config"]["Labels"]
+            if labels["ai.zlia.component"] == "manager":
+                labels["ai.zlia.cliproxy-build-key"] = key
+            if labels["ai.zlia.component"] == "cliproxyapi":
+                labels["org.opencontainers.image.revision"] = "b" * 40
+                labels["ai.zlia.build-key"] = "e" * 64
+            return json.dumps(images).encode()
+
+    runtime = product_runtime(tmp_path, IndependentCommands())
+    if key == "e" * 64:
+        assert runtime.pull("a" * 40).commit == "a" * 40
+        assert runtime._product_preflight[1] == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
+    else:
+        with pytest.raises(ReleaseError):
+            runtime.pull("a" * 40)
+
+
+def test_native_rollout_stops_at_failed_card_keeps_old_managers_out_and_resumes(tmp_path: Path) -> None:
+    from uuid import UUID
+
+    from account_pool.release_store import ReleaseError
+    from account_pool.runtime_rollout_repository import CHECKPOINT, RuntimeCheckpoint
+
+    cards = (UUID(int=1), UUID(int=2), UUID(int=3))
+
+    class Commands(ProductCommands):
+        def __init__(self):
+            super().__init__()
+            self.fail = True
+            self.completed = ()
+            self.switches = ()
+
+        def __call__(self, *args, timeout=120):
+            if args[0] == "ps":
+                return ("c" * 64).encode()
+            if args[0] != "exec":
+                return super().__call__(*args, timeout=timeout)
+            assert args[args.index("--image") + 1] == PRODUCT_REPOSITORY + "@sha256:" + "4" * 64
+            if args[-1] == "--list":
+                return json.dumps([str(card) for card in cards]).encode()
+            card = UUID(args[-1])
+            if "--status" in args:
+                return CHECKPOINT.dump_json(RuntimeCheckpoint(card, "a" * 40,
+                    PRODUCT_REPOSITORY + "@sha256:" + "4" * 64, phase="failed", failed_phase="switching"))
+            if self.fail and card == cards[1]:
+                raise ReleaseError("password=must-not-be-exposed")
+            if card not in self.completed:
+                self.completed += (card,)
+                self.switches += (card,)
+            return CHECKPOINT.dump_json(RuntimeCheckpoint(card, "a" * 40,
+                PRODUCT_REPOSITORY + "@sha256:" + "4" * 64,
+                phase="verified", image_verified=True, credential_state="preserved"))
+
+    class RunningRuntime(DockerReleaseRuntime):
+        selected = None
+
+        def current(self):
+            assert self.selected is not None
+            return self.selected
+
+    command = Commands()
+    runtime = RunningRuntime(ReleaseSettings(token="t" * 32, root=tmp_path,
+        deployment=tmp_path.parent / "deploy", reserve_bytes=0), command)
+    selected = runtime.pull("a" * 10)
+    runtime.selected = selected
+    configuration = runtime.product_configuration(selected, b'{"services":{"litellm":{},"account-pool":{}}}')
+    phases = []
+    with pytest.raises(ReleaseError, match="switching") as error:
+        runtime.rollout_cards(selected, configuration, phases.append)
+    assert "password" not in str(error.value)
+    assert command.switches == (cards[0],)
+    marker = tmp_path / "card-rollout-active.json"
+    assert marker.is_file()
+    other = selected.model_copy(update={"commit": "b" * 40})
+    with pytest.raises(ReleaseError, match="Manager"):
+        runtime.apply(other, configuration)
+    with pytest.raises(ReleaseError, match="未完成"):
+        runtime.rollout_cards(selected, configuration, phases.append, card_ids=(cards[2],))
+    command.fail = False
+    runtime.rollout_cards(selected, configuration, phases.append)
+    assert command.switches == cards
+    assert not marker.exists()
+    reports = json.loads((tmp_path / f"card-rollout-{selected.id}.json").read_bytes())
+    assert {item["environment_id"] for item in reports} == {str(card) for card in cards}
+    assert all(item["image_verified"] and item["model_inference"] == "not_run" for item in reports)
 
 
 @pytest.mark.parametrize("worker", ("", "ghcr.io/vvv-345/account-pool-browser-worker:old"))
@@ -1224,3 +1367,34 @@ def test_product_companion_provenance_must_match_selected_manager_pins(tmp_path,
     with pytest.raises(ReleaseError, match="provenance"):
         product_runtime(tmp_path, command).pull("a" * 10)
     assert not any(args[0] == "compose" for args, _ in command.calls)
+
+
+def test_native_rollout_updates_only_selected_card(tmp_path):
+    from uuid import UUID
+
+    from account_pool.runtime_rollout_repository import CHECKPOINT, RuntimeCheckpoint
+    cards = (UUID(int=1), UUID(int=2))
+    executed = []
+    class Commands(ProductCommands):
+        def __call__(self, *args, timeout=120):
+            if args[0] == "ps":
+                return ("c" * 64).encode()
+            if args[0] != "exec":
+                return super().__call__(*args, timeout=timeout)
+            if args[-1] == "--list":
+                return json.dumps([str(card) for card in cards]).encode()
+            assert args[-2] == "--card"
+            card = UUID(args[-1])
+            executed.append(card)
+            return CHECKPOINT.dump_json(RuntimeCheckpoint(card, "a" * 40,
+                PRODUCT_REPOSITORY + "@sha256:" + "4" * 64,
+                phase="verified", image_verified=True, credential_state="preserved"))
+    class RunningRuntime(DockerReleaseRuntime):
+        def current(self):
+            return self.selected
+    runtime = RunningRuntime(ReleaseSettings(token="t" * 32, root=tmp_path,
+        deployment=tmp_path.parent / "deploy", reserve_bytes=0), Commands())
+    runtime.selected = runtime.pull("a" * 40)
+    configuration = runtime.product_configuration(runtime.selected, b'{"services":{"litellm":{},"account-pool":{}}}')
+    runtime.rollout_cards(runtime.selected, configuration, lambda _: None, card_ids=(cards[1],))
+    assert executed == [cards[1]]

@@ -91,7 +91,7 @@ jobs:
           uv sync --frozen --group ci --group proxy-dev --extra proxy --extra google --extra semantic-router
           uv sync --directory account-pool --frozen --extra test
           account-pool/.venv/bin/python -m pytest -q account-pool/tests -k "not test_manager_and_proxy_onboarding_contracts_match"
-          uv run --no-sync python -m pytest --noconftest -q account-pool/tests/account_pool/test_onboarding_api.py::test_manager_and_proxy_onboarding_contracts_match
+          uv run --no-sync python -m pytest --noconftest -q account-pool/tests/account_pool/onboarding/test_onboarding_api.py::test_manager_and_proxy_onboarding_contracts_match
           uv run --no-sync prisma generate --schema litellm/proxy/schema.prisma
           uv run --no-sync python -m pytest -q tests/test_litellm/proxy/management_endpoints/test_account_pool*.py
           uv run --no-sync python tests/code_coverage_tests/check_migrations_no_data_rewrites.py
