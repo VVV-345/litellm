@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { ErrorStats } from "../api/AccountPoolManagementApi";
 import {
+  accountPoolUsableModels,
   accountPoolHiddenModelCount,
   accountPoolVisibleModels,
   filterAccountPoolDashboardEnvironments,
@@ -116,4 +117,18 @@ describe("account pool dashboard selectors", () => {
     const pending = { ...ready, id: "pending", configuration_pending: true };
     expect(summarizeAccountPoolDashboard([ready, waiting, pending], new Map()).enabledCards).toBe(1);
   });
+});
+
+
+it("hides unproven, expired and independently cooling access-only models", () => {
+  const card = { ...environment("fallback", "openai_codex"), enabled_models: ["model-a", "model-b", "model-c"],
+    access_token_fallback: { enabled: true, active: true, failure_source: "refresh", reason: "temporary_access", expires_at: "2090-01-01T00:00:00Z", verified_models: ["model-a", "model-c"] },
+    model_cooldowns: [{model: "model-c", retry_at: "2090-01-01T00:00:00Z", reason: "rate_limit", consecutive_timeouts: 0}],
+  };
+  expect(accountPoolUsableModels(card)).toEqual(["model-a"]);
+  expect(accountPoolVisibleModels(card)).toEqual(["model-a"]);
+  expect(accountPoolHiddenModelCount(card)).toBe(0);
+  expect(accountPoolUsableModels({...card, access_token_fallback: {...card.access_token_fallback, expires_at: "2000-01-01T00:00:00Z"}})).toEqual([]);
+  expect(accountPoolUsableModels({...card, access_token_fallback: {...card.access_token_fallback, enabled: false}})).toEqual([]);
+  expect(accountPoolUsableModels({...card, access_token_fallback: {...card.access_token_fallback, failure_source: null}})).toEqual(card.enabled_models);
 });

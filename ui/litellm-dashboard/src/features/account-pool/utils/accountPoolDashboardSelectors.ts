@@ -91,7 +91,23 @@ export const groupAccountPoolEnvironments = (
 };
 
 export const accountPoolVisibleModels = (environment: AccountPoolEnvironment): readonly string[] =>
-  environment.enabled_models.slice(0, 3);
+  accountPoolUsableModels(environment).slice(0, 3);
 
 export const accountPoolHiddenModelCount = (environment: AccountPoolEnvironment): number =>
-  Math.max(0, environment.enabled_models.length - accountPoolVisibleModels(environment).length);
+  Math.max(0, accountPoolUsableModels(environment).length - accountPoolVisibleModels(environment).length);
+
+export const accountPoolUsableModels = (
+  environment: Pick<AccountPoolEnvironment, "enabled_models"> &
+    Partial<Pick<AccountPoolEnvironment, "access_token_fallback" | "model_cooldowns" | "enabled" | "manual_cooldown" | "configuration_pending" | "status">>,
+): readonly string[] => {
+  const fallback = environment.access_token_fallback;
+  if (fallback?.failure_source !== "refresh") return environment.enabled_models;
+  if (environment.enabled === false || environment.manual_cooldown || environment.configuration_pending ||
+      (environment.status !== undefined && environment.status !== "ready")) return [];
+  const now = Date.now();
+  if (!fallback.enabled || !fallback.active || !fallback.expires_at || Date.parse(fallback.expires_at) <= now) return [];
+  return environment.enabled_models.filter((model) =>
+    fallback.verified_models?.includes(model) &&
+    !environment.model_cooldowns?.some((cooldown) => cooldown.model === model && Date.parse(cooldown.retry_at) > now),
+  );
+};

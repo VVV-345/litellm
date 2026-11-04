@@ -172,3 +172,12 @@ describe("account card local configuration", () => {
     );
   });
 });
+
+
+it("passes the selected statistics range to the request client", async () => {
+  const user = userEvent.setup();
+  renderPage();
+  await user.click(await screen.findByRole("combobox", {name: "统计天数"}));
+  await user.click(await screen.findByRole("option", {name: "近 7 天"}));
+  await waitFor(() => expect(loadStats).toHaveBeenCalledWith("token", 7));
+});

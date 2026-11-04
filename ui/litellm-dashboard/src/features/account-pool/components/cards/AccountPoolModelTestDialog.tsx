@@ -14,23 +14,27 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { testAccountPoolModel, type AccountPoolModelTestResult } from "../../api/AccountPoolApi";
+import { accountPoolUsableModels } from "../../utils/accountPoolDashboardSelectors";
+import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 
 interface Props {
   accessToken: string;
-  environment: { id: string; name: string; enabled_models: readonly string[] };
+  environment: Pick<AccountPoolEnvironment, "id" | "name" | "enabled_models"> &
+    Partial<Pick<AccountPoolEnvironment, "access_token_fallback" | "model_cooldowns" | "enabled" | "manual_cooldown" | "configuration_pending" | "status">>;
   onClose: () => void;
 }
 
 export function AccountPoolModelTestDialog({ accessToken, environment, onClose }: Props) {
   const { t } = useTranslation();
-  const [model, setModel] = useState(environment.enabled_models[0] ?? "");
+  const models = accountPoolUsableModels(environment);
+  const [model, setModel] = useState(models[0] ?? "");
   const [mode, setMode] = useState<"chat" | "responses">("chat");
   const [stream, setStream] = useState(false);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<AccountPoolModelTestResult | null>(null);
   const [failed, setFailed] = useState(false);
   const run = async () => {
-    if (pending || !model) return;
+    if (pending || !models.includes(model)) return;
     setPending(true);
     setResult(null);
     setFailed(false);
@@ -63,7 +67,7 @@ export function AccountPoolModelTestDialog({ accessToken, environment, onClose }
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {environment.enabled_models.map((name) => (
+                {models.map((name) => (
                   <SelectItem key={name} value={name}>
                     {name}
                   </SelectItem>
@@ -113,7 +117,7 @@ export function AccountPoolModelTestDialog({ accessToken, environment, onClose }
           <Button variant="outline" onClick={onClose} disabled={pending}>
             {t("accountPool.cancel")}
           </Button>
-          <Button onClick={() => void run()} disabled={pending || !model}>
+          <Button onClick={() => void run()} disabled={pending || !models.includes(model)}>
             {t(pending ? "accountPool.modelTest.running" : "accountPool.modelTest.run")}
           </Button>
         </DialogFooter>

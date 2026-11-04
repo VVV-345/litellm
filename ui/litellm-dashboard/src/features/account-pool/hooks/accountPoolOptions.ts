@@ -21,12 +21,12 @@ export const accountPoolEnvironmentOptions = (accessToken: string | null) =>
     refetchOnWindowFocus: true,
   });
 
-export const accountPoolDashboardStatsOptions = (accessToken: string | null) =>
+export const accountPoolDashboardStatsOptions = (accessToken: string | null, days = 30) =>
   queryOptions({
-    queryKey: accountPoolQueryKeys.dashboardStats(accessToken),
+    queryKey: accountPoolQueryKeys.dashboardStats(accessToken, days),
     queryFn: () => {
       if (!accessToken) throw new Error("Access token required");
-      return getAccountPoolDashboardStats(accessToken);
+      return getAccountPoolDashboardStats(accessToken, days);
     },
     retry: false,
     staleTime: 15_000,

@@ -207,9 +207,11 @@ export default function AccountPoolPage() {
     () => new Map((policiesQuery.data ?? []).map((item) => [item.card_id, item] as const)),
     [policiesQuery.data],
   );
+  const [statsDays, setStatsDays] = useState(30);
+  const [compactNumbers, setCompactNumbers] = useState(true);
   const dashboardStatsQuery = useQuery({
-    ...accountPoolDashboardStatsOptions(accessToken),
-    enabled: canManage && accessToken !== null && dashboardActive,
+    ...accountPoolDashboardStatsOptions(accessToken, statsDays),
+    enabled: canManage && accessToken !== null && cardTabActive,
     refetchInterval: 15_000,
   });
   const statsByCard = useMemo(
@@ -283,7 +285,9 @@ export default function AccountPoolPage() {
           key={environment.id}
           environment={environment}
           requestStats={requestStats}
+          compactNumbers={compactNumbers}
           proxyGateway={gateway}
+          proxyName={proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.name}
           proxyDelay={gatewayDelaysQuery.data?.find((delay) => delay.port === gateway?.port)}
           ispProbe={!gateway ? proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.last_probe : undefined}
           onConfigure={setConfigEnvironment}
@@ -303,7 +307,7 @@ export default function AccountPoolPage() {
         />
       );
     },
-    [busy, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
+    [busy, compactNumbers, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
   );
   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
 
@@ -480,6 +484,10 @@ export default function AccountPoolPage() {
               renderContent()
             ) : (
               <AccountPoolDashboard
+                statsDays={statsDays}
+                onStatsDaysChange={setStatsDays}
+                compactNumbers={compactNumbers}
+                onCompactNumbersChange={setCompactNumbers}
                 environments={environments}
                 statsByCard={statsByCard}
                 statsLoading={statsLoading}

@@ -55,3 +55,15 @@ describe("card connection test", () => {
     expect(screen.queryByText("测试成功")).not.toBeInTheDocument();
   });
 });
+
+
+it("does not offer unverified access-only models or submit a stale selection", () => {
+  const environment = {id: "card-a", name: "Card A", enabled_models: ["unproven", "proven"],
+    access_token_fallback: {enabled: true, active: true, failure_source: "refresh", reason: "temporary_access", expires_at: "2090-01-01T00:00:00Z", verified_models: ["proven"]}};
+  const {rerender} = render(<AccountPoolModelTestDialog accessToken="admin" environment={environment} onClose={vi.fn()} />);
+  expect(screen.queryByText("unproven")).not.toBeInTheDocument();
+  expect(screen.getByText("proven")).toBeVisible();
+  rerender(<AccountPoolModelTestDialog accessToken="admin" environment={{...environment, access_token_fallback: {...environment.access_token_fallback, active: false}}} onClose={vi.fn()} />);
+  expect(screen.getByRole("button", {name: "开始测试"})).toBeDisabled();
+  expect(apiClient.post).not.toHaveBeenCalled();
+});

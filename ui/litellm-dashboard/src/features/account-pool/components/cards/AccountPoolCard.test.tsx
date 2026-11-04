@@ -55,6 +55,8 @@ const renderCard = (
       onRefreshCredentials={vi.fn()}
       onVerifyAccess={vi.fn()}
       onManageKey={vi.fn()}
+      onQuotaReset={vi.fn()}
+      onViewLogs={vi.fn()}
       policy={policy}
     />,
   );
@@ -222,13 +224,13 @@ describe("AccountPoolCard", () => {
   it("links the inherited policy badge to the policy center", () => {
     renderCard();
 
-    expect(screen.getByRole("link", { name: "继承全局" }).getAttribute("href")).toMatch(/^\/ui\/policy-center\/?$/);
+    expect(screen.getByRole("link", { name: "继承全局" })).toHaveAttribute("href", expect.stringMatching(/^\/ui\/policy-center\/?$/));
   });
 
   it("shows the independent policy version in the card badge", () => {
     renderCard({}, undefined, { card_id: "env-claude-1", version: 4, policy: {} } as PolicyView);
 
-    expect(screen.getByRole("link", { name: "独立配置 v4" }).getAttribute("href")).toMatch(/^\/ui\/policy-center\/?$/);
+    expect(screen.getByRole("link", { name: "独立配置 v4" })).toHaveAttribute("href", expect.stringMatching(/^\/ui\/policy-center\/?$/));
   });
 
   it("shows the per-card token cost from LiteLLM request statistics", () => {
@@ -264,4 +266,15 @@ it("keeps credential warnings visible and displays backoff alongside the next sc
   expect(screen.getByRole("button",{name:"刷新凭据"})).toBeVisible();
   expect(screen.getByText("刷新失败")).toBeVisible();
   expect(screen.getByText(/退避中/)).toBeInTheDocument();
+});
+
+
+it("keeps egress, request data and small recovery/log buttons visible without expanding details", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({supplier: "openai_codex", proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891"}, undefined, undefined,
+    {...createCostStats(1, 1), total_requests: 1200, input_tokens: 1500000});
+  expect(screen.getByText("端口 7891 · 当前节点未知")).toBeVisible();
+  expect(screen.getByText("1.2K")).toBeVisible();
+  expect(screen.getByRole("button", {name: /额度重置/})).toBeVisible();
+  expect(screen.getByRole("button", {name: /卡片日志/})).toBeVisible();
 });

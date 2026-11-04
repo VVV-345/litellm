@@ -1,5 +1,6 @@
 """验证现有访问令牌的临时降级能力，不刷新凭据或清除独立限制。"""
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -70,6 +71,37 @@ class AccessTokenFallbackService:
     upstream: AccessFallbackUpstream
     ownership: CredentialOwnership
     leases: LeaseRepository
+
+    async def discover(self) -> tuple[UUID, ...]:
+        """按卡片串行验证已启用模型；失败不放行，也不删除用户配置。"""
+        slots: Final = asyncio.Semaphore(4)
+
+        async def discover_model(environment_id: UUID, model: str) -> bool:
+            current: Final = await self.environments.get(environment_id)
+            if current is None:
+                return False
+            fallback: Final = current.access_token_fallback
+            if (
+                not fallback.enabled or fallback.failure_source != "refresh"
+                or fallback.expires_at is None or fallback.expires_at <= utc_now()
+                or fallback.usable_for(model, utc_now()) or not fallback_eligible(current, model)
+            ):
+                return False
+            try:
+                result: Final = await self.verify(environment_id, model)
+                return not result.restored
+            except (ValueError, httpx.HTTPError, TimeoutError):
+                return True
+
+        async def discover_card(record: EnvironmentRecord) -> UUID | None:
+            async with slots:
+                failed = False  # rebind-ok: aggregate independent model probe outcomes
+                for model in record.enabled_models:
+                    failed = await discover_model(record.id, model) or failed
+                return record.id if failed else None
+
+        results: Final = await asyncio.gather(*(discover_card(record) for record in await self.environments.list()))
+        return tuple(result for result in results if result is not None)
 
     async def verify(self, environment_id: UUID, model: str) -> AccessTokenFallbackVerification:
         async with self.ownership.operation(environment_id):

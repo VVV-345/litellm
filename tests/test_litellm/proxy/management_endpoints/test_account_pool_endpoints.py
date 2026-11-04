@@ -577,11 +577,15 @@ def test_proxy_admin_can_read_channel_and_supplier_metadata() -> None:
 
 
 @pytest.mark.parametrize("role", (LitellmUserRoles.PROXY_ADMIN, LitellmUserRoles.INTERNAL_USER))
-def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUserRoles) -> None:
+@pytest.mark.parametrize("days", [1, 7, 14, 30, 90])
+def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUserRoles, days: int) -> None:
     def factory() -> AccountPoolManagerClient:
         pytest.fail("Standard statistics must not depend on the account manager")
 
-    async def read_dashboard() -> AccountPoolDashboardStats:
+    expected_days = days
+
+    async def read_dashboard(*, days: int = 30) -> AccountPoolDashboardStats:
+        assert days == expected_days
         assert role == LitellmUserRoles.PROXY_ADMIN
         return AccountPoolDashboardStats(
             summary=ErrorStats(total_requests=4, succeeded_requests=3, failed_requests=1, statistics_source="litellm"),
@@ -594,7 +598,7 @@ def test_dashboard_uses_standard_statistics_and_requires_admin(role: LitellmUser
     app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=role)
 
     with TestClient(app) as client:
-        response: Final = client.get("/account_pool/dashboard")
+        response: Final = client.get(f"/account_pool/dashboard?days={days}")
 
     assert response.status_code == (200 if role == LitellmUserRoles.PROXY_ADMIN else 403)
     if role == LitellmUserRoles.PROXY_ADMIN:
@@ -1441,3 +1445,14 @@ def test_manual_oauth_callback_admin_guard_and_manager_forwarding() -> None:
     assert calls[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/oauth-callback"
     assert json.loads(calls[0].content) == payload
     assert calls[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+
+
+@pytest.mark.parametrize("days", ["0", "91", "-1", "invalid"])
+def test_dashboard_rejects_invalid_range_without_reading_statistics(days):
+    async def reader(*, days=30):
+        pytest.fail("invalid range must be rejected before querying")
+    app = FastAPI()
+    app.include_router(create_account_pool_router(dashboard_reader=reader))
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        assert client.get(f"/account_pool/dashboard?days={days}").status_code == 422

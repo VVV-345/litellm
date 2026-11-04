@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -77,4 +78,20 @@ describe("AccountPoolDashboard", () => {
     expect(screen.getByText("241 ms")).toBeInTheDocument();
     expect(screen.getByText("近 7 天 100 个样本")).toBeInTheDocument();
   });
+});
+
+
+it("offers day selection and switches the number display without changing statistics", async () => {
+  const onDays = vi.fn();
+  const onCompact = vi.fn();
+  render(<AccountPoolDashboard environments={[]} statsByCard={new Map()} statsLoading={false}
+    statsDays={7} onStatsDaysChange={onDays} compactNumbers={true} onCompactNumbersChange={onCompact}
+    renderCard={vi.fn()} quotaRefreshStatus={null} onRefreshQuotas={vi.fn()} refreshingQuotas={false} />);
+  expect(screen.getByText(/标准日志，近 7 天/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", {name: "数字：K/M/B"}));
+  expect(onCompact).toHaveBeenCalledWith(false);
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("combobox", {name: "统计天数"}));
+  await user.click(await screen.findByRole("option", {name: "近 90 天"}));
+  expect(onDays).toHaveBeenCalledWith(90);
 });

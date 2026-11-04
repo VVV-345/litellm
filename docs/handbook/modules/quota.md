@@ -51,3 +51,22 @@
 CPA 验证器逐条解析执行器输出的完整 SSE 行；行尾可能没有换行符，不得把不同事件直接拼成 JSON。只有完整的成功终态及预期正文才能提交证明，中间工具调用、错误、截断和累计超限仍拒绝。验证不刷新 Token、不兑换重置权益、不写认证文件
 
 此修复需同时更新 Manager、LiteLLM 和两张目标卡的 CPA 镜像。commit 或 push 不会更新已运行的容器；发布后需再次分别核对镜像、降级状态、固定卡模型测试及实际用户 Key 调用。不能保证已过期或被上游撤销的 access token 可用
+
+
+### 自动发现降级模型
+
+Manager 启动后在后台检查现有凭据状态与已启用模型，此后每轮完成后间隔 5 分钟再次检查。只在降级已开启、刷新失败、access token 未过期且独立限制允许时执行完整推理验证；每张卡串行，最多 4 张卡并发。未验证模型可能产生少量真实用量，已验证且仍有效的模型跳过。网络故障或单模型失败不妨碍其他模型验证
+
+成功证明沿用原有持久化和路由对账，普通 Key 不需要先手工点模型测试。卡片与模型测试下拉框仅展示当前有效的已验证模型；失败、过期或冷却模型不展示，不删除配置中的启用列表。关闭降级、凭据替换及配置变化仍使既有证明失效；后台不会重置额度或清除人工禁用、限流冷却。没有 refresh token 但 access token 正常的原生认证路径不改动
+
+每轮验证和路由对账需要时间，开启开关不代表模型立即可用。管理 API 仍保留显式单模型验证用于诊断；一次文本模型验证不代表其他型号、图片接口或所有协议都通过
+
+
+本轮回归文件与验收边界：
+
+- `account-pool/tests/account_pool/test_access_token_fallback.py`：自动发现、逐模型成功/失败、重复轮次跳过有效证明、独立限制和状态竞争
+- `account-pool/tests/account_pool/test_gateway_service.py` 与 `tests/test_litellm/proxy/management_endpoints/test_account_pool_integration.py`：普通 Key/虚拟 Key 的原生准入、预算结算、Chat/Responses 及流式请求
+- `tests/test_litellm/proxy/management_endpoints/test_account_pool_model_test.py`：固定卡模型测试、完整终态、拒绝错误和不跨卡重试
+- 前端 `accountPoolDashboardSelectors.test.ts` 与 `AccountPoolModelTestDialog.integration.test.tsx`：未验证、过期、冷却模型隐藏，状态变化后禁止提交旧选项
+
+这些本地测试使用边界替身，不等同于线上凭据仍有效。发布后仍需核对运行镜像，在不手工验证的前提下等待自动发现，检查 `/v1/models`，再用原 Key 分别调用 Chat/Responses 和固定卡模型测试。不得用管理员测试成功替代用户 Key 验收

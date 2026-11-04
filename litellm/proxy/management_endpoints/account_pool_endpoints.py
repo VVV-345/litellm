@@ -13,7 +13,7 @@ from urllib.parse import quote
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
@@ -783,10 +783,14 @@ def _default_client() -> AccountPoolManagerClient:
     )
 
 
+class DashboardReader(Protocol):
+    async def __call__(self, *, days: int = 30) -> AccountPoolDashboardStats: ...
+
+
 def create_account_pool_router(
     client_factory: ManagerClientFactory = _default_client,
     *,
-    dashboard_reader: Callable[[], Awaitable[AccountPoolDashboardStats]] = standard_dashboard,
+    dashboard_reader: DashboardReader = standard_dashboard,
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_websocket_connect: Callable[[str], AbstractAsyncContextManager[_BrowserWebSocket]] = _connect_browser_websocket,
@@ -820,9 +824,10 @@ def create_account_pool_router(
     @router.get("/dashboard", response_model=AccountPoolDashboardStats)
     async def dashboard_stats(
         user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+        days: Annotated[int, Query(ge=1, le=90)] = 30,
     ) -> AccountPoolDashboardStats:
         _require_proxy_admin(user_api_key_dict)
-        return await dashboard_reader()
+        return await dashboard_reader(days=days)
 
     @router.get("/reconciler", response_model=ReconcilerStatus)
     async def reconciler_health(

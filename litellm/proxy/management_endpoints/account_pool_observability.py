@@ -127,9 +127,10 @@ async def standard_dashboard(
     query: StatsQuery = query_standard_stats,
     *,
     now: datetime | None = None,
+    days: int = 30,
     timing_query: TimingStatsQuery = query_gateway_latency_stats,
 ) -> AccountPoolDashboardStats:
-    since: Final = (now or datetime.now(timezone.utc)) - timedelta(days=30)
+    since: Final = (now or datetime.now(timezone.utc)) - timedelta(days=days)
     rows_result: Final
     gateway_latency: Final
     rows_result, gateway_latency = await asyncio.gather(

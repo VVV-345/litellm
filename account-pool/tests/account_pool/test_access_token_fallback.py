@@ -99,6 +99,9 @@ class FallbackEnvironments:
     async def get(self, _id):
         return self.record
 
+    async def list(self):
+        return (self.record,)
+
     async def save_if_version(self, record, version):
         if self.record.version != version:
             return None
@@ -288,3 +291,58 @@ async def test_fallback_verifies_with_fresh_account_quota_and_historical_model_c
     assert environments.record.model_quotas == (historical,)
     if expected:
         assert environments.record.access_token_fallback.usable_for("model-a", utc_now())
+
+
+@pytest.mark.asyncio
+async def test_discovery_proves_enabled_models_without_manual_model_test():
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+
+    class DiscoveryUpstream(FallbackUpstream):
+        def __init__(self):
+            super().__init__()
+            self.verified = []
+            self.attempted = []
+
+        async def verify_access_fallback(self, record, model):
+            self.attempted.append(model)
+            if model == "unavailable":
+                return domain.AccessTokenFallbackVerification(passed=False, restored=False, reason="incomplete")
+            self.verified.append(model)
+            return await super().verify_access_fallback(record, model)
+
+        async def access_fallback_status(self, record):
+            return (await super().access_fallback_status(record)).model_copy(update={"verified_models": tuple(self.verified)})
+
+    record = _record().model_copy(update={
+        "auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",),
+        "enabled_models": ("model-a", "unavailable", "model-b"),
+        "access_token_fallback": domain.AccessTokenFallbackStatus(enabled=True, failure_source="refresh", expires_at=utc_now()+timedelta(hours=1)),
+    })
+    env, up = FallbackEnvironments(record), DiscoveryUpstream()
+    service = AccessTokenFallbackService(env, FallbackPolicies(), up, FallbackOwnership(), FallbackLeases())
+    await service.discover()
+    assert env.record.access_token_fallback.verified_models == ("model-a", "model-b")
+    assert not env.record.access_token_fallback.usable_for("unavailable", utc_now())
+    assert env.record.enabled_models == record.enabled_models
+    up.attempted.clear()
+    await service.discover()
+    assert up.attempted == ["unavailable"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("updates", [
+    {"enabled": False}, {"manual_cooldown": True}, {"configuration_pending": True},
+    {"access_token_fallback": domain.AccessTokenFallbackStatus(enabled=False, failure_source="refresh")},
+    {"access_token_fallback": domain.AccessTokenFallbackStatus(enabled=True, failure_source="access")},
+    {"access_token_fallback": domain.AccessTokenFallbackStatus(enabled=True, failure_source="refresh", expires_at=utc_now()-timedelta(minutes=1))},
+])
+async def test_automatic_discovery_never_bypasses_independent_restrictions(updates):
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+    record = _record().model_copy(update={
+        "auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",),
+        "access_token_fallback": domain.AccessTokenFallbackStatus(enabled=True, failure_source="refresh", expires_at=utc_now()+timedelta(hours=1)),
+        **updates,
+    })
+    up = FallbackUpstream()
+    await AccessTokenFallbackService(FallbackEnvironments(record), FallbackPolicies(), up, FallbackOwnership(), FallbackLeases()).discover()
+    assert up.calls == []

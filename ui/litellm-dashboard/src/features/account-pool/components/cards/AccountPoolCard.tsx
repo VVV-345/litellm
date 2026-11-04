@@ -18,6 +18,7 @@ import {
   canToggleEnvironment,
 } from "../../utils/AccountPoolPermissions";
 import {
+  formatCount,
   formatDateTime,
   formatQuota,
   mostConstrainedWindow,
@@ -35,11 +36,12 @@ import type {
 import { accountPoolLatency } from "../../utils/accountPoolLatency";
 import { AccountPoolCardQuota } from "./AccountPoolCardQuota";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
-import { accountPoolHiddenModelCount, accountPoolVisibleModels } from "../../utils/accountPoolDashboardSelectors";
+import { accountPoolHiddenModelCount, accountPoolUsableModels, accountPoolVisibleModels } from "../../utils/accountPoolDashboardSelectors";
 
 interface AccountPoolCardProps {
   environment: AccountPoolEnvironment;
   proxyGateway?: AccountPoolProxyGateway;
+  proxyName?: string;
   proxyDelay?: AccountPoolProxyGatewayDelay;
   ispProbe?: AccountPoolISPProbe | null;
   onConfigure: (environment: AccountPoolEnvironment) => void;
@@ -53,6 +55,7 @@ interface AccountPoolCardProps {
   onVerifyAccess?: (environment: AccountPoolEnvironment) => void;
   onViewLogs?: (environment: AccountPoolEnvironment) => void;
   requestStats?: ErrorStats;
+  compactNumbers?: boolean;
   tags?: string[];
   group?: string;
   policy?: PolicyView;
@@ -62,6 +65,7 @@ interface AccountPoolCardProps {
 const AccountPoolCardComponent = ({
   environment,
   proxyGateway,
+  proxyName,
   proxyDelay,
   ispProbe,
   onConfigure,
@@ -75,6 +79,7 @@ const AccountPoolCardComponent = ({
   onRefreshCredentials,
   onVerifyAccess,
   requestStats,
+  compactNumbers = true,
   tags = [],
   group,
   policy,
@@ -95,6 +100,7 @@ const AccountPoolCardComponent = ({
     environment.status === "error" || environment.access_token_fallback?.failure_source === "refresh"
       ? t("accountPool.reauthorize")
       : t("accountPool.continueAuthorization");
+  const usableModels = accountPoolUsableModels(environment);
   const visibleModels = accountPoolVisibleModels(environment);
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
   const showPlan = environment.supplier !== "openai_codex" && Boolean(environment.quota.plan_type);
@@ -213,7 +219,7 @@ const AccountPoolCardComponent = ({
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => onTest(environment)}
-                disabled={disabled || !environment.enabled || environment.enabled_models.length === 0}
+                disabled={disabled || !environment.enabled || usableModels.length === 0}
                 aria-label={t("accountPool.modelTest.title", { name: environment.name })}
                 title={t("accountPool.modelTest.short")}
               >
@@ -280,6 +286,9 @@ const AccountPoolCardComponent = ({
             {t("accountPool.credential.temporary")}
           </p>
         )}
+        {environment.access_token_fallback?.enabled && environment.access_token_fallback.failure_source === "refresh" && (
+          <p className="text-xs text-muted-foreground">仅显示验证通过的模型；后台自动检查，失败模型每 5 分钟重试，独立冷却不会解除</p>
+        )}
         {environment.credential_refresh?.access_expires_at && (
           <p className="text-xs text-muted-foreground">
             {t("accountPool.credential.expires")}:{" "}
@@ -317,6 +326,79 @@ const AccountPoolCardComponent = ({
             )}
           </div>
         )}
+            <div className="min-w-0">
+              <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
+              <p className="mt-1 break-words font-medium">
+                {proxyLabel && proxyPort ? proxyLabel : proxyName || proxyLabel || t("accountPool.config.defaultGateway")}
+              </p>
+            </div>
+            <div
+              className="flex items-center justify-between gap-2 text-xs"
+              title={latency.checkedAt ? formatDateTime(latency.checkedAt, i18n.language) : undefined}
+            >
+              <span className="text-muted-foreground">{t("accountPool.nodeLatency.label")}</span>
+              <span className="font-medium tabular-nums">
+                {latency.status === "ok" ? `${latency.delay} ms` : t(`accountPool.nodeLatency.${latency.status}`)}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 @sm/card:grid-cols-4">
+              <div><p className="text-xs text-muted-foreground">失败请求</p><p className="mt-1 font-medium">{requestStats ? formatCount(requestStats.failed_requests, compactNumbers) : "-"}</p></div>
+              <div><p className="text-xs text-muted-foreground">Tokens</p><p className="mt-1 font-medium">{requestStats ? formatCount(requestStats.input_tokens + requestStats.output_tokens, compactNumbers) : "-"}</p></div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
+                <p className="mt-1 font-medium">{requestStats ? formatCount(requestStats.total_requests, compactNumbers) : "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.config.concurrencyLimit")}</p>
+                <p className="mt-1 font-medium">
+                  {environment.concurrency_limit === 0
+                    ? t("accountPool.config.unlimited")
+                    : environment.concurrency_limit}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>
+                <p className="mt-1 font-medium">{successRate === null ? "-" : `${successRate.toFixed(1)}%`}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.health")}</p>
+                <p className="mt-1 font-medium">{healthLabel}</p>
+              </div>
+              {environment.supplier !== "openai_codex" && (
+                <>
+                  <div>
+                    <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
+                    <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
+                    <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
+                  </div>
+                </>
+              )}
+              {environment.supplier === "xai" &&
+                environment.quota.has_grok_code_access !== null &&
+                environment.quota.has_grok_code_access !== undefined && (
+                  <div>
+                    <p className="text-xs text-muted-foreground">{t("accountPool.grokCodeAccess")}</p>
+                    <p className="mt-1 font-medium">
+                      {t(environment.quota.has_grok_code_access ? "accountPool.available" : "accountPool.unavailable")}
+                    </p>
+                  </div>
+                )}
+            </div>
+        <div className="flex flex-wrap gap-2">
+          {environment.supplier === "openai_codex" && onQuotaReset && (
+            <Button size="sm" variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>
+              {t("accountPool.quotaReset.action")}
+            </Button>
+          )}
+          {onViewLogs && (
+            <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>
+              {t("accountPool.logs.cardLogs")}
+            </Button>
+          )}
+        </div>
         <details className="min-w-0 border-t pt-2">
           <summary className="cursor-pointer text-xs text-muted-foreground focus-visible:outline-2">
             {t("accountPool.credential.details")}
@@ -360,70 +442,6 @@ const AccountPoolCardComponent = ({
                 ))}
               </div>
             )}
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
-              <p className="mt-1 break-words font-medium">
-                {environment.proxy_mode === "default_gateway" ? t("accountPool.config.defaultGateway") : proxyLabel}
-              </p>
-            </div>
-            <div
-              className="flex items-center justify-between gap-2 text-xs"
-              title={latency.checkedAt ? formatDateTime(latency.checkedAt, i18n.language) : undefined}
-            >
-              <span className="text-muted-foreground">{t("accountPool.nodeLatency.label")}</span>
-              <span className="font-medium tabular-nums">
-                {latency.status === "ok" ? `${latency.delay} ms` : t(`accountPool.nodeLatency.${latency.status}`)}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 @sm/card:grid-cols-4">
-              <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
-                <p className="mt-1 font-medium">{requestStats?.total_requests ?? "-"}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.config.concurrencyLimit")}</p>
-                <p className="mt-1 font-medium">
-                  {environment.concurrency_limit === 0
-                    ? t("accountPool.config.unlimited")
-                    : environment.concurrency_limit}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>
-                <p className="mt-1 font-medium">{successRate === null ? "-" : `${successRate.toFixed(1)}%`}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.health")}</p>
-                <p className="mt-1 font-medium">{healthLabel}</p>
-              </div>
-              {environment.supplier !== "openai_codex" && (
-                <>
-                  <div>
-                    <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
-                    <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
-                    <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
-                  </div>
-                </>
-              )}
-              {environment.supplier === "xai" &&
-                environment.quota.has_grok_code_access !== null &&
-                environment.quota.has_grok_code_access !== undefined && (
-                  <div>
-                    <p className="text-xs text-muted-foreground">{t("accountPool.grokCodeAccess")}</p>
-                    <p className="mt-1 font-medium">
-                      {t(environment.quota.has_grok_code_access ? "accountPool.available" : "accountPool.unavailable")}
-                    </p>
-                  </div>
-                )}
-            </div>
-            {environment.supplier === "openai_codex" && onQuotaReset && (
-              <Button variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>
-                {t("accountPool.quotaReset.action")}
-              </Button>
-            )}
             <p className="border-t border-border pt-2 text-xs text-muted-foreground">
               路由策略、权重和优先级在 LiteLLM 模型设置中管理
             </p>
@@ -436,7 +454,7 @@ const AccountPoolCardComponent = ({
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.availableModels")}</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {environment.enabled_models.length > 0 ? (
+                {usableModels.length > 0 ? (
                   <>
                     {visibleModels.map((model) => (
                       <Badge key={model} variant="outline">
@@ -446,7 +464,7 @@ const AccountPoolCardComponent = ({
                     {hiddenModelCount > 0 && (
                       <Badge
                         variant="secondary"
-                        title={environment.enabled_models.slice(3).join("\n")}
+                        title={usableModels.slice(3).join("\n")}
                         aria-label={t("accountPool.dashboard.moreModels", { count: hiddenModelCount })}
                       >
                         +{hiddenModelCount}
@@ -458,11 +476,7 @@ const AccountPoolCardComponent = ({
                 )}
               </div>
             </div>
-            {onViewLogs && (
-              <Button variant="outline" size="sm" onClick={() => onViewLogs(environment)}>
-                {t("accountPool.logs.cardLogs")}
-              </Button>
-            )}
+
           </div>
         </details>
       </CardContent>

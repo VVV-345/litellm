@@ -160,6 +160,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service.refresh_auth_files,
         interval=lambda values: values.auth_refresh_interval_minutes,
     )
+    access_fallback: Final = AccessTokenFallbackService(
+        environments, policies, CodexResetClient(reset_http, secrets), ownership, leases,
+    )
+
+    async def discover_access_models() -> tuple[object, ...]:
+        await service.refresh_auth_files()
+        return await access_fallback.discover()
+
+    access_discovery_scheduler: Final = RefreshScheduler(
+        settings_repository, discover_access_models, interval=lambda _: 5,
+    )
+
+    async def discover_access_until_cancelled(stopped: asyncio.Event) -> None:
+        try:
+            await access_discovery_scheduler.track(discover_access_models, len)
+        except Exception as error:
+            _LOGGER.warning("Access model discovery failed: %s", error.__class__.__name__)
+        await access_discovery_scheduler.run_until_cancelled(stopped)
 
     async def sync_global_settings(
         values: AccountPoolSettings,
@@ -222,6 +240,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         quota_event_task: Final = asyncio.create_task(quota_trigger.run_until_cancelled(retry_stopped))
         quota_recovery_task: Final = asyncio.create_task(quota_recovery.run_until_cancelled(retry_stopped))
         auth_refresh_task: Final = asyncio.create_task(auth_refresh_scheduler.run_until_cancelled(retry_stopped))
+        access_discovery_task: Final = asyncio.create_task(discover_access_until_cancelled(retry_stopped))
         browser_cleanup_task: Final = asyncio.create_task(
             _reap_oauth_browser_sessions_until_cancelled(browser_sessions, browser_runtime, retry_stopped)
         )
@@ -239,6 +258,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             quota_event_task.cancel()
             quota_recovery_task.cancel()
             auth_refresh_task.cancel()
+            access_discovery_task.cancel()
             browser_cleanup_task.cancel()
             proxy_expiry_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
@@ -248,6 +268,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(quota_event_task, return_exceptions=True)
             await asyncio.gather(quota_recovery_task, return_exceptions=True)
             await asyncio.gather(auth_refresh_task, return_exceptions=True)
+            await asyncio.gather(access_discovery_task, return_exceptions=True)
             await asyncio.gather(browser_cleanup_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)
             try:
@@ -308,7 +329,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_runtime=browser_runtime,
             feedback=feedback,
             quota_reset=quota_reset,
-            access_token_fallback=AccessTokenFallbackService(environments, policies, CodexResetClient(reset_http, secrets), ownership, leases),
+            access_token_fallback=access_fallback,
             ownership=ownership,
             credential_refresh=CredentialRefreshService(environments, ownership, CodexResetClient(reset_http, secrets)),
         )

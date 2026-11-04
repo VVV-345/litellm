@@ -46434,7 +46434,9 @@ export interface operations {
     };
     dashboard_stats_account_pool_dashboard_get: {
         parameters: {
-            query?: never;
+            query?: {
+                days?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -46448,6 +46450,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolDashboardStats"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

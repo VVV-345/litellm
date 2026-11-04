@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-import { formatDateTime } from "../../utils/AccountPoolFormatters";
+import { formatCount, formatDateTime } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolQuotaRefreshStatus, ErrorStats } from "../../api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolSupplier } from "../../utils/AccountPoolTypes";
 import { AccountPoolSortableCards } from "../cards/AccountPoolSortableCards";
@@ -21,6 +21,10 @@ import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
 import { filterAccountPoolDashboardEnvironments, groupAccountPoolEnvironments, summarizeAccountPoolDashboard, type AccountPoolDashboardFilters } from "../../utils/accountPoolDashboardSelectors";
 
 interface AccountPoolDashboardProps {
+  statsDays?: number;
+  onStatsDaysChange?: (days: number) => void;
+  compactNumbers?: boolean;
+  onCompactNumbersChange?: (compact: boolean) => void;
   environments: readonly AccountPoolEnvironment[];
   statsByCard: ReadonlyMap<string, ErrorStats>;
   statsLoading: boolean;
@@ -41,6 +45,10 @@ const STATUS_FILTERS: readonly AccountPoolDashboardFilters["status"][] = [
 const DEFAULT_FILTERS: AccountPoolDashboardFilters = { search: "", enabled: "all", status: "all" };
 
 export const AccountPoolDashboard = ({
+  statsDays = 30,
+  onStatsDaysChange,
+  compactNumbers = true,
+  onCompactNumbersChange,
   environments,
   statsByCard,
   statsLoading,
@@ -72,13 +80,22 @@ export const AccountPoolDashboard = ({
     statsError || summary.successRate === null
       ? t("accountPool.dashboard.unknown")
       : `${summary.successRate.toFixed(1)}%`;
-  const metric = (value: number) => (statsError ? t("accountPool.dashboard.unknown") : formatInteger(value));
+  const metric = (value: number) => (statsError ? t("accountPool.dashboard.unknown") : formatCount(value, compactNumbers));
   const latencyMetric = (value: number | null | undefined) =>
     statsError || value == null ? t("accountPool.dashboard.unknown") : `${Math.round(value)} ms`;
 
   return (
     <div className="grid gap-5" data-testid="account-pool-dashboard">
-      <p className="text-sm text-muted-foreground">调用统计：LiteLLM 标准日志，近 30 天；供应商额度按卡片独立刷新</p>
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm text-muted-foreground">调用统计：LiteLLM 标准日志，近 {statsDays} 天；供应商额度独立刷新，网关延迟为近 7 天</p>
+        <Select value={String(statsDays)} onValueChange={(value) => { if (value) onStatsDaysChange?.(Number(value)); }}>
+          <SelectTrigger aria-label="统计天数" className="w-32"><SelectValue>近 {statsDays} 天</SelectValue></SelectTrigger>
+          <SelectContent>{[1, 7, 14, 30, 90].map((days) => <SelectItem key={days} value={String(days)}>近 {days} 天</SelectItem>)}</SelectContent>
+        </Select>
+        <Button size="sm" variant="outline" aria-pressed={compactNumbers} onClick={() => onCompactNumbersChange?.(!compactNumbers)}>
+          {compactNumbers ? "数字：K/M/B" : "数字：完整"}
+        </Button>
+      </div>
       {statsError && (
         <p role="alert" className="text-sm text-destructive">
           调用统计读取失败，暂不可用；请刷新重试
@@ -90,7 +107,7 @@ export const AccountPoolDashboard = ({
             <Gauge className="size-5 text-emerald-600" />
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.successRate")}</p>
-              <p className="text-2xl font-semibold">{statsLoading ? <Skeleton className="h-7 w-16" /> : successRate}</p>
+              <div className="text-2xl font-semibold">{statsLoading ? <Skeleton className="h-7 w-16" /> : successRate}</div>
             </div>
           </CardContent>
         </Card>
@@ -99,9 +116,9 @@ export const AccountPoolDashboard = ({
             <AlertTriangle className="size-5 text-destructive" />
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.failures")}</p>
-              <p className="text-2xl font-semibold">
+              <div className="text-2xl font-semibold">
                 {statsLoading ? <Skeleton className="h-7 w-16" /> : metric(summary.failedRequests)}
-              </p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -110,9 +127,9 @@ export const AccountPoolDashboard = ({
             <TrafficCone className="size-5 text-blue-600" />
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.traffic")}</p>
-              <p className="text-2xl font-semibold">
+              <div className="text-2xl font-semibold">
                 {statsLoading ? <Skeleton className="h-7 w-16" /> : metric(summary.totalTokens)}
-              </p>
+              </div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.tokens")}</p>
             </div>
           </CardContent>
@@ -122,9 +139,9 @@ export const AccountPoolDashboard = ({
             <Layers3 className="size-5 text-violet-600" />
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cards")}</p>
-              <p className="text-2xl font-semibold">
+              <div className="text-2xl font-semibold">
                 {formatInteger(summary.enabledCards)} / {formatInteger(summary.totalCards)}
-              </p>
+              </div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.enabled")}</p>
             </div>
           </CardContent>
@@ -134,9 +151,9 @@ export const AccountPoolDashboard = ({
             <Gauge className="size-5 text-amber-600" />
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.gatewayP95")}</p>
-              <p className="text-2xl font-semibold">
+              <div className="text-2xl font-semibold">
                 {statsLoading ? <Skeleton className="h-7 w-16" /> : latencyMetric(gatewayLatency?.p95_ms)}
-              </p>
+              </div>
               <p className="text-xs text-muted-foreground">
                 {t("accountPool.dashboard.gatewayLatencySamples", {
                   count: statsError ? t("accountPool.dashboard.unknown") : (gatewayLatency?.sample_count ?? 0),
@@ -150,9 +167,9 @@ export const AccountPoolDashboard = ({
             <Gauge className="size-5 text-orange-600" />
             <div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.gatewayP99")}</p>
-              <p className="text-2xl font-semibold">
+              <div className="text-2xl font-semibold">
                 {statsLoading ? <Skeleton className="h-7 w-16" /> : latencyMetric(gatewayLatency?.p99_ms)}
-              </p>
+              </div>
               <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.gatewayLatencyWindow")}</p>
             </div>
           </CardContent>
