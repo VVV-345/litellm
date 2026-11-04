@@ -1,21 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { setServerRootPath } from "@/lib/serverRootPath";
 
 import {
   analyzeAccountPoolUpstream,
-  cancelAccountPoolOAuthBrowserSession,
   createAccountPoolJobId,
   getAccountPoolCodexReview,
   getAccountPoolUpstreamSync,
-  getAccountPoolOAuthBrowserSession,
-  getAccountPoolOAuthBrowserUrl,
   installCardAccountPoolPlugin,
   getAccountPoolAuthFileRefreshStatus,
   promoteAccountPoolUpstream,
   refreshAccountPoolAuthFiles,
   setAccountPoolAuthFileRefreshInterval,
   submitAccountPoolBatch,
-  startAccountPoolOAuthBrowserSession,
   uploadAccountPoolAuthFile,
   type AccountPolicy,
 } from "./AccountPoolManagementApi";
@@ -164,76 +159,6 @@ describe("submitAccountPoolBatch", () => {
     });
     expect(postMock).toHaveBeenNthCalledWith(2, "/account_pool/upstream-sync/promote", {
       accessToken: "token-123",
-    });
-  });
-});
-
-describe("OAuth browser session", () => {
-  const session = {
-    id: "session-1",
-    environment_id: "card-1",
-    status: "active",
-    created_at: "2026-10-08T00:00:00Z",
-    expires_at: "2026-10-08T00:05:00Z",
-  };
-
-  beforeEach(() => {
-    vi.resetAllMocks();
-  });
-
-  it("exchanges the single-use ticket in a header before returning ticket-free session data", async () => {
-    postMock.mockResolvedValueOnce({ ...session, ticket: "single-use-ticket" }).mockResolvedValueOnce(undefined);
-
-    expect(await startAccountPoolOAuthBrowserSession("admin-token", "card/1")).toEqual(session);
-    expect(postMock).toHaveBeenNthCalledWith(1, "/account_pool/environments/card%2F1/oauth-browser-sessions", {
-      accessToken: "admin-token",
-    });
-    expect(postMock).toHaveBeenNthCalledWith(2, "/account_pool/oauth-browser-sessions/session-1/browser", {
-      accessToken: "single-use-ticket",
-    });
-  });
-
-  it("cancels a newly started worker if the ticket exchange fails", async () => {
-    postMock
-      .mockResolvedValueOnce({ ...session, ticket: "single-use-ticket" })
-      .mockRejectedValueOnce(new Error("expired"));
-    deleteMock.mockResolvedValue({ ...session, status: "cancelled" });
-
-    await expect(startAccountPoolOAuthBrowserSession("admin-token", "card-1")).rejects.toThrow("expired");
-    expect(deleteMock).toHaveBeenCalledWith("/account_pool/oauth-browser-sessions/session-1", {
-      accessToken: "admin-token",
-    });
-  });
-
-  it("uses a clean noVNC page and a session-scoped WebSocket path", () => {
-    expect(getAccountPoolOAuthBrowserUrl("session-1")).toBe(
-      "/account_pool/oauth-browser-sessions/session-1/browser/vnc.html?autoconnect=true&resize=scale&path=account_pool%2Foauth-browser-sessions%2Fsession-1%2Fbrowser%2Fwebsockify",
-    );
-  });
-
-  it.each(["/team/litellm/", " team/litellm "])("preserves the normalized deployment prefix for %s", (rootPath) => {
-    try {
-      setServerRootPath(rootPath);
-      expect(getAccountPoolOAuthBrowserUrl("session-1")).toBe(
-        "/team/litellm/account_pool/oauth-browser-sessions/session-1/browser/vnc.html?autoconnect=true&resize=scale&path=team%2Flitellm%2Faccount_pool%2Foauth-browser-sessions%2Fsession-1%2Fbrowser%2Fwebsockify",
-      );
-    } finally {
-      setServerRootPath("/");
-    }
-  });
-
-  it("encodes lifecycle identities and bypasses cached status responses", async () => {
-    const signal = new AbortController().signal;
-    await getAccountPoolOAuthBrowserSession("admin-token", "session/1", signal);
-    await cancelAccountPoolOAuthBrowserSession("admin-token", "session/1");
-
-    expect(getMock).toHaveBeenCalledWith("/account_pool/oauth-browser-sessions/session%2F1", {
-      accessToken: "admin-token",
-      signal,
-      cache: "no-store",
-    });
-    expect(deleteMock).toHaveBeenCalledWith("/account_pool/oauth-browser-sessions/session%2F1", {
-      accessToken: "admin-token",
     });
   });
 });

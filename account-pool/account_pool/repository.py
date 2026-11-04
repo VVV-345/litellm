@@ -11,13 +11,13 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import TypeAdapter
+from pydantic import JsonValue, TypeAdapter
 
 from account_pool.domain import EnvironmentRecord, ModelQuotaSnapshot, ProxyProfile, QuotaSnapshot
-from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionStatus
+from account_pool.environment_proxy_storage import transform_proxy_storage
+from account_pool.shared.secrets import StateCipher
 
 _RECORD_ADAPTER: Final = TypeAdapter(EnvironmentRecord)
-_OAUTH_BROWSER_SESSION_ADAPTER: Final = TypeAdapter(OAuthBrowserSession)
 
 _CREATE_SCHEMA: Final = (
     """
@@ -64,8 +64,15 @@ async def database_connection(database_url: str) -> AsyncGenerator[psycopg.Async
 
 
 class PostgresEnvironmentRepository:
-    def __init__(self, database_url: str) -> None:
+    def __init__(self, database_url: str, *, proxy_cipher: StateCipher | None = None) -> None:
         self._database_url: Final = database_url
+        self._proxy_cipher: Final = proxy_cipher
+
+    def _encode(self, record: EnvironmentRecord) -> dict[str, JsonValue]:
+        return transform_proxy_storage(record, self._proxy_cipher, encrypt=True).model_dump(mode="json")
+
+    def _decode(self, payload: object) -> EnvironmentRecord:
+        return transform_proxy_storage(_RECORD_ADAPTER.validate_python(payload), self._proxy_cipher, encrypt=False)
 
     async def initialize(self) -> None:
         async with database_connection(self._database_url) as connection:
@@ -109,7 +116,7 @@ class PostgresEnvironmentRepository:
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute("SELECT payload FROM account_pool_environments")
             rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
-        records: Final = tuple(_RECORD_ADAPTER.validate_python(row["payload"]) for row in rows)
+        records: Final = tuple(self._decode(row["payload"]) for row in rows)
         return tuple(sorted(records, key=lambda record: (record.created_at, record.id.int)))
 
     async def get(self, environment_id: UUID) -> EnvironmentRecord | None:
@@ -119,7 +126,7 @@ class PostgresEnvironmentRepository:
                 (environment_id,),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
     async def find_by_oauth_state(self, state: str) -> EnvironmentRecord | None:
         async with database_connection(self._database_url) as connection:
@@ -128,7 +135,7 @@ class PostgresEnvironmentRepository:
                 (state,),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
     async def find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
         async with database_connection(self._database_url) as connection:
@@ -137,10 +144,10 @@ class PostgresEnvironmentRepository:
                 (operation_id,),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
     async def save(self, record: EnvironmentRecord) -> EnvironmentRecord:
-        payload: Final = record.model_dump(mode="json")
+        payload: Final = self._encode(record)
         async with database_connection(self._database_url) as connection:
             await connection.execute(
                 """
@@ -187,7 +194,7 @@ class PostgresEnvironmentRepository:
         record: EnvironmentRecord,
         expected_version: int,
     ) -> EnvironmentRecord | None:
-        payload: Final = record.model_dump(mode="json")
+        payload: Final = self._encode(record)
         async with database_connection(self._database_url) as connection:
             cursor: Final = await connection.execute(
                 """
@@ -256,7 +263,7 @@ class PostgresEnvironmentRepository:
                 (consumed_at, consumed_at, consumed_at, state, consumed_at),
             )
             row: Final = await cursor.fetchone()
-        return None if row is None else _RECORD_ADAPTER.validate_python(row["payload"])
+        return None if row is None else self._decode(row["payload"])
 
 
 async def _delete_environment(
@@ -282,228 +289,6 @@ async def _delete_environment(
         (environment_id,),
     )
     await connection.execute("DELETE FROM account_pool_environments WHERE id = %s", (environment_id,))
-
-
-class PostgresOAuthBrowserSessionRepository:
-    def __init__(self, database_url: str) -> None:
-        self._database_url: Final = database_url
-
-    async def create_if_absent(self, session: OAuthBrowserSession) -> bool:
-        try:
-            async with database_connection(self._database_url) as connection:
-                await connection.execute(
-                    """
-                    UPDATE account_pool_oauth_browser_sessions
-                    SET status = %s,
-                        payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
-                    WHERE environment_id = %s
-                      AND status IN (%s, %s, %s)
-                      AND expires_at <= %s
-                    """,
-                    (
-                        OAuthBrowserSessionStatus.EXPIRED.value,
-                        OAuthBrowserSessionStatus.EXPIRED.value,
-                        session.environment_id,
-                        OAuthBrowserSessionStatus.STARTING.value,
-                        OAuthBrowserSessionStatus.ACTIVE.value,
-                        OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
-                        session.created_at,
-                    ),
-                )
-                await connection.execute(
-                    """
-                    INSERT INTO account_pool_oauth_browser_sessions (id, environment_id, status, expires_at, payload)
-                    VALUES (%s, %s, %s, %s, %s::jsonb)
-                    """,
-                    (
-                        session.id,
-                        session.environment_id,
-                        session.status.value,
-                        session.expires_at,
-                        Jsonb(session.model_dump(mode="json")),
-                    ),
-                )
-        except psycopg.errors.UniqueViolation:
-            return False
-        return True
-
-    async def get(self, session_id: UUID) -> OAuthBrowserSession | None:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                "SELECT payload FROM account_pool_oauth_browser_sessions WHERE id = %s",
-                (session_id,),
-            )
-            row: Final = await cursor.fetchone()
-        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
-
-    async def consume_ticket(
-        self,
-        session_id: UUID,
-        ticket_digest: str,
-        now: datetime,
-    ) -> OAuthBrowserSession | None:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                UPDATE account_pool_oauth_browser_sessions
-                SET payload = jsonb_set(payload, '{ticket_consumed_at}', to_jsonb(%s::timestamptz), true)
-                WHERE id = %s
-                  AND status = %s
-                  AND payload->>'ticket_digest' = %s
-                  AND payload->>'ticket_consumed_at' IS NULL
-                  AND expires_at > %s
-                RETURNING payload
-                """,
-                (now, session_id, OAuthBrowserSessionStatus.ACTIVE.value, ticket_digest, now),
-            )
-            row: Final = await cursor.fetchone()
-        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
-
-    async def validate_ticket(
-        self,
-        session_id: UUID,
-        ticket_digest: str,
-        now: datetime,
-    ) -> OAuthBrowserSession | None:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                SELECT payload FROM account_pool_oauth_browser_sessions
-                WHERE id = %s
-                  AND status = %s
-                  AND payload->>'ticket_digest' = %s
-                  AND payload->>'ticket_consumed_at' IS NOT NULL
-                  AND expires_at > %s
-                """,
-                (session_id, OAuthBrowserSessionStatus.ACTIVE.value, ticket_digest, now),
-            )
-            row: Final = await cursor.fetchone()
-        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
-
-    async def claim_callback(
-        self,
-        session_id: UUID,
-        callback_token_digest: str,
-        now: datetime,
-    ) -> OAuthBrowserSession | None:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                UPDATE account_pool_oauth_browser_sessions
-                SET status = %s,
-                    payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
-                WHERE id = %s
-                  AND status = %s
-                  AND payload->>'callback_token_digest' = %s
-                  AND expires_at > %s
-                RETURNING payload
-                """,
-                (
-                    OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
-                    OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
-                    session_id,
-                    OAuthBrowserSessionStatus.ACTIVE.value,
-                    callback_token_digest,
-                    now,
-                ),
-            )
-            row: Final = await cursor.fetchone()
-        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
-
-    async def transition(
-        self,
-        session_id: UUID,
-        expected: tuple[OAuthBrowserSessionStatus, ...],
-        target: OAuthBrowserSessionStatus,
-    ) -> OAuthBrowserSession | None:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                UPDATE account_pool_oauth_browser_sessions
-                SET status = %s,
-                    payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
-                WHERE id = %s AND status = ANY(%s)
-                RETURNING payload
-                """,
-                (target.value, target.value, session_id, [item.value for item in expected]),
-            )
-            row: Final = await cursor.fetchone()
-        return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
-
-    async def expire_due(self, now: datetime) -> tuple[OAuthBrowserSession, ...]:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                UPDATE account_pool_oauth_browser_sessions
-                SET status = %s,
-                    payload = jsonb_set(payload, '{status}', to_jsonb(%s::text), true)
-                WHERE status = ANY(%s) AND expires_at <= %s
-                RETURNING payload
-                """,
-                (
-                    OAuthBrowserSessionStatus.EXPIRED.value,
-                    OAuthBrowserSessionStatus.EXPIRED.value,
-                    [
-                        OAuthBrowserSessionStatus.STARTING.value,
-                        OAuthBrowserSessionStatus.ACTIVE.value,
-                        OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
-                    ],
-                    now,
-                ),
-            )
-            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
-        return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
-
-    async def list_cleanup_due(self, now: datetime) -> tuple[OAuthBrowserSession, ...]:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                SELECT payload FROM account_pool_oauth_browser_sessions
-                WHERE COALESCE((payload->>'cleanup_pending')::boolean, true)
-                  AND (
-                    status = ANY(%s)
-                    OR (status = ANY(%s) AND expires_at <= %s)
-                  )
-                ORDER BY expires_at
-                """,
-                (
-                    [
-                        OAuthBrowserSessionStatus.COMPLETED.value,
-                        OAuthBrowserSessionStatus.CANCELLED.value,
-                        OAuthBrowserSessionStatus.FAILED.value,
-                        OAuthBrowserSessionStatus.EXPIRED.value,
-                    ],
-                    [
-                        OAuthBrowserSessionStatus.STARTING.value,
-                        OAuthBrowserSessionStatus.ACTIVE.value,
-                        OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
-                    ],
-                    now,
-                ),
-            )
-            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
-        return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
-
-    async def list_for_environment(self, environment_id: UUID) -> tuple[OAuthBrowserSession, ...]:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                "SELECT payload FROM account_pool_oauth_browser_sessions WHERE environment_id = %s "
-                "AND COALESCE((payload->>'cleanup_pending')::boolean, true)", (environment_id,),
-            )
-            rows: Final[Sequence[Mapping[str, object]]] = await cursor.fetchall()
-        return tuple(_OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"]) for row in rows)
-
-    async def mark_cleaned(self, session_id: UUID) -> bool:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                """
-                UPDATE account_pool_oauth_browser_sessions
-                SET payload = jsonb_set(payload, '{cleanup_pending}', 'false'::jsonb, true)
-                WHERE id = %s AND COALESCE((payload->>'cleanup_pending')::boolean, true)
-                """,
-                (session_id,),
-            )
-        return cursor.rowcount == 1
 
 
 class PostgresProxyProfileRepository:

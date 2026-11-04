@@ -1,5 +1,6 @@
 /** 本文件编辑已授权号池环境的运行配置，并将表单变更一次性提交给管理 API。 */
 
+import { proxyProfileLabel } from "@/features/account-pool/utils/AccountPoolProxyOptions";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -265,7 +266,7 @@ export const RuntimeConfigDialog = ({
                     </p>
                   )}
                   <Select
-                    items={profiles.map((profile) => ({ value: profile.id, label: profile.name }))}
+                    items={profiles.map((profile) => ({ value: profile.id, label: proxyProfileLabel(profile) }))}
                     value={form.proxy_profile_id}
                     onValueChange={(value) => update("proxy_profile_id", value)}
                   >
@@ -278,7 +279,7 @@ export const RuntimeConfigDialog = ({
                     <SelectContent>
                       {profiles.map((profile) => (
                         <SelectItem key={profile.id} value={profile.id}>
-                          {profile.name}
+                          {proxyProfileLabel(profile)}
                           {profile.id.startsWith("clash-gateway-")
                             ? ` · ${
                                 gateways.find((gateway) => gateway.profile_id === profile.id)?.current_node ??

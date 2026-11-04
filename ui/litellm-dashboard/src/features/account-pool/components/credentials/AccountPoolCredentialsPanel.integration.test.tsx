@@ -86,7 +86,7 @@ describe("AccountPoolCredentialsPanel", () => {
       type: "text/plain",
     });
     await user.upload(screen.getByLabelText("认证文件"), file);
-    await user.click(screen.getByRole("button", { name: "上传认证文件", exact: true }));
+    await user.click(screen.getByRole("button", { name: /^上传认证文件$/ }));
     await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file, false));
     expect(await screen.findByText(/登录资料已保存，尚未完成认证/)).toBeVisible();
   });
@@ -457,7 +457,7 @@ describe("AccountPoolCredentialsPanel", () => {
       ),
     );
     expect(patchAuthFileFields).not.toHaveBeenCalled();
-    await user.click(dialog.getByRole("button", { name: "保存", exact: true }));
+    await user.click(dialog.getByRole("button", { name: /^保存$/ }));
     await waitFor(() =>
       expect(patchAuthFileFields).toHaveBeenCalledWith("token", environment.id, { priority: 4, prefix: "team-b" }),
     );

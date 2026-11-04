@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Final, Literal, Protocol, TypeVar
 from uuid import UUID
@@ -27,7 +28,7 @@ from account_pool.ports import (
     EnvironmentChannel,
 )
 from account_pool.settings import AccountPoolSettings
-from account_pool.shared.result import Result
+from account_pool.shared.result import Failure, FailureCode, Result
 
 T = TypeVar("T")
 
@@ -41,6 +42,12 @@ async def constant_async(value: T) -> T:
 
 class AuthorizationConflict(Exception):
     """授权回调未能持久化到可路由状态时阻止成功响应。"""
+
+
+@dataclass(frozen=True)
+class AuthorizationPending(Failure):
+    code: FailureCode = FailureCode.CONFLICT
+    message: str = "Account authorization received; waiting for channel startup"
 
 
 AUTHORIZATION_COMPLETE_STATUSES: Final = frozenset(

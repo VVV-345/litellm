@@ -1,4 +1,5 @@
 /** 用表单编辑和批量应用认证元数据，默认模板保存在服务端且不包含认证内容。 */
+import { proxyProfileLabel } from "@/features/account-pool/utils/AccountPoolProxyOptions";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -51,6 +52,7 @@ export function AccountPoolAuthFileFieldsDialog({
     retry: false,
   });
   const profiles = useQuery(accountPoolProxyProfileOptions(accessToken));
+  const fileProfiles = profiles.data?.filter((profile) => !profile.id.startsWith("isp-direct-"));
   const [draft, setDraft] = useState<AuthFileTemplateForm | null>(null);
   const form = draft ?? authFileTemplateToForm(mode === "template" ? settings.data?.values.auth_file_template : null);
   const [message, setMessage] = useState<string | null>(null);
@@ -112,7 +114,7 @@ export function AccountPoolAuthFileFieldsDialog({
   const missingProfile =
     form.applyProxy &&
     form.proxyProfileId !== "" &&
-    !profiles.data?.some((profile) => profile.id === form.proxyProfileId);
+    !fileProfiles?.some((profile) => profile.id === form.proxyProfileId);
   const selectedFields = [
     form.applyPriority && "优先级",
     form.applyPrefix && "模型前缀",
@@ -188,12 +190,13 @@ export function AccountPoolAuthFileFieldsDialog({
             >
               <option value="">沿用卡片代理（清除文件内代理）</option>
               {missingProfile && <option value={form.proxyProfileId}>原节点不可用，请重新选择</option>}
-              {(profiles.data ?? []).map((profile) => (
+              {(fileProfiles ?? []).map((profile) => (
                 <option key={profile.id} value={profile.id}>
-                  {profile.name}
+                  {proxyProfileLabel(profile)}
                 </option>
               ))}
             </select>
+            <p className="text-sm text-muted-foreground">ISP 出站代理在卡片配置中选择，此处使用“沿用卡片代理”</p>
             {profiles.isError && (
               <p role="alert" className="text-sm text-destructive">
                 代理读取失败，请关闭后重试

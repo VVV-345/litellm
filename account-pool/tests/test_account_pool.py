@@ -16,7 +16,7 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import yaml
-from account_pool.api import _credential_views
+from account_pool.api import _credential_views, create_router
 from account_pool.app import (
     _notify_refresh_schedulers_after_settings_sync,
     _reconcile_pending_configurations_until_cancelled,
@@ -65,6 +65,7 @@ from account_pool.settings import (
     NetworkSettingsProfile,
     NetworkSettingsValues,
 )
+from fastapi import FastAPI
 
 
 @pytest.mark.parametrize("supplier", tuple(kind.value for kind in SupplierKind))
@@ -2016,6 +2017,35 @@ async def test_authorization_poll_error_does_not_overwrite_newer_state(tmp_path:
 
     assert await service._refresh_authorization(signed) == replacement
     assert await repository.get(record.id) == replacement
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ("/auth/callback", "/callback", "/oauth-callback"))
+async def test_callback_page_reports_accepted_while_channel_validation_is_pending(tmp_path: Path, path: str) -> None:
+    record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    cli: Final = FakeCLIProxy(authorization_status="ok", data_plane_healthy=False)
+    service: Final = _service(record, cli, tmp_path)
+    state: Final = service._callback_state(record)
+    signed: Final = record.model_copy(update={"oauth_state": state, "oauth_state_signature": state.rpartition(".")[2]})
+    await service._repository.save(signed)
+    app: Final = FastAPI()
+    app.include_router(create_router(service, "m" * 32))
+
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager") as client:
+        response: Final = await client.get(path, params={"state": state, "code": "test-code"})
+        replay: Final = await client.get(path, params={"state": state, "code": "test-code"})
+
+    assert response.status_code == 202
+    assert "授权已接收" in response.text
+    assert "后台" in response.text
+    assert "账号凭据已保存" not in response.text
+    assert "授权未完成" not in response.text
+    assert response.headers["Cache-Control"] == "no-store"
+    assert replay.status_code == 409
+    assert "授权未完成" in replay.text
+    pending: Final = await service._repository.get(record.id)
+    assert pending is not None
+    assert pending.status is EnvironmentStatus.VALIDATING
 
 
 @pytest.mark.asyncio
@@ -4797,3 +4827,62 @@ async def test_event_quota_refresh_waits_for_inflight_refresh(tmp_path: Path) ->
     lock.release()
     assert await pending is True
     assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_app_factory_preserves_health_and_callback_without_server_browser(tmp_path: Path) -> None:
+    from account_pool.app import create_app
+
+    app: Final = create_app(_settings(tmp_path))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager") as client:
+        health: Final = await client.get("/health")
+        retired: Final = await client.post(f"/api/environments/{uuid4()}/oauth-browser-sessions")
+        callback: Final = await client.get("/auth/callback")
+
+    assert health.status_code == 200
+    assert retired.status_code == 404
+    assert callback.status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("policy", ["always", "missing", "never"])
+async def test_provision_honors_configured_image_pull_policy(tmp_path: Path, policy: str) -> None:
+    settings: Final = Settings(**{**_settings(tmp_path).model_dump(), "cli_proxy_pull_policy": policy})
+    runner: Final = RecordingDockerRunner()
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=runner)
+    record: Final = _record(status=EnvironmentStatus.PROVISIONING, auth_file_name=None)
+
+    await runtime.provision(record)
+
+    compose: Final = next(arguments for arguments, _ in runner.calls if arguments[:2] == ("docker", "compose"))
+    assert compose[compose.index("--pull") + 1] == policy
+
+
+@pytest.mark.asyncio
+async def test_failed_creation_retry_returns_failure_instead_of_in_progress(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.ERROR, auth_file_name=None).model_copy(update={
+        "operation_id": "failed-creation", "oauth_authorization_url": None,
+        "last_error": "pull access denied for test-image; password=private-value",
+    })
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+
+    result: Final = await service.create_environment(CreateEnvironmentRequest(name="Retry", operation_id="failed-creation"))
+
+    assert isinstance(result, Failure)
+    assert result.code is FailureCode.UPSTREAM
+    assert "pull access denied" in result.message
+    assert "private-value" not in result.message
+    assert await service._repository.list() == (record,)
+
+
+@pytest.mark.asyncio
+async def test_running_creation_retry_remains_conflict(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.PROVISIONING, auth_file_name=None).model_copy(update={
+        "operation_id": "running-creation", "oauth_authorization_url": None,
+    })
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+
+    result: Final = await service.create_environment(CreateEnvironmentRequest(name="Retry", operation_id="running-creation"))
+
+    assert isinstance(result, Failure) and result.code is FailureCode.CONFLICT
+    assert await service._repository.list() == (record,)

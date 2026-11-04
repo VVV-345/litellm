@@ -1065,6 +1065,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/browser-proxy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Browser Proxy */
+        post: operations["export_browser_proxy_account_pool_environments__environment_id__browser_proxy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/credentials/refresh": {
         parameters: {
             query?: never;
@@ -1076,23 +1093,6 @@ export interface paths {
         put?: never;
         /** Refresh Credentials */
         post: operations["refresh_credentials_account_pool_environments__environment_id__credentials_refresh_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/environments/{environment_id}/oauth-browser-sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Start Oauth Browser Session */
-        post: operations["start_oauth_browser_session_account_pool_environments__environment_id__oauth_browser_sessions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1507,78 +1507,6 @@ export interface paths {
         post?: never;
         /** Revoke Token */
         delete: operations["revoke_token_account_pool_feedback_tokens__token_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/oauth-browser-sessions/": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * WebSocket: browser_websocket
-         * @description WebSocket connection endpoint
-         */
-        get: operations["websocket_browser_websocket"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/oauth-browser-sessions/{session_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Oauth Browser Session */
-        get: operations["get_oauth_browser_session_account_pool_oauth_browser_sessions__session_id__get"];
-        put?: never;
-        post?: never;
-        /** Cancel Oauth Browser Session */
-        delete: operations["cancel_oauth_browser_session_account_pool_oauth_browser_sessions__session_id__delete"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/oauth-browser-sessions/{session_id}/browser": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Connect Oauth Browser */
-        post: operations["connect_oauth_browser_account_pool_oauth_browser_sessions__session_id__browser_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/account_pool/oauth-browser-sessions/{session_id}/browser/{path}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Browser Http */
-        get: operations["browser_http_account_pool_oauth_browser_sessions__session_id__browser__path__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -24798,6 +24726,22 @@ export interface components {
             /** User Code */
             user_code: string | null;
         };
+        /** AccountPoolBrowserProxy */
+        AccountPoolBrowserProxy: {
+            /** Host */
+            host: string;
+            /** Password */
+            password: string;
+            /** Port */
+            port: number;
+            /**
+             * Proxy Type
+             * @enum {string}
+             */
+            proxy_type: "http" | "https" | "socks5";
+            /** Username */
+            username: string;
+        };
         /** AccountPoolClashNode */
         AccountPoolClashNode: {
             /** Name */
@@ -25353,52 +25297,6 @@ export interface components {
             stream: boolean;
             /** Success */
             success: boolean;
-        };
-        /** AccountPoolOAuthBrowserSession */
-        AccountPoolOAuthBrowserSession: {
-            /** Created At */
-            created_at: string;
-            /**
-             * Environment Id
-             * Format: uuid
-             */
-            environment_id: string;
-            /** Expires At */
-            expires_at: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "starting" | "active" | "callback_pending" | "completed" | "cancelled" | "failed" | "expired";
-        };
-        /** AccountPoolOAuthBrowserSessionStart */
-        AccountPoolOAuthBrowserSessionStart: {
-            /** Created At */
-            created_at: string;
-            /**
-             * Environment Id
-             * Format: uuid
-             */
-            environment_id: string;
-            /** Expires At */
-            expires_at: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /**
-             * Status
-             * @enum {string}
-             */
-            status: "starting" | "active" | "callback_pending" | "completed" | "cancelled" | "failed" | "expired";
-            /** Ticket */
-            ticket: string;
         };
         /** AccountPoolOAuthCallback */
         AccountPoolOAuthCallback: {
@@ -47085,6 +46983,37 @@ export interface operations {
             };
         };
     };
+    export_browser_proxy_account_pool_environments__environment_id__browser_proxy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolBrowserProxy"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     refresh_credentials_account_pool_environments__environment_id__credentials_refresh_post: {
         parameters: {
             query?: never;
@@ -47107,37 +47036,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolCredentialRefreshResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_oauth_browser_session_account_pool_environments__environment_id__oauth_browser_sessions_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                environment_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolOAuthBrowserSessionStart"];
                 };
             };
             /** @description Validation Error */
@@ -48112,149 +48010,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    websocket_browser_websocket: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description WebSocket Protocol Switched */
-            101: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    get_oauth_browser_session_account_pool_oauth_browser_sessions__session_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolOAuthBrowserSession"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cancel_oauth_browser_session_account_pool_oauth_browser_sessions__session_id__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPoolOAuthBrowserSession"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    connect_oauth_browser_account_pool_oauth_browser_sessions__session_id__browser_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                authorization?: string | null;
-            };
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    browser_http_account_pool_oauth_browser_sessions__session_id__browser__path__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                session_id: string;
-                path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": unknown;
-                };
             };
             /** @description Validation Error */
             422: {

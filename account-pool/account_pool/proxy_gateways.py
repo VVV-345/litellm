@@ -615,7 +615,8 @@ class ProxyGatewayService:
         try:
             selected_isp: Final = await self._controller.selector_current(self._selector_name(port))
             selected_front: Final = (
-                await self._controller.selector_current(self.front_selector_name(port)) if front_node_name is not None else None
+                await self._controller.selector_current(self.front_selector_name(port))
+                if front_node_name is not None else None
             )
         except ClashError as error:
             raise ClashError("gateway ISP chain is not active") from error

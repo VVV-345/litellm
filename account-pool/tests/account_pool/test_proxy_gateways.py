@@ -590,6 +590,51 @@ async def test_isp_gateway_selector_cannot_inherit_provider_or_include_all_choic
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("subscription", (False, True))
+async def test_clearing_front_connects_to_isp_directly_and_can_restore_front(tmp_path: Path, subscription: bool) -> None:
+    profile: Final = (
+        ISPSubscriptionNodeProfile(
+            id=uuid4(), name="ISP", proxy_type="socks5",
+            config={"name": "ISP", "type": "socks5", "server": "isp.example", "port": 1080,
+                    "username": "user", "password": "secret", "dialer-proxy": "old-front"},
+        )
+        if subscription else ISPProxyProfile(
+            id=uuid4(), name="ISP", protocol="socks5", host="isp.example", port=1080,
+            username="user", password="secret",
+        )
+    )
+    catalog: Final = FakeCatalog((profile,))
+    config_path: Final = tmp_path / "config.yaml"
+    config_path.write_text(yaml.safe_dump({
+        "listeners": [], "proxy-groups": [],
+        "proxies": [{"name": "airport-a", "type": "socks5", "server": "front.example", "port": 1080}],
+    }), encoding="utf-8")
+    controller: Final = FakeController(nodes=(ClashProxyNode("airport-a", "Socks5"),))
+    service: Final = ProxyGatewayService(
+        _settings((7891,)).model_copy(update={"clash_config_path": str(config_path)}),
+        FakeProfiles(), controller, catalog=cast(ProxyCatalogRepository, catalog),
+    )
+    await service.bind_front_node(7891, "airport-a")
+    await service.bind_isp_gateway(7891, profile.id)
+    direct: Final = await service.bind_front_node(7891, None)
+    config: Final = yaml.safe_load(config_path.read_text())
+    node: Final = next(p for p in config["proxies"] if p["name"] == direct.current_node)
+    assert node["server"] == "isp.example"
+    assert node["port"] == 1080
+    assert node["password"] == "secret"
+    assert "dialer-proxy" not in node
+    assert catalog.fronts == {}
+    assert direct.front_node_name is None
+    await service.reconcile_isp_bindings(date.today())
+    assert controller.current["clash-gateway-7891"] == direct.current_node
+    restored: Final = await service.bind_front_node(7891, "airport-a")
+    restored_config: Final = yaml.safe_load(config_path.read_text())
+    restored_node: Final = next(p for p in restored_config["proxies"] if p["name"] == restored.current_node)
+    assert restored_node["dialer-proxy"] == "account-pool-front-7891"
+    assert restored.front_node_name == "airport-a"
+
+
+@pytest.mark.asyncio
 async def test_front_binding_reload_failure_restores_config_and_catalog_binding(tmp_path: Path) -> None:
     manual: Final = ISPProxyProfile(
         id=uuid4(), name="manual ISP", protocol="http", host="manual.example", port=8080,
@@ -619,7 +664,7 @@ async def test_front_binding_reload_failure_restores_config_and_catalog_binding(
 
     assert config_path.read_text(encoding="utf-8") == before_front_binding
     assert catalog.fronts == {}
-    assert controller.current["clash-gateway-7891"] == service.isp_node_name(manual.id, 7891)
+    assert controller.current["clash-gateway-7891"] == ProxyGatewayService.isp_node_name(manual.id, 7891)
 
 
 @pytest.mark.asyncio

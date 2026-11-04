@@ -131,6 +131,9 @@ class EnvironmentProvisioning:
         if request.operation_id is not None:
             existing: Final = await self._find_by_operation_id(request.operation_id)
             if existing is not None:
+                if existing.status is EnvironmentStatus.ERROR:
+                    detail: Final = _safe_error(RuntimeError(existing.last_error or "environment provisioning failed"))
+                    return Failure(FailureCode.UPSTREAM, f"environment operation failed: {detail}")
                 if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
                     return Success(self._authorization_view(existing))
                 return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
@@ -266,7 +269,7 @@ class EnvironmentProvisioning:
         if proxy_url is None:
             return Failure(FailureCode.INVALID, "selected proxy profile is unavailable")
         try:
-            validated_url: Final = validate_proxy_profile_url(proxy_url)
+            validated_url: Final = validate_proxy_profile_url(proxy_url, profile_id=profile_id)
         except ValueError:
             return Failure(FailureCode.INVALID, "selected proxy profile URL is invalid")
         return Success((ProxyMode.PROFILE, profile_id, validated_url))
@@ -550,7 +553,8 @@ class EnvironmentProvisioning:
             return Failure(FailureCode.INVALID, "proxy profile is unavailable")
         try:
             validated_proxy_urls: Final = tuple(
-                validate_proxy_profile_url(proxy_url) if proxy_url is not None else None for proxy_url in proxy_urls
+                validate_proxy_profile_url(proxy_url, profile_id=item.proxy_profile_id) if proxy_url is not None else None
+                for item, proxy_url in zip(configuration.api_keys, proxy_urls)
             )
         except ValueError:
             return Failure(FailureCode.INVALID, "proxy profile URL is invalid")

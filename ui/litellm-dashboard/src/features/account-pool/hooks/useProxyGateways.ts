@@ -167,6 +167,7 @@ export const useProxyGateways = (accessToken: string | null, enabled: boolean) =
     retry: false,
   });
   const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyProfiles(accessToken) });
     void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyIsps(accessToken) });
     void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.proxyGatewayNodes(accessToken) });
     void queryClient.invalidateQueries({ queryKey: subscriptionKey });

@@ -401,6 +401,7 @@ def test_policy_versions_and_supplier_scope(management) -> None:
         "responses_compact_enabled": True,
         "identity_confuse": False,
         "disable_codex_cloaking": False,
+        "allow_valid_access_after_refresh_failure": False,
     }
     for provider_field in ("claude", "kimi", "xai", "antigravity"):
         assert client.put(path, json={"version": 2, "policy": {provider_field: {}}}).status_code == 422

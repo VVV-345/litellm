@@ -3,8 +3,9 @@
 import ipaddress
 import re
 from pathlib import Path
-from typing import Annotated, Final
+from typing import Annotated, Final, Literal
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -42,7 +43,7 @@ class Settings(BaseSettings):
     docker_command_timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
     cli_proxy_user: str = Field(default="65532:65532", pattern=r"^[1-9][0-9]{0,9}:[1-9][0-9]{0,9}$")
     cli_proxy_image: str = DEFAULT_CLI_PROXY_IMAGE
-    oauth_browser_image: str | None = None
+    cli_proxy_pull_policy: Literal["always", "missing", "never"] = "always"
     upstream_sync_github_token: SecretStr | None = None
     upstream_sync_current_tag: str = Field(
         default="v7.2.146", pattern=r"^v[0-9]+\.[0-9]+\.[0-9]+(?:[.-][0-9A-Za-z.-]+)?$"
@@ -195,23 +196,34 @@ class Settings(BaseSettings):
         return normalized
 
 
-def validate_proxy_profile_url(value: str) -> str:
+def direct_isp_id(profile_id: str | None) -> UUID | None:
+    if profile_id is None or not profile_id.startswith("isp-direct-"):
+        return None
+    try:
+        return UUID(profile_id.removeprefix("isp-direct-"))
+    except ValueError:
+        return None
+
+
+def validate_proxy_profile_url(value: str, *, profile_id: str | None = None) -> str:
     normalized: Final = value.strip()
     parsed: Final = urlsplit(normalized)
+    direct_isp: Final = direct_isp_id(profile_id) is not None
     try:
         port: Final = parsed.port
     except ValueError as error:
         raise ValueError("proxy URL must use a valid port") from error
     if (
-        parsed.scheme not in {"http", "https"}
+        parsed.scheme not in ({"http", "https", "socks5"} if direct_isp else {"http", "https"})
         or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
+        or (not direct_isp and (parsed.username is not None or parsed.password is not None))
+        or (direct_isp and port is None)
+        or any(character.isspace() or ord(character) < 32 for character in normalized)
         or parsed.path not in {"", "/"}
         or parsed.query
         or parsed.fragment
         or port is not None
         and not 1 <= port <= 65535
     ):
-        raise ValueError("proxy URL must be a credential-free HTTP(S) origin with a valid port")
+        raise ValueError("invalid proxy URL for the selected profile type")
     return normalized

@@ -54,6 +54,7 @@ class GatewayService:
         ownership: CredentialOwnership | None = None,
         model_cooldowns: Callable[[EnvironmentRecord], Awaitable[tuple[ModelCooldown, ...]]] | None = None,
         on_quota_exhausted: Callable[[UUID], None] | None = None,
+        proxy_available: Callable[[EnvironmentRecord], Awaitable[bool]] | None = None,
         on_api_completed: Callable[[Lease, FinishRequest], Awaitable[None]] | None = None,
     ) -> None:
         self.keys: Final = keys
@@ -66,6 +67,7 @@ class GatewayService:
         self.ownership: Final = ownership
         self.model_cooldowns: Final = model_cooldowns
         self.on_quota_exhausted: Final = on_quota_exhausted
+        self.proxy_available: Final = proxy_available
         self.on_api_completed: Final = on_api_completed
 
     async def resolve(self, request: ResolveRequest) -> Resolution:
@@ -90,6 +92,8 @@ class GatewayService:
             or card.configuration_pending
         ):
             raise HTTPException(403, "Account pool card is disabled or unavailable")
+        if self.proxy_available is not None and not await self.proxy_available(card):
+            raise HTTPException(403, "ISP 出站代理已失效或变更，请重新选择并保存出站代理")
         policy: Final = await self.policies.get(card.id)
         global_settings: Final = None if self.settings is None else (await self.settings.get()).values
         effective_settings: Final = None if global_settings is None else settings_for_card(global_settings, card.id)
@@ -115,6 +119,7 @@ class GatewayService:
                 and not member.configuration_pending
                 and member.id not in cooling
                 and self.gateway(member).routable
+                and (self.proxy_available is None or await self.proxy_available(member))
                 and (self.ownership is None or await self.ownership.owns(member.id, member.credential_fingerprints))
             ]
         )

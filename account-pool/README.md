@@ -24,7 +24,6 @@ LiteLLM 负责管理员鉴权和页面 API。Manager 通过受限 Docker Socket 
 
 复制 `.env.example` 中的变量到部署环境。`ACCOUNT_POOL_MANAGER_TOKEN` 至少 32 个字符，LiteLLM 与 Manager 必须配置相同值。`ACCOUNT_POOL_CALLBACK_PORT` 需要在服务器 SSH 可访问的回环地址监听，Manager 对外发布时只绑定回环地址。用户创建环境后会得到如下隧道命令：
 
-`ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 默认留空。只有在远程 GHCR 构建、digest 固定和真实 Docker 验收完成后，才填入 `ghcr.io/vvv-345/account-pool-browser-worker:<tag>@sha256:<digest>`；Manager 不接受未带 digest 的浏览器镜像
 
 ```bash
 ssh -N -L 1455:127.0.0.1:8091 user@example.com
@@ -65,11 +64,27 @@ Manager 使用固定非 root UID 运行，根文件系统为只读，只挂载�
 
 授权结果接收后，账号先进入“验证中”。容器启动或模型读取暂时失败时，后台默认每 5 秒重试，关闭页面或重启 Manager 也会继续。启动等待期限为授权结果接收后的 2 分钟，持续失败时显示超时原因；成功后才进入可用状态并交给 LiteLLM 同步模型。重试验证不会重复领取授权、写入凭据或重启容器
 
+## 本地镜像与创建失败
+
+新建账号默认使用 `ACCOUNT_POOL_CLI_PROXY_PULL_POLICY=always` 拉取 CLIProxyAPI 镜像。使用仅存在于本机 Docker 的测试镜像时，先构建并核验 `ACCOUNT_POOL_CLI_PROXY_IMAGE`，再将 Manager 的 `ACCOUNT_POOL_CLI_PROXY_PULL_POLICY` 设为 `never`；`missing` 表示仅缺失时拉取。该设置只影响新建账号，不改变已有账号的受控镜像更新流程
+
+创建失败后，相同幂等请求会返回保存的失败原因，不再显示为任务仍在执行。镜像拉取失败可能只留下配置和数据卷，尚未创建账号容器及网络，此时重新授权不能修复运行环境。维护时先核实卡片从未授权、认证目录为空，再用原卡片 Compose 和数据卷完成启动；不能重新播种或覆盖已有账号凭据
+
 ## 公共代理出口
+
+OAuth、导入账号和卡片配置中的代理选项分为「出站代理」和「ISP 出站代理」。前者使用已有代理地址或 Clash 网关端口；后者直接使用 ISP 目录中的 HTTP、HTTPS 或 SOCKS5 代理，不需要先创建 Clash 端口或选择前置节点。先在代理管理中保存 ISP，再在出站代理下拉框选择「ISP 出站代理 · 名称」并保存即可
+
+只有启用、未过期且能转换为上述协议的 ISP 才会显示。订阅中的复杂节点仍需要通过代理网关使用。直连连接从部署服务器及账号容器发出；本机浏览器打开授权链接时的网络由浏览器自身设置决定
+
+ISP 用户名和密码仅在后端解析，环境数据库中的代理快照加密保存，公开选项不返回凭据。ISP 删除、停用、过期或地址及凭据改变后，会阻止账号继续进行 OAuth 和新网关路由；修改地址或密码后需重新保存卡片代理配置。认证文件的单独代理设置使用「沿用卡片代理」，不能单独选择 ISP
+
+此功能保留既有数据库结构及普通代理记录格式，但写入加密 ISP 快照后，旧 Manager 无法正确使用这些地址。更新时必须保留 `ACCOUNT_POOL_SECRET_SEED`；回退仍需通过凭据兼容检查，不能只回退镜像或绕过检查
+
+端口绑定 ISP 后，前置为空表示服务器直连 ISP；页面可选择「无前置，ISP 直连」清空前置。选择前置节点后则通过该节点连接 ISP。已选前置失效、ISP 失效或过期时仍阻断，不自动回退。升级后，原来已绑定 ISP 但没有前置的端口将启用直连模式
 
 CLIProxyAPI 账号共用 `ProxyGatewayService` 登记的代理名单。比如配置 7891 到 7910 共 20 个端口后，多张卡片可以选择同一个 7891。代理设置里更换 7891 的 Clash 节点，该端口上的所有账号随之使用同一出口；已有连接可能继续使用原节点，新连接使用更新后的节点
 
-Manager 发起的授权请求从最新账号记录读取同一代理地址；等待授权期间换端口后，下一次轮询使用新端口。受控浏览器 worker 仅通过会话专用 egress relay 访问该代理，代理不可用时不回退直连。浏览器 worker 默认不启用，真实 Docker 和 OAuth 验收另行记录
+Manager 发起的授权请求从最新账号记录读取同一代理地址；等待授权期间换端口后，下一次轮询使用新端口。授权链接由使用者在本机浏览器打开，回调方式见上文
 
 Clash 在 Docker 宿主机运行时，`ACCOUNT_POOL_PROXY_GATEWAY_HOST=host.docker.internal`；Manager 和账号容器均设置宿主机地址映射。Clash 的监听地址必须允许 Docker 网络访问，代理端口和控制器端口只向受信任的网络开放。Clash 在其他主机上时，填所有账号容器和 Manager 都可访问的主机名或 IP
 
@@ -119,7 +134,7 @@ NewAPI 使用卡片 Key 接入 LiteLLM 公共模型入口，配置方法和当�
 
 ## 上游更新与模块说明
 
-两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署与浏览器工作器也有独立说明
+两类上游的仓库、分支、配置、测试和 PR 边界见 [上游维护说明](docs/upstream-updates.md)。Manager 应用、通道、供应商、共享模块及号池前端各功能目录的 README 记录各自职责和验证入口；部署也有独立说明
 
 
 ### 续聊故障恢复与额度自动恢复

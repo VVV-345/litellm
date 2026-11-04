@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AccountPoolCreateDialog } from "./AccountPoolCreateDialog";
 import { toast } from "@/lib/toast";
+import i18n from "@/i18n";
 import type { AccountPoolAuthorization, AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 
 const createMock = vi.fn();
@@ -62,11 +63,12 @@ const renderDialog = (props: Partial<Parameters<typeof AccountPoolCreateDialog>[
 
 const selectProxyProfile = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(await screen.findByRole("combobox", { name: /出站代理|Outbound proxy/i }));
-  await user.click(await screen.findByRole("option", { name: "Proxy US" }));
+  await user.click(await screen.findByRole("option", { name: "出站代理 · Proxy US" }));
 };
 
 describe("AccountPoolCreateDialog", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
     createMock.mockReset();
     createDirectMock.mockReset();
@@ -76,6 +78,23 @@ describe("AccountPoolCreateDialog", () => {
     createDirectMock.mockResolvedValue({ id: "gemini-1" });
     createVertexMock.mockResolvedValue({ id: "vertex-1" });
     proxyProfilesMock.mockResolvedValue([{ id: "proxy-us", name: "Proxy US", protocol: "http" }]);
+  });
+
+  it("selects a distinct ISP exit and sends its profile ID when starting OAuth", async () => {
+    const user = userEvent.setup();
+    const profileId = "isp-direct-d33cb1de-9247-432a-a827-7503ab1c9f95";
+    proxyProfilesMock.mockResolvedValue([
+      { id: "proxy-us", name: "普通线路", protocol: "http" },
+      { id: profileId, name: "住宅线路", protocol: "socks5" },
+    ]);
+    renderDialog();
+    fireEvent.change(screen.getByLabelText("环境名称"), { target: { value: "ISP account" } });
+    await user.click(await screen.findByRole("combobox", { name: "OAuth 出站代理" }));
+    expect(await screen.findByRole("option", { name: "出站代理 · 普通线路" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("option", { name: /^ISP 出站代理 · 住宅线路/ }));
+    await user.click(screen.getByRole("button", { name: /新建|创建/ }));
+    expect(await screen.findByTestId("account-pool-authorization-panel")).toBeInTheDocument();
+    expect(createMock).toHaveBeenCalledWith("token-1", expect.objectContaining({ proxy_profile_id: profileId }));
   });
 
   it.each(["ready", "cooling_down", "disabled"] as const)(
@@ -275,9 +294,10 @@ describe("AccountPoolCreateDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it("offers a copyable local OAuth link and manual callback without opening a browser", async () => {
+  it("offers local Camoufox authorization and a manual callback for browser OAuth results", async () => {
     renderDialog({ initialAuthorization: browserAuthorization as never });
 
+    expect(screen.getByRole("button", { name: /生成本机浏览器授权链接|Generate local browser link/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /复制授权链接|Copy authorization link/i })).toBeEnabled();
     expect(screen.getByDisplayValue(browserAuthorization.authorization_url)).toBeInTheDocument();
     expect(screen.getByLabelText(/回调地址|Callback URL/i)).toBeInTheDocument();

@@ -25,6 +25,7 @@ from account_pool.application.environments.contracts import (
 from account_pool.application.environments.contracts import HTTP_URL_ADAPTER as _HTTP_URL_ADAPTER
 from account_pool.application.environments.contracts import (
     ApplyAndPersistConfigurationOperation,
+    AuthorizationPending,
     ChannelOperation,
     GatewayEnvironmentOperation,
     LockForOperation,
@@ -410,7 +411,7 @@ class EnvironmentAuthorization:
     async def complete_authorization(self, record: EnvironmentRecord) -> Result[EnvironmentRecord]:
         validated: Final = await self.validate_authorized(record)
         if validated.status is EnvironmentStatus.VALIDATING:
-            return Failure(FailureCode.CONFLICT, "Account authorization received; waiting for channel startup")
+            return AuthorizationPending()
         if validated.status not in _AUTHORIZATION_COMPLETE_STATUSES:
             return Failure(FailureCode.UPSTREAM, "environment authorization validation failed")
         completed: Final = validated.model_copy(

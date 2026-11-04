@@ -37,8 +37,9 @@ from account_pool.application.profile_updates import (
 )
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashError, ClashProxyNode
-from account_pool.config import Settings, validate_proxy_profile_url
+from account_pool.config import Settings, direct_isp_id, validate_proxy_profile_url
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership
+from account_pool.direct_isp_profiles import BrowserProxy, browser_proxy
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationInstructionFlow,
@@ -221,7 +222,7 @@ class EnvironmentService:
         if proxy_url is None:
             return Failure(FailureCode.INVALID, "default proxy profile is unavailable")
         try:
-            validated_url: Final = validate_proxy_profile_url(proxy_url)
+            validated_url: Final = validate_proxy_profile_url(proxy_url, profile_id=settings.default_proxy_profile_id)
         except ValueError:
             return Failure(FailureCode.INVALID, "default proxy profile URL is invalid")
         return Success((ProxyMode.PROFILE, settings.default_proxy_profile_id, validated_url))
@@ -333,6 +334,47 @@ class EnvironmentService:
 
     async def list_proxy_profiles(self) -> tuple[ProxyProfile, ...]:
         return await self._proxy_profiles.list()
+
+    async def export_browser_proxy(self, environment_id: UUID) -> Result[BrowserProxy]:
+        lock: Final = await self._lock_for(environment_id)
+        async with lock:
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "Environment not found")
+            if record.proxy_profile_id is None or direct_isp_id(record.proxy_profile_id) is None:
+                return Failure(FailureCode.INVALID, "Select an ISP outbound proxy before opening Camoufox")
+            if record.configuration_pending or record.observed_configuration_version < record.desired_configuration_version:
+                return Failure(FailureCode.CONFLICT, "Card proxy configuration is not applied; save it successfully first")
+            url: Final = await self._proxy_profiles.get_url(record.proxy_profile_id)
+            if url is None or record.desired_configuration is None or url != record.desired_configuration.proxy_url:
+                return Failure(FailureCode.CONFLICT, "ISP changed or unavailable; save the card proxy again")
+            try:
+                return Success(browser_proxy(url))
+            except ValueError:
+                return Failure(FailureCode.INVALID, "ISP cannot be imported into the browser")
+
+    async def proxy_available(self, record: EnvironmentRecord) -> bool:
+        credentials: Final = () if record.openai_compatible is None else record.openai_compatible.credentials
+        direct_credentials: Final = tuple(
+            credential for credential in credentials
+            if credential.proxy_profile_id is not None and direct_isp_id(credential.proxy_profile_id) is not None
+        )
+        urls: Final = await asyncio.gather(*(
+            self._proxy_profiles.get_url(credential.proxy_profile_id)
+            for credential in direct_credentials if credential.proxy_profile_id is not None
+        ))
+        if any(url is None or url != credential.proxy_url for credential, url in zip(direct_credentials, urls)):
+            return False
+        profile_id: Final = record.proxy_profile_id
+        if profile_id is None or direct_isp_id(profile_id) is None:
+            return True
+        profile_url: Final = await self._proxy_profiles.get_url(profile_id)
+        # ISP 改密或移除后，已有账号不能继续使用旧地址；重新保存配置后才恢复请求。
+        return (
+            profile_url is not None
+            and record.desired_configuration is not None
+            and profile_url == record.desired_configuration.proxy_url
+        )
 
     async def sync_global_settings(
         self, settings: AccountPoolSettings, *, rollback_on_failure: bool = True
@@ -541,6 +583,7 @@ class EnvironmentService:
         records: Final = await self._repository.list()
         settings: Final = await self._account_pool_settings()
         refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
+        proxy_availability: Final = await asyncio.gather(*(self.proxy_available(record) for record in refreshed))
         policies: Final = () if self._policies is None else await self._policies.list()
         by_card: Final = {entry.card_id: entry for entry in policies}
         return tuple(
@@ -580,7 +623,8 @@ class EnvironmentService:
                     ),
                 }
             )
-            for record in refreshed
+            for record, proxy_available in zip(refreshed, proxy_availability)
+            if proxy_available
             for endpoint in (self._gateway_environment(record),)
             for stored in (by_card.get(record.id) or PolicyView(card_id=record.id),)
             for effective in (settings_for_card(settings, record.id),)
@@ -593,6 +637,8 @@ class EnvironmentService:
     async def _start_authorization(
         self, record: EnvironmentRecord
     ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None]:
+        if not await self.proxy_available(record):
+            raise ValueError("ISP 出站代理已失效或变更，请重新选择并保存出站代理")
         return await self._provisioning_operations.start_authorization(record)
 
     async def create_environment(

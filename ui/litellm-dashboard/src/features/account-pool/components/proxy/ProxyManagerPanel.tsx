@@ -643,9 +643,9 @@ const GatewayRow = ({
         {gateway.isp_profile_id && (
           <div className="flex min-w-0 gap-1">
             <Select
-              value={gateway.front_node_name == null ? "none" : `node:${gateway.front_node_name}`}
+              value={gateway.front_node_name == null ? "direct" : `node:${gateway.front_node_name}`}
               onValueChange={(value) => {
-                if (value === "none") onBindFront(null);
+                if (value === "direct") onBindFront(null);
                 else if (value?.startsWith("node:")) onBindFront(value.slice(5));
               }}
               disabled={disabled}
@@ -654,10 +654,10 @@ const GatewayRow = ({
                 className="w-full"
                 aria-label={t("accountPool.proxyGateways.selectFront", { name: gateway.name })}
               >
-                <SelectValue>{gateway.front_node_name ?? t("accountPool.proxyGateways.noFront")}</SelectValue>
+                <SelectValue>{gateway.front_node_name ?? t("accountPool.proxyGateways.directISP")}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="none">{t("accountPool.proxyGateways.noFront")}</SelectItem>
+                <SelectItem value="direct">{t("accountPool.proxyGateways.directISP")}</SelectItem>
                 {nodeOptions.map((node) => (
                   <SelectItem key={node.name} value={`node:${node.name}`}>
                     {node.name}

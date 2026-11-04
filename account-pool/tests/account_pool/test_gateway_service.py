@@ -150,6 +150,26 @@ class FailingLogs(MemoryLogs):
 
 
 @pytest.mark.asyncio
+async def test_unavailable_direct_proxy_rejects_gateway_requests() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+
+    async def unavailable(record: EnvironmentRecord) -> bool:
+        return False
+
+    service: Final = GatewayService(
+        keys, MemoryRepository(card), MemoryPolicies(), MemoryLeases(), ErrorLogService(MemoryLogs()), gateway,
+        proxy_available=unavailable,
+    )
+    with pytest.raises(HTTPException) as error:
+        await service.resolve(ResolveRequest(card_key=issued.value.key))
+    assert error.value.status_code == 403
+    assert "ISP" in error.value.detail
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "status,reason,code,retry_after_seconds,reported,expect_cooled,expect_model",
     [
