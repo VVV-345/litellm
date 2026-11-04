@@ -1,11 +1,11 @@
 /** 本文件渲染号池代理网关面板，展示当前节点、延迟检测结果并支持切换出口。 */
 
-import { Check, ChevronDown, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { AccountPoolWorkspace } from "../shared/AccountPoolWorkspace";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -157,44 +157,7 @@ export const ProxyManagerPanel = ({
   };
 
   return (
-    <div className="rounded-md border border-border p-4" data-testid="proxy-manager-panel">
-      <ISPProxyCatalogPanel
-        subscription={ispSubscription}
-        subscriptionLoading={ispSubscriptionLoading}
-        subscriptionFailed={
-          ispSubscriptionError || configureISPSubscriptionMutation.isError || refreshISPSubscriptionMutation.isError
-        }
-        probing={ispProbeMutation.isPending}
-        probeFailed={ispProbeMutation.isError}
-        onProbe={(ids) => ispProbeMutation.mutate(ids)}
-        onConfigureSubscription={async (url) => {
-          await configureISPSubscriptionMutation.mutateAsync(url);
-        }}
-        onRefreshSubscription={async () => {
-          await refreshISPSubscriptionMutation.mutateAsync();
-        }}
-        profiles={isps}
-        loading={ispsLoading}
-        failed={ispsError}
-        busy={
-          switching ||
-          profileBusy ||
-          configurationBusy ||
-          ispImportMutation.isPending ||
-          configureISPSubscriptionMutation.isPending ||
-          refreshISPSubscriptionMutation.isPending ||
-          ispUpdateMutation.isPending ||
-          ispDeleteMutation.isPending
-        }
-        mutationFailed={ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError}
-        onImport={async (content) => {
-          await ispImportMutation.mutateAsync(content);
-        }}
-        onUpdate={async (profileId, request: AccountPoolISPProxyUpdateRequest) => {
-          await ispUpdateMutation.mutateAsync({ profileId, request });
-        }}
-        onDelete={(profileId) => ispDeleteMutation.mutate(profileId)}
-      />
+    <div className="grid min-w-0 gap-4" data-testid="proxy-manager-panel">
       <div className="mt-4 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm font-medium">{t("accountPool.proxyGateways.title")}</p>
@@ -220,218 +183,286 @@ export const ProxyManagerPanel = ({
           </Button>
         </div>
       </div>
-      <div className="mt-4 grid gap-3 border-t border-border/60 pt-4">
-        <div className="grid gap-1.5">
-          <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-name">
-            {t("accountPool.proxyGateways.configurationName")}
-          </label>
-          <Input
-            id="proxy-gateway-configuration-name"
-            value={configurationName}
-            onChange={(event) => {
-              setConfigurationName(event.target.value);
-              setConfigurationSaved(false);
-            }}
-            disabled={switching || profileBusy}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-url">
-            {t("accountPool.proxyGateways.subscriptionUrl")}
-          </label>
-          <Input
-            id="proxy-gateway-configuration-url"
-            value={configurationUrl}
-            onChange={handleConfigurationUrlChange}
-            placeholder="https://example.com/config.yaml"
-            disabled={switching || configurationBusy || profileBusy}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-content">
-            {t("accountPool.proxyGateways.configurationContent")}
-          </label>
-          <Textarea
-            id="proxy-gateway-configuration-content"
-            value={configurationContent}
-            onChange={handleConfigurationContentChange}
-            placeholder={t("accountPool.proxyGateways.configurationContentPlaceholder")}
-            rows={5}
-            disabled={switching || configurationBusy || profileBusy}
-          />
-        </div>
-        <div className="grid gap-1.5">
-          <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-files">
-            {t("accountPool.proxyGateways.configurationFiles")}
-          </label>
-          <Input
-            id="proxy-gateway-configuration-files"
-            type="file"
-            accept=".yaml,.yml,.conf"
-            multiple
-            aria-label={t("accountPool.proxyGateways.configurationFiles")}
-            onChange={handleConfigurationFiles}
-            disabled={switching || configurationBusy || profileBusy}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setConfigurationUpdated(false);
-              configurationMutation.mutate(
-                {
-                  content: configurationContent.trim() || undefined,
-                  url: configurationUrl.trim() || undefined,
-                  name: configurationName.trim() || undefined,
-                },
-                { onSuccess: () => setConfigurationUpdated(true) },
-              );
-            }}
-            disabled={configurationDisabled}
-          >
-            {configurationBusy
-              ? t("accountPool.proxyGateways.configurationUpdating")
-              : t("accountPool.proxyGateways.updateConfiguration")}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void saveConfigurations()}
-            disabled={configurationSaveDisabled}
-          >
-            {profileBusy
-              ? t("accountPool.proxyGateways.configurationSaving")
-              : t("accountPool.proxyGateways.saveConfiguration")}
-          </Button>
-          {configurationUpdated && (
-            <span className="text-xs text-muted-foreground" role="status">
-              {t("accountPool.proxyGateways.configurationUpdated")}
-            </span>
-          )}
-          {configurationSaved && (
-            <span className="text-xs text-muted-foreground" role="status">
-              {t("accountPool.proxyGateways.configurationSaved")}
-            </span>
-          )}
-          {(configurationSaveMutation.isError ||
-            configurationActivateMutation.isError ||
-            configurationDeleteMutation.isError) && (
-            <span className="text-xs text-destructive" role="alert">
-              {t("accountPool.proxyGateways.configurationProfileFailed")}
-            </span>
-          )}
-          {configurationMutation.isError && (
-            <span className="text-xs text-destructive" role="alert">
-              {t("accountPool.proxyGateways.configurationUpdateFailed")}
-            </span>
-          )}
-        </div>
-      </div>
-      {configurations.length > 0 && (
-        <div className="mt-4 border-t border-border/60 pt-3">
-          <p className="text-xs font-medium">{t("accountPool.proxyGateways.configurationProfiles")}</p>
-          <div className="mt-2 grid gap-1">
-            {configurations.map((profile) => (
-              <ConfigurationProfileRow
-                key={profile.id}
-                profile={profile}
-                disabled={profileBusy || switching}
-                onActivate={() => void activateConfiguration(profile)}
-                onDelete={() => {
-                  if (
-                    window.confirm(t("accountPool.proxyGateways.deleteConfigurationConfirm", { name: profile.name }))
-                  ) {
-                    configurationDeleteMutation.mutate(profile.id);
-                  }
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-      <Collapsible className="mt-4 border-t border-border/60 pt-3">
-        <CollapsibleTrigger className="group flex w-full items-center justify-between text-sm font-medium">
-          {t("accountPool.proxyGateways.portSettings", { count: gateways.length })}
-          <ChevronDown className="size-4 transition-transform group-aria-expanded:rotate-180" />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => addMutation.mutate()}
-            disabled={gatewaysLoading || switching || !configuration?.config_path}
-          >
-            <Plus className="size-4" />
-            {t("accountPool.proxyGateways.add")}
-          </Button>
-          {gatewaysError && (
-            <div className="mt-3 flex items-center justify-between gap-2" role="alert">
-              <p className="text-xs text-destructive">{t("accountPool.proxyGateways.loadFailed")}</p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={refetchGateways}
-                disabled={gatewaysLoading || delaysLoading}
-              >
-                {t("accountPool.retry")}
-              </Button>
-            </div>
-          )}
-          {nodesError && !gatewaysError && (
-            <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.nodesUnavailable")}</p>
-          )}
-          {switchMutation.isError && (
-            <p className="mt-3 text-xs text-destructive" role="alert">
-              {t("accountPool.proxyGateways.switchFailed")}
-            </p>
-          )}
-          {(addMutation.isError || deleteMutation.isError) && (
-            <p className="mt-3 text-xs text-destructive" role="alert">
-              {t("accountPool.proxyGateways.mutationFailed")}
-            </p>
-          )}
-          {!gatewaysLoading && !gatewaysError && gateways.length === 0 && (
-            <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.empty")}</p>
-          )}
-          <div className="mt-3 grid gap-2">
-            {gateways.map((gateway) => (
-              <GatewayRow
-                key={gateway.profile_id}
-                gateway={gateway}
-                accessToken={accessToken}
-                nodes={nodes}
-                isps={isps}
-                cardCount={
-                  environmentsLoading
-                    ? null
-                    : environments.filter((environment) => environment.proxy_profile_id === gateway.profile_id).length
-                }
-                delay={delays.find(
-                  (result) => result.port === gateway.port && result.current_node === gateway.current_node,
+      <AccountPoolWorkspace
+        title="代理层"
+        items={[
+          {
+            value: "gateways",
+            label: "网关出口",
+            summary: gatewaysError ? "读取失败" : `${gateways.length} 个端口`,
+            content: (
+              <div className="grid gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => addMutation.mutate()}
+                  disabled={gatewaysLoading || switching || !configuration?.config_path}
+                >
+                  <Plus className="size-4" />
+                  {t("accountPool.proxyGateways.add")}
+                </Button>
+                {gatewaysError && (
+                  <div className="mt-3 flex items-center justify-between gap-2" role="alert">
+                    <p className="text-xs text-destructive">{t("accountPool.proxyGateways.loadFailed")}</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={refetchGateways}
+                      disabled={gatewaysLoading || delaysLoading}
+                    >
+                      {t("accountPool.retry")}
+                    </Button>
+                  </div>
                 )}
-                delaysLoading={delaysLoading}
-                delaysError={delaysError}
-                disabled={switching || delaysLoading || nodesLoading || (nodes.length === 0 && isps.length === 0)}
-                onSelectNode={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
-                onBindISP={(profileId) => bindISPMutation.mutate({ port: gateway.port, profileId })}
-                onBindFront={(nodeName) => bindFrontMutation.mutate({ port: gateway.port, nodeName })}
-                onDelete={() => deleteMutation.mutate(gateway.port)}
-              />
-            ))}
-          </div>
-          {bindISPMutation.isError && (
-            <p className="mt-3 text-xs text-destructive" role="alert">
-              {t("accountPool.proxyGateways.switchFailed")}
-            </p>
-          )}
-        </CollapsibleContent>
-      </Collapsible>
+                {nodesError && !gatewaysError && (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {t("accountPool.proxyGateways.nodesUnavailable")}
+                  </p>
+                )}
+                {switchMutation.isError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert">
+                    {t("accountPool.proxyGateways.switchFailed")}
+                  </p>
+                )}
+                {(addMutation.isError || deleteMutation.isError) && (
+                  <p className="mt-3 text-xs text-destructive" role="alert">
+                    {t("accountPool.proxyGateways.mutationFailed")}
+                  </p>
+                )}
+                {!gatewaysLoading && !gatewaysError && gateways.length === 0 && (
+                  <p className="mt-3 text-xs text-muted-foreground">{t("accountPool.proxyGateways.empty")}</p>
+                )}
+                <div className="mt-3 grid gap-2">
+                  {gateways.map((gateway) => (
+                    <GatewayRow
+                      key={gateway.profile_id}
+                      gateway={gateway}
+                      accessToken={accessToken}
+                      nodes={nodes}
+                      isps={isps}
+                      cardCount={
+                        environmentsLoading
+                          ? null
+                          : environments.filter((environment) => environment.proxy_profile_id === gateway.profile_id)
+                              .length
+                      }
+                      delay={delays.find(
+                        (result) => result.port === gateway.port && result.current_node === gateway.current_node,
+                      )}
+                      delaysLoading={delaysLoading}
+                      delaysError={delaysError}
+                      disabled={switching || delaysLoading || nodesLoading || (nodes.length === 0 && isps.length === 0)}
+                      onSelectNode={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
+                      onBindISP={(profileId) => bindISPMutation.mutate({ port: gateway.port, profileId })}
+                      onBindFront={(nodeName) => bindFrontMutation.mutate({ port: gateway.port, nodeName })}
+                      onDelete={() => deleteMutation.mutate(gateway.port)}
+                    />
+                  ))}
+                </div>
+                {bindISPMutation.isError && (
+                  <p className="mt-3 text-xs text-destructive" role="alert">
+                    {t("accountPool.proxyGateways.switchFailed")}
+                  </p>
+                )}
+              </div>
+            ),
+          },
+          {
+            value: "isp",
+            label: "ISP 代理",
+            summary: ispsError ? "读取失败" : `${isps.length} 个节点`,
+            content: (
+              <>
+                <ISPProxyCatalogPanel
+                  subscription={ispSubscription}
+                  subscriptionLoading={ispSubscriptionLoading}
+                  subscriptionFailed={
+                    ispSubscriptionError ||
+                    configureISPSubscriptionMutation.isError ||
+                    refreshISPSubscriptionMutation.isError
+                  }
+                  probing={ispProbeMutation.isPending}
+                  probeFailed={ispProbeMutation.isError}
+                  onProbe={(ids) => ispProbeMutation.mutate(ids)}
+                  onConfigureSubscription={async (url) => {
+                    await configureISPSubscriptionMutation.mutateAsync(url);
+                  }}
+                  onRefreshSubscription={async () => {
+                    await refreshISPSubscriptionMutation.mutateAsync();
+                  }}
+                  profiles={isps}
+                  loading={ispsLoading}
+                  failed={ispsError}
+                  busy={
+                    switching ||
+                    profileBusy ||
+                    configurationBusy ||
+                    ispImportMutation.isPending ||
+                    configureISPSubscriptionMutation.isPending ||
+                    refreshISPSubscriptionMutation.isPending ||
+                    ispUpdateMutation.isPending ||
+                    ispDeleteMutation.isPending
+                  }
+                  mutationFailed={ispImportMutation.isError || ispUpdateMutation.isError || ispDeleteMutation.isError}
+                  onImport={async (content) => {
+                    await ispImportMutation.mutateAsync(content);
+                  }}
+                  onUpdate={async (profileId, request: AccountPoolISPProxyUpdateRequest) => {
+                    await ispUpdateMutation.mutateAsync({ profileId, request });
+                  }}
+                  onDelete={(profileId) => ispDeleteMutation.mutate(profileId)}
+                />{" "}
+              </>
+            ),
+          },
+          {
+            value: "configuration",
+            label: "订阅与配置",
+            summary: `${configurations.length} 份配置`,
+            content: (
+              <>
+                <div className="mt-4 grid gap-3 border-t border-border/60 pt-4">
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-name">
+                      {t("accountPool.proxyGateways.configurationName")}
+                    </label>
+                    <Input
+                      id="proxy-gateway-configuration-name"
+                      value={configurationName}
+                      onChange={(event) => {
+                        setConfigurationName(event.target.value);
+                        setConfigurationSaved(false);
+                      }}
+                      disabled={switching || profileBusy}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-url">
+                      {t("accountPool.proxyGateways.subscriptionUrl")}
+                    </label>
+                    <Input
+                      id="proxy-gateway-configuration-url"
+                      value={configurationUrl}
+                      onChange={handleConfigurationUrlChange}
+                      placeholder="https://example.com/config.yaml"
+                      disabled={switching || configurationBusy || profileBusy}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-content">
+                      {t("accountPool.proxyGateways.configurationContent")}
+                    </label>
+                    <Textarea
+                      id="proxy-gateway-configuration-content"
+                      value={configurationContent}
+                      onChange={handleConfigurationContentChange}
+                      placeholder={t("accountPool.proxyGateways.configurationContentPlaceholder")}
+                      rows={5}
+                      disabled={switching || configurationBusy || profileBusy}
+                    />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <label className="text-xs font-medium" htmlFor="proxy-gateway-configuration-files">
+                      {t("accountPool.proxyGateways.configurationFiles")}
+                    </label>
+                    <Input
+                      id="proxy-gateway-configuration-files"
+                      type="file"
+                      accept=".yaml,.yml,.conf"
+                      multiple
+                      aria-label={t("accountPool.proxyGateways.configurationFiles")}
+                      onChange={handleConfigurationFiles}
+                      disabled={switching || configurationBusy || profileBusy}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setConfigurationUpdated(false);
+                        configurationMutation.mutate(
+                          {
+                            content: configurationContent.trim() || undefined,
+                            url: configurationUrl.trim() || undefined,
+                            name: configurationName.trim() || undefined,
+                          },
+                          { onSuccess: () => setConfigurationUpdated(true) },
+                        );
+                      }}
+                      disabled={configurationDisabled}
+                    >
+                      {configurationBusy
+                        ? t("accountPool.proxyGateways.configurationUpdating")
+                        : t("accountPool.proxyGateways.updateConfiguration")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void saveConfigurations()}
+                      disabled={configurationSaveDisabled}
+                    >
+                      {profileBusy
+                        ? t("accountPool.proxyGateways.configurationSaving")
+                        : t("accountPool.proxyGateways.saveConfiguration")}
+                    </Button>
+                    {configurationUpdated && (
+                      <span className="text-xs text-muted-foreground" role="status">
+                        {t("accountPool.proxyGateways.configurationUpdated")}
+                      </span>
+                    )}
+                    {configurationSaved && (
+                      <span className="text-xs text-muted-foreground" role="status">
+                        {t("accountPool.proxyGateways.configurationSaved")}
+                      </span>
+                    )}
+                    {(configurationSaveMutation.isError ||
+                      configurationActivateMutation.isError ||
+                      configurationDeleteMutation.isError) && (
+                      <span className="text-xs text-destructive" role="alert">
+                        {t("accountPool.proxyGateways.configurationProfileFailed")}
+                      </span>
+                    )}
+                    {configurationMutation.isError && (
+                      <span className="text-xs text-destructive" role="alert">
+                        {t("accountPool.proxyGateways.configurationUpdateFailed")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {configurations.length > 0 && (
+                  <div className="mt-4 border-t border-border/60 pt-3">
+                    <p className="text-xs font-medium">{t("accountPool.proxyGateways.configurationProfiles")}</p>
+                    <div className="mt-2 grid gap-1">
+                      {configurations.map((profile) => (
+                        <ConfigurationProfileRow
+                          key={profile.id}
+                          profile={profile}
+                          disabled={profileBusy || switching}
+                          onActivate={() => void activateConfiguration(profile)}
+                          onDelete={() => {
+                            if (
+                              window.confirm(
+                                t("accountPool.proxyGateways.deleteConfigurationConfirm", { name: profile.name }),
+                              )
+                            ) {
+                              configurationDeleteMutation.mutate(profile.id);
+                            }
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            ),
+          },
+        ]}
+      />
     </div>
   );
 };
@@ -548,7 +579,8 @@ const GatewayRow = ({
   const chainBound = gateway.isp_profile_id != null;
   const frontAvailable =
     gateway.front_node_name == null || nodeOptions.some((node) => node.name === gateway.front_node_name);
-  const selectedISP = gateway.current_node === `account-pool-isp-${gateway.port}-${gateway.isp_profile_id?.replaceAll("-", "")}`;
+  const selectedISP =
+    gateway.current_node === `account-pool-isp-${gateway.port}-${gateway.isp_profile_id?.replaceAll("-", "")}`;
   const chainReady = chainBound && boundISP?.enabled === true && frontAvailable && selectedISP;
   const currentNodeLabel = gateway.current_node
     ? t("accountPool.proxyGateways.currentNode", { node: gateway.current_node })

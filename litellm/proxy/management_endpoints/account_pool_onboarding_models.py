@@ -29,6 +29,7 @@ class OnboardingEntry(BaseModel):
     mailbox_password: str = Field(default="", max_length=1024, repr=False)
     supplier_password: str = Field(default="", max_length=1024, repr=False)
     totp_secret: str = Field(default="", max_length=128, repr=False)
+    proxy_profile_id: str | None = Field(default=None, min_length=1, max_length=120)
 
 
 class OnboardingImport(BaseModel):
@@ -43,7 +44,9 @@ class OnboardingImport(BaseModel):
 
     @model_validator(mode="after")
     def bounded_payload(self) -> OnboardingImport:
-        if self.source == "oauth" and self.proxy_profile_id is None:
+        if self.source == "oauth" and self.proxy_profile_id is None and any(
+            entry.proxy_profile_id is None for entry in self.entries
+        ):
             raise ValueError("OAuth 上号必须选择代理 Profile")
         if sum(len(entry.content.encode()) for entry in self.entries) > 8 * 1024 * 1024:
             raise ValueError("每批认证文件总大小不得超过 8 MiB")

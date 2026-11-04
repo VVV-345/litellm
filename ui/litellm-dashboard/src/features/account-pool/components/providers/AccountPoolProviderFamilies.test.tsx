@@ -47,17 +47,15 @@ describe("AccountPoolProviderFamilies", () => {
       </QueryClientProvider>,
     );
 
-    const codex = await screen.findByText("Codex");
-    const codexCard = codex.closest('[data-slot="card"]') as HTMLElement | null;
-    expect(codexCard).not.toBeNull();
-    expect(within(codexCard!).getByText(/2/)).toBeInTheDocument();
-    await user.click(within(codexCard!).getByRole("button", { name: /新建|Create/i }));
+    const codex = await screen.findByRole("tab", { name: /Codex.*2/ });
+    expect(codex).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByText("OpenAI 兼容直连")).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
     expect(onCreate).toHaveBeenCalledWith("openai_codex");
 
-    const compatible = screen.getByText("OpenAI 兼容").closest('[data-slot="card"]') as HTMLElement | null;
-    expect(compatible).not.toBeNull();
-    expect(within(compatible!).getByText(/3/)).toBeInTheDocument();
-    await user.click(within(compatible!).getByRole("button", { name: /新建|Create/i }));
+    await user.click(screen.getByRole("tab", { name: /OpenAI 兼容.*3/ }));
+    expect(screen.getByText("OpenAI 兼容直连")).toBeVisible();
+    await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
     expect(onCreate).toHaveBeenCalledWith("openai_compatible");
   });
 });

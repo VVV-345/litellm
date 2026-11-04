@@ -108,22 +108,62 @@ describe("project releases", () => {
   it("requires the exact snapshot phrase before submitting a database restore", async () => {
     const onConfirm = vi.fn();
     const snapshot = {
-      id: "d".repeat(32), created_at: 1700000000, version_id: old.id,
+      id: "d".repeat(32),
+      created_at: 1700000000,
+      version_id: old.id,
       files: [
-        { service: "db" as const, database: "litellm", major: 16, filename: "database.dump", sha256: "e".repeat(64), size: 100 },
-        { service: "account-pool-db" as const, database: "account_pool", major: 16, filename: "pool.dump", sha256: "f".repeat(64), size: 100 },
-      ] as [NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][0], NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][1]],
+        {
+          service: "db" as const,
+          database: "litellm",
+          major: 16,
+          filename: "database.dump",
+          sha256: "e".repeat(64),
+          size: 100,
+        },
+        {
+          service: "account-pool-db" as const,
+          database: "account_pool",
+          major: 16,
+          filename: "pool.dump",
+          sha256: "f".repeat(64),
+          size: 100,
+        },
+      ] as [
+        NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][0],
+        NonNullable<ReleaseConfirmation["database_snapshot"]>["files"][1],
+      ],
     };
-    render(<AccountPoolReleaseConfirmation confirmation={{
-      compatibility_bypassed: false,
-      token: "a".repeat(64), action: { ...actionDefaults, action: "restore_data", version_id: old.id, snapshot_id: snapshot.id, revision: 3 },
-      current_commit: current.commit, delay_seconds: 0, expires_in_seconds: 300, database_snapshot: snapshot,
-    }} title="恢复程序与数据库快照" description="恢复旧数据" busy={false} onConfirm={onConfirm} onClose={vi.fn()} />);
+    render(
+      <AccountPoolReleaseConfirmation
+        confirmation={{
+          compatibility_bypassed: false,
+          token: "a".repeat(64),
+          action: {
+            ...actionDefaults,
+            action: "restore_data",
+            version_id: old.id,
+            snapshot_id: snapshot.id,
+            revision: 3,
+          },
+          current_commit: current.commit,
+          delay_seconds: 0,
+          expires_in_seconds: 300,
+          database_snapshot: snapshot,
+        }}
+        title="恢复程序与数据库快照"
+        description="恢复旧数据"
+        busy={false}
+        onConfirm={onConfirm}
+        onClose={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("alert")).toHaveTextContent("之后的新增与修改不会保留在运行库");
     expect(screen.getByRole("button", { name: "暂不可回退" })).toBeDisabled();
     fireEvent.change(screen.getByRole("textbox", { name: /输入 RESTORE/ }), { target: { value: "CONFIRM" } });
     expect(screen.getByRole("button", { name: "暂不可回退" })).toBeDisabled();
-    fireEvent.change(screen.getByRole("textbox", { name: /输入 RESTORE/ }), { target: { value: `RESTORE ${snapshot.id}` } });
+    fireEvent.change(screen.getByRole("textbox", { name: /输入 RESTORE/ }), {
+      target: { value: `RESTORE ${snapshot.id}` },
+    });
     await userEvent.setup().click(screen.getByRole("button", { name: "确认执行" }));
     expect(onConfirm).toHaveBeenCalledWith(`RESTORE ${snapshot.id}`);
   });
@@ -131,10 +171,13 @@ describe("project releases", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(listReleases).mockResolvedValue(view);
-    vi.mocked(scanReleaseImages).mockResolvedValue({ revision: 3, versions: [
-      { pair: current, current: true, backed_up: true, image_users: ["running"] },
-      { pair: old, current: false, backed_up: true, image_users: [] },
-    ] });
+    vi.mocked(scanReleaseImages).mockResolvedValue({
+      revision: 3,
+      versions: [
+        { pair: current, current: true, backed_up: true, image_users: ["running"] },
+        { pair: old, current: false, backed_up: true, image_users: [] },
+      ],
+    });
     vi.mocked(releaseCommands).mockResolvedValue({
       branch: "git switch -c codex/fix-version " + old.commit,
       revert: "git revert --no-commit " + old.commit + "..HEAD",
@@ -179,10 +222,16 @@ describe("project releases", () => {
     expect(prepareRelease).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox", { name: "选择本机镜像 aaaaaaaaaa" }));
     await user.click(screen.getByRole("button", { name: "备份所选镜像" }));
-    expect(prepareRelease).toHaveBeenCalledWith("admin", expect.objectContaining({ action: "backup_selected", version_ids: [old.id] }));
+    expect(prepareRelease).toHaveBeenCalledWith(
+      "admin",
+      expect.objectContaining({ action: "backup_selected", version_ids: [old.id] }),
+    );
     await user.click(await screen.findByRole("button", { name: "取消" }));
     await user.click(screen.getByRole("button", { name: "删除所选本机镜像" }));
-    expect(prepareRelease).toHaveBeenLastCalledWith("admin", expect.objectContaining({ action: "delete_images", version_ids: [old.id] }));
+    expect(prepareRelease).toHaveBeenLastCalledWith(
+      "admin",
+      expect.objectContaining({ action: "delete_images", version_ids: [old.id] }),
+    );
     expect(await screen.findByText(/保留镜像归档/)).toBeInTheDocument();
   });
 
@@ -195,7 +244,10 @@ describe("project releases", () => {
     expect(protectedBackup).not.toBeChecked();
     await user.click(screen.getByRole("checkbox", { name: "选择备份 aaaaaaaaaa" }));
     await user.click(screen.getByRole("button", { name: "删除所选备份" }));
-    expect(prepareRelease).toHaveBeenCalledWith("admin", expect.objectContaining({ action: "delete_backups", version_ids: [old.id] }));
+    expect(prepareRelease).toHaveBeenCalledWith(
+      "admin",
+      expect.objectContaining({ action: "delete_backups", version_ids: [old.id] }),
+    );
   });
 
   it("protects the current version and applies the selected archive with explicit confirmation", async () => {
@@ -214,7 +266,7 @@ describe("project releases", () => {
     expect(executeRelease).toHaveBeenCalledWith("admin", "c".repeat(64));
   });
 
-  it("previews editable notes and help before saving", async () => {
+  it("previews notes before saving and omits the removed rollback explanation", async () => {
     const user = userEvent.setup();
     mount();
     await user.click(await screen.findByRole("button", { name: "编辑备注" }));
@@ -226,12 +278,8 @@ describe("project releases", () => {
     const expectedNote = { action: "note", version_id: current.id, text: "验证通过的版本", revision: 3 };
     expect(prepareRelease).toHaveBeenLastCalledWith("admin", expectedNote);
     await user.click(within(noteDialog).getByRole("button", { name: "取消" }));
-    await user.click(screen.getByRole("button", { name: "编辑说明" }));
-    fireEvent.change(screen.getByRole("textbox", { name: "代码回退说明" }), { target: { value: "我的恢复步骤" } });
-    await user.click(screen.getByRole("button", { name: "保存说明" }));
-    const guideDialog = await screen.findByRole("dialog");
-    expect(within(guideDialog).getByText("我的恢复步骤")).toBeInTheDocument();
-    expect(prepareRelease).toHaveBeenLastCalledWith("admin", { action: "guide", text: "我的恢复步骤", revision: 3 });
+    expect(screen.queryByText("代码回退说明")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "编辑说明" })).not.toBeInTheDocument();
     expect(executeRelease).not.toHaveBeenCalled();
   });
 
@@ -344,7 +392,11 @@ describe("project releases", () => {
     fireEvent.change(screen.getByLabelText(/输入目标版本/), { target: { value: old.commit.slice(0, 10) } });
     await user.click(screen.getByRole("button", { name: "进入强制回退确认" }));
     expect(prepareRelease).toHaveBeenLastCalledWith("admin", {
-      action: "apply", version_id: old.id, revision: 3, force: true, force_acknowledgement: old.commit,
+      action: "apply",
+      version_id: old.id,
+      revision: 3,
+      force: true,
+      force_acknowledgement: old.commit,
     });
     expect(executeRelease).not.toHaveBeenCalled();
     await user.click(await screen.findByRole("button", { name: "确认强制回退" }));

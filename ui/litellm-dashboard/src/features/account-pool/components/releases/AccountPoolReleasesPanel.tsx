@@ -1,16 +1,11 @@
-/** 本文件展示项目运行版本、真实镜像备份及可编辑的代码回退说明。 */
+/** 本文件展示项目运行版本、真实镜像备份及实际回退操作。 */
 import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/lib/toast";
-import {
-  ReleaseVersionCard,
-  ReleaseStorageCard,
-  ReleaseGuideCard,
-  ReleaseCommandsCard,
-} from "./AccountPoolReleaseCards";
+import { ReleaseVersionCard, ReleaseStorageCard, ReleaseCommandsCard } from "./AccountPoolReleaseCards";
 import { AccountPoolReleaseConfirmation } from "./AccountPoolReleaseConfirmation";
 import { AccountPoolImageManager } from "./AccountPoolImageManager";
 import { AccountPoolRuntimeCards } from "./AccountPoolRuntimeCards";
@@ -67,7 +62,6 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
   const query = useQuery(queryOptions);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [guide, setGuide] = useState<string | null>(null);
   const [pending, setPending] = useState<{
     confirmation: ReleaseConfirmation;
     description: string;
@@ -100,13 +94,11 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
     },
   });
   const execution = useMutation({
-    mutationFn: ({ token, acknowledgement }: { token: string; acknowledgement?: string }) => acknowledgement
-      ? executeRelease(accessToken, token, acknowledgement)
-      : executeRelease(accessToken, token),
+    mutationFn: ({ token, acknowledgement }: { token: string; acknowledgement?: string }) =>
+      acknowledgement ? executeRelease(accessToken, token, acknowledgement) : executeRelease(accessToken, token),
     onSuccess: (job) => {
       setPending(null);
       setNote(null);
-      setGuide(null);
       client.setQueryData(queryKey, data ? { ...data, job } : data);
       toast.success("任务已提交，执行结果将在此页显示");
       void refresh();
@@ -223,7 +215,6 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
         )}
         <ReleaseStorageCard data={data} />
       </div>
-      <ReleaseGuideCard data={data} guide={guide} setGuide={setGuide} busy={busy} prepare={prepare} />
       {selected && <ReleaseCommandsCard selected={selected} commands={commands.data} error={commands.isError} />}
       {pending && (
         <AccountPoolReleaseConfirmation
@@ -237,12 +228,17 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
             jobPending
           }
           onSelectVersion={selectRollback}
-          onForce={() => prepare({
-            action: "apply",
-            version_id: pending.confirmation.action.version_id,
-            force: true,
-            force_acknowledgement: pending.confirmation.rollback?.target_commit,
-          }, "已选择强制回退。请再次核对未验证项与目标版本，确认后仅切换程序，保留当前数据。")}
+          onForce={() =>
+            prepare(
+              {
+                action: "apply",
+                version_id: pending.confirmation.action.version_id,
+                force: true,
+                force_acknowledgement: pending.confirmation.rollback?.target_commit,
+              },
+              "已选择强制回退。请再次核对未验证项与目标版本，确认后仅切换程序，保留当前数据。",
+            )
+          }
           onClose={() => setPending(null)}
           onConfirm={(acknowledgement) => execution.mutate({ token: pending.confirmation.token, acknowledgement })}
         />

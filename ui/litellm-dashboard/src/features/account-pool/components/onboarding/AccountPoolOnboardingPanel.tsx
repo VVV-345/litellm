@@ -43,6 +43,8 @@ interface OnboardingProxySelectorProps {
   profilesError: boolean;
   profilesSuccess: boolean;
   value: string;
+  rotation: readonly string[] | null;
+  onRotationChange: (ids: string[] | null) => void;
   disabled: boolean;
   onChange: (value: string) => void;
 }
@@ -55,6 +57,8 @@ const OnboardingProxySelector = ({
   profilesError,
   profilesSuccess,
   value,
+  rotation,
+  onRotationChange,
   disabled,
   onChange,
 }: OnboardingProxySelectorProps) => {
@@ -93,7 +97,7 @@ const OnboardingProxySelector = ({
         items={profileOptions}
         value={optional && !value ? "__keep__" : value}
         onValueChange={(nextValue) => onChange(nextValue === "__keep__" ? "" : nextValue ?? "")}
-        disabled={disabled || profilesLoading || (!optional && profiles.length === 0)}
+        disabled={disabled || rotation !== null || profilesLoading || (!optional && profiles.length === 0)}
       >
         <SelectTrigger
           id="onboarding-proxy-profile"
@@ -110,6 +114,45 @@ const OnboardingProxySelector = ({
           ))}
         </SelectContent>
       </Select>
+      <label className="flex items-center gap-2 text-sm">
+        <Checkbox
+          checked={rotation !== null}
+          disabled={disabled || profilesLoading}
+          onCheckedChange={(checked) => onRotationChange(checked ? [value].filter(Boolean) : null)}
+        />
+        多代理轮换
+      </label>
+      {rotation !== null && (
+        <div className="grid gap-2 rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">
+            按选择顺序轮换，每份文件 / 账号的任务及重试固定使用分配的节点。只选一个即单代理。
+          </p>
+          <div className="grid max-h-40 gap-2 overflow-y-auto" aria-label="轮换代理">
+            {profileOptions
+              .filter((profile) => profile.value !== "__keep__")
+              .map((profile) => (
+                <label key={profile.value} className="flex min-w-0 items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={rotation.includes(profile.value)}
+                    disabled={disabled}
+                    onCheckedChange={(checked) =>
+                      onRotationChange(
+                        checked ? [...rotation, profile.value] : rotation.filter((id) => id !== profile.value),
+                      )
+                    }
+                  />
+                  <span className="min-w-0 break-words">{profile.label}</span>
+                  {rotation.includes(profile.value) && (
+                    <span aria-hidden="true" className="ml-auto text-xs tabular-nums text-muted-foreground">
+                      {rotation.indexOf(profile.value) + 1}
+                    </span>
+                  )}
+                </label>
+              ))}
+          </div>
+          {rotation.length === 0 && <p className="text-xs text-muted-foreground">请选择至少一个代理</p>}
+        </div>
+      )}
       {profilesError && (
         <p role="alert" className="text-sm text-destructive">
           代理目录读取失败，请刷新重试
@@ -137,6 +180,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
   const [supplier, setSupplier] = useState<OnboardingImport["supplier"]>("openai_codex");
   const [mailbox, setMailbox] = useState<"outlook" | "gmail" | "mail">("outlook");
   const [proxyProfileId, setProxyProfileId] = useState("");
+  const [rotationProfiles, setRotationProfiles] = useState<string[] | null>(null);
   const [prepareMailbox, setPrepareMailbox] = useState(true);
   const [useTemplate, setUseTemplate] = useState(false);
   const [request, setRequest] = useState<OnboardingImport | null>(null);
@@ -156,16 +200,22 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     retry: false,
   });
   const template = settingsQuery.data?.values.auth_file_template;
-  const effectiveProxyId =
+  const singleProxyId =
     proxyProfileId || (source === "auth_file" && useTemplate ? template?.proxy_profile_id : "") || "";
+  const effectiveProxyId = rotationProfiles === null ? singleProxyId : rotationProfiles[0] ?? "";
   const proxyProfiles = proxyProfilesQuery.data ?? [];
   const templateProxyLabel = () => {
-    if (proxyProfileId) return "使用本次选择";
+    if (rotationProfiles !== null || proxyProfileId) return "使用本次选择";
     if (template?.proxy_profile_id === "") return "沿用卡片代理";
     if (!template?.proxy_profile_id) return "保留";
     return proxyProfiles.find((profile) => profile.id === template.proxy_profile_id)?.name ?? "原节点不可用";
   };
-  const proxyProfileSelected = proxyProfiles.some((profile) => profile.id === proxyProfileId);
+  const rotationInvalid =
+    rotationProfiles !== null &&
+    (rotationProfiles.length === 0 ||
+      rotationProfiles.some((id) => !proxyProfiles.some((profile) => profile.id === id)));
+  const proxyProfileSelected =
+    rotationProfiles !== null ? !rotationInvalid : proxyProfiles.some((profile) => profile.id === proxyProfileId);
   const supported =
     suppliersQuery.data?.some(
       (item) => item.supplier === supplier && item[source === "oauth" ? "oauth" : "auth_file"],
@@ -178,6 +228,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     !proxyProfiles.some((profile) => profile.id === effectiveProxyId);
   const fileInputDisabled =
     busy ||
+    rotationInvalid ||
     !supported ||
     missingOAuthProxy ||
     missingTemplateProxy ||
@@ -195,6 +246,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
     reset();
     setBusy(true);
     try {
+      if (rotationInvalid) throw new Error("请选择有效的轮换代理");
       if (!supported) throw new Error("当前供应商不支持此上号方式，请选择其他供应商");
       if (source === "oauth" && !proxyProfileSelected) throw new Error("请选择有效的 OAuth 出站代理");
       if (source === "auth_file" && useTemplate && !template) throw new Error("请先保存默认认证模板");
@@ -229,7 +281,11 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
         supplier,
         mailbox,
         prepare_mailbox: prepareMailbox,
-        entries: preparedEntries,
+        entries: preparedEntries.map((entry, index) =>
+          rotationProfiles?.length
+            ? { ...entry, proxy_profile_id: rotationProfiles[index % rotationProfiles.length] }
+            : entry,
+        ),
         ...(effectiveProxyId ? { proxy_profile_id: effectiveProxyId } : {}),
       };
       const checked = await previewOnboarding(accessToken, body);
@@ -275,6 +331,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
           if (value === "oauth" || value === "auth_file") {
             setSource(value);
             setProxyProfileId("");
+            setRotationProfiles(null);
             setUseTemplate(false);
             reset();
           }
@@ -336,6 +393,11 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                   profilesError={proxyProfilesQuery.isError}
                   profilesSuccess={proxyProfilesQuery.isSuccess}
                   value={proxyProfileId}
+                  rotation={rotationProfiles}
+                  onRotationChange={(ids) => {
+                    setRotationProfiles(ids);
+                    reset();
+                  }}
                   disabled={busy}
                   onChange={(value) => {
                     setProxyProfileId(value);
@@ -463,6 +525,20 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     {preview.filter((item) => item.status === "duplicate").length} · 无效{" "}
                     {preview.filter((item) => item.status === "invalid").length}
                   </p>
+                  {rotationProfiles !== null && request && (
+                    <details open className="rounded-lg border p-3 text-sm">
+                      <summary className="cursor-pointer font-medium">代理分配（任务及重试保持不变）</summary>
+                      <ul className="mt-2 grid max-h-40 gap-1 overflow-auto text-xs text-muted-foreground">
+                        {request.entries.map((entry, index) => (
+                          <li key={index} className="break-words">
+                            {entry.label} →{" "}
+                            {proxyProfiles.find((profile) => profile.id === entry.proxy_profile_id)?.name ??
+                              "节点不可用"}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
                   <div className="max-h-64 overflow-auto rounded-lg border">
                     <table className="w-full text-left text-sm">
                       <thead className="bg-muted/50">

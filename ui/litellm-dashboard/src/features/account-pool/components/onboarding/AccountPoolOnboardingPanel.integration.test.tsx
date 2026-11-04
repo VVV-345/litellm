@@ -69,6 +69,51 @@ beforeEach(() => {
 });
 
 describe("onboarding workflows", () => {
+  it("rotates files across selected proxies, retains the preview on submit retry, and clears it when selection changes", async () => {
+    const originalGet = get.getMockImplementation()!;
+    get.mockImplementation(async (path: string) =>
+      path.endsWith("/proxy-profiles")
+        ? [
+            { id: "proxy-us", name: "Proxy US", protocol: "http" },
+            { id: "proxy-jp", name: "Proxy JP", protocol: "http" },
+          ]
+        : originalGet(path),
+    );
+    post.mockImplementation(async (path: string) => {
+      if (path.endsWith("/preview")) return [{ index: 0, label: "one.json", status: "valid", message: "校验通过" }];
+      throw new Error("transient");
+    });
+    const user = userEvent.setup();
+    mount();
+    const input = await screen.findByLabelText("认证 JSON 文件（可多选）");
+    await waitFor(() => expect(input).toBeEnabled());
+    await user.click(screen.getByRole("checkbox", { name: "多代理轮换" }));
+    await user.click(screen.getByRole("checkbox", { name: "Proxy US" }));
+    await user.click(screen.getByRole("checkbox", { name: "Proxy JP" }));
+    const files = ["one", "two", "three"].map((name) => {
+      const file = new File(['{"type":"codex","access_token":"fixture"}'], `${name}.json`, {
+        type: "application/json",
+      });
+      Object.defineProperty(file, "text", { value: async () => '{"type":"codex","access_token":"fixture"}' });
+      return file;
+    });
+    await user.upload(input, files);
+    const payload = post.mock.calls.find(([path]) => path.endsWith("/preview"))?.[1].body;
+    expect(payload.entries.map((entry: { proxy_profile_id: string }) => entry.proxy_profile_id)).toEqual([
+      "proxy-us",
+      "proxy-jp",
+      "proxy-us",
+    ]);
+    await user.click(await screen.findByRole("button", { name: "导入有效项" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "导入有效项" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "导入有效项" }));
+    expect(post.mock.calls.filter(([path]) => path.endsWith("/imports")).map(([, request]) => request.body)).toEqual([
+      payload,
+      payload,
+    ]);
+    await user.click(screen.getByRole("checkbox", { name: "Proxy JP" }));
+    expect(screen.queryByRole("button", { name: "导入有效项" })).not.toBeInTheDocument();
+  });
   it("accepts two-factor text in file import and navigates to OAuth tasks after submission", async () => {
     const user = userEvent.setup();
     post.mockImplementation(async (path: string) =>

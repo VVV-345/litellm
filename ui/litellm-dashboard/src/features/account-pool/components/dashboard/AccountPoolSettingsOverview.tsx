@@ -1,3 +1,4 @@
+/** 分类查看号池与 LiteLLM 全局设置，按需展开并跳转到唯一编辑入口。 */
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
@@ -6,7 +7,6 @@ import {
   Check,
   ChevronDown,
   CircleHelp,
-  Layers3,
   RefreshCw,
   Settings2,
   UserPlus,
@@ -19,7 +19,6 @@ import {
   SlidersHorizontal,
   ListFilter,
   Puzzle,
-  Workflow,
   Route,
   type LucideIcon,
 } from "lucide-react";
@@ -32,6 +31,7 @@ import { getAccountPoolSettings, type AccountPoolSettings } from "../../api/Acco
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePanel";
 import { ModuleVisibilityPanel } from "./ModuleVisibilityPanel";
+import { AccountPoolWorkspace } from "../shared/AccountPoolWorkspace";
 
 type SettingsGroup = {
   icon: LucideIcon;
@@ -44,23 +44,29 @@ const groups: readonly SettingsGroup[] = [
   {
     title: "新账号默认值",
     icon: UserPlus,
-    href: "policy-center",
+    href: "policy-center?section=common",
     scope: "创建账号时采用；已有账号以卡片配置为准",
     fields: ["default_concurrency_limit", "default_model_discovery", "common_profiles"],
   },
   {
     title: "供应商模型与访问",
     icon: Boxes,
-    href: "policy-center",
+    href: "policy-center?section=access",
     scope: "供应商模型别名、排除规则及按卡片绑定的命名配置",
     fields: ["oauth_excluded_models", "oauth_model_aliases", "oauth_request_scoped_errors", "access_profiles"],
   },
   {
     title: "出站网络",
     icon: Network,
-    href: "policy-center",
+    href: "policy-center?section=network",
     scope: "网关安全重试和传输时限；卡片及命名配置可覆盖未绑定卡片的全局默认值",
-    fields: ["default_proxy_profile_id", "max_attempts", "request_timeout_seconds", "websocket_enabled", "network_profiles"],
+    fields: [
+      "default_proxy_profile_id",
+      "max_attempts",
+      "request_timeout_seconds",
+      "websocket_enabled",
+      "network_profiles",
+    ],
   },
   {
     title: "日常日志与完整日志",
@@ -97,8 +103,8 @@ const groups: readonly SettingsGroup[] = [
   {
     title: "额度与刷新",
     icon: Gauge,
-    href: "policy-center",
-    scope: "回退策略与额度阈值在策略中心；刷新档位仍在号池配额页",
+    href: "account-pool?tab=dashboard",
+    scope: "回退策略与额度阈值在策略中心；刷新间隔在号池仪表盘",
     fields: [
       "quota_switch_project",
       "quota_switch_preview_model",
@@ -120,28 +126,28 @@ const groups: readonly SettingsGroup[] = [
   {
     title: "流式传输",
     icon: Waves,
-    href: "policy-center",
+    href: "policy-center?section=streaming",
     scope: "全局流式开关，可由卡片绑定的命名配置覆盖",
     fields: ["streaming_enabled", "streaming_profiles", "streaming_rules", "sse_heartbeat_interval_seconds"],
   },
   {
     title: "高级运行设置",
     icon: SlidersHorizontal,
-    href: "policy-center",
+    href: "policy-center?section=advanced",
     scope: "供应商运行参数；旧重试字段不再决定网关重试",
     fields: ["websocket_auth_enabled", "force_model_prefix", "advanced_profiles"],
   },
   {
     title: "请求参数",
     icon: ListFilter,
-    href: "policy-center",
+    href: "policy-center?section=payload",
     scope: "默认参数、强制覆盖、过滤规则及命名配置",
     fields: ["payload", "payload_profiles"],
   },
   {
     title: "运行插件",
     icon: Puzzle,
-    href: "policy-center",
+    href: "account-pool?tab=releases&section=plugins",
     scope: "号池运行插件列表；插件启用开关在 Router Settings 的通用设置中",
     fields: ["plugins_enabled"],
   },
@@ -291,7 +297,7 @@ function OverviewCard({
     <section
       className={`min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm ${legacy ? "border-amber-500/30" : "border-border"}`}
     >
-      <div className="border-b bg-muted/20 p-5">
+      <div className="border-b bg-muted/20 px-4 py-3">
         <Link
           href={settingHref(href)}
           className="group flex items-center justify-between gap-3 font-semibold hover:text-primary"
@@ -306,10 +312,10 @@ function OverviewCard({
           </span>
           <ArrowUpRight className="size-4 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
         </Link>
-        <p className="mt-3 text-xs leading-5 text-muted-foreground">{scope}</p>
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">{scope}</p>
         {legacy && <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">保留旧值 · 未完整接入</p>}
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }
@@ -357,184 +363,114 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
     ? "需重新加载，请检查账号同步状态"
     : "已保存，执行状态以账号同步结果为准";
   const sources = busy ? "正在读取服务端" : "运行配置 · 路由 · 全局设置";
+  const nativeSections = [
+    {
+      value: "router",
+      title: "LiteLLM 路由、重试与回退",
+      icon: Route,
+      query: router,
+      fields: router.data?.fields,
+      href: "policy-center?section=router",
+      scope: "原生路由当前值；团队或密钥可配置独立规则",
+    },
+    {
+      value: "general",
+      title: "LiteLLM 全局设置",
+      icon: Settings2,
+      query: general,
+      fields: general.data,
+      href: "policy-center",
+      scope: "网关全局默认值，未设置项沿用系统默认",
+    },
+  ];
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border bg-gradient-to-br from-primary/5 via-background to-background p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="rounded-xl bg-primary/10 p-3 text-primary">
-              <Layers3 className="size-5" aria-hidden="true" />
-            </span>
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight">全局设置总览</h2>
-              <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                一处查看当前设置，点击卡片标题前往修改。单卡、模型、团队和密钥的独立配置可能覆盖全局默认值。
-              </p>
-            </div>
-          </div>
-          <Button variant="outline" onClick={refresh} disabled={busy}>
-            <RefreshCw className={`mr-2 size-4 ${busy ? "animate-spin" : ""}`} aria-hidden="true" />
-            {busy ? "正在刷新" : "刷新总览"}
-          </Button>
-        </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="rounded-xl border bg-background/80 p-4">
-            <p className="text-xs text-muted-foreground">运行配置</p>
-            <p className="mt-2 text-sm font-semibold">
-              {runtime.data ? `配置版本 ${runtime.data.version}` : runtimeFallback}
-            </p>
-          </div>
-          <div className="rounded-xl border bg-background/80 p-4">
-            <p className="text-xs text-muted-foreground">保存与同步</p>
-            <p className="mt-2 text-sm font-semibold">{runtime.data ? syncStatus : "等待配置数据"}</p>
-          </div>
-          <div className="rounded-xl border bg-background/80 p-4">
-            <p className="text-xs text-muted-foreground">数据来源</p>
-            <p className="mt-2 text-sm font-semibold">{failures ? `${failures} 个来源读取失败` : sources}</p>
-          </div>
-        </div>
-        {runtime.data?.updated_at && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            运行配置更新时间：{new Date(runtime.data.updated_at).toLocaleString("zh-CN")}
+    <div className="grid min-w-0 gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">全局设置总览</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {runtime.data ? `配置版本 ${runtime.data.version} · ${syncStatus}` : runtimeFallback}
           </p>
-        )}
+          <p className="mt-1 text-xs text-muted-foreground">{failures ? `${failures} 个来源读取失败` : sources}</p>
+        </div>
+        <Button size="sm" variant="outline" onClick={refresh} disabled={busy}>
+          <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} />
+          {busy ? "正在刷新" : "刷新总览"}
+        </Button>
       </div>
-      {runtime.isPending && <p role="status">正在读取运行配置…</p>}
       {runtime.isError && (
-        <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm">
+        <p role="alert" className="text-sm text-destructive">
           运行配置读取失败，请刷新重试
         </p>
       )}
-      <div className="grid items-start gap-4 md:grid-cols-2 2xl:grid-cols-3">
-        <div className="md:col-span-2 2xl:col-span-3">
-          <ModuleVisibilityPanel accessToken={accessToken} />
-        </div>
-        <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />
-        <OverviewCard
-          icon={Workflow}
-          title="设置生效规则"
-          href="router-settings?tab=loadbalancing"
-          scope="当前请求执行关系"
-        >
-          <dl className="space-y-3 text-sm">
-            <div>
-              <dt className="font-medium">选卡、顺序与会话保持</dt>
-              <dd className="mt-1 text-muted-foreground">
-                由 LiteLLM 原生路由控制，密钥或团队的独立规则可能覆盖全局默认。卡片上的旧路由值仅保留查看。
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium">单卡额度、并发、代理与模型</dt>
-              <dd className="mt-1 text-muted-foreground">
-                由卡片设置控制，转发前再次检查；供应商设置需同步成功才可视为已生效。
-              </dd>
-            </div>
-            <div>
-              <dt className="font-medium">虚拟密钥指定卡片</dt>
-              <dd className="mt-1 text-muted-foreground">
-                始终限制在所选卡片范围内。顺序偏好、重试和回退均不能扩大这个范围。
-              </dd>
-            </div>
-          </dl>
-        </OverviewCard>
-        {[
+      <AccountPoolWorkspace
+        title="设置分类"
+        items={[
           {
-            title: "LiteLLM 路由、重试与回退",
-            icon: Route,
-            query: router,
-            fields: router.data?.fields,
-            href: "router-settings?tab=loadbalancing",
-            scope: "原生路由当前值；团队或密钥可配置独立规则",
+            value: "modules",
+            label: "模块显示",
+            summary: "导航与入口",
+            content: <ModuleVisibilityPanel accessToken={accessToken} />,
           },
           {
-            title: "LiteLLM 全局设置",
-            icon: Settings2,
-            query: general,
-            fields: general.data,
-            href: "policy-center",
-            scope: "网关全局默认值，未设置的项目沿用系统默认",
+            value: "updates",
+            label: "自动更新",
+            summary: "检查与部署",
+            content: <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />,
           },
-        ].map((section) => (
-          <OverviewCard
-            icon={section.icon}
-            key={section.title}
-            title={section.title}
-            href={section.href}
-            scope={section.scope}
-          >
-            {section.query.isPending && <p className="text-sm text-muted-foreground">正在读取…</p>}
-            {section.query.isError && (
-              <p role="alert" className="text-sm text-destructive">
-                {section.title}读取失败，请刷新重试
-              </p>
-            )}
-            <dl className="divide-y divide-border/60">
-              {section.fields?.slice(0, 6).map((field) => (
-                <div
-                  key={field.field_name}
-                  className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0"
-                >
-                  <dt className="text-sm text-muted-foreground" title={field.field_name}>
-                    {nativeLabels[field.field_name] ?? field.field_name}
-                  </dt>
-                  <dd className="min-w-0 max-w-full text-right">
-                    <SettingValue value={field.field_value} />
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            {(section.fields?.length ?? 0) > 6 && (
-              <details className="mt-4 border-t pt-3">
-                <summary className="cursor-pointer text-xs font-medium text-primary">
-                  查看其余 {(section.fields?.length ?? 0) - 6} 项设置
-                </summary>
-                <dl className="mt-3 space-y-3">
-                  {section.fields?.slice(6).map((field) => (
-                    <div key={field.field_name} className="space-y-1">
-                      <dt className="break-words text-xs text-muted-foreground" title={field.field_name}>
+          ...nativeSections.map((section) => ({
+            value: section.value,
+            label: section.title,
+            summary: section.query.isError ? "读取失败" : `${section.fields?.length ?? 0} 项`,
+            content: (
+              <OverviewCard icon={section.icon} title={section.title} href={section.href} scope={section.scope}>
+                {section.query.isPending && <p className="text-sm text-muted-foreground">正在读取…</p>}
+                {section.query.isError && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {section.title}读取失败，请刷新重试
+                  </p>
+                )}
+                <dl className="divide-y divide-border/60">
+                  {section.fields?.map((field) => (
+                    <div key={field.field_name} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
+                      <dt className="text-sm text-muted-foreground" title={field.field_name}>
                         {nativeLabels[field.field_name] ?? field.field_name}
                       </dt>
-                      <dd>
+                      <dd className="min-w-0 max-w-full text-right">
                         <SettingValue value={field.field_value} />
                       </dd>
                     </div>
                   ))}
                 </dl>
-              </details>
-            )}
-          </OverviewCard>
-        ))}
-        {runtime.data &&
-          groups.map((group) => (
-            <OverviewCard
-              key={group.title}
-              icon={group.icon}
-              title={group.title}
-              href={group.href}
-              scope={group.scope}
-              legacy={group.title === "保留的旧路由值"}
-            >
-              <dl className="divide-y divide-border/60">
-                {group.fields.map((field) => (
-                  <div
-                    key={field}
-                    className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0"
-                  >
-                    <dt className="text-sm text-muted-foreground">
-                      {fieldLabels[field] ?? (field.endsWith("_profiles") ? "命名配置与卡片绑定" : field)}
-                    </dt>
-                    <dd className="min-w-0 max-w-full text-right">
-                      <SettingValue value={runtime.data.values[field]} />
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </OverviewCard>
-          ))}
-      </div>
-      <p className="flex items-start gap-2 rounded-xl bg-muted/40 p-4 text-xs leading-5 text-muted-foreground">
-        <CircleHelp className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-        总览展示服务端保存的当前值。修改后请同时检查卡片同步状态；标注为旧值的设置，不代表已经生效。
+              </OverviewCard>
+            ),
+          })),
+          ...groups.map((group) => ({
+            value: group.title,
+            label: group.title,
+            summary: `${group.fields.length} 项`,
+            content: (
+              <OverviewCard icon={group.icon} title={group.title} href={group.href} scope={group.scope}>
+                <dl className="divide-y divide-border/60">
+                  {group.fields.map((field) => (
+                    <div key={field} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
+                      <dt className="text-sm text-muted-foreground">
+                        {fieldLabels[field] ?? (field.endsWith("_profiles") ? "命名配置与卡片绑定" : field)}
+                      </dt>
+                      <dd className="min-w-0 max-w-full text-right">
+                        <SettingValue value={runtime.data ? runtime.data.values[field] : runtimeFallback} />
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              </OverviewCard>
+            ),
+          })),
+        ]}
+      />
+      <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+        <CircleHelp className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        展示服务端保存值，点击分类标题进入编辑；单卡、模型、团队或密钥配置可覆盖默认。保存后请检查卡片同步状态。
       </p>
     </div>
   );

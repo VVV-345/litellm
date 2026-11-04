@@ -37,6 +37,7 @@ function show() {
       <AccountPoolSettingsOverview accessToken="admin-token" />
     </QueryClientProvider>,
   );
+  fireEvent.click(screen.getByRole("tab", { name: /自动更新/ }));
   return { client, ...rendered };
 }
 
@@ -184,7 +185,7 @@ describe("automatic image updates in settings", () => {
     expect(await screen.findByText(/自动更新接口不可用（404）/)).toHaveTextContent(
       "请确认部署服务已启用并升级到支持自动更新的版本",
     );
-    expect(await screen.findByText("配置版本 1")).toBeInTheDocument();
+    expect(await screen.findByText(/配置版本 1/)).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "自动部署新镜像" })).not.toBeInTheDocument();
     getFailure = 0;
     await userEvent.setup().click(screen.getByRole("button", { name: "重新载入设置" }));

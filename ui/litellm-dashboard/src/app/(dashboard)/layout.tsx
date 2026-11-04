@@ -122,6 +122,15 @@ function DashboardShell({
   const pathname = usePathname();
   const { accessToken } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const updateSidebar = () => setSidebarCollapsed(media.matches);
+    updateSidebar();
+    media.addEventListener("change", updateSidebar);
+    return () => media.removeEventListener("change", updateSidebar);
+  }, []);
+
   const { mode } = usePluginMode();
 
   const page = legacyKeyForPathname(pathname) || searchParams.get("page") || "api-keys";
@@ -160,7 +169,7 @@ function DashboardShell({
         setPage={navigateToPage}
         defaultSelectedKey={page}
         sidebarCollapsed={sidebarCollapsed}
-          onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
+        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
         disabledUiPages={disabledUiPages}
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">

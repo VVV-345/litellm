@@ -116,20 +116,30 @@ describe("account card local configuration", () => {
     const fallbackCard: AccountPoolEnvironment = {
       ...environment,
       access_token_fallback: {
-        enabled: true, active: true, failure_source: "refresh", reason: "temporary_access",
-        expires_at: "2090-01-01T00:00:00Z", verified_models: environment.enabled_models,
+        enabled: true,
+        active: true,
+        failure_source: "refresh",
+        reason: "temporary_access",
+        expires_at: "2090-01-01T00:00:00Z",
+        verified_models: environment.enabled_models,
       },
     };
     listAccounts.mockResolvedValue([fallbackCard]);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-    const { unmount } = render(<QueryClientProvider client={client}><AccountPoolPage /></QueryClientProvider>);
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <AccountPoolPage />
+      </QueryClientProvider>,
+    );
     await user.click(await screen.findByRole("button", { name: `测试 ${environment.name} 的模型连接` }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("button", { name: "开始测试" })).toBeEnabled();
-    listAccounts.mockResolvedValue([{
-      ...fallbackCard,
-      access_token_fallback: { ...fallbackCard.access_token_fallback, verified_models: [] },
-    }]);
+    listAccounts.mockResolvedValue([
+      {
+        ...fallbackCard,
+        access_token_fallback: { ...fallbackCard.access_token_fallback, verified_models: [] },
+      },
+    ]);
     await act(() => client.refetchQueries({ queryKey: accountPoolQueryKeys.environments("token") }));
     expect(listAccounts).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "开始测试" })).toBeDisabled());
@@ -179,12 +189,31 @@ describe("account card local configuration", () => {
     expect(listAccounts).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["oauth", "quotas"])(
+    "keeps retired %s links usable without restoring duplicate navigation",
+    async (legacy) => {
+      searchState.value = `tab=${legacy}`;
+      renderPage();
+      expect(screen.queryByRole("tab", { name: "配额管理" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("tab", { name: "OAuth 授权" })).not.toBeInTheDocument();
+      if (legacy === "oauth") {
+        expect(screen.getByRole("tab", { name: /提供商与 OAuth/ })).toHaveAttribute("aria-selected", "true");
+        expect(screen.getByRole("tab", { name: /OAuth 登录/ })).toHaveAttribute("aria-selected", "true");
+        expect(await screen.findByText(environment.name)).toBeVisible();
+        expect(screen.queryByTestId(`account-pool-card-${environment.id}`)).not.toBeInTheDocument();
+      } else {
+        expect(screen.getByRole("tab", { name: "仪表盘" })).toHaveAttribute("aria-selected", "true");
+        expect(await screen.findByRole("combobox", { name: "自动刷新档位" })).toBeVisible();
+      }
+    },
+  );
+
   it("opens runtime configuration from the card and saves without navigation", async () => {
     const user = userEvent.setup();
     renderPage();
     const tabs = screen.getAllByRole("tab");
     const onboardingIndex = tabs.findIndex((tab) => tab.textContent === "自动化上号");
-    expect(onboardingIndex).toBe(4);
+    expect(onboardingIndex).toBe(3);
     expect(tabs[onboardingIndex - 1]).toHaveTextContent(/认证文件|Credentials/i);
     await user.click(await screen.findByRole("button", { name: `配置 ${environment.name}` }));
     fireEvent.change(await screen.findByDisplayValue(environment.name), { target: { value: "Updated card" } });
@@ -203,11 +232,10 @@ describe("account card local configuration", () => {
   });
 });
 
-
 it("passes the selected statistics range to the request client", async () => {
   const user = userEvent.setup();
   renderPage();
-  await user.click(await screen.findByRole("combobox", {name: "统计天数"}));
-  await user.click(await screen.findByRole("option", {name: "近 7 天"}));
+  await user.click(await screen.findByRole("combobox", { name: "统计天数" }));
+  await user.click(await screen.findByRole("option", { name: "近 7 天" }));
   await waitFor(() => expect(loadStats).toHaveBeenCalledWith("token", 7));
 });

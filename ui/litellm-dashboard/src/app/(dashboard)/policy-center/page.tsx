@@ -1,3 +1,4 @@
+/** 按职责分类编辑路由、卡内默认和运行参数，保留各分组的未保存草稿。 */
 "use client";
 
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
@@ -12,7 +13,10 @@ import { RuntimeConfigDialog } from "@/components/Settings/RuntimeSettings/Runti
 import RuntimeSettings from "@/components/Settings/RuntimeSettings/RuntimeSettings";
 import { RuntimePolicyDialog } from "@/components/Settings/RuntimeSettings/RuntimePolicyDialog";
 import type { RuntimeSettingsCategory } from "@/components/Settings/RuntimeSettings/RuntimeSettingsSection";
-import { AccountPoolRoutingFields, accountPoolRoutingValue } from "@/components/router_settings/AccountPoolRoutingFields";
+import {
+  AccountPoolRoutingFields,
+  accountPoolRoutingValue,
+} from "@/components/router_settings/AccountPoolRoutingFields";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import {
   getAccountPoolRoutingStatus,
@@ -31,6 +35,8 @@ import type { AccountPoolEnvironment } from "@/features/account-pool/utils/Accou
 import { toast } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { AccountPoolWorkspace } from "@/features/account-pool/components/shared/AccountPoolWorkspace";
 
 const reasonLabels: Record<string, string> = {
   model_cooldown: "模型冷却中",
@@ -40,7 +46,12 @@ const reasonLabels: Record<string, string> = {
   quota_snapshot_expired: "额度快照过期",
 };
 
-const freshnessLabels: Record<string, string> = { fresh: "新鲜", stale: "较旧，仅供参考", expired: "已过期，仅供参考", missing: "尚无观测" };
+const freshnessLabels: Record<string, string> = {
+  fresh: "新鲜",
+  stale: "较旧，仅供参考",
+  expired: "已过期，仅供参考",
+  missing: "尚无观测",
+};
 
 const gateLabels: Record<string, string> = {
   model_cooldown: "模型冷却",
@@ -90,41 +101,6 @@ const runtimeCategories: readonly SettingsCategory[] = [
   { value: "advanced", label: "高级运行" },
   { value: "payload", label: "请求改写" },
 ];
-
-function RuntimeSettingsGroup({
-  id,
-  categories,
-}: {
-  id: string;
-  categories: readonly SettingsCategory[];
-}) {
-  const [category, setCategory] = useState<RuntimeSettingsCategory>(categories[0].value);
-  const selectCategory = (value: string | null) => {
-    const next = categories.find((item) => item.value === value);
-    if (next) setCategory(next.value);
-  };
-
-  return (
-    <div className="grid gap-3">
-      <div className="space-y-2">
-        <Label htmlFor={id}>设置分组</Label>
-        <Select value={category} onValueChange={selectCategory}>
-          <SelectTrigger id={id} className="w-full md:w-80">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {categories.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <RuntimeSettings category={category} />
-    </div>
-  );
-}
 
 function PolicyDefaultsForm({
   view,
@@ -178,7 +154,9 @@ function PolicyDefaultsForm({
             value={draft.quota_reserve_percent}
             onChange={(event) => update("quota_reserve_percent", event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">剩余额度达到或低于预留值时换卡。例如预留 2%，表示用掉 98% 后换卡</p>
+          <p className="text-xs text-muted-foreground">
+            剩余额度达到或低于预留值时换卡。例如预留 2%，表示用掉 98% 后换卡
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="snapshot-max-age">快照有效期（秒）</Label>
@@ -189,7 +167,9 @@ function PolicyDefaultsForm({
             value={draft.quota_snapshot_max_age}
             onChange={(event) => update("quota_snapshot_max_age", event.target.value)}
           />
-          <p className="text-xs text-muted-foreground">不得低于两个额度刷新周期；过期仅影响数据可信度，不单独阻止路由</p>
+          <p className="text-xs text-muted-foreground">
+            不得低于两个额度刷新周期；过期仅影响数据可信度，不单独阻止路由
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="quota-reserve-5h">5 小时窗口预留（%）</Label>
@@ -308,7 +288,8 @@ function RoutingStatusPanel({
                 {status.eligible ? "可用" : reasonLabels[status.reason ?? ""] ?? status.reason}
               </Badge>
               <span className="text-muted-foreground">
-                模型 {status.resolved_model}，观测年龄 {status.age_seconds == null ? "未知" : `${Math.round(status.age_seconds)} 秒`}
+                模型 {status.resolved_model}，观测年龄{" "}
+                {status.age_seconds == null ? "未知" : `${Math.round(status.age_seconds)} 秒`}
               </span>
               <span className="text-muted-foreground">
                 策略来源：{status.inherits_global ? "继承全局" : `独立配置 v${status.policy_version}`}
@@ -336,9 +317,12 @@ function RoutingStatusPanel({
             <div className="grid gap-1 text-muted-foreground">
               {status.gates.map((gate) => (
                 <span key={gate.gate}>
-                  {gateLabels[gate.gate] ?? gate.gate}：{gate.gate === "freshness"
-                    ? `${freshnessLabels[gate.detail ?? ""] ?? gate.detail ?? "未知"}（不单独拦截）`
-                    : <>{gate.passed ? "通过" : "拦截"}</>}
+                  {gateLabels[gate.gate] ?? gate.gate}：
+                  {gate.gate === "freshness" ? (
+                    `${freshnessLabels[gate.detail ?? ""] ?? gate.detail ?? "未知"}（不单独拦截）`
+                  ) : (
+                    <>{gate.passed ? "通过" : "拦截"}</>
+                  )}
                   {gate.gate !== "freshness" && gate.detail ? `（${gate.detail}）` : ""}
                 </span>
               ))}
@@ -354,6 +338,7 @@ export default function PolicyCenterPage() {
   const { accessToken, userId, userRole, isViewOnly } = useAuthorized();
   const canManage = canManageAccountPool(userRole, isViewOnly);
   const queryClient = useQueryClient();
+  const section = useSearchParams()?.get("section") ?? "";
   const [routing, setRouting] = useState<ReturnType<typeof accountPoolRoutingValue> | null>(null);
   const [policyCard, setPolicyCard] = useState<AccountPoolEnvironment | null>(null);
   const [runtimeCard, setRuntimeCard] = useState<AccountPoolEnvironment | null>(null);
@@ -425,7 +410,7 @@ export default function PolicyCenterPage() {
   if (!accessToken) return null;
 
   return (
-    <div className="grid gap-6 p-6">
+    <div className="mx-auto grid w-full max-w-7xl gap-4 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-semibold">策略中心</h1>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -433,117 +418,128 @@ export default function PolicyCenterPage() {
         </p>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>职责对照</CardTitle>
-          <CardDescription>同一个字段只在一个区块出现</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4 text-sm md:grid-cols-3">
-          <div>
-            <p className="font-medium">跨卡调度</p>
-            <p className="mt-1 text-muted-foreground">选卡策略、指定卡片顺序、会话粘卡与有效期</p>
-          </div>
-          <div>
-            <p className="font-medium">卡内默认</p>
-            <p className="mt-1 text-muted-foreground">卡内路由、重试、超时、并发、额度预留与快照有效期</p>
-          </div>
-          <div>
-            <p className="font-medium">卡片独立</p>
-            <p className="mt-1 text-muted-foreground">只有显式设为独立的卡片才覆盖默认值，可随时回归</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>跨卡调度</CardTitle>
-          <CardDescription>写入 LiteLLM Router 的 account_pool_routing，对所有卡片生效；保存会回写整份 Router 设置，多标签同时编辑请先刷新</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          {routerConfig.isLoading ? (
-            <p className="text-sm text-muted-foreground">加载中</p>
-          ) : (
-            <AccountPoolRoutingFields value={currentRouting} onChange={setRouting} />
-          )}
-          <div>
-            <Button onClick={saveRouting} disabled={!routerConfig.data}>
-              保存跨卡调度
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>卡内默认</CardTitle>
-          <CardDescription>
-            当前 {inherited} 张卡片继承全局，{independent.length} 张卡片独立配置；额度阈值只自动作用于继承卡，分组档只能覆盖回退开关
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-6">
-          {settings.data ? (
-            <PolicyDefaultsForm
-              key={settings.data.version}
-              view={settings.data}
-              accessToken={accessToken}
-              onSaved={() =>
-                queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.settings(accessToken) })
-              }
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">加载中</p>
-          )}
-          <RuntimeSettingsGroup id="policy-routing-category" categories={routingCategories} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>运行参数</CardTitle>
-          <CardDescription>流式、插件与请求改写，保存后由号池运行时同步</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <RuntimeSettingsGroup id="policy-runtime-category" categories={runtimeCategories} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>卡片独立配置</CardTitle>
-          <CardDescription>独立配置的卡片不跟随上面的默认值，包括额度预留与快照有效期</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-2">
-          {cards.map((card) => {
-            const policy = policyByCard.get(card.id);
-            const independentCard = (policy?.version ?? 0) > 0;
-            return (
-              <div
-                key={card.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded border px-3 py-2"
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{card.name}</span>
-                  <Badge variant={independentCard ? "secondary" : "outline"}>
-                    {independentCard ? `独立配置 v${policy?.version}` : "继承全局"}
-                  </Badge>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" onClick={() => setPolicyCard(card)}>
-                    {independentCard ? "编辑独立配置" : "设为独立配置"}
-                  </Button>
-                  {independentCard && (
-                    <Button variant="outline" onClick={() => resetPolicy(card.id, card.name)}>
-                      回归全局
-                    </Button>
+      <p className="text-xs text-muted-foreground">
+        当前 {inherited} 张卡片继承全局，{independent.length} 张卡片独立配置。点击标签展开编辑，切换不会丢失草稿。
+      </p>
+      <AccountPoolWorkspace
+        key={section}
+        title="策略分类"
+        defaultValue={section || "router"}
+        defaultOpen={Boolean(section)}
+        items={[
+          {
+            value: "router",
+            label: "跨卡调度",
+            summary: "选卡与会话",
+            content: (
+              <Card className="border-0 shadow-none">
+                <CardHeader>
+                  <CardTitle>跨卡调度</CardTitle>
+                  <CardDescription>
+                    写入 LiteLLM Router 的 account_pool_routing，对所有卡片生效；保存会回写整份 Router
+                    设置，多标签同时编辑请先刷新
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-4">
+                  {routerConfig.isLoading ? (
+                    <p className="text-sm text-muted-foreground">加载中</p>
+                  ) : (
+                    <AccountPoolRoutingFields value={currentRouting} onChange={setRouting} />
                   )}
-                </div>
-              </div>
-            );
-          })}
-        </CardContent>
-      </Card>
-
-      <RoutingStatusPanel cards={routingCards} accessToken={accessToken} />
+                  <div>
+                    <Button onClick={saveRouting} disabled={!routerConfig.data}>
+                      保存跨卡调度
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            value: "defaults",
+            label: "额度阈值",
+            summary: "继承卡默认",
+            content: (
+              <Card className="border-0 shadow-none">
+                <CardHeader>
+                  <CardTitle>卡内默认</CardTitle>
+                  <CardDescription>
+                    当前 {inherited} 张卡片继承全局，{independent.length}{" "}
+                    张卡片独立配置；额度阈值只自动作用于继承卡，分组档只能覆盖回退开关
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-6">
+                  {settings.data ? (
+                    <PolicyDefaultsForm
+                      key={settings.data.version}
+                      view={settings.data}
+                      accessToken={accessToken}
+                      onSaved={() =>
+                        queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.settings(accessToken) })
+                      }
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground">加载中</p>
+                  )}
+                </CardContent>
+              </Card>
+            ),
+          },
+          ...[...routingCategories, ...runtimeCategories].map((category) => ({
+            value: category.value,
+            label: category.label,
+            content: <RuntimeSettings category={category.value} />,
+          })),
+          {
+            value: "cards",
+            label: "卡片独立配置",
+            summary: `${independent.length} / ${cards.length}`,
+            content: (
+              <Card className="border-0 shadow-none">
+                <CardHeader>
+                  <CardTitle>卡片独立配置</CardTitle>
+                  <CardDescription>独立配置的卡片不跟随上面的默认值，包括额度预留与快照有效期</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-2">
+                  {cards.map((card) => {
+                    const policy = policyByCard.get(card.id);
+                    const independentCard = (policy?.version ?? 0) > 0;
+                    return (
+                      <div
+                        key={card.id}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded border px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{card.name}</span>
+                          <Badge variant={independentCard ? "secondary" : "outline"}>
+                            {independentCard ? `独立配置 v${policy?.version}` : "继承全局"}
+                          </Badge>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" onClick={() => setPolicyCard(card)}>
+                            {independentCard ? "编辑独立配置" : "设为独立配置"}
+                          </Button>
+                          {independentCard && (
+                            <Button variant="outline" onClick={() => resetPolicy(card.id, card.name)}>
+                              回归全局
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            ),
+          },
+          {
+            value: "status",
+            label: "运行判定",
+            summary: "模型与路由",
+            content: <RoutingStatusPanel cards={routingCards} accessToken={accessToken} />,
+          },
+        ]}
+      />
 
       {policyCard && (
         <RuntimePolicyDialog

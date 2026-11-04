@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import PolicyCenterPage from "./page";
 
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 const getSettings = vi.fn();
 const getRoutingStatus = vi.fn();
 const updateSettings = vi.fn();
@@ -55,8 +56,7 @@ vi.mock("@/components/networking", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/components/networking")>();
   return {
     ...original,
-    getCallbacksCall: () =>
-      Promise.resolve({ router_settings: { account_pool_routing: { selection: "native" } } }),
+    getCallbacksCall: () => Promise.resolve({ router_settings: { account_pool_routing: { selection: "native" } } }),
     setCallbacksCall: (...args: unknown[]) => {
       setCallbacks(...args);
       return Promise.resolve({});
@@ -124,17 +124,22 @@ describe("policy center", () => {
   it("marks inheriting and independent cards and only offers reset for the exception", async () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole("tab", { name: /卡片独立配置/ }));
     expect(await screen.findByText("继承全局")).toBeInTheDocument();
     expect(screen.getByText("独立配置 v2")).toBeInTheDocument();
     expect(screen.getByText(/当前 1 张卡片继承全局，1 张卡片独立配置/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "回归全局" })).toHaveLength(1);
-    expect(screen.getByTestId("runtime-settings-common")).toBeInTheDocument();
-    expect(screen.getByTestId("runtime-settings-streaming")).toBeInTheDocument();
+    expect(screen.queryByTestId("runtime-settings-common")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "新卡片默认值" }));
+    expect(screen.getByTestId("runtime-settings-common")).toBeVisible();
+    fireEvent.click(screen.getByRole("tab", { name: "流式传输" }));
+    expect(screen.getByTestId("runtime-settings-streaming")).toBeVisible();
   });
 
   it("saves quota thresholds through the policy runtime section", async () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole("tab", { name: /额度阈值/ }));
     const reserve = await screen.findByLabelText("额度预留（%）");
     fireEvent.change(reserve, { target: { value: "80" } });
     fireEvent.click(screen.getByRole("button", { name: "保存卡内默认" }));
@@ -151,11 +156,19 @@ describe("policy center", () => {
   });
 
   it("shows stale quota data as informational rather than an interception", async () => {
-    const routingStatus = { eligible: true, resolved_model: "gpt-5", age_seconds: 1000,
-      max_age_seconds: 300, stale_grace_seconds: 900, inherits_global: true, windows: [],
-      gates: [{ gate: "freshness", passed: true, detail: "expired" }] };
+    const routingStatus = {
+      eligible: true,
+      resolved_model: "gpt-5",
+      age_seconds: 1000,
+      max_age_seconds: 300,
+      stale_grace_seconds: 900,
+      inherits_global: true,
+      windows: [],
+      gates: [{ gate: "freshness", passed: true, detail: "expired" }],
+    };
     getRoutingStatus.mockResolvedValue(routingStatus);
     renderPage();
+    fireEvent.click(screen.getByRole("tab", { name: /运行判定/ }));
     const trigger = await screen.findByText("选择卡片");
     fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole("option", { name: "继承卡片" }));
@@ -176,6 +189,7 @@ describe("policy center", () => {
   it("opens the independent policy editor from the card list", async () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole("tab", { name: /卡片独立配置/ }));
     fireEvent.click(await screen.findByRole("button", { name: "设为独立配置" }));
 
     expect(await screen.findByTestId("policy-dialog")).toHaveTextContent("继承卡片");
@@ -184,6 +198,7 @@ describe("policy center", () => {
   it("saves cross-card routing through the router settings payload", async () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole("tab", { name: /跨卡调度/ }));
     fireEvent.click(await screen.findByRole("switch", { name: "同一会话优先使用同一卡片" }));
     const saveRouting = screen.getByRole("button", { name: "保存跨卡调度" });
     await waitFor(() => expect(saveRouting).toBeEnabled());
@@ -200,6 +215,7 @@ describe("policy center", () => {
   it("resets an independent card after confirmation", async () => {
     renderPage();
 
+    fireEvent.click(screen.getByRole("tab", { name: /卡片独立配置/ }));
     const reset = await screen.findByRole("button", { name: "回归全局" });
     fireEvent.click(reset);
 

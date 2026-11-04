@@ -1,11 +1,10 @@
-/** 本文件渲染版本详情、存储状态与可编辑回退说明，不发起部署请求。 */
+/** 本文件渲染版本详情、存储状态与版本备注，不发起部署请求。 */
 import { Archive, Copy, DatabaseBackup, GitBranch, HardDrive } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
 import type { ReleaseAction, ReleaseVersion, ReleaseView, ReleaseCommands } from "../../api/AccountPoolReleasesApi";
 type ReleasePrepare = (action: Omit<ReleaseAction, "revision">, description: string, before?: string) => void;
@@ -82,9 +81,19 @@ export function ReleaseVersionCard({
             检查并回退
           </Button>
           {selected.backup?.database_snapshot && (
-            <Button variant="outline" disabled={!canChange || !selected.available || !data.database_backups_enabled}
-              onClick={() => prepare({ action: "restore_data", version_id: selected.pair.id, snapshot_id: selected.backup!.database_snapshot!.id },
-                "恢复所选版本及其数据库快照。两库中快照之后的数据将被移出运行库；认证文件与磁盘日志不会恢复。操作前会另存当前数据以便故障恢复。")}
+            <Button
+              variant="outline"
+              disabled={!canChange || !selected.available || !data.database_backups_enabled}
+              onClick={() =>
+                prepare(
+                  {
+                    action: "restore_data",
+                    version_id: selected.pair.id,
+                    snapshot_id: selected.backup!.database_snapshot!.id,
+                  },
+                  "恢复所选版本及其数据库快照。两库中快照之后的数据将被移出运行库；认证文件与磁盘日志不会恢复。操作前会另存当前数据以便故障恢复。",
+                )
+              }
             >
               <DatabaseBackup /> 恢复程序与数据
             </Button>
@@ -127,9 +136,11 @@ export function ReleaseVersionCard({
             <dl className="grid gap-3 text-sm sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <dt className="text-muted-foreground">数据库快照</dt>
-                <dd className="mt-1 break-all">{selected.backup.database_snapshot
-                  ? `${new Date(selected.backup.database_snapshot.created_at * 1000).toLocaleString()} · ${selected.backup.database_snapshot.id}`
-                  : "无数据库快照，仅支持检查后回退程序"}</dd>
+                <dd className="mt-1 break-all">
+                  {selected.backup.database_snapshot
+                    ? `${new Date(selected.backup.database_snapshot.created_at * 1000).toLocaleString()} · ${selected.backup.database_snapshot.id}`
+                    : "无数据库快照，仅支持检查后回退程序"}
+                </dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">备份时间</dt>
@@ -231,73 +242,11 @@ export function ReleaseStorageCard({ data }: { data: ReleaseView }) {
           <code className="mt-1 block break-all text-xs">{data.location}</code>
         </div>
         <p className="border-t pt-3 leading-6 text-muted-foreground">
-          {data.database_backups_enabled ? "数据库备份已启用。当前版本备份会刷新两库快照，历史镜像导入不补造快照。" : "数据库备份未启用，目前只归档镜像和部署配置。"}
+          {data.database_backups_enabled
+            ? "数据库备份已启用。当前版本备份会刷新两库快照，历史镜像导入不补造快照。"
+            : "数据库备份未启用，目前只归档镜像和部署配置。"}
           普通回退保留当前数据；恢复数据库会回到快照时刻。认证文件和磁盘日志不在数据库快照内。
         </p>
-      </CardContent>
-    </Card>
-  );
-}
-export function ReleaseGuideCard({
-  data,
-  guide,
-  setGuide,
-  busy,
-  prepare,
-}: {
-  data: ReleaseView;
-  guide: string | null;
-  setGuide: (value: string | null) => void;
-  busy: boolean;
-  prepare: ReleasePrepare;
-}) {
-  return (
-    <Card>
-      <CardHeader className="flex flex-wrap flex-row items-start justify-between gap-3">
-        <div>
-          <CardTitle>代码回退说明</CardTitle>
-          <CardDescription className="mt-2">可按自己的操作习惯修改，保存前有 5 秒确认</CardDescription>
-        </div>
-        {guide === null && (
-          <Button variant="outline" disabled={busy} onClick={() => setGuide(data.guide)}>
-            编辑说明
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent>
-        {guide === null ? (
-          <p className="whitespace-pre-wrap break-words text-sm leading-7 text-muted-foreground">{data.guide}</p>
-        ) : (
-          <div className="space-y-3">
-            <Textarea
-              aria-label="代码回退说明"
-              className="min-h-64"
-              maxLength={12000}
-              value={guide}
-              onChange={(event) => setGuide(event.target.value)}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button
-                disabled={busy || guide === data.guide}
-                onClick={() =>
-                  prepare(
-                    { action: "guide", text: guide },
-                    "请核对说明卡片的修改内容，确认后将保存到服务器。",
-                    data.guide,
-                  )
-                }
-              >
-                保存说明
-              </Button>
-              <Button variant="outline" disabled={busy} onClick={() => setGuide(data.default_guide)}>
-                填入默认说明
-              </Button>
-              <Button variant="ghost" disabled={busy} onClick={() => setGuide(null)}>
-                取消编辑
-              </Button>
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

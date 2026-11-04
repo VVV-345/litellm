@@ -46,7 +46,7 @@ export function DashboardHeader({ page }: DashboardHeaderProps) {
   };
 
   return (
-    <header className="flex h-14 flex-none items-center justify-between gap-4 border-b border-border bg-background px-4">
+    <header className="flex h-14 flex-none items-center justify-between gap-2 border-b border-border bg-background px-3 sm:gap-4 sm:px-4">
       <Breadcrumb className="min-w-0">
         <BreadcrumbList className="flex-nowrap">
           <BreadcrumbItem className="flex-none">
@@ -60,19 +60,21 @@ export function DashboardHeader({ page }: DashboardHeaderProps) {
       </Breadcrumb>
 
       <div className="flex flex-none items-center gap-1">
-        <FeedbackHeaderButton />
-        {showWorkerSwitch && (
-          <>
-            <WorkerDropdown onWorkerSwitch={handleWorkerSwitch} />
-            <ToolbarSeparator />
-          </>
-        )}
-        <DocsLink />
-        <BlogDropdown />
-        {!hideCommunityLinks && <CommunityEngagementButtons />}
-        <ToolbarSeparator />
-        <LanguageSwitcher />
-        <ThemeToggle />
+        <div className="hidden items-center gap-1 md:flex">
+          <FeedbackHeaderButton />
+          {showWorkerSwitch && (
+            <>
+              <WorkerDropdown onWorkerSwitch={handleWorkerSwitch} />
+              <ToolbarSeparator />
+            </>
+          )}
+          <DocsLink />
+          <BlogDropdown />
+          {!hideCommunityLinks && <CommunityEngagementButtons />}
+          <ToolbarSeparator />
+          <LanguageSwitcher />
+          <ThemeToggle />
+        </div>
         <NotificationsBell />
       </div>
     </header>

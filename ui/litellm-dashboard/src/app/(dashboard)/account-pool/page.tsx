@@ -11,7 +11,6 @@ import {
   loadAccountPoolSettingsOverview,
   loadAccountPoolCredentialsPanel,
   loadAccountPoolOnboardingPanel,
-  loadAccountPoolQuotaPanel,
   loadAccountPoolUpstreamSyncPanel,
   loadAccountPoolPluginsPanel,
   loadAccountPoolReleasesPanel,
@@ -24,7 +23,6 @@ import {
 const AccountPoolSettingsOverview = dynamic(loadAccountPoolSettingsOverview, { loading: ModuleLoading });
 const AccountPoolCredentialsPanel = dynamic(loadAccountPoolCredentialsPanel, { loading: ModuleLoading });
 const AccountPoolOnboardingPanel = dynamic(loadAccountPoolOnboardingPanel, { loading: ModuleLoading });
-const AccountPoolQuotaPanel = dynamic(loadAccountPoolQuotaPanel, { loading: ModuleLoading });
 const AccountPoolUpstreamSyncPanel = dynamic(loadAccountPoolUpstreamSyncPanel, { loading: ModuleLoading });
 const AccountPoolPluginsPanel = dynamic(loadAccountPoolPluginsPanel, { loading: ModuleLoading });
 const AccountPoolReleasesPanel = dynamic(loadAccountPoolReleasesPanel, { loading: ModuleLoading });
@@ -32,7 +30,6 @@ const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLo
 const AccountPoolCreateDialog = dynamic(loadAccountPoolCreateDialog, { loading: ModuleLoading });
 const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoading });
 
-import Link from "next/link";
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
@@ -55,8 +52,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
@@ -77,17 +72,17 @@ import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolP
 import type {
   AccountPoolAuthorization,
   AccountPoolEnvironment,
-  AccountPoolStatus,
   AccountPoolSupplier,
 } from "@/features/account-pool/utils/AccountPoolTypes";
-import {
-  filterAccountPoolEnvironments,
-  paginateAccountPoolEnvironments,
-  summarizeAccountPoolEnvironments,
-} from "@/features/account-pool/utils/accountPoolSelectors";
+import { summarizeAccountPoolEnvironments } from "@/features/account-pool/utils/accountPoolSelectors";
+import { AccountPoolWorkspace } from "@/features/account-pool/components/shared/AccountPoolWorkspace";
 import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccountPoolMutations";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
-import { useProxyGatewayQuery, useProxyGatewayDelays, useProxyISPQuery } from "@/features/account-pool/hooks/useProxyGateways";
+import {
+  useProxyGatewayQuery,
+  useProxyGatewayDelays,
+  useProxyISPQuery,
+} from "@/features/account-pool/hooks/useProxyGateways";
 
 const AccountPoolModelTestDialog = dynamic(
   () =>
@@ -96,46 +91,41 @@ const AccountPoolModelTestDialog = dynamic(
     ),
   { loading: ModuleLoading },
 );
-const AccountPoolQuotaResetDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolQuotaResetDialog").then((module) => module.AccountPoolQuotaResetDialog));
-const AccountPoolCredentialDialog = dynamic(() => import("@/features/account-pool/components/cards/AccountPoolCredentialDialog").then((module) => module.AccountPoolCredentialDialog));
+const AccountPoolQuotaResetDialog = dynamic(() =>
+  import("@/features/account-pool/components/cards/AccountPoolQuotaResetDialog").then(
+    (module) => module.AccountPoolQuotaResetDialog,
+  ),
+);
+const AccountPoolCredentialDialog = dynamic(() =>
+  import("@/features/account-pool/components/cards/AccountPoolCredentialDialog").then(
+    (module) => module.AccountPoolCredentialDialog,
+  ),
+);
 
-const PAGE_SIZE = 24;
 const POOL_TABS = [
   "dashboard",
   "providers",
-  "oauth",
   "credentials",
   "onboarding",
-  "quotas",
   "proxy-layer",
   "upstream-sync",
   "releases",
   "settings-overview",
 ];
-const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "oauth", "credentials", "quotas", "releases"]);
-const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard", "providers"]);
-const STATUS_FILTERS: ReadonlyArray<"all" | AccountPoolStatus> = [
-  "all",
-  "provisioning",
-  "awaiting_authorization",
-  "validating",
-  "ready",
-  "cooling_down",
-  "disabled",
-  "error",
-  "deleting",
-];
-
+const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "credentials", "releases"]);
+const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard"]);
 export default function AccountPoolPage() {
   const { t } = useTranslation();
   const { accessToken, userRole, isViewOnly } = useAuthorized();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const requestedTab = searchParams?.get("tab") ?? "dashboard";
+  const legacyTab = searchParams?.get("tab");
+  const legacyTabs: Readonly<Record<string, string>> = { oauth: "providers", quotas: "dashboard" };
+  const requestedTab = legacyTab ? legacyTabs[legacyTab] ?? legacyTab : "dashboard";
   const [testEnvironmentId, setTestEnvironmentId] = useState<string | null>(null);
   const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [refreshCredentialEnvironment,setRefreshCredentialEnvironment] = useState<AccountPoolEnvironment | null>(null);
-  const [verifyAccessEnvironment,setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [refreshCredentialEnvironment, setRefreshCredentialEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [verifyAccessEnvironment, setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -149,9 +139,6 @@ export default function AccountPoolPage() {
     setTabSelection({ query: requestedTab, value });
   };
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | AccountPoolStatus>("all");
-  const [page, setPage] = useState(1);
   const [refreshingQuotas, setRefreshingQuotas] = useState(false);
   const canManage = canManageAccountPool(userRole, isViewOnly);
   useEffect(() => {
@@ -183,7 +170,7 @@ export default function AccountPoolPage() {
   const proxyISPsQuery = useProxyISPQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
     ...accountPoolPolicyOptions(accessToken),
-    enabled: canManage && accessToken !== null && cardTabActive,
+    enabled: canManage && accessToken !== null && (cardTabActive || activeTab === "providers"),
     staleTime: 30_000,
     refetchOnWindowFocus: false,
   };
@@ -225,13 +212,6 @@ export default function AccountPoolPage() {
     [dashboardStatsQuery.data?.cards],
   );
   const statsLoading = dashboardStatsQuery.isPending;
-  const filteredEnvironments = useMemo(
-    () => filterAccountPoolEnvironments(environments, search, statusFilter, policies),
-    [environments, policies, search, statusFilter],
-  );
-  const pageCount = Math.max(1, Math.ceil(filteredEnvironments.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount);
-  const visibleEnvironments = paginateAccountPoolEnvironments(filteredEnvironments, currentPage, PAGE_SIZE);
   const overview = useMemo(() => summarizeAccountPoolEnvironments(environments), [environments]);
   const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
   const refreshQuotas = () => {
@@ -247,7 +227,6 @@ export default function AccountPoolPage() {
       .catch((error: unknown) => toast.fromError(error))
       .finally(() => setRefreshingQuotas(false));
   };
-  const showAccountFilters = !environmentsQuery.isLoading && !environmentsQuery.isError && environments.length > 0;
 
   const openCreateDialog = (supplier: AccountPoolSupplier = "openai_codex") => {
     setAuthorization(null);
@@ -278,8 +257,10 @@ export default function AccountPoolPage() {
   const renderCard = useCallback(
     (environment: AccountPoolEnvironment, requestStats?: ErrorStats) => {
       const policyView = policiesByCard.get(environment.id);
-      const profileId = environment.proxy_mode === "default_gateway"
-        ? proxySettingsQuery.data?.values.default_proxy_profile_id : environment.proxy_profile_id;
+      const profileId =
+        environment.proxy_mode === "default_gateway"
+          ? proxySettingsQuery.data?.values.default_proxy_profile_id
+          : environment.proxy_profile_id;
       const gateway = profileId ? gatewaysByProfile.get(profileId) : undefined;
       return (
         <AccountPoolCard
@@ -308,7 +289,19 @@ export default function AccountPoolPage() {
         />
       );
     },
-    [busy, compactNumbers, gatewaysByProfile, gatewayDelaysQuery.data, proxyISPsQuery.data, proxySettingsQuery.data, handleAuthorize, handleEnabledChange, handleManageKey, handleViewLogs, policiesByCard],
+    [
+      busy,
+      compactNumbers,
+      gatewaysByProfile,
+      gatewayDelaysQuery.data,
+      proxyISPsQuery.data,
+      proxySettingsQuery.data,
+      handleAuthorize,
+      handleEnabledChange,
+      handleManageKey,
+      handleViewLogs,
+      policiesByCard,
+    ],
   );
   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
 
@@ -346,66 +339,12 @@ export default function AccountPoolPage() {
         </div>
       );
     }
-    if (environments.length === 0) {
-      return (
-        <div className="rounded-md border border-dashed border-border p-12 text-center">
-          <p className="font-medium">{t("accountPool.noEnvironments")}</p>
-          <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.noEnvironmentsDescription")}</p>
-        </div>
-      );
-    }
-    return (
-      <>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {visibleEnvironments.map((environment) => renderCard(environment, statsByCard.get(environment.id)))}
-        </div>
-        {filteredEnvironments.length === 0 && (
-          <div className="rounded-md border border-dashed border-border p-12 text-center">
-            <p className="font-medium">{t("accountPool.noMatchingEnvironments")}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.noMatchingEnvironmentsDescription")}</p>
-          </div>
-        )}
-        {pageCount > 1 && (
-          <div className="mt-4 flex items-center justify-between gap-3" aria-label={t("accountPool.pagination")}>
-            <p className="text-sm text-muted-foreground">
-              {t("accountPool.showing", {
-                from: (currentPage - 1) * PAGE_SIZE + 1,
-                to: Math.min(currentPage * PAGE_SIZE, filteredEnvironments.length),
-                count: filteredEnvironments.length,
-              })}
-            </p>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                disabled={currentPage === 1}
-              >
-                {t("accountPool.previousPage")}
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                {t("accountPool.page", { current: currentPage, total: pageCount })}
-              </span>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                disabled={currentPage === pageCount}
-              >
-                {t("accountPool.nextPage")}
-              </Button>
-            </div>
-          </div>
-        )}
-      </>
-    );
+    return null;
   };
 
   return (
-    <div className="w-full p-6">
-      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+    <div className="w-full p-4 sm:p-6">
+      <div className="mx-auto flex max-w-7xl flex-col gap-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">{t("accountPool.title")}</h1>
@@ -443,25 +382,24 @@ export default function AccountPoolPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList variant="line" className="h-auto w-full flex-wrap justify-start rounded-none border-b p-0">
+          <TabsList
+            variant="line"
+            className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start rounded-none border-b p-0"
+          >
             <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.dashboard")}
             </TabsTrigger>
             <TabsTrigger value="providers" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.providers")}
+              提供商与 OAuth
             </TabsTrigger>
-            <TabsTrigger value="oauth" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.oauth")}
-            </TabsTrigger>
+
             <TabsTrigger value="credentials" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.credentials")}
             </TabsTrigger>
             <TabsTrigger value="onboarding" className="flex-none rounded-none px-4 py-2">
               自动化上号
             </TabsTrigger>
-            <TabsTrigger value="quotas" className="flex-none rounded-none px-4 py-2">
-              {t("accountPool.tabs.quotas")}
-            </TabsTrigger>
+
             <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
               {t("accountPool.tabs.proxyLayer")}
             </TabsTrigger>
@@ -485,6 +423,7 @@ export default function AccountPoolPage() {
               renderContent()
             ) : (
               <AccountPoolDashboard
+                accessToken={accessToken}
                 statsDays={statsDays}
                 onStatsDaysChange={setStatsDays}
                 compactNumbers={compactNumbers}
@@ -508,52 +447,42 @@ export default function AccountPoolPage() {
             active={activeTab === "providers"}
             visited={isTabVisited("providers")}
           >
-            <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />
-            <div className="my-4 rounded-lg border bg-muted/20 p-4 text-sm">
-              新卡片默认配置已统一到策略中心，包括路由、重试、超时、并发与模型访问。
-              <Link href={migratedHref("policy-center")} className="ml-1 underline">
-                前往策略中心
-              </Link>
-            </div>
-            {accessToken && environments.length > 0 && (
-              <div className="mb-4">
-                <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
-              </div>
-            )}
-            {showAccountFilters && (
-              <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
-                <Input
-                  value={search}
-                  onChange={(event) => {
-                    setSearch(event.target.value);
-                    setPage(1);
-                  }}
-                  placeholder={t("accountPool.search")}
-                  aria-label={t("accountPool.search")}
-                />
-                <Select
-                  value={statusFilter}
-                  onValueChange={(value) => {
-                    if (STATUS_FILTERS.some((filter) => filter === value)) {
-                      setStatusFilter(value as "all" | AccountPoolStatus);
-                      setPage(1);
-                    }
-                  }}
-                >
-                  <SelectTrigger aria-label={t("accountPool.filterByStatus")} className="w-full">
-                    <SelectValue placeholder={t("accountPool.status.all")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUS_FILTERS.map((filter) => (
-                      <SelectItem key={filter} value={filter}>
-                        {t(`accountPool.status.${filter}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {renderContent()}
+            <AccountPoolWorkspace
+              key={legacyTab === "oauth" ? "oauth" : "providers"}
+              title="提供商与 OAuth"
+              defaultValue={legacyTab === "oauth" ? "oauth" : "catalog"}
+              defaultOpen
+              items={[
+                {
+                  value: "catalog",
+                  label: "AI 提供商",
+                  summary: "认证方式与新建",
+                  content: <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />,
+                },
+                {
+                  value: "oauth",
+                  label: "OAuth 登录",
+                  summary: `${environments.filter((environment) => environment.authorization_flow !== "direct_credential").length} 张卡片`,
+                  content: (
+                    <AccountPoolAuthorizationOverview
+                      accessToken={accessToken}
+                      active={activeTab === "providers"}
+                      environments={environments}
+                      onCreate={openCreateDialog}
+                      onAuthorize={handleAuthorize}
+                    />
+                  ),
+                },
+                {
+                  value: "batch",
+                  label: "批量操作",
+                  summary: `${environments.length} 张卡片`,
+                  content: accessToken && (
+                    <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
+                  ),
+                },
+              ]}
+            />
           </DeferredTabPanel>
           <DeferredTabPanel
             value="proxy-layer"
@@ -568,20 +497,7 @@ export default function AccountPoolPage() {
               environmentsLoading={environmentsQuery.isLoading || environmentsQuery.isError}
             />
           </DeferredTabPanel>
-          <DeferredTabPanel
-            value="oauth"
-            className="pt-4"
-            active={activeTab === "oauth"}
-            visited={isTabVisited("oauth")}
-          >
-            <AccountPoolAuthorizationOverview
-              accessToken={accessToken}
-              active={activeTab === "oauth"}
-              environments={environments}
-              onCreate={openCreateDialog}
-              onAuthorize={handleAuthorize}
-            />
-          </DeferredTabPanel>
+
           <DeferredTabPanel
             value="credentials"
             className="pt-4"
@@ -598,25 +514,7 @@ export default function AccountPoolPage() {
           >
             {accessToken && <AccountPoolOnboardingPanel accessToken={accessToken} />}
           </DeferredTabPanel>
-          <DeferredTabPanel
-            value="quotas"
-            className="pt-4"
-            active={activeTab === "quotas"}
-            visited={isTabVisited("quotas")}
-          >
-            <div className="mb-4 rounded-lg border bg-muted/20 p-4 text-sm">
-              配额回退与额度阈值已统一到策略中心。
-              <Link href={migratedHref("policy-center")} className="ml-1 underline">
-                前往策略中心
-              </Link>
-            </div>
-            <AccountPoolQuotaPanel
-              accessToken={accessToken}
-              environments={environments}
-              onRefresh={refreshQuotas}
-              refreshing={refreshingQuotas}
-            />
-          </DeferredTabPanel>
+
           <DeferredTabPanel
             value="releases"
             className="pt-4"
@@ -643,10 +541,21 @@ export default function AccountPoolPage() {
             visited={isTabVisited("upstream-sync")}
           >
             {accessToken && (
-              <div className="grid gap-8">
-                <AccountPoolUpstreamSyncPanel accessToken={accessToken} target="cliproxyapi" />
-                <AccountPoolUpstreamSyncPanel accessToken={accessToken} target="litellm" />
-              </div>
+              <AccountPoolWorkspace
+                title="上游同步"
+                items={[
+                  {
+                    value: "cliproxyapi",
+                    label: "CLIProxyAPI",
+                    content: <AccountPoolUpstreamSyncPanel accessToken={accessToken} target="cliproxyapi" />,
+                  },
+                  {
+                    value: "litellm",
+                    label: "LiteLLM",
+                    content: <AccountPoolUpstreamSyncPanel accessToken={accessToken} target="litellm" />,
+                  },
+                ]}
+              />
             )}
           </DeferredTabPanel>
           <DeferredTabPanel
@@ -682,9 +591,32 @@ export default function AccountPoolPage() {
           onClose={() => setTestEnvironmentId(null)}
         />
       )}
-      {resetEnvironment && accessToken && <AccountPoolQuotaResetDialog key={resetEnvironment.id} accessToken={accessToken} environment={resetEnvironment} onClose={() => setResetEnvironment(null)} />}
-      {refreshCredentialEnvironment && accessToken && <AccountPoolCredentialDialog key={refreshCredentialEnvironment.id} mode="refresh" accessToken={accessToken} environment={refreshCredentialEnvironment} onClose={() => setRefreshCredentialEnvironment(null)} />}
-      {verifyAccessEnvironment && accessToken && <AccountPoolCredentialDialog key={verifyAccessEnvironment.id} mode="verify" accessToken={accessToken} environment={verifyAccessEnvironment} onClose={() => setVerifyAccessEnvironment(null)} />}
+      {resetEnvironment && accessToken && (
+        <AccountPoolQuotaResetDialog
+          key={resetEnvironment.id}
+          accessToken={accessToken}
+          environment={resetEnvironment}
+          onClose={() => setResetEnvironment(null)}
+        />
+      )}
+      {refreshCredentialEnvironment && accessToken && (
+        <AccountPoolCredentialDialog
+          key={refreshCredentialEnvironment.id}
+          mode="refresh"
+          accessToken={accessToken}
+          environment={refreshCredentialEnvironment}
+          onClose={() => setRefreshCredentialEnvironment(null)}
+        />
+      )}
+      {verifyAccessEnvironment && accessToken && (
+        <AccountPoolCredentialDialog
+          key={verifyAccessEnvironment.id}
+          mode="verify"
+          accessToken={accessToken}
+          environment={verifyAccessEnvironment}
+          onClose={() => setVerifyAccessEnvironment(null)}
+        />
+      )}
       {configEnvironment && (
         <RuntimeConfigDialog
           key={configEnvironment.id}

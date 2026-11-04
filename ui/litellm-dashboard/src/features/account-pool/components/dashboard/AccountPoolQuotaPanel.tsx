@@ -1,16 +1,9 @@
 /** 本文件展示供应商返回的完整订阅、额度窗口和刷新诊断。 */
 
-import { RefreshCw } from "lucide-react";
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { toast } from "@/lib/toast";
-import { AccountPoolRefreshIntervalSelect } from "../shared/AccountPoolRefreshIntervalSelect";
 
 import {
   formatDateTime,
@@ -22,89 +15,13 @@ import {
   quotaWindowLabel,
 } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
-import {
-  getAccountPoolQuotaRefreshStatus,
-  setAccountPoolQuotaRefreshInterval,
-  type AccountPoolQuotaRefreshStatus,
-} from "../../api/AccountPoolManagementApi";
 
-export const AccountPoolQuotaPanel = ({
-  environments,
-  accessToken,
-  onRefresh,
-  refreshing = false,
-}: {
-  environments: readonly AccountPoolEnvironment[];
-  accessToken?: string | null;
-  onRefresh: () => void;
-  refreshing?: boolean;
-}) => {
+export const AccountPoolQuotaPanel = ({ environments }: { environments: readonly AccountPoolEnvironment[] }) => {
   const { t, i18n } = useTranslation();
-  const queryClient = useQueryClient();
-  const queryKey = accountPoolQueryKeys.quotaRefreshStatus(accessToken ?? null);
-  const { data: refreshStatus } = useQuery({
-    queryKey,
-    queryFn: () => getAccountPoolQuotaRefreshStatus(accessToken!),
-    enabled: Boolean(accessToken),
-    refetchInterval: 15_000,
-    staleTime: 15_000,
-    refetchOnWindowFocus: true,
-    retry: false,
-  });
-  const [intervalSaving, setIntervalSaving] = useState(false);
-  const saveInterval = async (interval: AccountPoolQuotaRefreshStatus["interval_minutes"]) => {
-    if (!accessToken) return;
-    setIntervalSaving(true);
-    try {
-      queryClient.setQueryData(queryKey, await setAccountPoolQuotaRefreshInterval(accessToken, interval));
-      toast.success(t("accountPool.quotas.intervalSaved"));
-    } catch (error) {
-      toast.fromError(error);
-    } finally {
-      setIntervalSaving(false);
-    }
-  };
   const numberFormatter = new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 2 });
 
   return (
     <div className="grid gap-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h2 className="text-lg font-semibold">{t("accountPool.quotas.title")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.quotas.description")}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <AccountPoolRefreshIntervalSelect
-            value={refreshStatus?.interval_minutes ?? 5}
-            onChange={(value) => void saveInterval(value)}
-            disabled={intervalSaving || !accessToken}
-            label={t("accountPool.quotas.refreshInterval")}
-            formatOption={(minutes) => t("accountPool.quotas.everyMinutes", { minutes })}
-          />
-          <Button type="button" variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-            <RefreshCw className={refreshing || refreshStatus?.running ? "animate-spin" : undefined} />
-            {t("accountPool.quotas.refresh")}
-          </Button>
-        </div>
-      </div>
-      {refreshStatus && (
-        <div className="grid gap-3 rounded-md border bg-muted/20 p-3 text-sm sm:grid-cols-3">
-          <div>
-            <p className="text-xs text-muted-foreground">{t("accountPool.quotas.currentInterval")}</p>
-            <p className="mt-1 font-medium">
-              {t("accountPool.quotas.everyMinutes", { minutes: refreshStatus.interval_minutes })}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{t("accountPool.quotas.lastRefresh")}</p>
-            <p className="mt-1 font-medium">{formatDateTime(refreshStatus.last_completed_at, i18n.language)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{t("accountPool.quotas.nextRefresh")}</p>
-            <p className="mt-1 font-medium">{formatDateTime(refreshStatus.next_refresh_at, i18n.language)}</p>
-          </div>
-        </div>
-      )}
       {environments.length === 0 ? (
         <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
           {t("accountPool.dashboard.empty")}

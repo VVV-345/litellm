@@ -66,7 +66,7 @@ class MemoryOnboarding:
         self.target_rows[target.supplier] = target
 
 
-def setup_service(tmp_path: Path, cli: FakeCLIProxy | None = None):
+def setup_service(tmp_path: Path, cli: FakeCLIProxy | None = None, profiles: StaticProfiles | None = None):
     environments = MemoryRepository(_record(status=EnvironmentStatus.READY))
     runtime = FakeRuntime()
     upstream = cli or FakeCLIProxy()
@@ -76,7 +76,7 @@ def setup_service(tmp_path: Path, cli: FakeCLIProxy | None = None):
         environments,
         runtime,
         upstream,
-        StaticProfiles("http://onboarding-proxy.example:8080"),
+        profiles or StaticProfiles("http://onboarding-proxy.example:8080"),
         secrets,
         channels=_fake_channels(runtime, upstream),
         direct_credential_validation_timeout_seconds=0.02,
@@ -798,3 +798,66 @@ def test_sub2api_access_only_import_keeps_access_without_inventing_a_refresh_tok
     assert payload["expired"] == "2026-11-07T02:29:41+00:00"
     assert "refresh_token" not in payload
     assert credential_identity(normalized, "openai_codex", EnvironmentSecretDeriver("s"*32)).fingerprints
+
+
+async def test_each_import_keeps_its_proxy_after_restart_and_retry(tmp_path):
+    cli = FakeCLIProxy(data_plane_healthy=False)
+    class PerProfileURLs(StaticProfiles):
+        async def get_url(self, profile_id: str):
+            return f"http://{profile_id}.example:8080"
+
+    service, tasks, environments, runtime, _, environment_service = setup_service(
+        tmp_path, cli, PerProfileURLs("")
+    )
+    entries = tuple(
+        OnboardingEntry(
+            label=f"account-{index}.json",
+            content=json.dumps({"type": "codex", "refresh_token": f"fixture-{index}"}),
+            proxy_profile_id=profile,
+        )
+        for index, profile in enumerate(("proxy-a", "proxy-b", "proxy-a"))
+    )
+    request = OnboardingImport(
+        job_id=uuid4(), source="auth_file", supplier="openai_codex",
+        proxy_profile_id="legacy-default", entries=entries,
+    )
+    result = await service.submit(request)
+    assert len(result.items) == 3
+    for _ in result.items:
+        await service.run_once()
+    assert [item.state for item in await service.list()] == ["failed", "failed", "failed"]
+    assert [(await environments.get(item.card_id)).proxy_profile_id for item in result.items] == [
+        "proxy-a", "proxy-b", "proxy-a",
+    ]
+    restarted = OnboardingService(tasks, environments, environment_service, EnvironmentSecretDeriver("s" * 32))
+    cli.data_plane_healthy = True
+    for item in result.items:
+        await restarted.action(item.id, OnboardingAction(action="retry"))
+        await restarted.run_once()
+    assert [item.state for item in await restarted.list()] == ["ready", "ready", "ready"]
+    assert [(await environments.get(item.card_id)).proxy_profile_id for item in result.items] == [
+        "proxy-a", "proxy-b", "proxy-a",
+    ]
+    assert [(await environments.get(item.card_id)).desired_configuration.proxy_url for item in result.items] == [
+        "http://proxy-a.example:8080", "http://proxy-b.example:8080", "http://proxy-a.example:8080",
+    ]
+    assert {card.id for card in runtime.provisioned} == {item.card_id for item in result.items}
+
+
+async def test_expanded_package_and_two_factor_file_keep_their_assigned_proxies(tmp_path):
+    service, _, environments, _, _, _ = setup_service(tmp_path)
+    accounts = [{**sub2api_fixture(), "credentials": {"refresh_token": f"fixture-{index}"}} for index in range(2)]
+    request = file_request().model_copy(update={"entries": (
+        OnboardingEntry(label="package.json", content=json.dumps({"accounts": accounts}), proxy_profile_id="proxy-a"),
+        OnboardingEntry(
+            label="accounts.txt", content="fixture@example.test----password----JBSWY3DPEHPK3PXP",
+            proxy_profile_id="proxy-b",
+        ),
+    )})
+    result = await service.submit(request)
+    assert [row.status for row in result.preview] == ["valid", "valid", "valid"]
+    for _ in result.items:
+        await service.run_once()
+    assert [(await environments.get(item.card_id)).proxy_profile_id for item in result.items] == [
+        "proxy-a", "proxy-a", "proxy-b",
+    ]

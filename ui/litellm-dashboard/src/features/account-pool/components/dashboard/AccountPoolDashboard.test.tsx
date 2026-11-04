@@ -1,9 +1,18 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import userEvent from "@testing-library/user-event";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render as testingRender, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AccountPoolDashboard } from "./AccountPoolDashboard";
 import type { AccountPoolQuotaRefreshStatus } from "../../api/AccountPoolManagementApi";
+
+const render = (ui: ReactNode) =>
+  testingRender(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      {ui}
+    </QueryClientProvider>,
+  );
 
 const refreshStatus: AccountPoolQuotaRefreshStatus = {
   interval_minutes: 15,
@@ -50,8 +59,8 @@ describe("AccountPoolDashboard", () => {
 
     expect(screen.getByText(/最近额度刷新|Last quota refresh/i)).toBeInTheDocument();
     expect(screen.getByText(/下次额度刷新|Next quota refresh/i)).toBeInTheDocument();
-    expect(screen.getByText("09/16 08:05")).toBeInTheDocument();
-    expect(screen.getByText("09/16 08:20")).toBeInTheDocument();
+    expect(screen.getByText(/09\/16 08:05/)).toBeInTheDocument();
+    expect(screen.getByText(/09\/16 08:20/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /刷新额度|Refresh quotas/i }));
 
@@ -73,25 +82,38 @@ describe("AccountPoolDashboard", () => {
     );
 
     expect(screen.getByText("代理网关 P95")).toBeInTheDocument();
-    expect(screen.getByText("代理网关 P99")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("更多统计"));
+    expect(screen.getByText(/代理网关 P99/)).toBeInTheDocument();
     expect(screen.getByText("125 ms")).toBeInTheDocument();
-    expect(screen.getByText("241 ms")).toBeInTheDocument();
-    expect(screen.getByText("近 7 天 100 个样本")).toBeInTheDocument();
+    expect(screen.getByText(/241 ms/)).toBeInTheDocument();
+    expect(screen.getByText(/近 7 天 100 个样本/)).toBeInTheDocument();
   });
 });
-
 
 it("offers day selection and switches the number display without changing statistics", async () => {
   const onDays = vi.fn();
   const onCompact = vi.fn();
-  render(<AccountPoolDashboard environments={[]} statsByCard={new Map()} statsLoading={false}
-    statsDays={7} onStatsDaysChange={onDays} compactNumbers={true} onCompactNumbersChange={onCompact}
-    renderCard={vi.fn()} quotaRefreshStatus={null} onRefreshQuotas={vi.fn()} refreshingQuotas={false} />);
-  expect(screen.getByText(/标准日志，近 7 天/)).toBeVisible();
-  fireEvent.click(screen.getByRole("button", {name: "数字：K/M/B"}));
+  render(
+    <AccountPoolDashboard
+      environments={[]}
+      statsByCard={new Map()}
+      statsLoading={false}
+      statsDays={7}
+      onStatsDaysChange={onDays}
+      compactNumbers={true}
+      onCompactNumbersChange={onCompact}
+      renderCard={vi.fn()}
+      quotaRefreshStatus={null}
+      onRefreshQuotas={vi.fn()}
+      refreshingQuotas={false}
+    />,
+  );
+  fireEvent.click(screen.getByText("更多统计"));
+  expect(screen.getByText(/标准调用日志，近 7 天/)).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "数字：K/M/B" }));
   expect(onCompact).toHaveBeenCalledWith(false);
   const user = userEvent.setup();
-  await user.click(screen.getByRole("combobox", {name: "统计天数"}));
-  await user.click(await screen.findByRole("option", {name: "近 90 天"}));
+  await user.click(screen.getByRole("combobox", { name: "统计天数" }));
+  await user.click(await screen.findByRole("option", { name: "近 90 天" }));
   expect(onDays).toHaveBeenCalledWith(90);
 });

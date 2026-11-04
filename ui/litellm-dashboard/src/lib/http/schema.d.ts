@@ -37568,6 +37568,8 @@ export interface components {
              * @default
              */
             mailbox_password: string;
+            /** Proxy Profile Id */
+            proxy_profile_id?: string | null;
             /**
              * Supplier Password
              * @default

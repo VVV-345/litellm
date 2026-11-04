@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPoolSettingsOverview } from "./AccountPoolSettingsOverview";
 
@@ -58,15 +59,25 @@ describe("global settings overview", () => {
     renderOverview();
     expect(await screen.findByText(/配置版本 17/)).toBeInTheDocument();
     expect(screen.getByText(/需重新加载/)).toBeInTheDocument();
-    expect(screen.getByText("7")).toBeInTheDocument();
-    expect(screen.getByText("关闭")).toBeInTheDocument();
+    const user = userEvent.setup();
+    expect(screen.queryByText("7")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("tab", { name: /新账号默认值/ }));
+    expect(screen.getByText("7")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /流式传输/ }));
+    expect(screen.getByText("关闭")).toBeVisible();
     expect(screen.getByText(/Card streaming/)).toHaveTextContent("card-a");
-    expect(await screen.findByText("simple-shuffle")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "流式传输" })).toHaveAttribute(
+      "href",
+      "/ui/policy-center?section=streaming",
+    );
+    await user.click(screen.getByRole("tab", { name: /LiteLLM 路由、重试与回退/ }));
+    expect(await screen.findByText("simple-shuffle")).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: /供应商模型与访问/ }));
     expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute(
       "href",
-      "/ui/policy-center",
+      "/ui/policy-center?section=access",
     );
-    expect(screen.getByRole("link", { name: "流式传输" })).toHaveAttribute("href", "/ui/policy-center");
+    await user.click(screen.getByRole("tab", { name: /日常日志与完整日志/ }));
     expect(screen.getByRole("link", { name: "日常日志与完整日志" })).toHaveAttribute(
       "href",
       "/ui/logs?log_view=settings",
@@ -84,6 +95,7 @@ describe("global settings overview", () => {
       ["运行插件", "puzzle"],
       ["日常日志与完整日志", "scroll-text"],
     ]) {
+      await userEvent.setup().click(screen.getByRole("tab", { name: new RegExp(name) }));
       expect(screen.getByRole("link", { name }).querySelector(`.lucide-${icon}`)).toHaveAttribute(
         "aria-hidden",
         "true",

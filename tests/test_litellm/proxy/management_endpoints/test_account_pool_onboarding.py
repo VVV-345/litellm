@@ -52,6 +52,32 @@ def test_oauth_preview_requires_and_forwards_proxy_profile(proxy_profile_id: str
     assert json.loads(forwarded_body)["proxy_profile_id"] == proxy_profile_id
 
 
+@pytest.mark.parametrize("profiles", [("proxy-a", "proxy-b"), ("proxy-a", None)])
+def test_oauth_preview_validates_and_forwards_per_entry_proxies(profiles: tuple[str, str | None]) -> None:
+    manager: Final = AsyncMock(return_value=httpx.Response(
+        200, json=[], request=httpx.Request("POST", "http://manager.test/api/onboarding/preview"),
+    ))
+    app: Final = FastAPI()
+    app.include_router(create_onboarding_router(manager, lambda _user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    body: Final = {
+        "job_id": str(uuid4()), "source": "oauth", "supplier": "openai_codex",
+        "entries": [
+            {"label": f"fixture-{index}@example.test", "proxy_profile_id": profile}
+            for index, profile in enumerate(profiles)
+        ],
+    }
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/onboarding/preview", json=body)
+    if None in profiles:
+        assert response.status_code == 422
+        manager.assert_not_awaited()
+    else:
+        assert response.status_code == 200
+        forwarded: Final = json.loads(manager.await_args.args[2])
+        assert [entry["proxy_profile_id"] for entry in forwarded["entries"]] == list(profiles)
+
+
 @pytest.mark.parametrize(
     ("body", "expected_status"),
     (

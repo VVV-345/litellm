@@ -24,7 +24,7 @@ export const AccountPoolRefreshIntervalSelect = ({
     disabled={disabled}
   >
     <SelectTrigger className="w-40" aria-label={label}>
-      <SelectValue />
+      <SelectValue>{formatOption(value)}</SelectValue>
     </SelectTrigger>
     <SelectContent>
       {([5, 15, 30, 60] as const).map((minutes) => (

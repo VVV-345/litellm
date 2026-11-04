@@ -94,7 +94,10 @@ def import_entries(request: OnboardingImport) -> tuple[tuple[OnboardingEntry, ..
         if not entry.content or request.source != "auth_file" or len(entry.content.encode()) > 1024 * 1024:
             return ((entry, None),)
         try:
-            return tuple((item, None) for item in expand_import_file(entry, request.supplier))
+            return tuple(
+                (item.model_copy(update={"proxy_profile_id": entry.proxy_profile_id}), None)
+                for item in expand_import_file(entry, request.supplier)
+            )
         except CredentialConflict as error:
             return ((entry, str(error)),)
         except ValueError:
@@ -156,7 +159,7 @@ class OnboardingService:
     def _fingerprints(self, request: OnboardingImport, entry: OnboardingEntry) -> tuple[str, ...]:
         if entry.totp_secret:
             validate_two_factor_entry(entry, request.supplier)
-            if request.proxy_profile_id is None or entry.content:
+            if not (entry.proxy_profile_id or request.proxy_profile_id) or entry.content:
                 raise CredentialConflict("2FA 登录资料必须选择 OAuth 出站代理，且不能混入认证 Token")
         elif request.source == "auth_file":
             return file_identity(entry, request.supplier, self._secrets)
@@ -251,7 +254,7 @@ class OnboardingService:
             payload: Final = OnboardingPayload(
                 entry=entry,
                 mailbox_ready=bool(entry.totp_secret) or not request.prepare_mailbox,
-                proxy_profile_id=request.proxy_profile_id,
+                proxy_profile_id=entry.proxy_profile_id or request.proxy_profile_id,
             )
             await self.repository.insert(
                 StoredOnboarding(

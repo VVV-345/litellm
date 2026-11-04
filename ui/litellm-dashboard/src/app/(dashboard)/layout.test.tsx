@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/contexts/AuthContext";
 import Layout from "./layout";
@@ -20,7 +20,11 @@ vi.mock("@/components/DashboardHeader", () => ({
 }));
 
 vi.mock("@/app/(dashboard)/components/SidebarProvider", () => ({
-  default: () => <div data-testid="sidebar" />,
+  default: ({ sidebarCollapsed, onToggleCollapsed }: { sidebarCollapsed: boolean; onToggleCollapsed: () => void }) => (
+    <button data-testid="sidebar" data-collapsed={sidebarCollapsed} onClick={onToggleCollapsed}>
+      Toggle sidebar
+    </button>
+  ),
 }));
 
 vi.mock("@/components/DebugWarningBanner", () => ({
@@ -69,11 +73,44 @@ vi.mock("@/components/networking", async (importOriginal) => {
 });
 
 describe("(dashboard) Layout", () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
     pendingUiConfig = createDeferred();
     searchParamsValue = new URLSearchParams();
     pathnameValue = "/ui/api-keys";
+  });
+
+  it("collapses the sidebar on narrow screens and responds to breakpoint changes", async () => {
+    let change: (() => void) | undefined;
+    const media = {
+      matches: true,
+      addEventListener: vi.fn((_event: string, listener: () => void) => {
+        change = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+    vi.spyOn(window, "matchMedia").mockReturnValue(media as unknown as MediaQueryList);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <Layout>
+            <div data-testid="page-content" />
+          </Layout>
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+    pendingUiConfig.resolve();
+    const sidebar = await screen.findByTestId("sidebar");
+    await waitFor(() => expect(sidebar).toHaveAttribute("data-collapsed", "true"));
+    expect(window.matchMedia).toHaveBeenCalledWith("(max-width: 767px)");
+    act(() => {
+      media.matches = false;
+      change?.();
+    });
+    expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    fireEvent.click(sidebar);
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
   });
 
   it("does not mount route content until getUiConfig has resolved", async () => {

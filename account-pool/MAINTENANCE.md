@@ -45,6 +45,8 @@
 
 认证文件的查询、上传、替换、编辑和删除由 `hooks/useAccountPoolCredentials.ts` 编排，页面保留展示与文件输入引用。该 Hook 共用凭据与卡片缓存失效函数，但分别保留各操作的 `onSuccess` 和 `onSettled` 时机。认证文件与额度页面使用 `components/shared/AccountPoolRefreshIntervalSelect.tsx`，调用方仍提供默认值、保存请求和文案
 
+2026-11-04 紧凑界面使用 `components/shared/AccountPoolWorkspace.tsx` 统一标签和折叠，复用 `DeferredTabPanel` 保留已访问表单；额度刷新间隔移到仪表盘，由 `hooks/useAccountPoolQuotaInterval.ts` 共用保存与缓存更新。多文件代理通过 `OnboardingEntry.proxy_profile_id` 固定到加密任务载荷，兼容批次单代理。入口、旧链接和验收范围见 [紧凑界面说明](../docs/handbook/account-pool-compact-ui.md)
+
 控制台请求实现保留在原生 `components/networking.tsx` 中。此前拆出的 `src/lib/http/api-modules/` 已按用户要求通过 Git revert 撤销，后续不得再依赖该目录。号池继续使用已有 HTTP 客户端和自身 `features/account-pool/api/`，不需要改变原生请求模块的内部组织
 
 提交 `2bccb7863c` 删除了经引用核对无调用方的 `AccountPoolScopePanel`、10 个前端 API 包装，并移除未使用的类型或缩小类型导出范围。服务端对应接口保留；现有页面使用的卡片插件、凭据删除、运行配置保存和镜像回退接口均保留

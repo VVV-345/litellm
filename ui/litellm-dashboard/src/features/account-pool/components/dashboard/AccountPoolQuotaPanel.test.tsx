@@ -1,7 +1,7 @@
 /** 本文件验证额度页展示完整订阅字段、全部额度窗口和刷新诊断。 */
 
 import { renderWithProviders as render, screen } from "../../../../../tests/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { AccountPoolQuotaPanel } from "./AccountPoolQuotaPanel";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
@@ -72,7 +72,7 @@ const environment: AccountPoolEnvironment = {
 
 describe("AccountPoolQuotaPanel", () => {
   it("shows every quota window with exact amounts and subscription metadata", () => {
-    render(<AccountPoolQuotaPanel environments={[environment]} onRefresh={vi.fn()} />);
+    render(<AccountPoolQuotaPanel environments={[environment]} />);
 
     expect(screen.getByText("SuperGrok Heavy")).toBeInTheDocument();
     expect(screen.getByText("SUBSCRIPTION_STATUS_ACTIVE")).toBeInTheDocument();
