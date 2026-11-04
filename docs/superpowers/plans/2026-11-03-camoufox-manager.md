@@ -27,7 +27,7 @@ Files: create manage.mjs, a small service/config module, a package installer mod
 - [x] Implement menu and equivalent noninteractive commands with --help, explicit --data-dir for isolated verification, and --json for status/diagnostics where useful. Noninteractive mutations require an explicit command
 - [x] Implement standalone package generation and document extract/double-click, configure once, start in background, diagnose failures, update from a new package and roll back
 - [x] Run all helper tests with CAMOUFOX_TEST_EXECUTABLE=/Applications/Camoufox.app/Contents/MacOS/camoufox, bash syntax validation, package generation and isolated installation verification
-- [ ] Review the complete diff, fix findings, rerun affected checks, commit. Primary agent performs any real launchctl integration and existing installation migration after reviewing the code
+- [x] Review the complete diff, fix findings, rerun affected checks, and commit. Real launchctl integration passed in an isolated temporary data directory; existing installation migration was unnecessary because no managed service was present
 
 ## Verification boundaries
 
