@@ -1,6 +1,6 @@
 /** 本文件展示 OAuth 和设备授权状态，并把授权操作绑定到具体号池卡片。 */
 
-import { KeyRound, Plus } from "lucide-react";
+import { KeyRound, Network, Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +39,11 @@ export const AccountPoolAuthorizationOverview = ({
   const cards = environments.filter((environment) => environment.authorization_flow !== "direct_credential");
   return (
     <div className="grid gap-4">
-      <p className="text-xs text-muted-foreground" role="status">
+      <p
+        className="flex items-center gap-2 rounded-lg border bg-muted/20 px-3 py-2 text-xs text-muted-foreground"
+        role="status"
+      >
+        <Network className="size-3.5 shrink-0" aria-hidden="true" />
         {defaultLabel}
       </p>
       <div className="flex flex-wrap gap-2" aria-label="新建 OAuth 授权">
@@ -51,20 +55,36 @@ export const AccountPoolAuthorizationOverview = ({
           </Button>
         ))}
       </div>
-      <div className="divide-y rounded-lg border">
+      <div className="grid gap-3 xl:grid-cols-2">
         {cards.length === 0 && <p className="p-4 text-sm text-muted-foreground">暂无 OAuth 卡片，可从上方新建授权。</p>}
         {cards.map((environment) => (
-          <div key={environment.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2.5">
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <AccountPoolSupplierLogo supplier={environment.supplier} className="size-4 shrink-0" />
-              <span className="truncate text-sm font-medium">{environment.name}</span>
-              <Badge variant={statusVariant(environment.status)}>{statusLabel(t, environment.status)}</Badge>
+          <div
+            key={environment.id}
+            className="flex min-w-0 flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-3 shadow-sm"
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-lg border bg-muted/30">
+                <AccountPoolSupplierLogo supplier={environment.supplier} className="size-5" />
+              </div>
+              <div className="min-w-0">
+                <span className="block truncate text-sm font-medium">{environment.name}</span>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {environment.configuration_pending
+                    ? t("accountPool.oauth.configurationPending")
+                    : t("accountPool.oauth.credentialStored")}
+                </p>
+              </div>
             </div>
-            <span className="text-xs text-muted-foreground">
-              {environment.configuration_pending
-                ? t("accountPool.oauth.configurationPending")
-                : t("accountPool.oauth.credentialStored")}
-            </span>
+            <Badge
+              variant={statusVariant(environment.status)}
+              className={
+                environment.status === "ready"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                  : undefined
+              }
+            >
+              {statusLabel(t, environment.status)}
+            </Badge>
             {canAuthorizeEnvironment(environment) && (
               <Button type="button" size="sm" variant="outline" onClick={() => onAuthorize(environment)}>
                 <KeyRound />

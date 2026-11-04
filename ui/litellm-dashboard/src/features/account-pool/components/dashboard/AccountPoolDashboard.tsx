@@ -1,7 +1,7 @@
 /** 本文件渲染号池仪表盘的汇总指标和供应商分组，卡片操作由页面注入以保持权限边界。 */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { RefreshCw } from "lucide-react";
+import { ArrowLeftRight, CheckCircle2, CircleAlert, Coins, Gauge, Layers3, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -152,18 +152,22 @@ export const AccountPoolDashboard = ({
       )}
       <div className="grid grid-cols-2 divide-x divide-y overflow-hidden rounded-xl border bg-card sm:grid-cols-3 lg:grid-cols-6">
         {[
-          [t("accountPool.dashboard.successRate"), successRate],
-          [t("accountPool.dashboard.requests"), metric(summary.totalRequests)],
-          [t("accountPool.dashboard.failures"), metric(summary.failedRequests)],
-          [t("accountPool.dashboard.traffic"), metric(summary.totalTokens)],
-          [t("accountPool.dashboard.gatewayP95"), latencyMetric(gatewayLatency?.p95_ms)],
-          [
-            t("accountPool.dashboard.cards"),
-            `${formatInteger(summary.enabledCards)} / ${formatInteger(summary.totalCards)}`,
-          ],
-        ].map(([label, value]) => (
+          { label: t("accountPool.dashboard.successRate"), value: successRate, icon: CheckCircle2 },
+          { label: t("accountPool.dashboard.requests"), value: metric(summary.totalRequests), icon: ArrowLeftRight },
+          { label: t("accountPool.dashboard.failures"), value: metric(summary.failedRequests), icon: CircleAlert },
+          { label: t("accountPool.dashboard.traffic"), value: metric(summary.totalTokens), icon: Coins },
+          { label: t("accountPool.dashboard.gatewayP95"), value: latencyMetric(gatewayLatency?.p95_ms), icon: Gauge },
+          {
+            label: t("accountPool.dashboard.cards"),
+            value: `${formatInteger(summary.enabledCards)} / ${formatInteger(summary.totalCards)}`,
+            icon: Layers3,
+          },
+        ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="min-w-0 px-4 py-3">
-            <p className="text-xs text-muted-foreground">{label}</p>
+            <div className="flex items-center justify-between gap-2 text-muted-foreground">
+              <p className="text-xs">{label}</p>
+              <Icon className="size-4 shrink-0 text-blue-600/80 dark:text-blue-400" aria-hidden="true" />
+            </div>
             <div className="mt-1 text-xl font-semibold tracking-tight tabular-nums">
               {statsLoading ? <Skeleton className="h-7 w-16" /> : value}
             </div>

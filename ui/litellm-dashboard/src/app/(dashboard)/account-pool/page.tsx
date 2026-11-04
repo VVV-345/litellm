@@ -30,7 +30,7 @@ const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLo
 const AccountPoolCreateDialog = dynamic(loadAccountPoolCreateDialog, { loading: ModuleLoading });
 const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoading });
 
-import { RefreshCw } from "lucide-react";
+import { Boxes, KeyRound, ListChecks, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
 import { schedulePreloads } from "@/lib/progressivePreload";
@@ -382,34 +382,55 @@ export default function AccountPoolPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList
-            variant="line"
-            className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start rounded-none border-b p-0"
-          >
-            <TabsTrigger value="dashboard" className="flex-none rounded-none px-4 py-2">
+          <TabsList className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start gap-2 rounded-xl border bg-muted/30 p-2 max-sm:flex-nowrap max-sm:overflow-x-auto">
+            <TabsTrigger
+              value="dashboard"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               {t("accountPool.tabs.dashboard")}
             </TabsTrigger>
-            <TabsTrigger value="providers" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="providers"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               提供商与 OAuth
             </TabsTrigger>
 
-            <TabsTrigger value="credentials" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="credentials"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               {t("accountPool.tabs.credentials")}
             </TabsTrigger>
-            <TabsTrigger value="onboarding" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="onboarding"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               自动化上号
             </TabsTrigger>
 
-            <TabsTrigger value="proxy-layer" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="proxy-layer"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               {t("accountPool.tabs.proxyLayer")}
             </TabsTrigger>
-            <TabsTrigger value="upstream-sync" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="upstream-sync"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               {t("accountPool.tabs.upstreamSync")}
             </TabsTrigger>
-            <TabsTrigger value="releases" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="releases"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               版本管理
             </TabsTrigger>
-            <TabsTrigger value="settings-overview" className="flex-none rounded-none px-4 py-2">
+            <TabsTrigger
+              value="settings-overview"
+              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+            >
               全局设置总览
             </TabsTrigger>
           </TabsList>
@@ -455,12 +476,14 @@ export default function AccountPoolPage() {
               items={[
                 {
                   value: "catalog",
+                  icon: Boxes,
                   label: "AI 提供商",
                   summary: "认证方式与新建",
                   content: <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />,
                 },
                 {
                   value: "oauth",
+                  icon: KeyRound,
                   label: "OAuth 登录",
                   summary: `${environments.filter((environment) => environment.authorization_flow !== "direct_credential").length} 张卡片`,
                   content: (
@@ -475,6 +498,7 @@ export default function AccountPoolPage() {
                 },
                 {
                   value: "batch",
+                  icon: ListChecks,
                   label: "批量操作",
                   summary: `${environments.length} 张卡片`,
                   content: accessToken && (

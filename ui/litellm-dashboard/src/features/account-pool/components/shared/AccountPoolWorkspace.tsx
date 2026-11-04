@@ -2,7 +2,7 @@
 "use client";
 
 import { useId, useState, type ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, type LucideIcon } from "lucide-react";
 import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -14,7 +14,7 @@ export function AccountPoolWorkspace({
   defaultOpen = false,
 }: {
   title: string;
-  items: readonly { value: string; label: string; summary?: string; content: ReactNode }[];
+  items: readonly { value: string; label: string; summary?: string; icon?: LucideIcon; content: ReactNode }[];
   defaultValue?: string;
   defaultOpen?: boolean;
 }) {
@@ -29,24 +29,24 @@ export function AccountPoolWorkspace({
     setVisited((current) => new Set([...current, next]));
   };
   return (
-    <section className="min-w-0 rounded-xl border bg-card" aria-label={title}>
+    <section className="min-w-0 overflow-hidden rounded-xl border bg-card shadow-sm" aria-label={title}>
       <h2 className="sr-only">{title}</h2>
       <Tabs value={value} onValueChange={open} className="gap-0">
-        <div className="flex items-start gap-2 px-3 py-2">
-          <TabsList
-            variant="line"
-            className="h-auto group-data-horizontal/tabs:h-auto min-w-0 flex-1 flex-wrap justify-start gap-1 rounded-none p-0"
-          >
-            {items.map((item) => (
+        <div className="flex items-start gap-2 bg-muted/20 px-3 py-2">
+          <TabsList className="h-auto group-data-horizontal/tabs:h-auto min-w-0 flex-1 flex-wrap justify-start gap-1 bg-transparent p-0 max-sm:flex-nowrap max-sm:overflow-x-auto">
+            {items.map(({ value: itemValue, label, summary, icon: Icon }) => (
               <TabsTrigger
-                key={item.value}
-                value={item.value}
-                onClick={() => open(item.value)}
-                className="h-auto min-w-0 flex-none gap-2 rounded-md px-3 py-2 text-sm"
+                key={itemValue}
+                value={itemValue}
+                onClick={() => open(itemValue)}
+                className="h-auto min-w-0 flex-none gap-2 rounded-lg border-border bg-background px-3 py-2 text-sm data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
               >
-                {item.label}
-                {item.summary && (
-                  <span className="text-xs font-normal tabular-nums text-muted-foreground">{item.summary}</span>
+                {Icon && <Icon data-slot="workspace-icon" className="size-4" aria-hidden="true" />}
+                {label}
+                {summary && (
+                  <span className="rounded-md bg-background/80 px-1.5 py-0.5 text-xs font-normal tabular-nums text-muted-foreground max-sm:hidden">
+                    {summary}
+                  </span>
                 )}
               </TabsTrigger>
             ))}

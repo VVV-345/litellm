@@ -1,6 +1,6 @@
 /** 本文件渲染号池代理网关面板，展示当前节点、延迟检测结果并支持切换出口。 */
 
-import { Check, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Check, Globe, Network, Plus, RefreshCw, Settings2, Trash2 } from "lucide-react";
 import { useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -188,6 +188,7 @@ export const ProxyManagerPanel = ({
         items={[
           {
             value: "gateways",
+            icon: Network,
             label: "网关出口",
             summary: gatewaysError ? "读取失败" : `${gateways.length} 个端口`,
             content: (
@@ -271,6 +272,7 @@ export const ProxyManagerPanel = ({
           },
           {
             value: "isp",
+            icon: Globe,
             label: "ISP 代理",
             summary: ispsError ? "读取失败" : `${isps.length} 个节点`,
             content: (
@@ -319,6 +321,7 @@ export const ProxyManagerPanel = ({
           },
           {
             value: "configuration",
+            icon: Settings2,
             label: "订阅与配置",
             summary: `${configurations.length} 份配置`,
             content: (

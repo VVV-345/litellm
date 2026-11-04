@@ -82,35 +82,56 @@ export const AccountPoolProviderFamilies = ({ accessToken, onCreate }: AccountPo
   const active = families.find((family) => family.kind === selected) ?? families[0];
   return (
     <Tabs value={active?.kind ?? ""} onValueChange={setSelected}>
-      <TabsList
-        variant="line"
-        className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start gap-1"
-      >
+      <TabsList className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start gap-1 bg-muted/30 p-1 max-sm:flex-nowrap max-sm:overflow-x-auto">
         {families.map((family) => (
-          <TabsTrigger key={family.kind} value={family.kind} className="flex-none gap-2 px-3 py-2">
+          <TabsTrigger
+            key={family.kind}
+            value={family.kind}
+            className="h-auto flex-none gap-2 border-border bg-background px-3 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
+          >
             {supplierFromFamily(family) && (
               <AccountPoolSupplierLogo supplier={supplierFromFamily(family)!} className="size-4" />
             )}
             {family.display_name}
-            <span className="text-xs tabular-nums text-muted-foreground">{family.card_count}</span>
+            <span className="rounded-full bg-background/80 px-1.5 text-xs tabular-nums text-muted-foreground">
+              {family.card_count}
+            </span>
           </TabsTrigger>
         ))}
       </TabsList>
       {active && (
         <TabsContent value={active.kind} className="mt-4">
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-muted/30 p-4">
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
-                {active.authentication}
-                <Badge variant="outline">
-                  {active.available ? t("accountPool.providers.available") : t("accountPool.providers.pendingAdapter")}
-                </Badge>
+          <div className="flex flex-col items-stretch gap-4 rounded-xl border bg-card p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <div className="flex min-w-0 flex-1 items-start gap-3">
+              {supplierFromFamily(active) && (
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-xl border bg-muted/30">
+                  <AccountPoolSupplierLogo supplier={supplierFromFamily(active)!} className="size-6" />
+                </div>
+              )}
+              <div className="min-w-0 space-y-1.5">
+                <h3 className="text-base font-semibold">{active.display_name}</h3>
+                <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  {active.authentication}
+                  <Badge
+                    variant="outline"
+                    className={
+                      active.available
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                        : undefined
+                    }
+                  >
+                    {active.available
+                      ? t("accountPool.providers.available")
+                      : t("accountPool.providers.pendingAdapter")}
+                  </Badge>
+                </div>
+                <p className="text-sm leading-6 text-muted-foreground">{active.description}</p>
               </div>
-              <p className="text-sm text-muted-foreground">{active.description}</p>
             </div>
             <Button
               type="button"
               size="sm"
+              className="self-start sm:self-auto"
               disabled={!active.available || supplierFromFamily(active) === null}
               onClick={() => {
                 const supplier = supplierFromFamily(active);

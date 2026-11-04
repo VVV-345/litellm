@@ -49,12 +49,14 @@ describe("AccountPoolProviderFamilies", () => {
 
     const codex = await screen.findByRole("tab", { name: /Codex.*2/ });
     expect(codex).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("heading", { name: "Codex", level: 3 })).toBeVisible();
     expect(screen.queryByText("OpenAI 兼容直连")).not.toBeInTheDocument();
     await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
     expect(onCreate).toHaveBeenCalledWith("openai_codex");
 
     await user.click(screen.getByRole("tab", { name: /OpenAI 兼容.*3/ }));
     expect(screen.getByText("OpenAI 兼容直连")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "OpenAI 兼容", level: 3 })).toBeVisible();
     await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
     expect(onCreate).toHaveBeenCalledWith("openai_compatible");
   });

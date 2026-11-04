@@ -18,6 +18,7 @@ import {
   Waves,
   SlidersHorizontal,
   ListFilter,
+  LayoutGrid,
   Puzzle,
   Route,
   type LucideIcon,
@@ -408,12 +409,14 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
         items={[
           {
             value: "modules",
+            icon: LayoutGrid,
             label: "模块显示",
             summary: "导航与入口",
             content: <ModuleVisibilityPanel accessToken={accessToken} />,
           },
           {
             value: "updates",
+            icon: RefreshCw,
             label: "自动更新",
             summary: "检查与部署",
             content: <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />,
@@ -421,6 +424,7 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
           ...nativeSections.map((section) => ({
             value: section.value,
             label: section.title,
+            icon: section.icon,
             summary: section.query.isError ? "读取失败" : `${section.fields?.length ?? 0} 项`,
             content: (
               <OverviewCard icon={section.icon} title={section.title} href={section.href} scope={section.scope}>
@@ -448,6 +452,7 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
           ...groups.map((group) => ({
             value: group.title,
             label: group.title,
+            icon: group.icon,
             summary: `${group.fields.length} 项`,
             content: (
               <OverviewCard icon={group.icon} title={group.title} href={group.href} scope={group.scope}>

@@ -34,6 +34,19 @@ import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolP
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import { toast } from "@/lib/toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Activity,
+  Gauge,
+  KeyRound,
+  Layers3,
+  ListFilter,
+  Network,
+  Route,
+  Settings2,
+  SlidersHorizontal,
+  Waves,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AccountPoolWorkspace } from "@/features/account-pool/components/shared/AccountPoolWorkspace";
@@ -87,19 +100,19 @@ const integer = (value: string, fallback: number): number => {
 
 const optionalInteger = (value: string): number | null => (value.trim() === "" ? null : integer(value, 0));
 
-type SettingsCategory = { value: RuntimeSettingsCategory; label: string };
+type SettingsCategory = { value: RuntimeSettingsCategory; label: string; icon: LucideIcon };
 
 const routingCategories: readonly SettingsCategory[] = [
-  { value: "common", label: "新卡片默认值" },
-  { value: "access", label: "模型访问" },
-  { value: "network", label: "网络与重试" },
-  { value: "quota", label: "配额回退" },
+  { value: "common", icon: Settings2, label: "新卡片默认值" },
+  { value: "access", icon: KeyRound, label: "模型访问" },
+  { value: "network", icon: Network, label: "网络与重试" },
+  { value: "quota", icon: Gauge, label: "配额回退" },
 ];
 
 const runtimeCategories: readonly SettingsCategory[] = [
-  { value: "streaming", label: "流式传输" },
-  { value: "advanced", label: "高级运行" },
-  { value: "payload", label: "请求改写" },
+  { value: "streaming", icon: Waves, label: "流式传输" },
+  { value: "advanced", icon: SlidersHorizontal, label: "高级运行" },
+  { value: "payload", icon: ListFilter, label: "请求改写" },
 ];
 
 function PolicyDefaultsForm({
@@ -429,6 +442,7 @@ export default function PolicyCenterPage() {
         items={[
           {
             value: "router",
+            icon: Route,
             label: "跨卡调度",
             summary: "选卡与会话",
             content: (
@@ -457,6 +471,7 @@ export default function PolicyCenterPage() {
           },
           {
             value: "defaults",
+            icon: Gauge,
             label: "额度阈值",
             summary: "继承卡默认",
             content: (
@@ -488,10 +503,12 @@ export default function PolicyCenterPage() {
           ...[...routingCategories, ...runtimeCategories].map((category) => ({
             value: category.value,
             label: category.label,
+            icon: category.icon,
             content: <RuntimeSettings category={category.value} />,
           })),
           {
             value: "cards",
+            icon: Layers3,
             label: "卡片独立配置",
             summary: `${independent.length} / ${cards.length}`,
             content: (
@@ -534,6 +551,7 @@ export default function PolicyCenterPage() {
           },
           {
             value: "status",
+            icon: Activity,
             label: "运行判定",
             summary: "模型与路由",
             content: <RoutingStatusPanel cards={routingCards} accessToken={accessToken} />,
