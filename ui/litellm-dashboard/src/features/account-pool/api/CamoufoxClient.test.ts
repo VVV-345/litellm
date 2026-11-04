@@ -43,6 +43,15 @@ describe("Camoufox client", () => {
     });
     await expect(failed.testConnection()).rejects.toMatchObject({ code: "connection", message: "connection" });
   });
+  it("calls browser fetch without binding it to the client", async () => {
+    const transport = vi.fn<typeof fetch>(async function (this: unknown) {
+      expect(this).toBeUndefined();
+      return new Response(JSON.stringify({ name: "litellm-camoufox-helper", version: 1 }));
+    });
+    const client = new CamoufoxClient("http://127.0.0.1:10109", "key", transport);
+    await client.testConnection();
+    expect(transport).toHaveBeenCalledOnce();
+  });
   it("detects credential and protocol changes while normalizing host case", () => {
     expect(sameProxy(proxy, { ...proxy, host: "ISP.EXAMPLE." })).toBe(true);
     expect(sameProxy(proxy, { ...proxy, password: "new" })).toBe(false);

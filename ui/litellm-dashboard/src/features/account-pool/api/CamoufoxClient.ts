@@ -82,7 +82,8 @@ export class CamoufoxClient {
         referrerPolicy: "no-referrer",
         signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000),
       };
-      const response = await this.transport(`${this.baseUrl}/v1${path}`, options);
+      const transport = this.transport;
+      const response = await transport(`${this.baseUrl}/v1${path}`, options);
       if (!response.ok) {
         const result = z.object({ code: errorCode }).safeParse(await response.json());
         throw new CamoufoxError(result.success ? result.data.code : "request");
