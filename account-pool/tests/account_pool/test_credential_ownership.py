@@ -122,3 +122,21 @@ async def test_access_only_codex_import_retains_exclusive_token_and_account_owne
     assert "access-a" not in repr(access_only)
     with pytest.raises(CredentialConflict):
         credential_identity(b'{"account_id":"same-account"}', "openai_codex", secrets)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("full_first", (False, True))
+async def test_access_only_and_full_codex_credentials_cannot_claim_the_same_access(full_first: bool) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    registry: Final = CredentialOwnership()
+    access: Final = credential_identity(b'{"access_token":"fixture-shared-access"}', "openai_codex", secrets)
+    full: Final = credential_identity(
+        b'{"access_token":"fixture-shared-access","refresh_token":"fixture-refresh"}', "openai_codex", secrets
+    )
+    first, second = (full, access) if full_first else (access, full)
+    owner: Final = uuid4()
+    await registry.claim(owner, first.fingerprints)
+    with pytest.raises(CredentialConflict, match="已绑定其他卡片"):
+        await registry.claim(uuid4(), second.fingerprints)
+    await registry.claim(owner, second.fingerprints)
+    assert await registry.owns(owner, (*first.fingerprints, *second.fingerprints))

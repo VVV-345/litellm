@@ -267,7 +267,12 @@ async def test_manual_authorization_cannot_clear_a_card_owned_by_a_running_autom
 
 
 @pytest.fixture
-async def execution(registry, tmp_path: Path):
+def authorized_email() -> str:
+    return "one@example.test"
+
+
+@pytest.fixture
+async def execution(registry, tmp_path: Path, authorized_email: str):
     from account_pool.compose_runtime import ComposeRuntime
     from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
     from account_pool.oauth_automation.runner import AutomationRunner
@@ -283,7 +288,7 @@ async def execution(registry, tmp_path: Path):
         async def read_account(self, record, *, refresh_quota=False):
             observed = await super().read_account(record, refresh_quota=refresh_quota)
             return observed.model_copy(update={
-                "credential_email": "one@example.test", "credential_fingerprints": ("fixture-credential-owner",),
+                "credential_email": authorized_email, "credential_fingerprints": ("fixture-credential-owner",),
                 "enabled_models": record.enabled_models or observed.enabled_models,
                 "model_cooldowns": record.model_cooldowns,
             })
@@ -446,6 +451,48 @@ async def test_restart_with_unknown_inference_result_requires_explicit_verificat
     failed: Final = (await service.view()).jobs[0]
     assert failed.stage == "verification_failed" and failed.credentials_saved
     assert commands.count("start") == len(starts) == 1
+    assert "chat" not in commands and "responses" not in commands
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("authorized_email", ("other@example.test",))
+async def test_mismatched_callback_account_disables_card_before_finishing(execution, tmp_path: Path) -> None:
+    from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+    from account_pool.domain import OAuthCallback
+    from account_pool.oauth_automation.models import AutomationSettings
+    from test_account_pool import _settings
+
+    service, card, manager, runner, browser, commands, starts, removals, submitted = execution
+    await service.self_check()
+    await service.save_settings(AutomationSettings(enabled=True), (await service.view()).version)
+    await runner.run_once()
+    pending: Final = await service.environments.get(card.id)
+    assert isinstance(
+        await manager.submit_oauth_callback(OAuthCallback(state=pending.oauth_state, code="one-use-test-code"), card.id),
+        Success,
+    )
+    native: Final = CLIProxyAPIChannel(_settings(tmp_path), service.secrets, ownership=service.ownership)
+    try:
+        awaiting_identity: Final = await service.environments.get(card.id)
+        assert awaiting_identity.oauth_automation_operation is not None
+        assert not native.gateway(awaiting_identity).routable
+    finally:
+        await native.close()
+    await runner.run_once()
+    failed: Final = (await service.view()).jobs[0]
+    blocked: Final = await service.environments.get(card.id)
+    assert failed.stage == "verification_failed" and failed.credentials_saved
+    assert blocked.credential_email == "other@example.test"
+    assert blocked.credential_fingerprints and blocked.auth_file_name
+    assert blocked.oauth_automation_operation is None
+    assert not blocked.enabled and blocked.status is EnvironmentStatus.DISABLED
+    native_after: Final = CLIProxyAPIChannel(_settings(tmp_path), service.secrets, ownership=service.ownership)
+    try:
+        assert not native_after.gateway(blocked).routable
+    finally:
+        await native_after.close()
+    await manager.get_environment(card.id)
+    assert not (await service.environments.get(card.id)).enabled
     assert "chat" not in commands and "responses" not in commands
 
 

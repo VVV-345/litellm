@@ -70,6 +70,10 @@ class EnvironmentAuthorization:
     _settings: Settings
     _start_authorization: StartAuthorizationOperation
 
+    def _authorization_routable(self, record: EnvironmentRecord) -> bool:
+        # 授权落盘可先完成；自动化占用仍由公共网关拦截，等待账号与推理验收。
+        return self._gateway_environment(record.model_copy(update={"oauth_automation_operation": None})).routable
+
     async def authorize_environment(
         self,
         environment_id: UUID,
@@ -295,7 +299,7 @@ class EnvironmentAuthorization:
         if isinstance(validation, Failure):
             return validation
         validated: Final = validation.value
-        if validated.status is EnvironmentStatus.READY and not self._gateway_environment(validated).routable:
+        if validated.status is EnvironmentStatus.READY and not self._authorization_routable(validated):
             return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
         return Success(to_view(validated))
 
@@ -466,7 +470,7 @@ class EnvironmentAuthorization:
         persisted: Final = await self._repository.get(claimed.id)
         if persisted is None or persisted.status not in _AUTHORIZATION_COMPLETE_STATUSES:
             raise _AuthorizationConflict
-        if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
+        if persisted.status is EnvironmentStatus.READY and not self._authorization_routable(persisted):
             raise _AuthorizationConflict
         return Success(persisted)
 

@@ -313,15 +313,41 @@ class AutomationRunner:
                 )
             return
         if record.credential_email is None or self.registry.identity(record.credential_email) != row.account_digest:
-            await self._finish(updated, "verification_failed", "保存的账号与任务身份不一致，禁止放行")
+            async with self.registry.ownership.operation(record.id):
+                current: Final = await self.registry.environments.get(record.id)
+                if current is None or current != record or current.oauth_automation_operation != operation(row):
+                    return
+                # 失败状态必须留在卡片上；只结束任务会让错误账号继续经网关接单。
+                blocked: Final = await self.registry.environments.save_if_version(
+                    current.model_copy(
+                        update={
+                            "version": current.version + 1,
+                            "enabled": False,
+                            "status": EnvironmentStatus.DISABLED,
+                            "desired_state": EnvironmentStatus.DISABLED,
+                            "last_error": "自动化授权账号不匹配，卡片已停用，请核对凭据后重新授权",
+                            "updated_at": self.clock(),
+                        }
+                    ),
+                    current.version,
+                )
+                if blocked is None:
+                    return
+            await self._finish(updated, "verification_failed", "保存的账号与任务身份不一致，卡片已停用，请重新授权")
             return
         await self._verify(updated, record)
 
     async def _verify(self, row: StoredJob, record: EnvironmentRecord) -> None:
+        if record.oauth_automation_operation != operation(row):
+            await self._finish(row, "verification_failed", "卡片已不属于当前任务，未启动模型验收")
+            return
         if row.verification_started:
             await self._finish(row, "verification_failed", "上次模型验收结果未知；请仅重试验收，不重新登录")
             return
-        endpoint: Final = self.browser.service.gateway_environment(record)
+        # 仅本任务的同卡内部探测使用临时快照，不解除普通 Key 的自动化门禁。
+        endpoint: Final = self.browser.service.gateway_environment(
+            record.model_copy(update={"oauth_automation_operation": None})
+        )
         cooling: Final = {item.model for item in record.model_cooldowns if item.retry_at > self.clock()}
         model: Final = row.item.model or next((item for item in endpoint.enabled_models if item not in cooling), None)
         if model is None or model not in endpoint.enabled_models or model in cooling or not endpoint.routable:

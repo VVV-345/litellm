@@ -30,6 +30,8 @@ Manager 的 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 必须使用 digest。号池的�
 
 凭据保存与模型推理是两个结果。只有同卡 Chat 和 Responses 都得到完整文本才标记验收通过；失败后可指定这张卡已启用的模型“仅重试验收”，不会重新登录、重放回调或覆盖凭据。进程重启不自动重发结果未知的登录和推理。取消或超时会清理临时浏览器，保留已保存凭据，不能保证已经发出的上游请求未被处理
 
+回调落盘后，自动化独占未释放前不会向普通 Key 放行；当前任务核对账号后仅能执行自己的同卡内部探测，不能把它等同于真实公共 Key 验收。如果回调保存的邮箱与任务账号不符（包括缺少邮箱），任务失败前会在同卡锁内持久化停用卡片，阻止普通 Key 和模型测试接单；保留凭据供核查，定期状态刷新不会自动启用。核对后应重新授权，不要只把失败任务标为完成
+
 资料只通过管理员接口提交并在 Manager 按环境加密，不进入任务查询、浏览器存储或查询缓存；屏幕沿用原来的短期一次性票据，不公开 VNC 端口。不要把账号文件、截图中的私密资料或验收 Key 提交进 Git。实现入口是 [oauth_automation](../../../account-pool/account_pool/oauth_automation)，构建命令见 [worker 说明](../../../account-pool/browser-worker/README.md)，实际验收范围与已知基线失败见 [2026-11-04 验收记录](../../../account-pool/docs/oauth-automation-acceptance-20261104.md)
 
 验收默认跳过仍在冷却的模型；指定冷却模型时停止，不用验收请求解除上游限制。失败消息区分 HTTP 状态、网络结果未知和响应不完整，不包含上游原始正文。后续回归、真实调用结果及未完成的全局门禁见 [2026-11-05 收尾记录](../../../account-pool/docs/oauth-automation-acceptance-20261105.md)
@@ -63,5 +65,9 @@ access 降级只接受同卡同模型的完整推理验证，手动关闭、归�
 设计核对了 [CLIProxyAPI 并发刷新讨论](https://github.com/router-for-me/CLIProxyAPI/issues/3783) 和 [sub2api OAuth 刷新协调器](https://github.com/Wei-Shaw/sub2api/blob/4a4a83ee5ec86b19d3a2dd9b6471de5128963bec/backend/internal/service/oauth_refresh_api.go)，沿用已有锁和重读机制，没有另外添加一套刷新调度。单进程协调不代表同一 refresh token 在其他服务中并发刷新也安全
 
 刷新 POST 发出后若响应丢失、正文不完整、成功正文无有效访问令牌或返回 5xx，刷新结果按未知处理，停止使用旧 refresh 重试并持久化暂停状态；重新启动也不能自动重放。仅明确的连接建立失败可退避重试。未知结果不是 access 已失效，有效 access 仍可按模型验证使用。无法从丢失的响应找回新 refresh，后续续期可能仍需重新授权
+
+Codex 刷新会先在运行时状态存储写入绑定当前凭据指纹的 `pending`，写入失败或存储未配置时不发送刷新请求。进程在回包前退出，重启将残留 `pending` 视为 `unknown_outcome`，停止手动与自动重放。并发停用或额度错误不妨碍保存防重放标记，也不会被刷新结果覆盖。此保护依赖保留当前认证卷及运行时状态；不能恢复丢失的新 refresh，也不能防止其他服务使用凭据副本
+
+Codex 归属检查同时登记 access 与 refresh 的不可逆指纹；即使缺少邮箱或账号信息，同一 access 的纯 access 文件与完整文件也不能分别绑定到两张卡。已有卡片在凭据状态核验时补充指纹，冲突时停止接单，不自动挑选保留卡片
 
 卡片 Responses 模型测试使用 LiteLLM 的 `litellm_metadata` 保存内部日志身份，不将它写入供应商 `metadata` 请求字段，普通 Chat/Responses 请求与模型测试使用相同卡片限制

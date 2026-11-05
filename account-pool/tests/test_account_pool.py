@@ -347,6 +347,7 @@ class FakeChannel:
     def gateway(self, record: EnvironmentRecord) -> GatewayEnvironment:
         routable: Final = (
             record.status == EnvironmentStatus.READY
+            and record.oauth_automation_operation is None
             and record.enabled
             and not record.manual_cooldown
             and record.cooldown_until is None

@@ -68,7 +68,7 @@ def credential_identity(content: bytes, supplier: str, secrets: EnvironmentSecre
             (
                 "access_token",
                 _text(values, "access_token")
-                if supplier in ("openai_codex", "codex") and not _text(values, "refresh_token") else None,
+                if supplier in ("openai_codex", "codex") else None,
             ),
             ("api_key", _text(values, "api_key")),
             ("private_key", _text(credential_values, "private_key")),

@@ -197,6 +197,7 @@ class CLIProxyAPIChannel:
         return GatewayEnvironment(
             id=record.id,
             routable=record.status.value == "ready"
+            and record.oauth_automation_operation is None
             and (record.access_token_fallback.failure_source != "refresh" or any(record.access_token_fallback.usable_for(model, utc_now()) for model in record.enabled_models))
             and (self._ownership is None or bool(record.credential_fingerprints))
             and record.enabled
