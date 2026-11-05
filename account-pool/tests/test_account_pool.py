@@ -4798,3 +4798,42 @@ async def test_event_quota_refresh_waits_for_inflight_refresh(tmp_path: Path) ->
     lock.release()
     assert await pending is True
     assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("block", [None, "manual", "disabled", "fallback_off", "expired", "cooldown", "unknown_error"])
+async def test_configuration_keeps_access_only_probe_available_without_making_card_ready(
+    tmp_path: Path, block: str | None,
+) -> None:
+    from account_pool.domain import AccessTokenFallbackStatus
+
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(update={
+        "auth_index": "fixture-index", "credential_fingerprints": ("fixture-fingerprint",),
+        "access_token_fallback": AccessTokenFallbackStatus(
+            enabled=block != "fallback_off", active=False, reason="verification_required", failure_source="refresh",
+            expires_at=utc_now() + timedelta(hours=-1 if block == "expired" else 1),
+        ),
+        "auth_file_disabled": block == "disabled",
+        "cooldown_until": utc_now() + timedelta(minutes=5) if block == "cooldown" else None,
+        "last_error": "unknown failure" if block == "unknown_error" else None,
+    })
+    repository: Final = MemoryRepository(record)
+    cli: Final = FakeCLIProxy(observed_status=EnvironmentStatus.COOLING_DOWN)
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path), repository=repository, runtime=runtime, cli_proxy=cli,
+        proxy_profiles=EmptyProfiles(), secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, cli),
+    )
+    result: Final = await service.update_environment(record.id, UpdateEnvironmentRequest(
+        version=record.version, name="Access probe", concurrency_limit=2, enabled=True,
+        manual_cooldown=block == "manual", proxy_mode=ProxyMode.DEFAULT_GATEWAY, enabled_models=("gpt-5",),
+    ))
+    durable: Final = await repository.get(record.id)
+    assert not isinstance(result, Failure)
+    assert durable is not None and durable.desired_configuration is not None
+    assert durable.desired_configuration.credential_enabled is (block is None)
+    assert cli.status_calls == [block is None]
+    assert durable.status is EnvironmentStatus.COOLING_DOWN
+    assert durable.enabled_models == ("gpt-5",)
+    assert not durable.access_token_fallback.active

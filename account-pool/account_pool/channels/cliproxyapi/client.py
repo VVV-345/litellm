@@ -240,7 +240,9 @@ class HttpCLIProxyClient:
             params={"name": auth_file.name},
         )
         models: Final = _ModelsResponse.model_validate(model_response.json())
-        available_models: Final = tuple(dict.fromkeys(model.id for model in (*models.models, *models.data)))
+        observed_models: Final = tuple(dict.fromkeys(model.id for model in (*models.models, *models.data)))
+        # 禁用的凭据会从 CPA 注册表移除，空响应不能抹掉用户原有的模型配置。
+        available_models: Final = observed_models or (record.available_models if auth_file.disabled else ())
         enabled_models: Final = (
             available_models
             if not record.available_models

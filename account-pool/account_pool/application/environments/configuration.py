@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Final, Literal
 from uuid import UUID, uuid4
 
+from account_pool.access_token_fallback import fallback_eligible
 from account_pool.application.environment_state import (
     _AutomaticCooldownState,
     _configuration_requires_reconciliation,
@@ -100,14 +101,20 @@ class EnvironmentConfigurationOperations:
             if isinstance(profile_result, Failure):
                 return profile_result
             automatic_cooldown: Final = await self.automatic_cooldown_before_update(record, request.manual_cooldown)
+            fallback: Final = record.access_token_fallback
+            access_probe_pending: Final = (
+                fallback.enabled and fallback.failure_source == "refresh"
+                and fallback.expires_at is not None and fallback.expires_at > utc_now()
+                and any(fallback_eligible(record, model) for model in record.enabled_models)
+            )
+            # 等待 access 实测不能禁用底层凭据；卡片仍保持冷却，只有同模型验证成功才能路由。
             credential_enabled: Final = (
                 request.enabled
                 and not request.manual_cooldown
-                and automatic_cooldown
-                in (
+                and (automatic_cooldown in (
                     _AutomaticCooldownState.NONE,
                     _AutomaticCooldownState.RECOVERED,
-                )
+                ) or access_probe_pending)
             )
             status: Final = _status_after_update(record, request, automatic_cooldown)
             cooldown_until: Final = _cooldown_until_after_update(record, request.manual_cooldown, automatic_cooldown)

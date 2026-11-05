@@ -2112,3 +2112,24 @@ async def test_refresh_failure_without_model_proof_is_not_ready(verified):
             _record().model_copy(update={"auth_file_name":"selected.json"}))
     assert snapshot.status == (EnvironmentStatus.READY if verified else EnvironmentStatus.COOLING_DOWN)
     assert snapshot.automatic_cooldown is not verified
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled_models", [("model-a",), ()])
+async def test_disabled_auth_catalog_preserves_configured_models_without_enabling_them(
+    enabled_models: tuple[str, ...],
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200, json={"files": [{
+                "name": "selected.json", "provider": "codex", "status": "disabled", "disabled": True,
+            }]})
+        return httpx.Response(200, json={"models": []})
+
+    record: Final = _record().model_copy(update={"auth_file_name": "selected.json", "enabled_models": enabled_models})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        snapshot: Final = await HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http).read_account(record)
+    assert snapshot.available_models == ("model-a",)
+    assert snapshot.enabled_models == enabled_models
+    assert snapshot.auth_file_disabled
+    assert snapshot.status is EnvironmentStatus.COOLING_DOWN
