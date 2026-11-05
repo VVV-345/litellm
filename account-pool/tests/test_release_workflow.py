@@ -210,3 +210,15 @@ def test_independent_cpa_is_opt_in_and_reused_digest_is_reprobed_before_publicat
     receipt = next(step for step in steps if step.get("name") == "Record the built image digest")
     assert steps.index(receipt) > steps.index(probe)
     assert 'test "$existing" = "$DIGEST"' in receipt["run"]
+
+
+def test_browser_worker_probe_runs_the_installed_browser_offline() -> None:
+    path: Final = Path(__file__).resolve().parents[2] / ".github/workflows/publish-deployment-images.yml"
+    workflow: Final = JSON_MAP.validate_python(yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
+    jobs: Final = JSON_MAP.validate_python(workflow["jobs"])
+    build: Final = JSON_MAP.validate_python(jobs["build-and-publish"])
+    steps: Final = STEP_LIST.validate_python(build["steps"])
+    probe: Final = next(step for step in steps if step.get("id") == "probe")
+    commands: Final = TypeAdapter(str).validate_python(probe["run"])
+    assert 'browser-worker) docker run --rm --network none "$ref" self-check ;;' in commands
+    assert "chromium.launch" not in commands

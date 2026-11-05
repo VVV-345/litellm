@@ -370,7 +370,7 @@ jobs:
           case "$IMAGE" in
             litellm) docker run --rm --entrypoint python -e LITELLM_LOCAL_MODEL_COST_MAP=True "$ref" -c 'import litellm; import litellm.proxy.proxy_server; print("LiteLLM imports passed")' ;;
             manager) docker run --rm --entrypoint python "$ref" -c 'from account_pool.app import create_app; print("Manager imports passed")' ;;
-            browser-worker) docker run --rm --entrypoint python "$ref" -c 'from playwright.sync_api import sync_playwright; p = sync_playwright().start(); b = p.chromium.launch(headless=True); print(b.version); b.close(); p.stop()' ;;
+            browser-worker) docker run --rm --network none "$ref" self-check ;;
             cliproxyapi) python3 account-pool/cliproxy-adapter/probe_managed_identity.py --image "$ref" ;;
           esac
 
