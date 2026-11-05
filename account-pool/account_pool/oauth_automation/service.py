@@ -225,6 +225,13 @@ class AutomationRegistry:
                 return Failure(FailureCode.CONFLICT, "这张卡片已绑定其他登录身份，请使用新的空白卡片")
             bound: Final = next((p for p in state.profiles if p.account_digest == identity), None)
             if bound is not None and bound.item.bound_environment_id != record.id:
+                if (
+                    bound.item.bound_environment_id is not None
+                    and await self.environments.get(bound.item.bound_environment_id) is None
+                ):
+                    return Failure(
+                        FailureCode.CONFLICT, "原卡片已删除，请到指纹配置确认删除失效绑定后再提交；新建指纹不会覆盖旧绑定"
+                    )
                 return Failure(FailureCode.CONFLICT, "此账号的指纹已经绑定另一张卡片")
             profile: Final = bound or next(
                 (p for p in state.profiles if p.item.enabled and p.account_digest is None), None
@@ -328,8 +335,14 @@ class AutomationRegistry:
             row: Final = next((profile for profile in tx.snapshot.profiles if profile.item.id == profile_id), None)
             if row is None:
                 return Failure(FailureCode.NOT_FOUND, "指纹配置不存在")
-            if row.account_digest is not None or any(job.item.profile_id == profile_id for job in tx.snapshot.jobs):
-                return Failure(FailureCode.CONFLICT, "已绑定或已有任务的指纹不可删除，避免重试更换身份")
+            jobs: Final = tuple(job for job in tx.snapshot.jobs if job.item.profile_id == profile_id)
+            if any(job.item.stage in ACTIVE | {"queued"} or job.cleanup_pending for job in jobs):
+                return Failure(FailureCode.CONFLICT, "指纹仍有排队、运行或待清理任务，暂不能删除")
+            if row.item.bound_environment_id is not None:
+                if await self.environments.get(row.item.bound_environment_id) is not None:
+                    return Failure(FailureCode.CONFLICT, "指纹仍绑定现有卡片，不能删除或更换登录身份")
+            elif row.account_digest is not None or jobs:
+                return Failure(FailureCode.CONFLICT, "指纹绑定状态不完整，请先核实原卡片和任务")
             await tx.save(
                 tx.snapshot.model_copy(
                     update={"profiles": tuple(p for p in tx.snapshot.profiles if p.item.id != profile_id)}

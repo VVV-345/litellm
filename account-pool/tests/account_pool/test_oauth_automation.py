@@ -6,6 +6,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -27,6 +28,89 @@ from test_account_pool import FakeCLIProxy, MemoryRepository, StaticProfiles, _r
 
 IMAGE: Final = "registry.example/worker@sha256:" + "d" * 64
 CREDENTIAL: Final = "one@example.test----test-only-password----GEZDGNBVGY3TQOJQ"
+
+
+class MemoryAutomationStore:
+    def __init__(self):
+        from account_pool.oauth_automation.models import AutomationState
+        self.snapshot = AutomationState()
+
+    async def read(self):
+        return self.snapshot
+
+    async def save(self, state):
+        self.snapshot = state.model_copy(update={"version": self.snapshot.version + 1})
+        return self.snapshot
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield self
+
+
+@pytest.fixture
+def deletion_registry():
+    card = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"proxy_profile_id": "ordinary-proxy", "credential_fingerprints": (), "oauth_state": None},
+    )
+    return AutomationRegistry(
+        MemoryAutomationStore(), MemoryRepository(card), ProfileWorker(), EnvironmentSecretDeriver("s" * 32),
+        CredentialOwnership(), StaticProfiles("http://ordinary-proxy.test:8080"), FixtureLocationProbe(),
+    ), card
+
+
+@pytest.mark.asyncio
+async def test_deleted_card_binding_can_be_removed_before_the_same_account_uses_a_new_profile(deletion_registry):
+    service, card = deletion_registry
+    profile = await service.create_profile(ProfileInput(name="original"))
+    assert isinstance(profile, Success)
+    submitted = await service.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(submitted, Success)
+    await service.cancel(submitted.value.id)
+    service.environments.records.pop(card.id)
+    replacement = card.model_copy(update={"id": uuid4()})
+    service.environments.records[replacement.id] = replacement
+    new_profile = await service.create_profile(ProfileInput(name="replacement"))
+    assert isinstance(new_profile, Success)
+    blocked = await service.submit(JobInput(id=uuid4(), environment_id=replacement.id, credentials=CREDENTIAL))
+    assert isinstance(blocked, Failure) and "原卡片已删除" in blocked.message
+    removed = await service.delete_profile(profile.value.id)
+    assert isinstance(removed, Success)
+    assert all(p.id != profile.value.id for p in removed.value.profiles)
+    assert len(removed.value.jobs) == 1
+    retried = await service.submit(JobInput(id=uuid4(), environment_id=replacement.id, credentials=CREDENTIAL))
+    assert isinstance(retried, Success) and retried.value.profile_id == new_profile.value.id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage,cleanup,card_exists", [
+    ("queued", False, False), ("running", False, False), ("failed", True, False),
+    ("completed", False, True), ("cancelled", False, True),
+])
+async def test_profile_deletion_preserves_live_bindings_and_unfinished_cleanup(
+    deletion_registry, stage, cleanup, card_exists,
+):
+    service, card = deletion_registry
+    profile = await service.create_profile(ProfileInput(name="protected"))
+    submitted = await service.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(profile, Success) and isinstance(submitted, Success)
+    async with service.repository.transaction() as tx:
+        await tx.save(tx.snapshot.model_copy(update={"jobs": tuple(
+            row.model_copy(update={"cleanup_pending": cleanup, "item": row.item.model_copy(update={"stage": stage})})
+            for row in tx.snapshot.jobs
+        )}))
+    if not card_exists:
+        service.environments.records.pop(card.id)
+    assert isinstance(await service.delete_profile(profile.value.id), Failure)
+    assert (await service.view()).profiles[0].id == profile.value.id
+
+
+@pytest.mark.asyncio
+async def test_unused_profile_can_still_be_deleted(deletion_registry):
+    service, _ = deletion_registry
+    profile = await service.create_profile(ProfileInput(name="unused"))
+    assert isinstance(profile, Success)
+    result = await service.delete_profile(profile.value.id)
+    assert isinstance(result, Success) and result.value.profiles == ()
 
 
 @pytest.mark.asyncio

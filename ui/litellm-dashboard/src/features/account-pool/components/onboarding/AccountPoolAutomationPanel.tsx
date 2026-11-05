@@ -6,11 +6,19 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fingerprint, ListChecks, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
+import { ApiError } from "@/lib/http/client";
 import {
   actOnAutomation,
   checkAutomationImage,
@@ -114,18 +122,24 @@ function SettingsForm({
 
 function ProfileRow({
   profile,
+  orphaned,
   disabled,
   run,
   accessToken,
 }: {
   profile: AutomationProfile;
+  orphaned: boolean;
   disabled: boolean;
   run: Operation;
   accessToken: string;
 }) {
   const [name, setName] = useState(profile.name);
   const [enabled, setEnabled] = useState(profile.enabled ?? true);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const locationHint = profile.auto_match_proxy ? "首次绑定时按代理出口匹配地区、语言和时区" : "保留原有手动配置";
+  const bindingLabel = profile.bound_environment_id
+    ? `已绑定 ${profile.bound_environment_id.slice(0, 8)}`
+    : "未绑定，按顺序分配";
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const body = {
@@ -158,9 +172,7 @@ function ProfileRow({
           ? `${profile.location.country} / ${profile.location.region || profile.location.city || profile.location.country_code} / ${profile.location.timezone}`
           : locationHint}
       </span>
-      <span className="text-sm">
-        {profile.bound_environment_id ? `已绑定 ${profile.bound_environment_id.slice(0, 8)}` : "未绑定，按顺序分配"}
-      </span>
+      <span className="text-sm">{orphaned ? "原卡片已删除，绑定已失效" : bindingLabel}</span>
       <Label>
         <Checkbox checked={enabled} onCheckedChange={(value) => setEnabled(value === true)} disabled={disabled} />
         启用
@@ -172,17 +184,45 @@ function ProfileRow({
         type="button"
         size="sm"
         variant="ghost"
-        disabled={disabled || Boolean(profile.bound_environment_id)}
-        onClick={() => void run(() => deleteAutomationProfile(accessToken, profile.id))}
+        disabled={disabled || (Boolean(profile.bound_environment_id) && !orphaned)}
+        onClick={() => setConfirmDelete(true)}
       >
-        删除未绑定指纹
+        {orphaned ? "删除失效绑定" : "删除指纹"}
       </Button>
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除指纹</DialogTitle>
+            <DialogDescription>
+              将永久删除“{profile.name}”及其账号绑定，无法撤销。不会删除卡片凭据或历史任务；
+              旧卡已删除的历史任务不能重新登录重试。重新提交会使用新的指纹，可能需要上游重新验证。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={disabled}
+              onClick={() => {
+                setConfirmDelete(false);
+                void run(() => deleteAutomationProfile(accessToken, profile.id));
+              }}
+            >
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   );
 }
 
 function JobRow({
   job,
+  cardMissing,
   now,
   disabled,
   run,
@@ -190,6 +230,7 @@ function JobRow({
   view,
 }: {
   job: AutomationJob;
+  cardMissing: boolean;
   now: number;
   disabled: boolean;
   run: Operation;
@@ -209,7 +250,7 @@ function JobRow({
           <span>出口 {job.proxy_profile_id}</span>
           {active.has(job.stage) && remaining !== null && <span className="tabular-nums">剩余 {remaining} 秒</span>}
         </div>
-        <div className="flex flex-wrap gap-2">
+        <fieldset className="flex flex-wrap gap-2" disabled={disabled}>
           {interactive && (
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(() => view(job.id))}>
               查看画面
@@ -241,14 +282,17 @@ function JobRow({
             <Button
               size="sm"
               variant="outline"
-              disabled={disabled}
+              disabled={cardMissing}
               onClick={() => void run(() => actOnAutomation(accessToken, job.id, "retry", retryModel))}
             >
               {job.credentials_saved || job.callback_consumed ? "仅重试验收" : "新会话重试"}
             </Button>
           )}
-        </div>
+        </fieldset>
       </div>
+      <p hidden={!cardMissing} className="text-sm text-muted-foreground">
+        原卡片已删除，请使用新卡提交新任务；不能重试旧卡任务
+      </p>
       <p className="text-sm text-muted-foreground" role="status">
         {job.message}
       </p>
@@ -289,6 +333,7 @@ export function AccountPoolAutomationPanel({
   const query = useQuery(queryOptions);
   const cards = useQuery(accountPoolEnvironmentOptions(accessToken));
   const [busy, setBusy] = useState(false);
+  const [operationError, setOperationError] = useState<string | null>(null);
   const [credentials, setCredentials] = useState("");
   const [fileError, setFileError] = useState("");
   const [selectedCard, setSelectedCard] = useState(initialEnvironmentId ?? "");
@@ -301,12 +346,18 @@ export function AccountPoolAutomationPanel({
   }, []);
   const run: Operation = async (action) => {
     setBusy(true);
+    setOperationError(null);
     try {
       await action();
       await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
       toast.success("操作已完成");
-    } catch {
-      toast.error("操作未完成，请刷新任务或检查镜像自检、卡片与代理状态");
+    } catch (error) {
+      const message =
+        error instanceof ApiError && [404, 409].includes(error.status)
+          ? error.message
+          : "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
+      setOperationError(message);
+      toast.error(message);
     } finally {
       setBusy(false);
     }
@@ -444,6 +495,7 @@ export function AccountPoolAutomationPanel({
           <JobRow
             key={job.id}
             job={job}
+            cardMissing={cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
             now={now}
             disabled={busy}
             run={run}
@@ -502,11 +554,22 @@ export function AccountPoolAutomationPanel({
         </Button>
       </form>
       {!state.image_checked && <p className="text-sm text-muted-foreground">请先在运行设置中完成镜像自检</p>}
+      <p className="text-sm text-muted-foreground">
+        同一账号优先使用原指纹，新建指纹不会覆盖已有绑定。原卡已删除时，可确认删除失效绑定后重新提交。
+      </p>
       {state.profiles.map((profile) => (
         <ProfileRow
           key={`${profile.id}:${profile.version}`}
           profile={profile}
-          disabled={busy || state.jobs.some((job) => job.profile_id === profile.id && active.has(job.stage))}
+          orphaned={
+            Boolean(profile.bound_environment_id) &&
+            cards.isSuccess &&
+            !cards.data.some((card) => card.id === profile.bound_environment_id)
+          }
+          disabled={
+            busy ||
+            state.jobs.some((job) => job.profile_id === profile.id && (active.has(job.stage) || job.stage === "queued"))
+          }
           run={run}
           accessToken={accessToken}
         />
@@ -515,6 +578,11 @@ export function AccountPoolAutomationPanel({
   );
   return (
     <>
+      {operationError && (
+        <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
+          {operationError}
+        </p>
+      )}
       <AccountPoolWorkspace
         title="授权自动化"
         defaultOpen

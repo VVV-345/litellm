@@ -6,9 +6,17 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { AccountPoolAutomationPanel } from "./AccountPoolAutomationPanel";
 import type { AutomationJob, AutomationView } from "../../api/AccountPoolAutomationApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { ApiError } from "@/lib/http/client";
 
-const { get, post, put } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
-vi.mock("@/components/networking", () => ({ apiClient: { get, post, put }, serverRootPath: "" }));
+const { get, post, put, del, toastError } = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+  del: vi.fn(),
+  toastError: vi.fn(),
+}));
+vi.mock("@/components/networking", () => ({ apiClient: { get, post, put, delete: del }, serverRootPath: "" }));
+vi.mock("@/lib/toast", () => ({ toast: { success: vi.fn(), error: toastError } }));
 const view: AutomationView = {
   version: 1,
   settings: { enabled: false, total_timeout_seconds: 600, human_timeout_seconds: 300 },
@@ -67,6 +75,113 @@ beforeEach(() => {
   );
   post.mockResolvedValue(job);
   put.mockResolvedValue(view);
+  del.mockResolvedValue(view);
+});
+
+const orphanProfile: AutomationView["profiles"][number] = {
+  id: "orphan-profile",
+  name: "旧卡指纹",
+  version: 1,
+  enabled: true,
+  locale: "en-US",
+  auto_match_proxy: false,
+  os: "linux",
+  digest: "a".repeat(64),
+  bound_environment_id: "deleted-card",
+};
+
+it("confirms deletion of an orphaned binding but never silently deletes it", async () => {
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation") ? { ...view, profiles: [orphanProfile] } : [],
+  );
+  const user = userEvent.setup();
+  mount();
+  await user.click(await screen.findByRole("tab", { name: /指纹配置/ }));
+  await user.click(await screen.findByRole("button", { name: "删除失效绑定" }));
+  expect(screen.getByRole("dialog", { name: "确认删除指纹" })).toBeVisible();
+  expect(del).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "取消" }));
+  expect(del).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "删除失效绑定" }));
+  await user.click(screen.getByRole("button", { name: "确认删除" }));
+  await waitFor(() =>
+    expect(del).toHaveBeenCalledWith("/account_pool/oauth-automation/profiles/orphan-profile", {
+      accessToken: "test-admin",
+    }),
+  );
+});
+
+it("keeps fingerprints bound to existing cards protected", async () => {
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation")
+      ? { ...view, profiles: [{ ...orphanProfile, bound_environment_id: "card-001" }] }
+      : [{ id: "card-001" }],
+  );
+  const user = userEvent.setup();
+  mount();
+  await user.click(await screen.findByRole("tab", { name: /指纹配置/ }));
+  expect(await screen.findByRole("button", { name: "删除指纹" })).toBeDisabled();
+  expect(del).not.toHaveBeenCalled();
+});
+
+it.each(["queued", "running"] as const)("protects orphaned profiles while a task is %s", async (stage) => {
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation")
+      ? { ...view, profiles: [orphanProfile], jobs: [{ ...job, profile_id: orphanProfile.id, stage }] }
+      : [],
+  );
+  const user = userEvent.setup();
+  mount();
+  await user.click(await screen.findByRole("tab", { name: /指纹配置/ }));
+  expect(await screen.findByRole("button", { name: "删除失效绑定" })).toBeDisabled();
+});
+
+it("does not treat an unavailable card list as proof that a bound card was deleted", async () => {
+  get.mockImplementation(async (path: string) => {
+    if (path.endsWith("/oauth-automation")) return { ...view, profiles: [orphanProfile] };
+    throw new Error("card inventory unavailable");
+  });
+  const user = userEvent.setup();
+  mount();
+  await user.click(await screen.findByRole("tab", { name: /指纹配置/ }));
+  expect(await screen.findByRole("button", { name: "删除指纹" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "删除失效绑定" })).not.toBeInTheDocument();
+});
+
+it("disables old job retries when their card has been deleted", async () => {
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation")
+      ? { ...view, jobs: [{ ...job, stage: "failed", credentials_saved: false, callback_consumed: false }] }
+      : [],
+  );
+  mount();
+  expect(await screen.findByRole("button", { name: "新会话重试" })).toBeDisabled();
+  expect(screen.getByText(/原卡片已删除，请使用新卡提交新任务/)).toBeVisible();
+});
+
+it("explains binding conflicts without retaining submitted credentials", async () => {
+  const message = "原卡片已删除，请到指纹配置确认删除失效绑定后再提交";
+  post.mockRejectedValue(new ApiError(message, 409, { detail: message }));
+  const user = userEvent.setup();
+  mount("card-001");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  const credentials = screen.getByRole("textbox", { name: "单账号资料" });
+  fireEvent.change(credentials, { target: { value: "one@example.test----private-password----GEZDGNBVGY3TQOJQ" } });
+  await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  expect(credentials).toHaveValue("");
+  expect(toastError).toHaveBeenCalledWith(message);
+});
+
+it("does not expose unexpected upstream error bodies in the form", async () => {
+  post.mockRejectedValue(new ApiError("private-upstream-token", 502, { detail: "private-upstream-token" }));
+  const user = userEvent.setup();
+  mount("card-001");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  fireEvent.change(screen.getByRole("textbox", { name: "单账号资料" }), { target: { value: "fixture credentials" } });
+  await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
+  expect(await screen.findByRole("alert")).not.toHaveTextContent("private-upstream-token");
+  expect(toastError).not.toHaveBeenCalledWith(expect.stringContaining("private-upstream-token"));
 });
 
 it("preselects the OAuth entry card without submitting credentials or enabling automation", async () => {
@@ -156,7 +271,9 @@ it.each(["linux", "windows", "macos"])(
 );
 
 it("offers verification-only retry for saved credentials, never a new-login retry", async () => {
-  get.mockImplementation(async (path: string) => (path.endsWith("/oauth-automation") ? { ...view, jobs: [job] } : []));
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation") ? { ...view, jobs: [job] } : [{ id: job.environment_id }],
+  );
   const user = userEvent.setup();
   mount();
   const model = await screen.findByRole("textbox", { name: "重试验收模型" });
