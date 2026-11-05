@@ -11,6 +11,14 @@
     "save": "保存反馈",
     "refresh": "刷新",
     "stats": "反馈统计",
+    "form": {
+      "cancel": "取消",
+      "intro": "先说明问题，再按需补充复现环境。请勿填写密码、Token 或完整密钥",
+      "content": "反馈内容",
+      "context": "复现步骤与环境（选填）",
+      "titlePlaceholder": "用一句话说明遇到的问题",
+      "descriptionPlaceholder": "实际发生了什么？你期望的结果是什么？"
+    },
     "hints": {
       "description": "说明现象和影响，便于复现"
     },

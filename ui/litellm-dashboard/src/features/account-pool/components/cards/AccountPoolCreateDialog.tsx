@@ -1,6 +1,6 @@
 /** 本文件从 AI 提供商入口创建卡片，并按供应商展示授权引导。 */
 
-import { Plus } from "lucide-react";
+import { Bot, Plus } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -48,6 +48,7 @@ interface AccountPoolCreateDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated: () => void;
+  onAutomation?: (environmentId: string) => void;
 }
 
 export const AccountPoolCreateDialog = ({
@@ -58,6 +59,7 @@ export const AccountPoolCreateDialog = ({
   open,
   onOpenChange,
   onCreated,
+  onAutomation,
 }: AccountPoolCreateDialogProps) => {
   const { t } = useTranslation();
   const [name, setName] = useState("");
@@ -257,6 +259,20 @@ export const AccountPoolCreateDialog = ({
       )}
     </div>
   );
+  const codexOAuth = authorization?.flow === "browser_oauth" && authorization.environment.supplier === "openai_codex";
+  const canAutomate =
+    Boolean(onAutomation) && codexOAuth && authorization.environment.status === "awaiting_authorization";
+  const automationEntry = canAutomate && (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900 dark:bg-blue-950/20">
+      <p className="text-xs leading-5 text-muted-foreground">
+        这张空白 Codex 卡片也可使用服务端浏览器，自动登录、处理 2FA 并完成回调与模型验收
+      </p>
+      <Button type="button" size="sm" variant="outline" onClick={() => onAutomation?.(authorization.environment.id)}>
+        <Bot aria-hidden="true" />
+        浏览器自动化授权
+      </Button>
+    </div>
+  );
   const renderDialogBody = () => {
     if (authorization) {
       return (
@@ -267,6 +283,7 @@ export const AccountPoolCreateDialog = ({
           accessToken={accessToken}
           environmentId={authorization.environment.id}
         >
+          {automationEntry}
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => void cancelAuthorization()}>
               {t("accountPool.create.cancelAuthorization")}

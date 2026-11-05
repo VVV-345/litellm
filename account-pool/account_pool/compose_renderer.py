@@ -158,7 +158,7 @@ def render_oauth_browser_compose(
                 "command": ["callback-relay"],
                 "read_only": True,
                 "user": "10001:10001",
-                "mem_limit": "64m",
+                "mem_limit": "256m",
                 "cpus": "0.25",
                 "pids_limit": 32,
                 "security_opt": ["no-new-privileges:true"],

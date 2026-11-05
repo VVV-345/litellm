@@ -20,6 +20,7 @@ import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 interface AccountPoolProviderFamiliesProps {
   accessToken: string | null;
   onCreate: (supplier: AccountPoolSupplier) => void;
+  onAutomation?: () => void;
 }
 
 const SUPPORTED_SUPPLIERS: readonly AccountPoolSupplier[] = [
@@ -39,7 +40,11 @@ const supplierFromFamily = (family: AccountPoolProviderFamily): AccountPoolSuppl
     ? (family.supplier as AccountPoolSupplier)
     : null;
 
-export const AccountPoolProviderFamilies = ({ accessToken, onCreate }: AccountPoolProviderFamiliesProps) => {
+export const AccountPoolProviderFamilies = ({
+  accessToken,
+  onCreate,
+  onAutomation,
+}: AccountPoolProviderFamiliesProps) => {
   const { t } = useTranslation();
   const [selected, setSelected] = useState<string | null>(null);
   const query = useQuery({
@@ -80,6 +85,7 @@ export const AccountPoolProviderFamilies = ({ accessToken, onCreate }: AccountPo
 
   const families = query.data ?? [];
   const active = families.find((family) => family.kind === selected) ?? families[0];
+  const canAutomate = active?.available && active.supplier === "openai_codex";
   return (
     <Tabs value={active?.kind ?? ""} onValueChange={setSelected}>
       <TabsList className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start gap-1 bg-muted/30 p-1 max-sm:flex-nowrap max-sm:overflow-x-auto">
@@ -128,19 +134,26 @@ export const AccountPoolProviderFamilies = ({ accessToken, onCreate }: AccountPo
                 <p className="text-sm leading-6 text-muted-foreground">{active.description}</p>
               </div>
             </div>
-            <Button
-              type="button"
-              size="sm"
-              className="self-start sm:self-auto"
-              disabled={!active.available || supplierFromFamily(active) === null}
-              onClick={() => {
-                const supplier = supplierFromFamily(active);
-                if (supplier) onCreate(supplier);
-              }}
-            >
-              <Plus />
-              {t("accountPool.providers.create")}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {canAutomate && onAutomation && (
+                <Button type="button" size="sm" variant="outline" onClick={onAutomation}>
+                  浏览器自动化授权
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                className="self-start sm:self-auto"
+                disabled={!active.available || supplierFromFamily(active) === null}
+                onClick={() => {
+                  const supplier = supplierFromFamily(active);
+                  if (supplier) onCreate(supplier);
+                }}
+              >
+                <Plus />
+                {t("accountPool.providers.create")}
+              </Button>
+            </div>
           </div>
         </TabsContent>
       )}

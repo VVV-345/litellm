@@ -38,11 +38,11 @@ const job: AutomationJob = {
   expires_at: null,
   human_expires_at: null,
 };
-const mount = () => {
+const mount = (initialEnvironmentId?: string) => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <AccountPoolAutomationPanel accessToken="test-admin" />
+      <AccountPoolAutomationPanel accessToken="test-admin" initialEnvironmentId={initialEnvironmentId} />
     </QueryClientProvider>,
   );
   return client;
@@ -67,6 +67,25 @@ beforeEach(() => {
   );
   post.mockResolvedValue(job);
   put.mockResolvedValue(view);
+});
+
+it("preselects the OAuth entry card without submitting credentials or enabling automation", async () => {
+  mount("card-001");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  expect(screen.getByRole("combobox", { name: "空白 Codex 卡片" })).toHaveValue("card-001");
+  expect(screen.getByRole("textbox", { name: "单账号资料" })).toHaveValue("");
+  expect(post).not.toHaveBeenCalled();
+  expect(put).not.toHaveBeenCalled();
+});
+
+it("does not silently select a different account when the linked card is unavailable", async () => {
+  mount("missing-card");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  expect(screen.getByRole("combobox", { name: "空白 Codex 卡片" })).toHaveValue("");
+  expect(screen.getByText(/所选卡片不满足/)).toBeVisible();
+  fireEvent.change(screen.getByRole("textbox", { name: "单账号资料" }), { target: { value: "test credentials" } });
+  expect(screen.getByRole("button", { name: "添加到串行队列" })).toBeDisabled();
+  expect(post).not.toHaveBeenCalled();
 });
 
 it("clears submitted credentials immediately and never puts them in query or mutation caches", async () => {

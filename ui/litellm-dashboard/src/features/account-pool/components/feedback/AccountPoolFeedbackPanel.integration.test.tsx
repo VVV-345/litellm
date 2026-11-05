@@ -36,6 +36,26 @@ beforeEach(async () => {
 });
 
 describe("feedback creation", () => {
+  it("keeps optional context when folded and sends it with the same explicit save", async () => {
+    const user = userEvent.setup();
+    const saved = vi.fn();
+    api.createFeedbackIssue.mockResolvedValueOnce(issue);
+    render(<FeedbackIssueDialog accessToken="admin" pagePath="/ui/account-pool" onClose={vi.fn()} onSaved={saved} />, { wrapper });
+    expect(screen.getByRole("button", { name: "取消" })).toBeEnabled();
+    expect(screen.getByLabelText("复现步骤")).not.toBeVisible();
+    await user.click(screen.getByText("复现步骤与环境（选填）"));
+    fireEvent.change(screen.getByLabelText("复现步骤"), { target: { value: "打开日志，展开详情" } });
+    fireEvent.change(screen.getByLabelText("发现版本"), { target: { value: "v2.0" } });
+    await user.click(screen.getByText("复现步骤与环境（选填）"));
+    expect(screen.getByLabelText("复现步骤")).not.toBeVisible();
+    fireEvent.change(screen.getByLabelText("标题"), { target: { value: "日志显示" } });
+    fireEvent.change(screen.getByLabelText("描述"), { target: { value: "详情难以阅读" } });
+    await user.click(screen.getByRole("button", { name: "保存反馈" }));
+    await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+    const expectedContext = { steps: "打开日志，展开详情", discovered_version: "v2.0", page_path: "/ui/account-pool", priority: "normal" };
+    expect(api.createFeedbackIssue).toHaveBeenLastCalledWith("admin", expect.objectContaining(expectedContext));
+  });
+
   it("submits the explicit form and retains input when saving fails", async () => {
     api.createFeedbackIssue.mockRejectedValueOnce(new Error("保存失败"));
     const saved = vi.fn();

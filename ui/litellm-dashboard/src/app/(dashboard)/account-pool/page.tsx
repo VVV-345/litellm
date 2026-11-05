@@ -135,6 +135,7 @@ export default function AccountPoolPage() {
   const [verifyAccessEnvironment, setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
+  const [automationEnvironmentId, setAutomationEnvironmentId] = useState<string | undefined>();
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
@@ -144,6 +145,15 @@ export default function AccountPoolPage() {
   if (!visitedTabs.has(activeTab)) setVisitedTabs(new Set([...visitedTabs, activeTab]));
   const setActiveTab = (value: string) => {
     setTabSelection({ query: requestedTab, value });
+  };
+  const openAutomation = (environmentId?: string) => {
+    setAutomationEnvironmentId(environmentId);
+    setActiveTab("oauth-automation");
+  };
+  const openCreatedCardAutomation = (environmentId: string) => {
+    setCreateOpen(false);
+    setAuthorization(null);
+    openAutomation(environmentId);
   };
   const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
   const [refreshingQuotas, setRefreshingQuotas] = useState(false);
@@ -492,7 +502,13 @@ export default function AccountPoolPage() {
                   icon: Boxes,
                   label: "AI 提供商",
                   summary: "认证方式与新建",
-                  content: <AccountPoolProviderFamilies accessToken={accessToken} onCreate={openCreateDialog} />,
+                  content: (
+                    <AccountPoolProviderFamilies
+                      accessToken={accessToken}
+                      onCreate={openCreateDialog}
+                      onAutomation={() => openAutomation()}
+                    />
+                  ),
                 },
                 {
                   value: "oauth",
@@ -506,6 +522,7 @@ export default function AccountPoolPage() {
                       environments={environments}
                       onCreate={openCreateDialog}
                       onAuthorize={handleAuthorize}
+                      onAutomation={openAutomation}
                     />
                   ),
                 },
@@ -557,7 +574,13 @@ export default function AccountPoolPage() {
             active={activeTab === "oauth-automation"}
             visited={isTabVisited("oauth-automation")}
           >
-            {accessToken && <AccountPoolAutomationPanel accessToken={accessToken} />}
+            {accessToken && (
+              <AccountPoolAutomationPanel
+                key={automationEnvironmentId ?? "queue"}
+                accessToken={accessToken}
+                initialEnvironmentId={automationEnvironmentId}
+              />
+            )}
           </DeferredTabPanel>
 
           <DeferredTabPanel
@@ -626,6 +649,7 @@ export default function AccountPoolPage() {
             if (!open) setAuthorization(null);
           }}
           onCreated={() => void environmentsQuery.refetch()}
+          onAutomation={openCreatedCardAutomation}
         />
       )}
       {testEnvironment && accessToken && (

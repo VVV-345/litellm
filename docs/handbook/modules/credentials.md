@@ -46,6 +46,8 @@ Manager 的 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 必须使用 digest。号池的�
 
 ## 测试与通过标准
 
+服务端授权浏览器的回调中继内存限制为 256 MiB，浏览器和出站中继的原有资源及隔离设置不变。该限制由 Manager 生成 Compose，需要更新 Manager 才对新会话生效；只替换浏览器 worker 不会修改旧 Manager 生成的限制。镜像自检是离线组件检查，不代表控制网络或实际授权通过。正式验收还需检查配置的控制网络、Manager 与网关连接、浏览器启动、回调及同卡推理，不能用自检成功代替。
+
 [OAuth API](../../../account-pool/tests/account_pool/test_oauth_browser_api.py)、[会话](../../../account-pool/tests/account_pool/test_oauth_browser.py)、[归属](../../../account-pool/tests/account_pool/test_credential_ownership.py)、[刷新](../../../account-pool/tests/account_pool/test_credential_refresh.py)、[降级](../../../account-pool/tests/account_pool/test_access_token_fallback.py)、[上号](../../../account-pool/tests/account_pool/onboarding/test_onboarding_service.py)。须验证一次性回调、冲突拒绝、失败不泄密和不丢轮换凭据。mock 通过不代表真实 OAuth 已完成
 
 ## 故障排查

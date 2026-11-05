@@ -60,4 +60,18 @@ describe("AccountPoolProviderFamilies", () => {
     await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
     expect(onCreate).toHaveBeenCalledWith("openai_compatible");
   });
+
+  it("opens the existing browser automation flow only for Codex", async () => {
+    const onAutomation = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolProviderFamilies accessToken="token" onCreate={vi.fn()} onAutomation={onAutomation} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "浏览器自动化授权" }));
+    expect(onAutomation).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("tab", { name: /OpenAI 兼容/ }));
+    expect(screen.queryByRole("button", { name: "浏览器自动化授权" })).not.toBeInTheDocument();
+  });
 });

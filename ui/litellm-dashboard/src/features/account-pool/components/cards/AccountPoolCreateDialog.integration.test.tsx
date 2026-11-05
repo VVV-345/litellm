@@ -66,6 +66,16 @@ const selectProxyProfile = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("AccountPoolCreateDialog", () => {
+  it("hands a new blank Codex card to the existing browser automation without creating it twice", async () => {
+    const onAutomation = vi.fn();
+    const user = userEvent.setup();
+    const initialAuthorization = { ...browserAuthorization, environment: { ...browserAuthorization.environment, status: "awaiting_authorization" } } as AccountPoolAuthorization;
+    renderDialog({ initialAuthorization, onAutomation });
+    await user.click(screen.getByRole("button", { name: "浏览器自动化授权" }));
+    expect(onAutomation).toHaveBeenCalledWith("env-1");
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     createMock.mockReset();

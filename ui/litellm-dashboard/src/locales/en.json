@@ -11,6 +11,14 @@
     "save": "Save Feedback",
     "refresh": "Refresh",
     "stats": "Feedback Stats",
+    "form": {
+      "cancel": "Cancel",
+      "intro": "Describe the issue, then add context if needed. Do not include passwords, tokens or full API keys",
+      "content": "Issue details",
+      "context": "Steps and environment (optional)",
+      "titlePlaceholder": "Summarize the issue in one sentence",
+      "descriptionPlaceholder": "What happened, and what did you expect?"
+    },
     "hints": {
       "description": "Describe the symptom and impact so it can be reproduced"
     },

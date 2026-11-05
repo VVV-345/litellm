@@ -83,6 +83,10 @@ def test_browser_compose_keeps_worker_internal_and_binds_only_selected_proxy(tmp
     assert "CALLBACK_TOKEN" not in browser["environment"]
     assert browser["networks"] == {"browser": {"aliases": ["browser"]}}
     assert callback["command"] == ["callback-relay"]
+    assert callback["mem_limit"] == "256m"
+    assert callback["user"] == "10001:10001"
+    assert callback["cap_drop"] == ["ALL"]
+    assert "ports" not in callback
     assert callback["networks"] == {
         "browser": None,
         "control": {"aliases": [f"oauth-control-{session.id.hex}"]},

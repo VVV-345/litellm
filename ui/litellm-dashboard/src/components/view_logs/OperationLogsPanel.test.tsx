@@ -109,15 +109,15 @@ describe("OperationLogsPanel", () => {
     );
     const row = await screen.findByRole("row", { name: /Request completed/ });
     expect(within(row).getByText(log.model)).toBeInTheDocument();
-    expect(within(row).getByRole("cell", { name: "10" })).toBeInTheDocument();
-    expect(within(row).getByRole("cell", { name: "5" })).toBeInTheDocument();
-    expect(within(row).getByRole("cell", { name: "8" })).toBeInTheDocument();
+    expect(within(row).getByLabelText("输入 Token")).toHaveTextContent("10");
+    expect(within(row).getByLabelText("输出 Token")).toHaveTextContent("5");
+    expect(within(row).getByLabelText("缓存读取")).toHaveTextContent("8");
     expect(within(row).getByRole("cell", { name: "$0.00042" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "缓存写入" })).not.toBeInTheDocument();
-    expect(within(row).getByRole("cell", { name: "80.0%" })).toBeInTheDocument();
+    expect(within(row).getByText(/80\.0%/)).toBeInTheDocument();
     expect(within(row).getByText("50 ms")).toBeInTheDocument();
     const unknown = screen.getByRole("row", { name: /No usage reported/ });
-    expect(within(unknown).getAllByRole("cell", { name: "暂无数据" })).toHaveLength(4);
+    expect(within(unknown).getAllByText("暂无数据")).toHaveLength(4);
   });
 
   it("shows reported cost coverage and the selected route reason", async () => {
@@ -144,6 +144,7 @@ describe("OperationLogsPanel", () => {
       </QueryClientProvider>,
     );
     await screen.findByRole("row", { name: /Request completed/ });
+    await user.click(screen.getByRole("button", { name: "高级筛选" }));
     await user.click(screen.getByRole("combobox", { name: "请求结果" }));
     await user.click(screen.getByRole("option", { name: "失败" }));
     fireEvent.change(screen.getByLabelText("HTTP 状态码"), { target: { value: "429" } });
@@ -160,6 +161,44 @@ describe("OperationLogsPanel", () => {
     await waitFor(() =>
       expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ card_id: card.id, offset: 0 })),
     );
+  });
+
+  it("keeps advanced filter drafts when collapsed and only queries after applying", async () => {
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <OperationLogsPanel accessToken="token" environments={[]} />
+      </QueryClientProvider>,
+    );
+    await screen.findByRole("row", { name: /Request completed/ });
+    expect(screen.getByLabelText("会话 ID")).not.toBeVisible();
+    await user.click(screen.getByRole("button", { name: "高级筛选" }));
+    fireEvent.change(screen.getByLabelText("会话 ID"), { target: { value: "retained-session" } });
+    expect(listLogs).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "高级筛选" }));
+    expect(screen.getByLabelText("会话 ID")).not.toBeVisible();
+    await user.click(screen.getByRole("button", { name: "查询" }));
+    await waitFor(() => expect(listLogs).toHaveBeenLastCalledWith("token", expect.objectContaining({ session_id: "retained-session", offset: 0 })));
+    await user.click(screen.getByRole("button", { name: "高级筛选" }));
+    expect(screen.getByLabelText("会话 ID")).toHaveValue("retained-session");
+  });
+
+  it("shows a readable event summary before opening identifiers and raw attempt details", async () => {
+    const user = userEvent.setup();
+    getLog.mockResolvedValueOnce({ event: log, attempts: [{ ...log, detail: "line one\nline two" }], has_more: false });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <OperationLogsPanel accessToken="token" environments={[]} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Request completed" }));
+    const dialog = screen.getByRole("dialog");
+    expect(await within(dialog).findByText(log.request_id)).not.toBeVisible();
+    await user.click(within(dialog).getByText("请求与关联信息"));
+    expect(within(dialog).getByText(log.request_id)).toBeVisible();
+    expect(within(dialog).getByText("line one line two")).not.toBeVisible();
+    await user.click(within(dialog).getByText("详细记录"));
+    expect(within(dialog).getByText("line one line two")).toBeVisible();
   });
 
   it("jumps pages and changes page size in 运行 logs requests", async () => {

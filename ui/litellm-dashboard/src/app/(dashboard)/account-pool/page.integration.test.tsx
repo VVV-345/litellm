@@ -13,6 +13,10 @@ const listAccounts = vi.fn();
 const updateAccount = vi.fn();
 const searchState = { value: "" };
 const loadStats = vi.fn();
+vi.mock("@/features/account-pool/api/AccountPoolAutomationApi", async (original) => ({
+  ...(await original<typeof import("@/features/account-pool/api/AccountPoolAutomationApi")>()),
+  getAutomation: async () => ({ version: 1, settings: { enabled: false }, profiles: [], jobs: [], image_checked: false }),
+}));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
   useSearchParams: () => new URLSearchParams(searchState.value),
@@ -109,6 +113,18 @@ describe("account card local configuration", () => {
     expect(screen.queryByRole("tab", { name: "反馈中心" })).not.toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "仪表盘" })).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByTestId(`account-pool-card-${environment.id}`)).toBeInTheDocument();
+  });
+
+  it("opens the single automation workspace from OAuth with the selected blank card", async () => {
+    const user = userEvent.setup();
+    searchState.value = "tab=oauth";
+    listAccounts.mockResolvedValue([{ ...environment, status: "awaiting_authorization", proxy_profile_id: "proxy-test" }]);
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: `自动化授权 ${environment.name}` }));
+    expect(screen.getByRole("tab", { name: "授权自动化" })).toHaveAttribute("aria-selected", "true");
+    await screen.findByRole("option", { name: environment.name });
+    expect(screen.getByRole("combobox", { name: "空白 Codex 卡片" })).toHaveValue(environment.id);
+    expect(screen.getByRole("textbox", { name: "单账号资料" })).toHaveValue("");
   });
 
   it("updates an open model test when query refresh removes access proof, and closes it after card deletion", async () => {

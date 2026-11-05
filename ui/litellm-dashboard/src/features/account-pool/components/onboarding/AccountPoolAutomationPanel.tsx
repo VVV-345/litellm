@@ -272,7 +272,13 @@ function JobRow({
   );
 }
 
-export function AccountPoolAutomationPanel({ accessToken }: { accessToken: string }) {
+export function AccountPoolAutomationPanel({
+  accessToken,
+  initialEnvironmentId,
+}: {
+  accessToken: string;
+  initialEnvironmentId?: string;
+}) {
   const client = useQueryClient();
   const queryOptions = {
     queryKey: accountPoolQueryKeys.automation(accessToken),
@@ -285,6 +291,7 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
   const [busy, setBusy] = useState(false);
   const [credentials, setCredentials] = useState("");
   const [fileError, setFileError] = useState("");
+  const [selectedCard, setSelectedCard] = useState(initialEnvironmentId ?? "");
   const [screen, setScreen] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const fileGeneration = useRef(0);
@@ -358,6 +365,9 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
     const configured = card.enabled && card.proxy_profile_id && !card.configuration_pending;
     return oauthCard && configured && ["awaiting_authorization", "error"].includes(card.status);
   });
+  const selectedCardAvailable = emptyCards.some((card) => card.id === selectedCard);
+  const linkedCardUnavailable =
+    initialEnvironmentId && !cards.isPending && !emptyCards.some((card) => card.id === initialEnvironmentId);
   const jobs = (
     <div className="space-y-4">
       <form className="grid gap-3 rounded-lg border bg-muted/10 p-4 md:grid-cols-2" onSubmit={submitJob}>
@@ -369,6 +379,8 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             required
             disabled={busy}
+            value={selectedCardAvailable ? selectedCard : ""}
+            onChange={(event) => setSelectedCard(event.target.value)}
           >
             <option value="">选择已同步出口代理的空白卡片</option>
             {emptyCards.map((card) => (
@@ -378,6 +390,11 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
             ))}
           </select>
         </div>
+        {linkedCardUnavailable && (
+          <p role="status" className="text-sm text-muted-foreground md:col-span-2">
+            所选卡片不满足空白 Codex 卡片与代理同步条件，请检查卡片状态后再选择。不会自动替换为其他账号
+          </p>
+        )}
         <div className="space-y-2">
           <Label htmlFor="automation-model">验收模型（可留空，授权后发现）</Label>
           <Input id="automation-model" name="model" maxLength={256} disabled={busy} />
@@ -415,7 +432,7 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
             </p>
           )}
         </div>
-        <Button className="w-fit" disabled={busy || !credentials || emptyCards.length === 0} type="submit">
+        <Button className="w-fit" disabled={busy || !credentials || !selectedCardAvailable} type="submit">
           添加到串行队列
         </Button>
         {!state.settings.enabled && <p className="text-sm text-muted-foreground">当前自动化关闭，添加后不会开始登录</p>}
