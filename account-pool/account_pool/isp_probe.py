@@ -5,13 +5,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from ipaddress import ip_address
 from time import perf_counter
 from typing import Final, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
-from pydantic import BaseModel, Field, IPvAnyAddress
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, field_validator
 
 from account_pool.proxy_catalog import ISPProbeResult, ISPProxyProfile
 
@@ -37,6 +39,34 @@ class _Location(BaseModel):
     connection: _Connection = Field(default_factory=_Connection)
 
 
+class ProxyLocation(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    exit_ip: IPvAnyAddress
+    country_code: str = Field(pattern=r"^[A-Z]{2}$")
+    country: str = Field(min_length=1, max_length=200)
+    region: str | None = Field(default=None, max_length=200)
+    city: str | None = Field(default=None, max_length=200)
+    timezone: str = Field(min_length=1, max_length=80)
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as error:
+            raise ValueError("invalid IANA timezone") from error
+        return value
+
+
+class _Timezone(BaseModel):
+    id: str
+
+
+class _BrowserLocation(_Location):
+    country_code: str
+    timezone: _Timezone
+
+
 class GatewayISPProbeResult(BaseModel):
     model_config = {"frozen": True}
 
@@ -54,6 +84,28 @@ class GatewayISPProbeResult(BaseModel):
 
 def _client(proxy: str) -> httpx.AsyncClient:
     return httpx.AsyncClient(proxy=proxy, timeout=6.0, trust_env=False, follow_redirects=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ProxyLocationProbe:
+    client_factory: Callable[[str], AbstractAsyncContextManager[httpx.AsyncClient]] = _client
+
+    async def locate(self, proxy_url: str) -> ProxyLocation:
+        if not proxy_url:
+            raise ValueError("a selected proxy is required")
+        async with asyncio.timeout(12), self.client_factory(proxy_url) as client:
+            address: Final = _ExitIP.model_validate_json(await _read_limited(client, _EXIT_IP_URL)).ip
+            if not address.is_global:
+                raise ValueError("exit IP is not public")
+            location: Final = _BrowserLocation.model_validate_json(
+                await _read_limited(client, f"https://ipwho.is/{address}")
+            )
+            if not location.success or location.ip != address or not location.country:
+                raise ValueError("proxy location could not be confirmed")
+            return ProxyLocation(
+                exit_ip=address, country_code=location.country_code, country=location.country,
+                region=location.region, city=location.city, timezone=location.timezone.id,
+            )
 
 
 class ISPProbe:
@@ -127,14 +179,14 @@ class GatewayISPProbe:
             async with asyncio.timeout(18), self._slots:
                 async with self._client_factory(proxy_url) as client:
                     try:
-                        body: Final = await self._read_limited(client, _EXIT_IP_URL)
+                        body: Final = await _read_limited(client, _EXIT_IP_URL)
                         address: Final = str(_ExitIP.model_validate_json(body).ip)
                         if not ip_address(address).is_global:
                             raise ValueError("exit IP is not public")
                         ip_status = "ok"
                         exit_ip = address
                         try:
-                            location_body: Final = await self._read_limited(client, f"https://ipwho.is/{address}")
+                            location_body: Final = await _read_limited(client, f"https://ipwho.is/{address}")
                             location: Final = _Location.model_validate_json(location_body)
                             if location.success and str(location.ip) == address:
                                 country = location.country
@@ -174,13 +226,12 @@ class GatewayISPProbe:
             openai_http_status=openai_http_status,
         )
 
-    @staticmethod
-    async def _read_limited(client: httpx.AsyncClient, url: str) -> bytes:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            body: bytes = b""
-            async for chunk in response.aiter_bytes():
-                if len(body) + len(chunk) > _MAX_PROBE_RESPONSE_BYTES:
-                    raise ValueError("probe response is too large")
-                body += chunk
-        return body
+async def _read_limited(client: httpx.AsyncClient, url: str) -> bytes:
+    async with client.stream("GET", url) as response:
+        response.raise_for_status()
+        body: bytes = b""
+        async for chunk in response.aiter_bytes():
+            if len(body) + len(chunk) > _MAX_PROBE_RESPONSE_BYTES:
+                raise ValueError("probe response is too large")
+            body += chunk
+    return body

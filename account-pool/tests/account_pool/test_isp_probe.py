@@ -9,6 +9,66 @@ from account_pool.proxy_catalog import ISPProxyProfile
 
 
 @pytest.mark.asyncio
+async def test_browser_location_uses_selected_proxy_and_checks_its_exit_ip():
+    from account_pool.isp_probe import ProxyLocationProbe
+
+    proxies = []
+
+    def handler(request):
+        if request.url.host == "api.ipify.org":
+            return httpx.Response(200, json={"ip": "8.8.8.8"})
+        assert str(request.url) == "https://ipwho.is/8.8.8.8"
+        return httpx.Response(200, json={
+            "success": True, "ip": "8.8.8.8", "country_code": "US", "country": "United States",
+            "region": "California", "city": "Mountain View", "timezone": {"id": "America/Los_Angeles"},
+        })
+
+    @asynccontextmanager
+    async def factory(proxy):
+        proxies.append(proxy)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            yield client
+
+    result = await ProxyLocationProbe(client_factory=factory).locate("http://selected-proxy.test:8080")
+    assert proxies == ["http://selected-proxy.test:8080"]
+    assert str(result.exit_ip) == "8.8.8.8"
+    assert result.country_code == "US"
+    assert result.timezone == "America/Los_Angeles"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["private_ip", "mismatch", "timezone", "unavailable", "redirect", "oversized"])
+async def test_browser_location_rejects_unconfirmed_results_without_direct_fallback(failure):
+    from account_pool.isp_probe import ProxyLocationProbe
+
+    proxies = []
+
+    def handler(request):
+        if request.url.host == "api.ipify.org":
+            return httpx.Response(200, json={"ip": "127.0.0.1" if failure == "private_ip" else "8.8.8.8"})
+        if failure == "unavailable":
+            return httpx.Response(503)
+        if failure == "redirect":
+            return httpx.Response(302, headers={"location": "https://unapproved.example.test"})
+        if failure == "oversized":
+            return httpx.Response(200, content=b" " * 65537)
+        return httpx.Response(200, json={
+            "success": True, "ip": "1.1.1.1" if failure == "mismatch" else "8.8.8.8",
+            "country_code": "US", "country": "United States", "timezone": {"id": "invalid/timezone"},
+        })
+
+    @asynccontextmanager
+    async def factory(proxy):
+        proxies.append(proxy)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+            yield client
+
+    with pytest.raises((ValueError, httpx.HTTPError)):
+        await ProxyLocationProbe(client_factory=factory).locate("http://selected-proxy.test:8080")
+    assert proxies == ["http://selected-proxy.test:8080"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [None, "timeout", "connect", "geo", "invalid_ip", "private_ip", "geo_timeout", "mismatch"])
 async def test_isp_probe_uses_proxy_and_preserves_partial_results(failure):
     from account_pool.isp_probe import ISPProbe

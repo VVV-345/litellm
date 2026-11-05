@@ -39091,6 +39091,11 @@ export interface components {
         /** ProfileInput */
         ProfileInput: {
             /**
+             * Auto Match Proxy
+             * @default true
+             */
+            auto_match_proxy: boolean;
+            /**
              * Enabled
              * @default true
              */
@@ -39103,10 +39108,21 @@ export interface components {
             locale: "en-US" | "en-GB" | "zh-CN";
             /** Name */
             name: string;
+            /**
+             * Os
+             * @default linux
+             * @enum {string}
+             */
+            os: "linux" | "windows" | "macos";
         };
         /** ProfileUpdate */
         ProfileUpdate: {
             /**
+             * Auto Match Proxy
+             * @default true
+             */
+            auto_match_proxy: boolean;
+            /**
              * Enabled
              * @default true
              */
@@ -39119,11 +39135,22 @@ export interface components {
             locale: "en-US" | "en-GB" | "zh-CN";
             /** Name */
             name: string;
+            /**
+             * Os
+             * @default linux
+             * @enum {string}
+             */
+            os: "linux" | "windows" | "macos";
             /** Version */
             version: number;
         };
         /** ProfileView */
         ProfileView: {
+            /**
+             * Auto Match Proxy
+             * @default false
+             */
+            auto_match_proxy: boolean;
             /** Bound Environment Id */
             bound_environment_id?: string | null;
             /** Digest */
@@ -39144,8 +39171,17 @@ export interface components {
              * @enum {string}
              */
             locale: "en-US" | "en-GB" | "zh-CN";
+            location?: components["schemas"]["ProxyLocation"] | null;
+            /** Matched Locale */
+            matched_locale?: string | null;
             /** Name */
             name: string;
+            /**
+             * Os
+             * @default linux
+             * @enum {string}
+             */
+            os: "linux" | "windows" | "macos";
             /**
              * Version
              * @default 0
@@ -39484,6 +39520,24 @@ export interface components {
              * @default null
              */
             user: string | null;
+        };
+        /** ProxyLocation */
+        ProxyLocation: {
+            /** City */
+            city?: string | null;
+            /** Country */
+            country: string;
+            /** Country Code */
+            country_code: string;
+            /**
+             * Exit Ip
+             * Format: ipvanyaddress
+             */
+            exit_ip: string;
+            /** Region */
+            region?: string | null;
+            /** Timezone */
+            timezone: string;
         };
         /** PublicModelHubInfo */
         PublicModelHubInfo: {

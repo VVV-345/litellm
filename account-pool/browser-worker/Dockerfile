@@ -12,7 +12,7 @@ FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm@sha256:e697c8189730
 ADD --checksum=sha256:60e25f6eb95e13d9ec655bc02913d51057e669cb31542e6ace9d2190ab5380af https://github.com/daijro/camoufox/releases/download/v158.0.1-beta.41/camoufox-158.0.1-beta.41-lin.arm64.zip /browser.zip
 
 FROM browser-download-${TARGETARCH} AS browser-download
-RUN python -c "import zipfile; z=zipfile.ZipFile('/browser.zip'); z.extractall('/opt/camoufox', members=[n for n in z.namelist() if not n.startswith(('fonts/M/', 'fonts/W/'))])" \
+RUN python -c "import zipfile; z=zipfile.ZipFile('/browser.zip'); z.extractall('/opt/camoufox')" \
     && chmod -R a+rX /opt/camoufox && chmod 0555 /opt/camoufox/camoufox-bin
 
 FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm@sha256:e697c81897302a4c4333bade000d98038fbb21eb064f8ee1fd42d02ebcd9d337

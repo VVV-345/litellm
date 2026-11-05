@@ -6,7 +6,7 @@ import hashlib
 import hmac
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Final, Protocol
 from uuid import UUID, uuid4
 
@@ -14,13 +14,14 @@ from pydantic import JsonValue, TypeAdapter
 
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import AuthorizationFlow, EnvironmentStatus, SupplierKind, utc_now
+from account_pool.isp_probe import ProxyLocation, ProxyLocationProbe
 from account_pool.oauth_automation.models import (
     ACTIVE,
     AutomationSettings,
     AutomationView,
+    BrowserOS,
     JobInput,
     JobView,
-    Locale,
     ProfileInput,
     ProfileUpdate,
     ProfileView,
@@ -28,7 +29,7 @@ from account_pool.oauth_automation.models import (
     StoredProfile,
 )
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
-from account_pool.ports import EnvironmentRepository
+from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 
@@ -36,8 +37,12 @@ from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose,
 class ProfileWorker(Protocol):
     @property
     def image(self) -> str | None: ...
-    async def generate(self, locale: Locale) -> dict[str, JsonValue]: ...
+    async def generate(self, locale: str, os: BrowserOS = "linux") -> dict[str, JsonValue]: ...
     async def self_check(self) -> bool: ...
+
+
+class LocationProbe(Protocol):
+    async def locate(self, proxy_url: str) -> ProxyLocation: ...
 
 
 async def image_check(worker: ProfileWorker) -> bool:
@@ -69,6 +74,8 @@ class AutomationRegistry:
     worker: ProfileWorker
     secrets: EnvironmentSecretDeriver
     ownership: CredentialOwnership
+    proxy_profiles: ProxyProfileRepository
+    location_probe: LocationProbe = field(default_factory=ProxyLocationProbe)
 
     def identity(self, email: str) -> str:
         key: Final = self.secrets.derive(UUID(int=0), SecretPurpose.CREDENTIAL_IDENTITY).encode()
@@ -120,7 +127,7 @@ class AutomationRegistry:
 
     async def create_profile(self, request: ProfileInput) -> Result[ProfileView]:
         try:
-            data: Final = TypeAdapter(dict[str, JsonValue]).validate_python(await self.worker.generate(request.locale))
+            data: Final = TypeAdapter(dict[str, JsonValue]).validate_python(await self.worker.generate(request.locale, request.os))
         except Exception:
             return Failure(FailureCode.UPSTREAM, "指纹生成或验证失败，请先自检固定镜像")
         encoded: Final = json.dumps(data, sort_keys=True, separators=(",", ":"))
@@ -130,6 +137,8 @@ class AutomationRegistry:
             name=request.name,
             enabled=request.enabled,
             locale=request.locale,
+            auto_match_proxy=request.auto_match_proxy,
+            os=request.os,
             id=uuid4(),
             digest=hashlib.sha256(encoded.encode()).hexdigest(),
         )
@@ -153,8 +162,11 @@ class AutomationRegistry:
                 return Failure(FailureCode.CONFLICT, "指纹配置已改变，请刷新")
             if any(job.item.profile_id == profile_id and job.item.stage in ACTIVE for job in state.jobs):
                 return Failure(FailureCode.CONFLICT, "运行中的指纹配置不能修改")
-            if row.item.locale != request.locale:
-                return Failure(FailureCode.CONFLICT, "固定指纹的语言不可变，请创建新的未绑定配置")
+            if (
+                row.item.locale != request.locale or row.item.auto_match_proxy != request.auto_match_proxy
+                or row.item.os != request.os
+            ):
+                return Failure(FailureCode.CONFLICT, "固定指纹的系统和语言不可变，请创建新的未绑定配置")
             updated: Final = row.model_copy(
                 update={
                     "item": row.item.model_copy(
@@ -221,6 +233,9 @@ class AutomationRegistry:
                 return Failure(FailureCode.CONFLICT, "没有可用的未绑定指纹，请添加或启用该账号原有指纹")
             if len(state.jobs) >= 200:
                 return Failure(FailureCode.CONFLICT, "任务记录已达到 200 条上限，暂不能继续添加")
+            matched: Final = await self._match_profile(profile, record.proxy_profile_id) if bound is None else Success(profile)
+            if isinstance(matched, Failure):
+                return matched
             now: Final = utc_now()
             item: Final = JobView(
                 id=request.id,
@@ -237,10 +252,10 @@ class AutomationRegistry:
                 account_digest=identity,
                 credential_ciphertext=StateCipher(self.secrets).seal(record.id, request.credentials),
             )
-            assigned: Final = profile.model_copy(
+            assigned: Final = matched.value.model_copy(
                 update={
                     "account_digest": identity,
-                    "item": profile.item.model_copy(
+                    "item": matched.value.item.model_copy(
                         update={
                             "bound_environment_id": record.id,
                             "version": profile.item.version + 1,
@@ -257,6 +272,30 @@ class AutomationRegistry:
                 )
             )
             return Success(item)
+
+    async def _match_profile(self, profile: StoredProfile, proxy_id: str) -> Result[StoredProfile]:
+        if not profile.item.auto_match_proxy:
+            return Success(profile)
+        try:
+            proxy_url: Final = await self.proxy_profiles.get_url(proxy_id)
+            if not proxy_url:
+                return Failure(FailureCode.CONFLICT, "所选出口代理不可用，未绑定指纹或启动登录")
+            location: Final = await self.location_probe.locate(proxy_url)
+            generated: Final = await self.worker.generate(location.country_code, profile.item.os)
+            locale: Final = TypeAdapter(str).validate_python(generated.get("locale"))
+            data: Final = {**generated, "timezone": location.timezone}
+            encoded: Final = json.dumps(data, sort_keys=True, separators=(",", ":"))
+            if len(encoded.encode()) > 65_536:
+                raise ValueError("fingerprint is oversized")
+            return Success(profile.model_copy(update={
+                "data": data,
+                "item": profile.item.model_copy(update={
+                    "location": location, "matched_locale": locale,
+                    "digest": hashlib.sha256(encoded.encode()).hexdigest(),
+                }),
+            }))
+        except Exception:
+            return Failure(FailureCode.UPSTREAM, "代理地区、语言或时区匹配失败；未绑定指纹或启动登录，请检查出口及固定镜像")
 
     async def cancel(self, job_id: UUID) -> Result[JobView]:
         async with self.repository.transaction() as tx:

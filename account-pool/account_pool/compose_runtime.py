@@ -454,7 +454,11 @@ class ComposeRuntime:
         await asyncio.to_thread(_remove_environment_directory, directory, self._settings.data_root)
 
     async def oauth_worker_check(self, action: tuple[str, ...]) -> bytes:
-        if action not in (("self-check",), ("generate-profile", "en-US"), ("generate-profile", "en-GB"), ("generate-profile", "zh-CN")):
+        if action != ("self-check",) and not (
+            len(action) in {2, 3} and action[0] == "generate-profile"
+            and (action[1] in {"en-US", "en-GB", "zh-CN"} or re.fullmatch(r"[A-Z]{2}", action[1]))
+            and (len(action) == 2 or action[2] in {"linux", "windows", "macos"})
+        ):
             raise ValueError("unsupported worker check")
         image: Final = self._settings.oauth_browser_image
         if image is None or re.fullmatch(r"[^\s@]+@sha256:[a-f0-9]{64}", image) is None:

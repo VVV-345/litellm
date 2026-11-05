@@ -43,3 +43,22 @@ def test_worker_errors_never_echo_credentials_or_internal_paths() -> None:
     assert response.headers["cache-control"] == "no-store"
     assert "private-password" not in response.text and "/internal/worker" not in response.text
     assert manager.await_args.args[1] == "/api/oauth-automation/jobs"
+
+
+def test_proxy_matching_defaults_and_matched_location_survive_gateway_forwarding() -> None:
+    profile: Final = {
+        "id": str(uuid4()), "name": "fixed", "enabled": True, "locale": "en-US", "auto_match_proxy": True,
+        "version": 1, "digest": "a" * 64, "bound_environment_id": str(uuid4()), "matched_locale": "ja-JP",
+        "location": {"exit_ip": "8.8.8.8", "country_code": "JP", "country": "Japan", "timezone": "Asia/Tokyo"},
+    }
+    manager: Final = AsyncMock(return_value=httpx.Response(200, json=profile))
+    app: Final = FastAPI()
+    app.include_router(create_automation_router(manager, lambda user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        response: Final = client.post("/account_pool/oauth-automation/profiles", json={"name": "fixed"})
+    assert response.status_code == 201
+    assert response.json()["matched_locale"] == "ja-JP"
+    assert response.json()["location"]["timezone"] == "Asia/Tokyo"
+    import json
+    assert json.loads(manager.await_args.args[2])["auto_match_proxy"] is True

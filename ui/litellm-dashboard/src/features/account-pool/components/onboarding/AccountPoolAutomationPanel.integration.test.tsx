@@ -103,6 +103,39 @@ it("keeps settings behind their own tab and reports the current image self-check
   );
 });
 
+it.each(["linux", "windows", "macos"])(
+  "saves %s with proxy matching and preserves manual language selection",
+  async (os) => {
+    get.mockImplementation(async (path: string) =>
+      path.endsWith("/oauth-automation") ? { ...view, image_checked: true } : [],
+    );
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("tab", { name: /指纹配置/ }));
+    const language = screen.getByRole("combobox", { name: "浏览器语言" });
+    expect(language).toHaveValue("auto");
+    const system = screen.getByRole("combobox", { name: "浏览器系统" });
+    expect(system).toHaveValue("linux");
+    fireEvent.change(system, { target: { value: os } });
+    fireEvent.change(screen.getByRole("textbox", { name: "配置名称" }), { target: { value: "代理自动匹配" } });
+    await user.click(screen.getByRole("button", { name: "生成并验证" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenCalledWith("/account_pool/oauth-automation/profiles", {
+        accessToken: "test-admin",
+        body: { name: "代理自动匹配", locale: "en-US", enabled: true, auto_match_proxy: true, os },
+      }),
+    );
+    fireEvent.change(language, { target: { value: "zh-CN" } });
+    await user.click(screen.getByRole("button", { name: "生成并验证" }));
+    await waitFor(() =>
+      expect(post).toHaveBeenLastCalledWith("/account_pool/oauth-automation/profiles", {
+        accessToken: "test-admin",
+        body: { name: "代理自动匹配", locale: "zh-CN", enabled: true, auto_match_proxy: false, os },
+      }),
+    );
+  },
+);
+
 it("offers verification-only retry for saved credentials, never a new-login retry", async () => {
   get.mockImplementation(async (path: string) => (path.endsWith("/oauth-automation") ? { ...view, jobs: [job] } : []));
   const user = userEvent.setup();

@@ -6,6 +6,7 @@ import asyncio
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Final
@@ -22,7 +23,7 @@ from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.shared.result import Failure, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver
 from pydantic import JsonValue
-from test_account_pool import FakeCLIProxy, MemoryRepository, _record, _service
+from test_account_pool import FakeCLIProxy, MemoryRepository, StaticProfiles, _record, _service
 
 IMAGE: Final = "registry.example/worker@sha256:" + "d" * 64
 CREDENTIAL: Final = "one@example.test----test-only-password----GEZDGNBVGY3TQOJQ"
@@ -47,11 +48,19 @@ async def test_worker_control_hostname_is_a_valid_dns_label(tmp_path: Path) -> N
 class ProfileWorker:
     image: str = IMAGE
 
-    async def generate(self, locale: str) -> dict[str, JsonValue]:
-        return {"version": "camoufox-0.5.9", "locale": locale, "fingerprint": {"fixture": "external-container-double"}}
+    async def generate(self, locale: str, os="linux") -> dict[str, JsonValue]:
+        return {"version": "camoufox-0.5.9", "locale": "en-US" if locale == "US" else locale, "os": os, "fingerprint": {"fixture": "external-container-double"}}
 
     async def self_check(self) -> bool:
         return True
+
+
+class FixtureLocationProbe:
+    async def locate(self, proxy_url):
+        from account_pool.isp_probe import ProxyLocation
+        return ProxyLocation(
+            exit_ip="8.8.8.8", country_code="US", country="United States", timezone="America/Los_Angeles",
+        )
 
 
 @pytest.fixture
@@ -70,6 +79,7 @@ async def registry():
     environments: Final = MemoryRepository(record)
     registry: Final = AutomationRegistry(
         store, environments, ProfileWorker(), EnvironmentSecretDeriver("s" * 32), CredentialOwnership(),
+        StaticProfiles("http://ordinary-proxy.test:8080"), FixtureLocationProbe(),
     )
     return registry, record
 
@@ -96,6 +106,103 @@ async def test_retries_keep_the_account_fingerprint_and_never_take_another_accou
     assert isinstance(blocked, Failure)
     assert "指纹" in blocked.message
     assert len((await service.view()).jobs) == 2
+
+
+@pytest.mark.asyncio
+async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(registry) -> None:
+    from account_pool.isp_probe import ProxyLocation
+    from test_account_pool import StaticProfiles
+
+    service, card = registry
+    lookups = []
+
+    class LocationProbe:
+        async def locate(self, proxy_url):
+            lookups.append(proxy_url)
+            return ProxyLocation(
+                exit_ip="8.8.8.8", country_code="US", country="United States", timezone="America/Los_Angeles",
+            )
+
+    configured = replace(
+        service, proxy_profiles=StaticProfiles("http://selected-proxy.test:8080"), location_probe=LocationProbe(),
+    )
+    await configured.create_profile(ProfileInput(name="auto"))
+    first = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(first, Success)
+    profile = (await configured.view()).profiles[0]
+    assert profile.location.country_code == "US"
+    assert profile.location.timezone == "America/Los_Angeles"
+    assert profile.matched_locale == "en-US"
+    digest = profile.digest
+    await configured.cancel(first.value.id)
+    again = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(again, Success)
+    assert (await configured.view()).profiles[0].digest == digest
+    assert lookups == ["http://selected-proxy.test:8080"]
+    saved = (await configured.repository.read()).profiles[0].data
+    assert saved["locale"] == "en-US"
+    assert saved["timezone"] == "America/Los_Angeles"
+
+
+@pytest.mark.asyncio
+async def test_location_failure_does_not_bind_profile_save_credentials_or_queue_login(registry) -> None:
+    service, card = registry
+
+    class UnavailableLocation:
+        async def locate(self, proxy_url):
+            raise httpx.ConnectError("private-proxy-user:private-proxy-password")
+
+    configured = replace(service, location_probe=UnavailableLocation())
+    await configured.create_profile(ProfileInput(name="auto"))
+    before = (await configured.view()).profiles[0]
+    result = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(result, Failure)
+    assert "匹配失败" in result.message
+    assert "private-proxy" not in result.message
+    after = await configured.view()
+    assert after.jobs == ()
+    assert after.profiles[0] == before
+    assert (await configured.repository.read()).profiles[0].account_digest is None
+
+
+@pytest.mark.asyncio
+async def test_manual_and_legacy_profiles_keep_their_original_fingerprint(registry) -> None:
+    from account_pool.oauth_automation.models import ProfileView
+
+    service, card = registry
+
+    class ForbiddenLookup:
+        async def locate(self, proxy_url):
+            pytest.fail("manual or legacy profiles must not perform a location lookup")
+
+    configured = replace(service, location_probe=ForbiddenLookup())
+    created = await configured.create_profile(ProfileInput(name="existing", locale="zh-CN", auto_match_proxy=False))
+    assert isinstance(created, Success)
+    legacy = ProfileView.model_validate(created.value.model_dump(exclude={"auto_match_proxy", "location", "matched_locale"}))
+    assert legacy.auto_match_proxy is False
+    assert isinstance(await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL)), Success)
+    bound = (await configured.view()).profiles[0]
+    assert bound.digest == created.value.digest
+    assert bound.locale == "zh-CN"
+    assert bound.location is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform", ("linux", "windows", "macos"))
+async def test_selected_browser_system_is_saved_and_kept_when_matching_proxy(registry, platform) -> None:
+    service, card = registry
+    created = await service.create_profile(ProfileInput(name="system", os=platform))
+    assert isinstance(created, Success)
+    assert created.value.os == platform
+    submitted = await service.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(submitted, Success)
+    saved = (await service.repository.read()).profiles[0]
+    assert saved.item.os == platform
+    assert saved.data["os"] == platform
+    digest = saved.item.digest
+    await service.cancel(submitted.value.id)
+    assert isinstance(await service.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL)), Success)
+    assert (await service.view()).profiles[0].digest == digest
 
 
 @pytest.mark.asyncio

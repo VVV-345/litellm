@@ -24,7 +24,7 @@ async function main() {
   const trusted = automatic ? validateAuthorization(authorization) : null;
   const options = JSON.parse(execFileSync("python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 }));
   const browser = await firefox.launch(options);
-  const context = await browser.newContext();
+  const context = await browser.newContext({ viewport: null });
   const page = await context.newPage();
   let controller = null;
   let server = null;

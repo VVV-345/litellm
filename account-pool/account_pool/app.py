@@ -160,7 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     automation_worker: Final = AutomationWorker(browser_runtime, automation_http)
     browser_controller: Final = ControlledOAuthBrowser(environments, profiles, browser_sessions, browser_runtime, service, ownership)
     automation: Final = AutomationRunner(
-        AutomationRegistry(automation_repository, environments, automation_worker, secrets, ownership),
+        AutomationRegistry(automation_repository, environments, automation_worker, secrets, ownership, profiles),
         browser_controller, automation_worker,
     )
     quota_scheduler: Final = QuotaRefreshScheduler(

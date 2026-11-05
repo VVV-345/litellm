@@ -538,7 +538,7 @@ def main() -> None:
             with ExitStack() as processes:
                 _start_process(("Xvfb", ":99", "-screen", "0", "1920x1080x24", "-nolisten", "tcp"), environment, processes)
                 result: Final = subprocess.run(
-                    ("python", "/app/camoufox_profile.py", "generate", sys.argv[2]), env=environment,
+                    ("python", "/app/camoufox_profile.py", "generate", sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "linux"), env=environment,
                     stdin=subprocess.DEVNULL, check=False, timeout=45,
                 )
                 raise SystemExit(result.returncode)

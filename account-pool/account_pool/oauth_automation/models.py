@@ -8,7 +8,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from account_pool.isp_probe import ProxyLocation
+
 Locale = Literal["en-US", "en-GB", "zh-CN"]
+BrowserOS = Literal["linux", "windows", "macos"]
 Stage = Literal[
     "queued",
     "starting",
@@ -45,6 +48,8 @@ class ProfileInput(BaseModel):
     name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
     enabled: bool = True
     locale: Locale = "en-US"
+    auto_match_proxy: bool = True
+    os: BrowserOS = "linux"
 
 
 class ProfileUpdate(ProfileInput):
@@ -52,10 +57,13 @@ class ProfileUpdate(ProfileInput):
 
 
 class ProfileView(ProfileInput):
+    auto_match_proxy: bool = False
     id: UUID
     version: int = Field(default=0, ge=0)
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     bound_environment_id: UUID | None = None
+    location: ProxyLocation | None = None
+    matched_locale: str | None = None
 
 
 class StoredProfile(BaseModel):

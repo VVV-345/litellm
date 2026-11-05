@@ -47,6 +47,7 @@ const labels: Record<AutomationJob["stage"], string> = {
   expired: "已超时",
 };
 type Operation = (action: () => Promise<unknown>) => Promise<void>;
+const systemLabels = { linux: "Linux", windows: "Windows", macos: "macOS" };
 
 function SettingsForm({
   settings,
@@ -124,9 +125,17 @@ function ProfileRow({
 }) {
   const [name, setName] = useState(profile.name);
   const [enabled, setEnabled] = useState(profile.enabled ?? true);
+  const locationHint = profile.auto_match_proxy ? "首次绑定时按代理出口匹配地区、语言和时区" : "保留原有手动配置";
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const body = { version: profile.version, name, enabled, locale: profile.locale };
+    const body = {
+      version: profile.version,
+      name,
+      enabled,
+      locale: profile.locale,
+      auto_match_proxy: profile.auto_match_proxy ?? false,
+      os: profile.os ?? "linux",
+    };
     void run(() => updateAutomationProfile(accessToken, profile.id, body));
   };
   return (
@@ -141,7 +150,13 @@ function ProfileRow({
         disabled={disabled}
       />
       <span className="text-sm text-muted-foreground">
-        Linux / {profile.locale} / {profile.digest.slice(0, 10)}
+        {systemLabels[profile.os ?? "linux"]} / {profile.matched_locale || profile.locale} /{" "}
+        {profile.digest.slice(0, 10)}
+      </span>
+      <span className="text-xs text-muted-foreground">
+        {profile.location
+          ? `${profile.location.country} / ${profile.location.region || profile.location.city || profile.location.country_code} / ${profile.location.timezone}`
+          : locationHint}
       </span>
       <span className="text-sm">
         {profile.bound_environment_id ? `已绑定 ${profile.bound_environment_id.slice(0, 8)}` : "未绑定，按顺序分配"}
@@ -325,10 +340,13 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const locale = form.get("locale");
+    const os = form.get("os");
     const body: Parameters<typeof createAutomationProfile>[1] = {
       name: String(form.get("name")),
       locale: locale === "en-GB" || locale === "zh-CN" ? locale : "en-US",
       enabled: true,
+      auto_match_proxy: locale === "auto",
+      os: os === "windows" || os === "macos" ? os : "linux",
     };
     void run(() => createAutomationProfile(accessToken, body));
   };
@@ -425,12 +443,27 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
   const profiles = (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        固定 Linux 指纹，不继承 Cookie。新账号领取下一个未绑定配置，重试沿用原配置，不能与其他账号共享
+        选择浏览器呈现的系统，容器仍运行 Linux，不继承
+        Cookie。首次绑定按代理出口匹配地区、语言和时区，之后保持不变，已有账号不覆盖
       </p>
       <form className="flex flex-wrap items-end gap-3" onSubmit={submitProfile}>
         <div className="space-y-2">
           <Label htmlFor="automation-profile-name">配置名称</Label>
           <Input id="automation-profile-name" name="name" maxLength={80} required disabled={busy} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="automation-os">浏览器系统</Label>
+          <select
+            id="automation-os"
+            name="os"
+            className="h-9 rounded-md border bg-background px-3 text-sm"
+            disabled={busy}
+            defaultValue="linux"
+          >
+            <option value="linux">Linux</option>
+            <option value="windows">Windows</option>
+            <option value="macos">macOS</option>
+          </select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="automation-locale">浏览器语言</Label>
@@ -439,7 +472,9 @@ export function AccountPoolAutomationPanel({ accessToken }: { accessToken: strin
             name="locale"
             className="h-9 rounded-md border bg-background px-3 text-sm"
             disabled={busy}
+            defaultValue="auto"
           >
+            <option value="auto">按代理出口自动匹配</option>
             <option>en-US</option>
             <option>en-GB</option>
             <option>zh-CN</option>

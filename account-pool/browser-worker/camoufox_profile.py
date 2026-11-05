@@ -1,37 +1,54 @@
-"""在镜像内生成及验证固定 Linux 指纹，授权期间只读预装资源，不下载浏览器。"""
+"""在 Linux 镜像内生成及验证固定系统指纹，授权期间只读预装资源，不下载浏览器。"""
 
 from __future__ import annotations
 
-import json
 import base64
+import json
 import os
+import re
 import sys
 import zlib
 from pathlib import Path
 from typing import Final, cast
+from zoneinfo import ZoneInfo
 
 LOCALES: Final = ("en-US", "en-GB", "zh-CN")
 BINARY: Final = Path("/opt/camoufox/camoufox-bin")
 
 
-def generate(locale: str) -> dict[str, object]:
-    if locale not in LOCALES:
+def generate(locale: str, os_name: str = "linux") -> dict[str, object]:
+    if locale not in LOCALES and re.fullmatch(r"[A-Z]{2}", locale) is None:
         raise ValueError("unsupported locale")
+    if os_name not in {"linux", "windows", "macos"}:
+        raise ValueError("unsupported browser OS")
     from camoufox.fingerprints import Screen, generate_fingerprint
+    from camoufox.locales import handle_locale
 
+    resolved_locale: Final = handle_locale(locale).as_string
     fingerprint: Final = generate_fingerprint(
-        os="linux", window=(1280, 800),
-        screen=Screen(min_width=1280, max_width=1920, min_height=800, max_height=1080),
+        os=os_name,
+        screen=Screen(min_width=1920, max_width=1920, min_height=1080, max_height=1080),
     )
-    encoded: Final = base64.b64encode(zlib.compress(json.dumps(fingerprint, separators=(",", ":")).encode(), level=9)).decode()
-    return {"version": "camoufox-0.5.9", "locale": locale, "fingerprint": encoded}
+    # Xvfb 没有窗口管理器，真实窗口从原点显示；新指纹不能声称另一个位置，造成画面和点击坐标偏移。
+    positioned: Final = {**fingerprint, "window": {**fingerprint["window"], "screenX": 0, "screenY": 0}}
+    encoded: Final = base64.b64encode(zlib.compress(json.dumps(positioned, separators=(",", ":")).encode(), level=9)).decode()
+    return {"version": "camoufox-0.5.9", "locale": resolved_locale, "os": os_name, "fingerprint": encoded}
 
 
 def options(profile: dict[str, object]) -> dict[str, object]:
-    if profile.keys() != {"version", "locale", "fingerprint"} or profile["version"] != "camoufox-0.5.9":
+    required: Final = {"version", "locale", "fingerprint"}
+    if not required <= profile.keys() <= required | {"timezone", "os"} or profile["version"] != "camoufox-0.5.9":
         raise ValueError("unsupported fingerprint version")
-    if profile["locale"] not in LOCALES or not isinstance(profile["fingerprint"], str):
+    os_name: Final = profile.get("os", "linux")
+    if os_name not in {"linux", "windows", "macos"}:
+        raise ValueError("unsupported browser OS")
+    if not isinstance(profile["locale"], str) or not isinstance(profile["fingerprint"], str):
         raise ValueError("invalid fingerprint")
+    timezone: Final = profile.get("timezone")
+    if timezone is not None:
+        if not isinstance(timezone, str):
+            raise ValueError("invalid timezone")
+        ZoneInfo(timezone)
     # SDK 原始指纹含大型 MIME 数据；无损压缩后传输，避免超过 Docker 环境变量和通道上限。
     packed: Final = base64.b64decode(profile["fingerprint"], validate=True)
     decoder: Final = zlib.decompressobj()
@@ -48,6 +65,8 @@ def options(profile: dict[str, object]) -> dict[str, object]:
 
     result: Final = launch_options(
         executable_path=BINARY, fingerprint=fingerprint, locale=profile["locale"],
+        os=os_name,
+        config={"timezone": timezone} if timezone else {},
         i_know_what_im_doing=True,
         headless=False, block_webrtc=True, exclude_addons=list(DefaultAddons),
         proxy={"server": "http://egress-relay:8080", "bypass": "localhost,127.0.0.1,[::1]"},
@@ -64,14 +83,17 @@ def options(profile: dict[str, object]) -> dict[str, object]:
     return {
         "executablePath": str(BINARY), "args": result["args"], "headless": False,
         "proxy": result["proxy"], "firefoxUserPrefs": result["firefox_user_prefs"],
-        "env": {**environment, "DISPLAY": ":99", "HOME": "/tmp", "PATH": os.environ.get("PATH", "")},
+        "env": {
+            **environment, "DISPLAY": ":99", "HOME": "/tmp", "PATH": os.environ.get("PATH", ""),
+            **({"TZ": timezone} if timezone else {}),
+        },
     }
 
 
 def main() -> None:
     action: Final = sys.argv[1] if len(sys.argv) > 1 else "launch"
     if action == "generate":
-        profile: Final = generate(sys.argv[2])
+        profile: Final = generate(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "linux")
         options(profile)
         print(json.dumps(profile, separators=(",", ":")))
         return

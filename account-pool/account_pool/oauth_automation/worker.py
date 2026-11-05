@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.domain import GatewayEnvironment
-from account_pool.oauth_automation.models import Locale, WorkerView
+from account_pool.oauth_automation.models import BrowserOS, WorkerView
 from account_pool.oauth_browser import oauth_browser_control_host
 
 
@@ -68,13 +68,15 @@ class AutomationWorker:
     def image(self) -> str | None:
         return self.runtime.settings.oauth_browser_image
 
-    async def generate(self, locale: Locale) -> dict[str, JsonValue]:
-        raw: Final = await self.runtime.oauth_worker_check(("generate-profile", locale))
+    async def generate(self, locale: str, os: BrowserOS = "linux") -> dict[str, JsonValue]:
+        raw: Final = await self.runtime.oauth_worker_check(("generate-profile", locale, os))
         value: Final = TypeAdapter(dict[str, JsonValue]).validate_json(raw)
         if (
-            value.keys() != {"version", "locale", "fingerprint"}
+            value.keys() != {"version", "locale", "fingerprint", "os"}
             or value["version"] != "camoufox-0.5.9"
-            or value["locale"] != locale
+            or value["os"] != os
+            or not isinstance(value["locale"], str)
+            or (value["locale"].split("-")[-1] != locale if len(locale) == 2 else value["locale"] != locale)
         ):
             raise ValueError("worker returned an incompatible fingerprint")
         if not isinstance(value["fingerprint"], str):

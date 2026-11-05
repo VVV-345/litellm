@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, model_validator
 
 Locale = Literal["en-US", "en-GB", "zh-CN"]
 
@@ -46,17 +46,32 @@ class ProfileInput(BaseModel):
     name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
     enabled: bool = True
     locale: Locale = "en-US"
+    auto_match_proxy: bool = True
+    os: Literal["linux", "windows", "macos"] = "linux"
 
 
 class ProfileUpdate(ProfileInput):
     version: int = Field(ge=0)
 
 
+class ProxyLocation(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    exit_ip: IPvAnyAddress
+    country_code: str = Field(pattern=r"^[A-Z]{2}$")
+    country: str = Field(min_length=1, max_length=200)
+    region: str | None = Field(default=None, max_length=200)
+    city: str | None = Field(default=None, max_length=200)
+    timezone: str = Field(min_length=1, max_length=80)
+
+
 class ProfileView(ProfileInput):
+    auto_match_proxy: bool = False
     id: UUID
     version: int = Field(default=0, ge=0)
     digest: str = Field(pattern=r"^[a-f0-9]{64}$")
     bound_environment_id: UUID | None = None
+    location: ProxyLocation | None = None
+    matched_locale: str | None = None
 
 
 class JobInput(BaseModel):

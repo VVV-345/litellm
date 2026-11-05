@@ -10,9 +10,19 @@ async function main() {
   const options = JSON.parse(execFileSync("python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 }));
   const browser = await firefox.launch(options);
   try {
-    const page = await browser.newPage();
+    const page = await browser.newPage({ viewport: null });
     await page.goto("data:text/html,<h1>Isolated browser self check</h1>");
     assert.equal(await page.locator("h1").textContent(), "Isolated browser self check");
+    const geometry = await page.evaluate(() => ({
+      width: innerWidth, height: innerHeight, outerWidth, outerHeight, x: screenX, y: screenY,
+      screenWidth: screen.width, screenHeight: screen.height, scale: devicePixelRatio,
+    }));
+    assert.ok(geometry.width > 0 && geometry.height > 0);
+    assert.ok(geometry.outerWidth >= geometry.width && geometry.outerHeight > geometry.height);
+    assert.equal(geometry.x, 0);
+    assert.equal(geometry.y, 0);
+    assert.ok((geometry.x + geometry.outerWidth) * geometry.scale <= 1920);
+    assert.ok((geometry.y + geometry.outerHeight) * geometry.scale <= 1080);
     assert.equal((await fetch("http://127.0.0.1:8093/vnc.html")).status, 200);
     for (const [command, expected] of [["viewonly", "1"], ["noviewonly", "0"], ["viewonly", "1"]]) {
       await exec("x11vnc", ["-display", ":99", "-sync", "-R", command], { timeout: 5000 });
