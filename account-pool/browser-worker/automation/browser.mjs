@@ -23,6 +23,7 @@ async function main() {
   const authorization = process.env.OAUTH_AUTHORIZATION_URL;
   const trusted = automatic ? validateAuthorization(authorization) : null;
   const options = JSON.parse(execFileSync("python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 }));
+  const locale = automatic ? JSON.parse(process.env.OAUTH_FINGERPRINT_PROFILE).locale : "en-US";
   const browser = await firefox.launch(options);
   const context = await browser.newContext({ viewport: null });
   const page = await context.newPage();
@@ -47,7 +48,7 @@ async function main() {
           const submitted = new Set();
           controller = new BrowserControl({
             login: async (signal) => {
-              const result = await automateLogin(page, credential, { signal, callback: callback.href, submitted });
+              const result = await automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
               if (result.status === "verification_required") {
                 const route = (path) => ["/log-in", "/log-in/password", "/oauth/authorize", "/authorize", "/sign-in-with-chatgpt/codex/consent"].includes(path) ? path : path.startsWith("/mfa-challenge/") ? "authenticator" : "other";
                 const state = await page.evaluate(() => ({ path: location.pathname, inputs: document.querySelectorAll("input").length }));
@@ -55,7 +56,7 @@ async function main() {
               }
               return result;
             },
-            verifyAccount: () => verifyResumableAccount(page, credential),
+            verifyAccount: () => verifyResumableAccount(page, credential, { locale }),
             enableInput: input, close: () => context.close(),
             totalDeadline: deadline, humanMs: Number(process.env.OAUTH_HUMAN_TIMEOUT_SECONDS ?? "300") * 1000,
           });
