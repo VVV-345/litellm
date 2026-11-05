@@ -340,6 +340,9 @@ describe("RequestLogsPanel", () => {
       renderPanel();
 
       await waitFor(() => expect(row("req-solo")).not.toBeNull());
+      await user.click(screen.getByRole("button", { name: "Columns" }));
+      await user.click(await screen.findByRole("menuitemcheckbox", { name: "Session ID" }));
+      await user.keyboard("{Escape}");
       await user.click(within(row("req-solo") as HTMLElement).getByText("sess-solo"));
 
       await waitFor(() => expect(urlParams().get("session_id")).toBe("sess-solo"));
@@ -360,6 +363,9 @@ describe("RequestLogsPanel", () => {
       renderPanel();
 
       await waitFor(() => expect(row("req-a")).not.toBeNull());
+      await user.click(screen.getByRole("button", { name: "Columns" }));
+      await user.click(await screen.findByRole("menuitemcheckbox", { name: "Session ID" }));
+      await user.keyboard("{Escape}");
       await user.click(within(row("req-a") as HTMLElement).getByText("sess-a"));
       await waitFor(() => expect(urlParams().get("session_id")).toBe("sess-a"));
 
@@ -379,6 +385,9 @@ describe("RequestLogsPanel", () => {
       renderPanel();
 
       await waitFor(() => expect(row("req-solo")).not.toBeNull());
+      await user.click(screen.getByRole("button", { name: "Columns" }));
+      await user.click(await screen.findByRole("menuitemcheckbox", { name: "Session ID" }));
+      await user.keyboard("{Escape}");
       await user.click(within(row("req-solo") as HTMLElement).getByText("sess-solo"));
       await waitFor(() => expect(drawer()).toHaveTextContent("open"));
 
@@ -472,6 +481,23 @@ describe("RequestLogsPanel", () => {
       expect(lastCall()?.params?.exclude_internal_health_checks).toBe(false);
       expect(toggle()).not.toBeChecked();
     });
+  });
+
+  it("applies the visible status filter through the real table wiring and resets pagination", async () => {
+    const user = userEvent.setup();
+    vi.mocked(uiSpendLogsCall).mockResolvedValue({
+      data: [logEntry({ request_id: "filter-proof" })], total: 101, page: 1, page_size: 50, total_pages: 3,
+    });
+    renderPanel();
+    await screen.findByText("gpt-4o");
+    await user.click(screen.getByRole("button", { name: "Go to next page" }));
+    await waitFor(() => expect(lastCall()?.page).toBe(2));
+    const quick = screen.getByRole("group", { name: "Filters" });
+    await user.click(within(quick).getByRole("combobox", { name: "Status" }));
+    await user.click(await screen.findByRole("option", { name: "Failure" }));
+    await waitFor(() => expect(lastCall()?.params?.status_filter).toBe("failure"));
+    expect(lastCall()?.page).toBe(1);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   describe("live tail", () => {

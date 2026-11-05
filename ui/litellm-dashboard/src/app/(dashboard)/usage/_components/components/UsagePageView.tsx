@@ -34,6 +34,8 @@ import EntityUsageExportModal from "@/components/EntityUsageExport";
 import { Team } from "@/components/key_team_helpers/key_list";
 import { Organization, userDailyActivityCall } from "@/components/networking";
 import AdvancedDatePicker from "@/components/shared/advanced_date_picker";
+import { CompactNumber } from "@/components/shared/CompactNumber";
+import { DashboardSection } from "@/components/shared/DashboardSection";
 import { ChartLoader } from "@/components/shared/chart_loader";
 import { Tag } from "@/components/tag_management/types";
 import UserAgentActivity from "@/components/user_agent_activity";
@@ -108,6 +110,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
   const [topKeysLimit, setTopKeysLimit] = useState<number>(5);
   const [topModelsLimit, setTopModelsLimit] = useState<number>(5);
   const [showTokenBreakdown, setShowTokenBreakdown] = useState(false);
+  const [compactNumbers, setCompactNumbers] = useState(true);
   // Sync selectedUserId when auth state settles (isAdmin/userID may be null on initial render)
   useEffect(() => {
     if (!isAdmin && userID) {
@@ -369,11 +372,11 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
   );
 
   return (
-    <div style={{ width: "100%" }} className="p-8 relative">
+    <div style={{ width: "100%" }} className="min-w-0 p-4 lg:p-6 relative">
       {/* Global Date Picker and Tabs - Single Row */}
-      <div className="flex items-end justify-between gap-6 mb-6">
-        <div className="flex-1">
-          <div className="flex items-end justify-between gap-6 mb-4 w-full">
+      <div className="flex min-w-0 items-end justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="mb-4 flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4 shadow-sm">
             <UsageViewSelect
               value={usageView}
               onChange={(value) => setUsageView(value)}
@@ -381,7 +384,14 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
               canViewTagUsage={canViewTagUsage}
               isOrgAdmin={isOrgAdmin}
             />
-            <AdvancedDatePicker value={dateValue} onValueChange={handleDateChange} />
+            <div className="flex flex-wrap items-center gap-2">
+              {(usageView === "global" || usageView === "my-usage") && <Button variant="outline" size="sm"
+                aria-pressed={compactNumbers} onClick={() => setCompactNumbers((current) => !current)}
+                aria-label={t("nativeWorkspace.compactNumbers")}>
+                {compactNumbers ? "K/M/B" : t("nativeWorkspace.fullNumbers")}
+              </Button>}
+              <AdvancedDatePicker value={dateValue} onValueChange={handleDateChange} />
+            </div>
           </div>
           <PaginationStatusAlerts
             isFetchingMore={paginatedResult.isFetchingMore}
@@ -393,14 +403,14 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
           {(usageView === "global" || usageView === "my-usage") && (
             <>
               {isAdmin && usageView === "global" && (
-                <div className="mb-4">
+                <div className="mb-4 rounded-xl border bg-card p-3">
                   <p className="mb-2 text-sm text-foreground">{t("ui.Filter by user")}</p>
                   <UserDropdown value={selectedUserId} onChange={setSelectedUserId} />
                 </div>
               )}
               <Tabs defaultValue="cost">
-                <div className="flex justify-between items-center">
-                  <TabsList className="mt-1">
+                <div className="flex flex-wrap justify-between items-center gap-3">
+                  <TabsList className="mt-1 h-auto group-data-horizontal/tabs:h-auto flex-wrap justify-start">
                     <TabsTrigger value="cost" className="flex-none px-3">
                       {t("ui.Cost")}
                     </TabsTrigger>
@@ -430,55 +440,37 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                 </div>
                 {/* Cost Panel */}
                 <TabsContent value="cost" keepMounted>
-                  <div className="grid grid-cols-2 gap-2 w-full">
+                  <div className="grid grid-cols-1 gap-4 w-full lg:grid-cols-2">
                     {/* Total Spend Card */}
-                    <div className="col-span-2">
-                      <div className="flex items-center gap-4 mt-2 mb-2">
-                        <p className="text-lg text-muted-foreground">
-                          {t("ui.Project Spend")}{" "}
-                          {dateValue.from && dateValue.to && (
-                            <>
-                              {dateValue.from.toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year:
-                                  dateValue.from.getFullYear() !== dateValue.to.getFullYear() ? "numeric" : undefined,
-                              })}
-                              {" - "}
-                              {dateValue.to.toLocaleDateString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                year: "numeric",
-                              })}
-                            </>
-                          )}
-                        </p>
-                      </div>
+                    <div className="col-span-1 lg:col-span-2">
+                      <DashboardSection title={t("nativeWorkspace.budgetDetails")} collapsible
+                        summary={`$${formatNumberWithCommas(totalSpend, 2)}`}>
 
                       <ViewUserSpend
                         userSpend={totalSpend}
                         selectedTeam={null}
                         userMaxBudget={currentUser?.max_budget || null}
                       />
+                      </DashboardSection>
                     </div>
 
-                    <div className="col-span-2">
+                    <div className="col-span-1 lg:col-span-2">
                       <ShadcnCard>
                         <CardContent>
-                          <h3 className="text-lg font-medium text-foreground">{t("ui.Usage Metrics")}</h3>
-                          <div className="grid grid-cols-5 gap-4 mt-4">
+                          <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Usage Metrics")}</h3>
+                          <div className="mt-3 grid grid-cols-2 gap-3 xl:grid-cols-5 [&_[data-slot=card]]:gap-2 [&_[data-slot=card]]:py-3 [&_[data-slot=card-content]]:px-3">
                             <ShadcnCard>
                               <CardContent>
-                                <h3 className="text-lg font-medium text-foreground">{t("ui.Total Requests")}</h3>
+                                <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Total Requests")}</h3>
                                 <p className="text-2xl font-bold mt-2">
-                                  {userSpendData.metadata?.total_api_requests?.toLocaleString() || 0}
+                                  <CompactNumber value={userSpendData.metadata?.total_api_requests} compact={compactNumbers} />
                                 </p>
                               </CardContent>
                             </ShadcnCard>
                             <ShadcnCard>
                               <CardContent>
                                 <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Successful Requests")}</h3>
+                                  <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Successful Requests")}</h3>
                                   {gatewayActivity && (
                                     <Tooltip>
                                       <TooltipTrigger
@@ -499,17 +491,14 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                                   and an admin on a proxy whose table is still backfilling.
                                 */}
                                 <p className="text-2xl font-bold mt-2 text-success">
-                                  {(
-                                    gatewayActivity?.total_successful_requests ??
-                                    userSpendData.metadata?.total_successful_requests
-                                  )?.toLocaleString() || 0}
+                                  <CompactNumber value={gatewayActivity?.total_successful_requests ?? userSpendData.metadata?.total_successful_requests} compact={compactNumbers} />
                                 </p>
                               </CardContent>
                             </ShadcnCard>
                             <ShadcnCard>
                               <CardContent>
                                 <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Failed Requests")}</h3>
+                                  <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Failed Requests")}</h3>
                                   <Tooltip>
                                     <TooltipTrigger
                                       render={<Info className="size-4 text-muted-foreground hover:text-foreground" />}
@@ -524,16 +513,13 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                                 {/* Same source as Successful Requests: the two must agree, or the
                                     tile disagrees with the endpoint breakdown chart below it. */}
                                 <p className="text-2xl font-bold mt-2 text-destructive">
-                                  {(
-                                    gatewayActivity?.total_failed_requests ??
-                                    userSpendData.metadata?.total_failed_requests
-                                  )?.toLocaleString() || 0}
+                                  <CompactNumber value={gatewayActivity?.total_failed_requests ?? userSpendData.metadata?.total_failed_requests} compact={compactNumbers} />
                                 </p>
                               </CardContent>
                             </ShadcnCard>
                             <ShadcnCard>
                               <CardContent>
-                                <h3 className="text-lg font-medium text-foreground">
+                                <h3 className="text-sm font-medium text-muted-foreground">
                                   {t("ui.Average Cost per Request")}
                                 </h3>
                                 <p className="text-2xl font-bold mt-2">
@@ -545,56 +531,53 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                                 </p>
                               </CardContent>
                             </ShadcnCard>
-                            <ShadcnCard
-                              className="cursor-pointer hover:bg-accent transition-colors"
-                              onClick={() => setShowTokenBreakdown(!showTokenBreakdown)}
-                            >
+                            <ShadcnCard>
                               <CardContent>
-                                <div className="flex items-center gap-2">
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Total Tokens")}</h3>
-                                  {showTokenBreakdown ? (
-                                    <ChevronDown className="size-3 text-muted-foreground" />
-                                  ) : (
-                                    <ChevronRight className="size-3 text-muted-foreground" />
-                                  )}
-                                </div>
+                                <h3 className="text-sm font-medium text-muted-foreground">
+                                  <button type="button" className="flex items-center gap-2 rounded-sm text-left focus-visible:outline-2 focus-visible:outline-ring"
+                                    aria-expanded={showTokenBreakdown} aria-controls="usage-token-breakdown"
+                                    onClick={() => setShowTokenBreakdown((current) => !current)}>
+                                    {t("ui.Total Tokens")}
+                                    {showTokenBreakdown ? <ChevronDown className="size-3" aria-hidden="true" /> : <ChevronRight className="size-3" aria-hidden="true" />}
+                                  </button>
+                                </h3>
                                 <p className="text-2xl font-bold mt-2">
-                                  {userSpendData.metadata?.total_tokens?.toLocaleString() || 0}
+                                  <CompactNumber value={userSpendData.metadata?.total_tokens} compact={compactNumbers} />
                                 </p>
                               </CardContent>
                             </ShadcnCard>
                           </div>
                           {showTokenBreakdown && (
-                            <div className="grid grid-cols-4 gap-4 mt-4">
+                            <div id="usage-token-breakdown" className="grid grid-cols-2 gap-3 mt-3 lg:grid-cols-4">
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Input Tokens")}</h3>
+                                  <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Input Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-info">
-                                    {(userSpendData.metadata?.total_prompt_tokens || 0).toLocaleString()}
+                                    <CompactNumber value={userSpendData.metadata?.total_prompt_tokens} compact={compactNumbers} />
                                   </p>
                                 </CardContent>
                               </ShadcnCard>
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Output Tokens")}</h3>
+                                  <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Output Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-info">
-                                    {userSpendData.metadata?.total_completion_tokens?.toLocaleString() || 0}
+                                    <CompactNumber value={userSpendData.metadata?.total_completion_tokens} compact={compactNumbers} />
                                   </p>
                                 </CardContent>
                               </ShadcnCard>
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Cache Read Tokens")}</h3>
+                                  <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Cache Read Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-success">
-                                    {userSpendData.metadata?.total_cache_read_input_tokens?.toLocaleString() || 0}
+                                    <CompactNumber value={userSpendData.metadata?.total_cache_read_input_tokens} compact={compactNumbers} />
                                   </p>
                                 </CardContent>
                               </ShadcnCard>
                               <ShadcnCard>
                                 <CardContent>
-                                  <h3 className="text-lg font-medium text-foreground">{t("ui.Cache Write Tokens")}</h3>
+                                  <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Cache Write Tokens")}</h3>
                                   <p className="text-2xl font-bold mt-2 text-purple-600">
-                                    {userSpendData.metadata?.total_cache_creation_input_tokens?.toLocaleString() || 0}
+                                    <CompactNumber value={userSpendData.metadata?.total_cache_creation_input_tokens} compact={compactNumbers} />
                                   </p>
                                 </CardContent>
                               </ShadcnCard>
@@ -605,7 +588,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     </div>
 
                     {/* Daily Spend Chart */}
-                    <div className="col-span-2">
+                    <div className="col-span-1 lg:col-span-2">
                       <ShadcnCard>
                         <CardHeader>
                           <CardTitle className="text-base font-semibold">{t("ui.Daily Spend")}</CardTitle>
@@ -652,9 +635,11 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                         </CardContent>
                       </ShadcnCard>
                     </div>
+                    <DashboardSection title={t("nativeWorkspace.breakdowns")} collapsible className="col-span-1 lg:col-span-2">
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     {/* Gateway Requests by Endpoint (SGR) */}
                     {gatewayActivity && gatewayActivity.by_route.length > 0 && (
-                      <div className="col-span-2">
+                      <div className="col-span-1 lg:col-span-2">
                         <ShadcnCard data-testid="gateway-requests-by-endpoint">
                           <CardHeader>
                             <CardTitle className="text-base font-semibold">
@@ -681,7 +666,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                               colors={["green", "red"]}
                               stack={true}
                               yAxisWidth={100}
-                              valueFormatter={(value: number) => value.toLocaleString()}
+                              valueFormatter={(value: number) => formatNumberWithCommas(value, compactNumbers && Math.abs(value) >= 1_000 ? 1 : 0, compactNumbers)}
                             />
                           </CardContent>
                         </ShadcnCard>
@@ -691,7 +676,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <div>
                       <ShadcnCard className="h-full">
                         <CardContent>
-                          <h3 className="text-lg font-medium text-foreground">{t("ui.Top Virtual Keys")}</h3>
+                          <h3 className="text-sm font-medium text-muted-foreground">{t("ui.Top Virtual Keys")}</h3>
                           <TopKeyView
                             topKeys={topKeys}
                             teams={null}
@@ -706,7 +691,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     <div>
                       <ShadcnCard className="h-full">
                         <CardContent>
-                          <h3 className="text-lg font-medium text-foreground">
+                          <h3 className="text-sm font-medium text-muted-foreground">
                             {modelViewType === "groups" ? "Top Public Model Names" : "Top Litellm Models"}
                           </h3>
                           <div className="flex justify-between items-center mb-4">
@@ -777,7 +762,7 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                     </div>
 
                     {/* Spend by Provider */}
-                    <div className="col-span-2">
+                    <div className="col-span-1 lg:col-span-2">
                       <SpendByProvider
                         loading={loading}
                         isDateChanging={isDateChanging}
@@ -785,6 +770,8 @@ const UsagePage: React.FC<UsagePageProps> = ({ teams, organizations }) => {
                       />
                     </div>
 
+                    </div>
+                    </DashboardSection>
                     {/* Usage Metrics */}
                   </div>
                 </TabsContent>

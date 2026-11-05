@@ -163,9 +163,9 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
   };
 
   return (
-    <div className="box-border w-full overflow-x-hidden p-6">
+    <div className="box-border min-w-0 w-full p-4 lg:p-6">
       {canManageLogs && ["request logs", "operations", "full"].includes(activeTab) && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-xl border bg-card p-3">
           <label htmlFor="logs-account">账号筛选</label>
           <select
             id="logs-account"
@@ -197,7 +197,7 @@ export default function SpendLogsTable({ accessToken, token, userRole, userID, p
           void setLogParams({ log_view: value });
         }}
       >
-        <TabsList variant="line">
+        <TabsList variant="line" className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start rounded-xl border bg-card px-3 py-2">
           {tabs.map((tab) => (
             <TabsTrigger key={tab.id} value={tab.id} className="flex-none">
               {tab.label}

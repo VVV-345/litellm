@@ -7864,6 +7864,18 @@
     "accessGroupBudgets": "Model Access Group Budgets",
     "priceDataReload": "Price Data Reload"
   },
+  "nativeWorkspace": {
+    "endpoints": "Endpoints",
+    "advancedConnections": "Advanced connections and routing",
+    "fullNumbers": "Full numbers",
+    "compactNumbers": "Compact numbers (K/M/B)",
+    "breakdowns": "More usage breakdowns",
+    "budgetDetails": "Budget and spend details",
+    "filters": "Filters",
+    "requestRecords": "Request records",
+    "results": "Results",
+    "pageSummary": "{{total}} results, {{count}} on this page"
+  },
   "virtualKeys": {
     "title": "Virtual Keys",
     "subtitle": "Every key that authenticates requests to the gateway.",

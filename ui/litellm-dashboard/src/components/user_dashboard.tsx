@@ -218,8 +218,8 @@ const UserDashboard: React.FC<UserDashboardProps> = ({
   const canCreateKey = userRole !== "Admin Viewer" && userRole !== "proxy_admin_viewer";
 
   return (
-    <main className="h-[75vh] p-8">
-      <div className="flex h-full flex-col">
+    <main className="min-w-0 p-4 lg:p-6">
+      <div className="flex min-w-0 flex-col">
         <VirtualKeysTable
           headerActions={
             canCreateKey ? (

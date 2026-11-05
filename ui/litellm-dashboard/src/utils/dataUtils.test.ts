@@ -307,3 +307,8 @@ describe("dataUtils", () => {
     });
   });
 });
+
+it.each([1_250_000_000, -1_250_000_000])("formats billions without losing the full-value representation: %s", (value) => {
+  expect(formatNumberWithCommas(value, 1, true)).toBe(value < 0 ? "-1.3B" : "1.3B");
+  expect(formatNumberWithCommas(value)).toBe(value < 0 ? "-1,250,000,000" : "1,250,000,000");
+});

@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DashboardSection } from "@/components/shared/DashboardSection";
 import { extractProxyErrorMessage } from "@/lib/http/client";
 import {
   downloadFeedbackAttachment,
@@ -24,7 +25,7 @@ import { feedbackActions } from "./feedbackFields";
 export function FeedbackDetailDialog({ accessToken, initialIssue, onClose }: {
   accessToken: string; initialIssue: FeedbackIssue; onClose: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const client = useQueryClient();
   const [issue, setIssue] = useState(initialIssue);
   const [selection, setSelection] = useState<{ status: FeedbackIssue["status"]; action: FeedbackMutation["action"] }>({
@@ -86,10 +87,17 @@ export function FeedbackDetailDialog({ accessToken, initialIssue, onClose }: {
         <DialogHeader><DialogTitle>{issue.title}</DialogTitle></DialogHeader>
         <div className="flex gap-2"><Badge>{t(`feedback.status.${issue.status}`)}</Badge><span>{t("feedback.revision", { revision: issue.revision })}</span></div>
         <dl className="grid gap-3 text-sm">
-          {(["description", "steps", "module", "page_path", "discovered_version", "assigned_to", "resolution", "commit", "verification", "deployed_version", "created_at", "updated_at"] as const).map((name) => (
-            <div key={name}><dt className="font-medium">{t(`feedback.fields.${name}`)}</dt><dd className="whitespace-pre-wrap break-words">{issue[name] || "-"}</dd></div>
+          {(["description", "steps"] as const).map((name) => (
+            <div key={name} className="rounded-lg border p-3"><dt className="mb-1 font-medium">{t(`feedback.fields.${name}`)}</dt><dd className="whitespace-pre-wrap break-words">{issue[name] || "-"}</dd></div>
           ))}
         </dl>
+        <DashboardSection title={t("ui.Details")} collapsible>
+          <dl className="grid gap-3 text-sm sm:grid-cols-2">
+            {(["module", "page_path", "discovered_version", "assigned_to", "resolution", "commit", "verification", "deployed_version", "created_at", "updated_at"] as const).map((name) => (
+              <div key={name} className="min-w-0"><dt className="text-xs text-muted-foreground">{t(`feedback.fields.${name}`)}</dt><dd className="whitespace-pre-wrap break-words">{issue[name] || "-"}</dd></div>
+            ))}
+          </dl>
+        </DashboardSection>
         {issue.attachments.length > 0 && (
           <section className="grid gap-2">
             <h3 className="font-medium">{t("feedback.attachments.title")}</h3>
@@ -112,15 +120,16 @@ export function FeedbackDetailDialog({ accessToken, initialIssue, onClose }: {
             </ul>
           </section>
         )}
-        <section className="grid gap-2">
-          <h3 className="font-medium">{t("feedback.history")}</h3>
+        <DashboardSection title={t("feedback.history")} summary={issue.events.length.toLocaleString(i18n.language)} collapsible>
+          <div className="grid gap-2">
           {issue.events.map((event, index) => (
             <div key={`${event.at}-${index}`} className="rounded-md border p-3 text-sm whitespace-pre-wrap break-words">
               <p>{event.at} · {event.actor} · {t(`feedback.actions.${event.action}`)}</p>
               {[event.summary, event.commit, event.verification, event.deployed_version].filter(Boolean).map((value, i) => <p key={i}>{value}</p>)}
             </div>
           ))}
-        </section>
+          </div>
+        </DashboardSection>
         <form onSubmit={mutate} className="grid gap-3 border-t pt-4">
           <div className="flex flex-wrap gap-2" role="group" aria-label={t("feedback.action")}>
             {feedbackActions(issue.status).map((value) => (

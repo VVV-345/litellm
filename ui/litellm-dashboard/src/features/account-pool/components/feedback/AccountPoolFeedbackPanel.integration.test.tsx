@@ -93,8 +93,9 @@ describe("feedback management", () => {
     api.editFeedbackIssue.mockResolvedValue({ ...issue, title: "已修改", revision: 4 });
     render(<AccountPoolFeedbackPanel accessToken="admin" />, { wrapper });
     expect(await screen.findByRole("button", { name: "列表未刷新" })).toBeInTheDocument();
-    expect(screen.getByText("待处理：1")).toBeInTheDocument();
-    expect(screen.getByText("已解决：2")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "状态筛选" })).toHaveTextContent("未解决");
+    expect(screen.getByRole("button", { name: /待处理\s*1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /已解决\s*2/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "编辑 列表未刷新" }));
     fireEvent.change(screen.getByLabelText("标题"), { target: { value: "已修改" } });
     api.listFeedbackIssues.mockResolvedValue({ items: [{ ...issue, title: "已修改", revision: 4 }], total: 1, stats });
@@ -128,6 +129,18 @@ describe("feedback management", () => {
     await waitFor(() => expect(api.listFeedbackIssues).toHaveBeenLastCalledWith("admin", { status: "unresolved", q: "刷新", limit: 50, offset: 0 }));
   });
 
+  it("filters by a summary status without mutating feedback and resets the page", async () => {
+    api.listFeedbackIssues.mockResolvedValue({ items: [issue], total: 51, stats });
+    render(<AccountPoolFeedbackPanel accessToken="admin" />, { wrapper });
+    await screen.findByRole("button", { name: "列表未刷新" });
+    await userEvent.click(screen.getByRole("button", { name: "下一页" }));
+    await waitFor(() => expect(api.listFeedbackIssues).toHaveBeenLastCalledWith("admin", { status: "unresolved", q: "", limit: 50, offset: 50 }));
+    await userEvent.click(screen.getByRole("button", { name: /已解决\s*2/ }));
+    await waitFor(() => expect(api.listFeedbackIssues).toHaveBeenLastCalledWith("admin", { status: "resolved", q: "", limit: 50, offset: 0 }));
+    expect(screen.getByRole("button", { name: /已解决\s*2/ })).toHaveAttribute("aria-pressed", "true");
+    expect(api.mutateFeedbackIssue).not.toHaveBeenCalled();
+  });
+
   it("retains unresolved state after a failed action and shows evidence after success", async () => {
     api.mutateFeedbackIssue.mockRejectedValueOnce(new Error("认领失败"));
     render(<AccountPoolFeedbackPanel accessToken="admin" />, { wrapper });
@@ -141,7 +154,9 @@ describe("feedback management", () => {
     ] });
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "执行认领" }));
     expect(await within(screen.getByRole("dialog")).findByText("处理中")).toBeInTheDocument();
-    expect(within(screen.getByRole("dialog")).getByText("开始处理")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog")).getByText("开始处理")).not.toBeVisible();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "历史记录" }));
+    expect(within(screen.getByRole("dialog")).getByText("开始处理")).toBeVisible();
     expect(api.mutateFeedbackIssue).toHaveBeenLastCalledWith("admin", "issue-1", expect.objectContaining({ action: "claim", expected_revision: 3 }));
   });
 

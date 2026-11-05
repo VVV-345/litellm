@@ -7864,6 +7864,18 @@
     "accessGroupBudgets": "模型访问组预算",
     "priceDataReload": "重新加载价格数据"
   },
+  "nativeWorkspace": {
+    "endpoints": "端点",
+    "advancedConnections": "高级连接与路由",
+    "fullNumbers": "完整数值",
+    "compactNumbers": "简洁数字 (K/M/B)",
+    "breakdowns": "更多用量明细",
+    "budgetDetails": "预算与费用明细",
+    "filters": "筛选条件",
+    "requestRecords": "请求记录",
+    "results": "查询结果",
+    "pageSummary": "共 {{total}} 项，本页 {{count}} 项"
+  },
   "virtualKeys": {
     "title": "虚拟密钥",
     "subtitle": "所有用于请求网关身份验证的密钥。",

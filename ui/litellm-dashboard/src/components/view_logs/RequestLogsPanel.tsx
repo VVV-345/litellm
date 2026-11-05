@@ -6,6 +6,7 @@ import moment from "moment";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { DashboardSection } from "@/components/shared/DashboardSection";
 import { AutoRouterModelGroupsProvider } from "@/components/shared/table_cells";
 import type { KeyResponse } from "../key_team_helpers/key_list";
 import { keyInfoV1Call, uiSpendLogsCall } from "../networking";
@@ -312,6 +313,7 @@ export default function RequestLogsPanel({
 
       {isLiveTail && pagination.pageIndex === 0 && <LiveTailBanner onStop={() => setIsLiveTail(false)} />}
 
+      <DashboardSection title={t("nativeWorkspace.requestRecords")} summary={t("nativeWorkspace.pageSummary", { total: filteredLogs.total, count: rows.length })}>
       <RequestLogsTable
         data={rows}
         rowCount={filteredLogs.total}
@@ -350,6 +352,8 @@ export default function RequestLogsPanel({
           />
         }
       />
+
+      </DashboardSection>
 
       <LogDetailsDrawer
         open={isDrawerOpen}

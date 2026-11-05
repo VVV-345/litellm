@@ -39,8 +39,8 @@ const PriceDataPanel = dynamic(loadPriceDataPanel, {
 });
 const ModelRuntimeConfiguration = dynamic(loadModelRuntimeConfiguration, { loading: ModuleLoading });
 
-import { useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useId, useMemo, useState } from "react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
@@ -55,6 +55,7 @@ import { useModelDashboardData } from "@/app/(dashboard)/models-and-endpoints/us
 import AllModelsPanel from "@/app/(dashboard)/models-and-endpoints/panels/AllModelsPanel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DashboardSection } from "@/components/shared/DashboardSection";
 import { useSearchParams } from "next/navigation";
 
 type ModelTabSlug =
@@ -67,6 +68,7 @@ type ModelTabSlug =
   | "price-data";
 
 const BASE_TAB_KEY = "all-models";
+const ADVANCED_TABS = new Set(["llm-credentials", "access-group-budgets", "price-data"]);
 
 const TAB_LABEL_KEYS: Record<ModelTabSlug, string> = {
   add: "models.addModel",
@@ -117,6 +119,8 @@ export default function ModelsAndEndpointsPage() {
   const selectedTab = tabSelection?.query === requestedTab ? tabSelection.value : requestedTab;
   const setActiveKey = (value: string) => setTabSelection({ query: requestedTab, value });
   const [lastRefreshed, setLastRefreshed] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const advancedTabsId = useId();
 
   const isInternalUser = userRole && internalUserRoles.includes(userRole);
   const canCreate = canCreateModels(
@@ -148,9 +152,11 @@ export default function ModelsAndEndpointsPage() {
   );
 
   const activeKey = visibleSlugs.some((slug) => (slug || BASE_TAB_KEY) === selectedTab) ? selectedTab : BASE_TAB_KEY;
+  const advancedVisible = advancedOpen || ADVANCED_TABS.has(activeKey);
   const allModelsLabel = isAdmin ? t("models.allModels") : t("models.yourModels");
   const tabLabel = (slug: "" | ModelTabSlug): React.ReactNode => {
     if (!slug) return allModelsLabel;
+    if (slug === "pass-through") return t("nativeWorkspace.endpoints");
     if (slug === "auto-routers" || slug === "access-group-budgets") {
       return (
         <span className="flex items-center gap-2">
@@ -187,9 +193,9 @@ export default function ModelsAndEndpointsPage() {
   }
 
   return (
-    <div className="mx-4">
-      <div className="mt-2 flex w-full flex-col gap-2 p-8">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="min-w-0 p-4 lg:p-6">
+      <div className="flex min-w-0 w-full flex-col gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold">{t("models.title")}</h2>
             {isAdmin ? (
@@ -201,7 +207,9 @@ export default function ModelsAndEndpointsPage() {
         </div>
 
         <CostOptimizationFeedbackBanner />
-        {isAdmin && accountId && <ModelRuntimeConfiguration accountId={accountId} />}
+        {isAdmin && accountId && <DashboardSection title={t("ui.Advanced Settings")} collapsible>
+          <ModelRuntimeConfiguration accountId={accountId} />
+        </DashboardSection>}
 
         {modelId ? (
           <ModelInfoView
@@ -214,21 +222,32 @@ export default function ModelsAndEndpointsPage() {
             modelAccessGroups={availableModelAccessGroups}
           />
         ) : (
-          <Tabs value={activeKey} onValueChange={setActiveKey}>
-            <div className="flex min-w-0 flex-nowrap items-center gap-3 border-b">
-              <div className="no-scrollbar scroll-fade-e -mb-1.5 min-w-0 flex-1 overflow-x-auto pb-1.5">
-                <TabsList variant="line" className="w-max justify-start">
-                  {visibleSlugs.map((slug) => {
-                    const key = slug || BASE_TAB_KEY;
-                    return (
-                      <TabsTrigger key={key} value={key} className="flex-none">
-                        {tabLabel(slug)}
-                      </TabsTrigger>
-                    );
-                  })}
-                </TabsList>
-              </div>
-              <div className="flex shrink-0 items-center gap-2 pb-1">
+          <Tabs value={activeKey} onValueChange={setActiveKey} className="min-w-0 gap-4">
+            <div className="flex min-w-0 flex-wrap items-start gap-3 rounded-xl border bg-card p-3 shadow-sm">
+              <TabsList variant="line" className="h-auto group-data-horizontal/tabs:h-auto min-w-0 flex-1 basis-80 flex-wrap justify-start gap-2">
+                {visibleSlugs.filter((slug) => !ADVANCED_TABS.has(slug)).map((slug) => {
+                  const key = slug || BASE_TAB_KEY;
+                  return <TabsTrigger key={key} value={key} className="flex-none">{tabLabel(slug)}</TabsTrigger>;
+                })}
+                <div id={advancedTabsId} role="presentation" className={advancedVisible ? "flex basis-full flex-wrap gap-2 border-t pt-2" : "hidden"}>
+                  {advancedVisible && visibleSlugs.filter((slug) => ADVANCED_TABS.has(slug)).map((slug) => (
+                    <TabsTrigger key={slug} value={slug} className="flex-none rounded-lg border px-3 py-2">
+                      {tabLabel(slug)}
+                    </TabsTrigger>
+                  ))}
+                </div>
+              </TabsList>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                {visibleSlugs.some((slug) => ADVANCED_TABS.has(slug)) && (
+                  <Button variant="outline" size="sm" aria-expanded={advancedVisible} aria-controls={advancedTabsId}
+                    onClick={() => {
+                      if (advancedVisible && ADVANCED_TABS.has(activeKey)) setActiveKey(BASE_TAB_KEY);
+                      setAdvancedOpen(!advancedVisible);
+                    }}>
+                    <ChevronDown className={advancedVisible ? "rotate-180" : ""} aria-hidden="true" />
+                    {t("nativeWorkspace.advancedConnections")}
+                  </Button>
+                )}
                 {lastRefreshed && (
                   <span className="text-xs text-muted-foreground">
                     {t("models.lastRefreshed", { time: lastRefreshed })}
@@ -242,7 +261,7 @@ export default function ModelsAndEndpointsPage() {
             {visibleSlugs.map((slug) => {
               const key = slug || BASE_TAB_KEY;
               return (
-                <TabsContent key={key} value={key} className="pt-4">
+                <TabsContent key={key} value={key} className="min-w-0 rounded-xl border bg-card p-4 shadow-sm">
                   {renderPanel(key)}
                 </TabsContent>
               );

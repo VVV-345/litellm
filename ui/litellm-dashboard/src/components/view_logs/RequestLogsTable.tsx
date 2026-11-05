@@ -10,7 +10,7 @@ import { DataTable, DataTableFilterDrawer, DataTableToolbar } from "@/components
 import type { Team } from "../key_team_helpers/key_list";
 import type { LogEntry } from "./columns";
 import { getLogFilterLabels, type LogsWindow } from "./log_filter_logic";
-import { RequestLogsFilters } from "./RequestLogsFilters";
+import { RequestLogsFilters, RequestLogsQuickFilters } from "./RequestLogsFilters";
 import { getRequestLogsTableColumns } from "./RequestLogsTableColumns";
 
 interface RequestLogsTableProps {
@@ -80,7 +80,12 @@ export function RequestLogsTable({
 
   const columns = useMemo(() => {
     const deps = { onKeyHashClick, onSessionClick, t };
-    return getRequestLogsTableColumns(deps);
+    const primary = ["startTime", "model", "status", "spend", "request_duration_ms", "total_tokens", "type"];
+    const rank = (id: string | undefined) => {
+      const index = primary.indexOf(id ?? "");
+      return index === -1 ? primary.length : index;
+    };
+    return getRequestLogsTableColumns(deps).sort((left, right) => rank(left.id) - rank(right.id));
   }, [onKeyHashClick, onSessionClick, t]);
 
   const isFiltered = columnFilters.length > 0 || searchValue !== "";
@@ -89,6 +94,7 @@ export function RequestLogsTable({
     <DataTable
       data={data}
       columns={columns}
+      defaultColumnVisibility={{ session_id: false, request_id: false, team_alias: false, key_hash: false, user: false, end_user: false, request_tags: false, ttft_ms: false, key_alias: false }}
       getRowId={(row) => row.request_id}
       sortingMode="server"
       sorting={sorting}
@@ -116,10 +122,17 @@ export function RequestLogsTable({
             isRefreshing={isRefreshing}
             onOpenFilters={() => setFiltersOpen(true)}
             filterLabels={getLogFilterLabels(t)}
-            showViewOptions={false}
+            showViewOptions
           >
             {toolbarChildren}
           </DataTableToolbar>
+          <RequestLogsQuickFilters
+            get={(id) => table.getState().columnFilters.find((filter) => filter.id === id)?.value}
+            set={(id, value) => table.setColumnFilters((current) => [
+              ...current.filter((filter) => filter.id !== id),
+              ...(value === undefined || value === "" ? [] : [{ id, value }]),
+            ])}
+          />
           <DataTableFilterDrawer
             table={table}
             open={filtersOpen}
@@ -127,7 +140,7 @@ export function RequestLogsTable({
             title={t("ui.Filters")}
             description={t("ui.Narrow down request logs")}
           >
-            {({ get, set }) => <RequestLogsFilters get={get} set={set} teams={teams} logsWindow={logsWindow} />}
+            {({ get, set }) => <RequestLogsFilters get={get} set={set} teams={teams} logsWindow={logsWindow} advancedOnly />}
           </DataTableFilterDrawer>
         </>
       )}

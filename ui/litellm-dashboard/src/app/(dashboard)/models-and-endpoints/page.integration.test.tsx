@@ -70,9 +70,36 @@ describe("ModelsAndEndpointsPage", () => {
   it("renders the admin tab bar and the All Models panel by default", () => {
     const { getByRole, getByTestId } = renderPage();
     expect(getByRole("tab", { name: "All Models" })).toBeInTheDocument();
-    expect(getByRole("tab", { name: "LLM Credentials" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "LLM Credentials" })).not.toBeInTheDocument();
     expect(getByRole("tab", { name: "Health Status" })).toBeInTheDocument();
     expect(getByTestId("panel-all-models")).toBeInTheDocument();
+  });
+
+  it("opens advanced connections on demand and retains advanced deep links", async () => {
+    searchState.value = "tab=llm-credentials";
+    const user = userEvent.setup();
+    renderPage();
+    expect(screen.getByRole("button", { name: "Advanced connections and routing" })).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByTestId("panel-credentials")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Advanced connections and routing" }));
+    expect(screen.getByRole("tab", { name: "All Models" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.queryByRole("tab", { name: "LLM Credentials" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Advanced connections and routing" }));
+    await user.click(screen.getByRole("tab", { name: "LLM Credentials" }));
+    expect(await screen.findByTestId("panel-credentials")).toBeVisible();
+  });
+
+  it("keeps each panel named by its tab across advanced navigation", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    expect(screen.getByRole("tabpanel", { name: "All Models" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Advanced connections and routing" }));
+    await user.click(screen.getByRole("tab", { name: "LLM Credentials" }));
+    expect(screen.getByRole("tabpanel", { name: "LLM Credentials" })).toBeVisible();
+    await user.click(screen.getByRole("tab", { name: "All Models" }));
+    expect(screen.getByRole("tabpanel", { name: "All Models" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Advanced connections and routing" }));
+    expect(screen.getByRole("tabpanel", { name: "All Models" })).toBeVisible();
   });
 
   it("falls back to All Models for retired tabs and ignores legacy modal parameters", async () => {

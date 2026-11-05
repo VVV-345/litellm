@@ -305,22 +305,47 @@ function ErrorCodeFilterField({ value, onChange }: { value: string; onChange: (v
   );
 }
 
-interface RequestLogsFiltersProps {
-  get: (columnId: string) => unknown;
-  set: (columnId: string, value: unknown) => void;
-  teams: Team[];
-  logsWindow: LogsWindow;
-}
-
-export function RequestLogsFilters({ get, set, teams, logsWindow }: RequestLogsFiltersProps) {
+function StatusFilterField({ value, onChange }: { value: string; onChange: (value: string | undefined) => void }) {
   const { t } = useTranslation();
-  const valueOf = (id: string): string => asString(get(id));
-  const setter = (id: string) => (next: string | undefined) => set(id, next);
   const statusFilterItems = [
     { value: ALL_VALUE, label: t("ui.All Statuses") },
     { value: "success", label: t("ui.Success") },
     { value: "failure", label: t("ui.Failure") },
   ] as const;
+  return (
+      <DataTableFilterField label={t("ui.Status")}>
+        <Select
+          items={statusFilterItems}
+          value={value === "" ? ALL_VALUE : value}
+          onValueChange={(next) => onChange(next === null || next === ALL_VALUE ? undefined : next)}
+        >
+          <SelectTrigger aria-label={t("ui.Status")} className="w-full">
+            <SelectValue placeholder={t("ui.All Statuses")} />
+          </SelectTrigger>
+          <SelectContent>
+            {statusFilterItems.map((item) => (
+              <SelectItem key={item.value} value={item.value}>
+                {item.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </DataTableFilterField>
+  );
+}
+
+interface RequestLogsFiltersProps {
+  get: (columnId: string) => unknown;
+  set: (columnId: string, value: unknown) => void;
+  teams: Team[];
+  logsWindow: LogsWindow;
+  advancedOnly?: boolean;
+}
+
+export function RequestLogsFilters({ get, set, teams, logsWindow, advancedOnly = false }: RequestLogsFiltersProps) {
+  const { t } = useTranslation();
+  const valueOf = (id: string): string => asString(get(id));
+  const setter = (id: string) => (next: string | undefined) => set(id, next);
   const cacheFilterItems = [
     { value: ALL_VALUE, label: t("ui.All Requests") },
     { value: "hit", label: t("ui.Cache Hit") },
@@ -335,24 +360,7 @@ export function RequestLogsFilters({ get, set, teams, logsWindow }: RequestLogsF
         teams={teams}
       />
 
-      <DataTableFilterField label={t("ui.Status")}>
-        <Select
-          items={statusFilterItems}
-          value={valueOf(LOG_FILTER_IDS.STATUS) === "" ? ALL_VALUE : valueOf(LOG_FILTER_IDS.STATUS)}
-          onValueChange={(next) => set(LOG_FILTER_IDS.STATUS, next === null || next === ALL_VALUE ? undefined : next)}
-        >
-          <SelectTrigger className="w-full">
-            <SelectValue placeholder={t("ui.All Statuses")} />
-          </SelectTrigger>
-          <SelectContent>
-            {statusFilterItems.map((item) => (
-              <SelectItem key={item.value} value={item.value}>
-                {item.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </DataTableFilterField>
+      {!advancedOnly && <StatusFilterField value={valueOf(LOG_FILTER_IDS.STATUS)} onChange={setter(LOG_FILTER_IDS.STATUS)} />}
 
       <DataTableFilterField label={t("ui.Cache")}>
         <Select
@@ -419,7 +427,7 @@ export function RequestLogsFilters({ get, set, teams, logsWindow }: RequestLogsF
         />
       </DataTableFilterField>
 
-      <ModelFilterField value={valueOf(LOG_FILTER_IDS.MODEL_ID)} onChange={setter(LOG_FILTER_IDS.MODEL_ID)} />
+      {!advancedOnly && <ModelFilterField value={valueOf(LOG_FILTER_IDS.MODEL_ID)} onChange={setter(LOG_FILTER_IDS.MODEL_ID)} />}
 
       <DataTableFilterField label={t("ui.Public model / search tool")}>
         <Input
@@ -429,5 +437,15 @@ export function RequestLogsFilters({ get, set, teams, logsWindow }: RequestLogsF
         />
       </DataTableFilterField>
     </>
+  );
+}
+
+export function RequestLogsQuickFilters({ get, set }: Pick<RequestLogsFiltersProps, "get" | "set">) {
+  const { t } = useTranslation();
+  return (
+    <div role="group" aria-label={t("nativeWorkspace.filters")} className="flex flex-wrap items-end gap-3 border-t pt-3 [&>div]:min-w-40 [&>div]:flex-1 sm:[&>div]:max-w-64">
+      <StatusFilterField value={asString(get(LOG_FILTER_IDS.STATUS))} onChange={(value) => set(LOG_FILTER_IDS.STATUS, value)} />
+      <ModelFilterField value={asString(get(LOG_FILTER_IDS.MODEL_ID))} onChange={(value) => set(LOG_FILTER_IDS.MODEL_ID, value)} />
+    </div>
   );
 }

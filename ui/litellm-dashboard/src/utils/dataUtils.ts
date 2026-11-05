@@ -36,7 +36,10 @@ export const formatNumberWithCommas = (
   let scaled = abs;
   let suffix = "";
 
-  if (abs >= 1_000_000) {
+  if (abs >= 1_000_000_000) {
+    scaled = abs / 1_000_000_000;
+    suffix = "B";
+  } else if (abs >= 1_000_000) {
     scaled = abs / 1_000_000;
     suffix = "M";
   } else if (abs >= 1_000) {

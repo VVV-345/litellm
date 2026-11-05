@@ -8,7 +8,7 @@ import { KeyResponse, Team } from "../key_team_helpers/key_list";
 import { useKeyInfo } from "@/app/(dashboard)/hooks/keys/useKeyInfo";
 import { KeysResponse, useKeys } from "@/app/(dashboard)/hooks/keys/useKeys";
 import useTeams from "@/app/(dashboard)/hooks/useTeams";
-import { regenerateKeyCall } from "../networking";
+import { keyUpdateCall, regenerateKeyCall } from "../networking";
 import i18next from "@/i18n";
 
 // Resolve debounced values synchronously so an applied filter lands in the useKeys query within the test tick.
@@ -30,6 +30,21 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("../networking", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../networking")>()),
   regenerateKeyCall: vi.fn(),
+  keyUpdateCall: vi.fn(),
+  modelAvailableCall: vi.fn().mockResolvedValue({ data: [] }),
+  tagListCall: vi.fn().mockResolvedValue({}),
+  getGuardrailsList: vi.fn().mockResolvedValue({ guardrails: [] }),
+  getPoliciesList: vi.fn().mockResolvedValue({ policies: [] }),
+  getPromptsList: vi.fn().mockResolvedValue({ prompts: [] }),
+  getPassThroughEndpointsCall: vi.fn().mockResolvedValue({ endpoints: [] }),
+  vectorStoreListCall: vi.fn().mockResolvedValue({ data: [] }),
+  fetchMCPServers: vi.fn().mockResolvedValue([]),
+  fetchMCPToolsets: vi.fn().mockResolvedValue([]),
+  fetchMCPAccessGroups: vi.fn().mockResolvedValue([]),
+  listMCPTools: vi.fn().mockResolvedValue({ tools: [], error: null }),
+  getAgentsList: vi.fn().mockResolvedValue({ agents: [] }),
+  getAgentAccessGroups: vi.fn().mockResolvedValue([]),
+  getRouterSettingsCall: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
@@ -44,7 +59,7 @@ vi.mock("@/app/(dashboard)/hooks/useAuthorized", () => ({
 
 vi.mock("@/app/(dashboard)/hooks/teams/useTeams", () => ({
   useAllTeams: vi.fn(() => ({
-    data: [{ team_id: "team-1", team_alias: "Test Team" }],
+    data: [{ team_id: "team-1", team_alias: "Test Team", models: [] }],
     isLoading: false,
   })),
 }));
@@ -152,6 +167,13 @@ const mockTeam: Team = {
   spend: 0,
 };
 
+async function enableColumn(name: string) {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Columns" }));
+  await user.click(await screen.findByRole("menuitemcheckbox", { name }));
+  await user.keyboard("{Escape}");
+}
+
 const mockUseKeys = useKeys as MockedFunction<typeof useKeys>;
 const mockUseTeams = useTeams as MockedFunction<typeof useTeams>;
 const mockUseKeyInfo = useKeyInfo as MockedFunction<typeof useKeyInfo>;
@@ -198,11 +220,12 @@ it("should render VirtualKeysTable component", () => {
   expect(screen.getByText("Test Key Alias")).toBeInTheDocument();
 });
 
-it("shows the Budget Reset column by default", async () => {
+it("shows expiry by default and keeps budget reset available on demand", async () => {
   renderWithProviders(<VirtualKeysTable />);
-  await waitFor(() => {
-    expect(screen.getByText("Budget Reset")).toBeInTheDocument();
-  });
+  expect(screen.getByRole("columnheader", { name: /Expires/ })).toBeVisible();
+  expect(screen.queryByRole("columnheader", { name: /Budget Reset/ })).not.toBeInTheDocument();
+  await enableColumn("Budget Reset");
+  expect(screen.getByRole("columnheader", { name: /Budget Reset/ })).toBeVisible();
 });
 
 it("left-anchors the create-key CTA below the title, between the header and the table toolbar", () => {
@@ -233,8 +256,9 @@ it("should display key information correctly", async () => {
   });
 });
 
-it("should display user email correctly", async () => {
+it("should display user email when its column is enabled", async () => {
   renderWithProviders(<VirtualKeysTable />);
+  await enableColumn("User");
 
   await waitFor(() => {
     expect(screen.getByText("user@example.com")).toBeInTheDocument();
@@ -248,6 +272,7 @@ it("shows the user alias over the email in the visible cell when both exist", as
 
   renderWithProviders(<VirtualKeysTable />);
 
+  await enableColumn("User");
   const row = (await screen.findByText("Test Key Alias")).closest("tr") as HTMLElement;
   expect(within(row).getByText("The User")).toBeInTheDocument();
   expect(within(row).queryByText("user@example.com")).not.toBeInTheDocument();
@@ -321,7 +346,7 @@ it("sorts by the backend key_alias field (not the column label) when the Key hea
   fireEvent.click(keyHeader);
 
   await waitFor(() => {
-    expect(mockUseKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ sortBy: "key_alias" }));
+    expect(mockUseKeys).toHaveBeenLastCalledWith(1, 10, expect.objectContaining({ sortBy: "key_alias" }));
   });
 });
 
@@ -335,7 +360,7 @@ it("sorts by the backend max_budget field when 'Budget descending' is chosen fro
   await waitFor(() => {
     expect(mockUseKeys).toHaveBeenLastCalledWith(
       1,
-      50,
+      10,
       expect.objectContaining({ sortBy: "max_budget", sortOrder: "desc" }),
     );
   });
@@ -362,7 +387,7 @@ it("sorts by spend ascending when 'Spend ascending' is chosen from the Spend / B
   await user.click(await screen.findByText("Spend ascending"));
 
   await waitFor(() => {
-    expect(mockUseKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ sortBy: "spend", sortOrder: "asc" }));
+    expect(mockUseKeys).toHaveBeenLastCalledWith(1, 10, expect.objectContaining({ sortBy: "spend", sortOrder: "asc" }));
   });
 });
 
@@ -399,6 +424,22 @@ it("renders KeyInfoView when the URL has ?key= for a key on the current page, wi
   expect(screen.getByTestId("pagination-range")).toBeInTheDocument();
 });
 
+it("refreshes the key list after saving settings without changing the key identity", async () => {
+  const refetch = vi.fn();
+  mockUseKeys.mockReturnValue(keysResult([mockKey], {}, { refetch }));
+  vi.mocked(keyUpdateCall).mockResolvedValue({ ...mockKey, key_alias: "Saved key alias" });
+  renderWithProviders(<VirtualKeysTable />, { searchParams: { key: mockKey.token } });
+
+  fireEvent.click(await screen.findByRole("tab", { name: "Settings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit Settings" }));
+  fireEvent.change(screen.getByLabelText("Key Alias"), { target: { value: "Saved key alias" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+  await waitFor(() => expect(keyUpdateCall).toHaveBeenCalledWith("test-token", expect.objectContaining({ key_alias: "Saved key alias" })));
+  expect(screen.getByRole("heading", { name: "Saved key alias" })).toBeVisible();
+  expect(refetch).toHaveBeenCalledOnce();
+});
+
 it("repoints ?key= to the rotated hash once the regenerate dialog is dismissed", async () => {
   const user = userEvent.setup();
   vi.mocked(regenerateKeyCall).mockResolvedValue({
@@ -411,6 +452,9 @@ it("repoints ?key= to the rotated hash once the regenerate dialog is dismissed",
 
   await user.click(await screen.findByRole("button", { name: /regenerate key/i }));
   await user.click(await screen.findByRole("button", { name: /^Regenerate$/ }));
+  await screen.findByRole("button", { name: "显示密钥" });
+  expect(screen.queryByText("sk-rotated-plaintext")).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "显示密钥" }));
   expect(await screen.findAllByText("sk-rotated-plaintext")).not.toHaveLength(0);
   expect(lastKeyParam(onUrlUpdate)).toBeUndefined();
 
@@ -466,6 +510,7 @@ it("should display 'Default Proxy Admin' for user_id when value is 'default_user
 
   renderWithProviders(<VirtualKeysTable />);
 
+  await enableColumn("User");
   await waitFor(() => {
     expect(screen.getByText("Default Proxy Admin")).toBeInTheDocument();
   });
@@ -503,7 +548,7 @@ describe("server-side filtering – the LIT-4080 regression guard", () => {
     fireEvent.click(screen.getByTestId("filter-drawer-apply"));
 
     await waitFor(() => {
-      expect(mockUseKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ userID: "user-42" }));
+      expect(mockUseKeys).toHaveBeenLastCalledWith(1, 10, expect.objectContaining({ userID: "user-42" }));
     });
   });
 
@@ -523,7 +568,7 @@ describe("server-side filtering – the LIT-4080 regression guard", () => {
     fireEvent.click(screen.getByTestId("filter-drawer-apply"));
 
     await waitFor(() => {
-      expect(mockUseKeys).toHaveBeenLastCalledWith(1, 50, expect.objectContaining({ userID: "user-42" }));
+      expect(mockUseKeys).toHaveBeenLastCalledWith(1, 10, expect.objectContaining({ userID: "user-42" }));
     });
 
     fireEvent.click(screen.getByTestId("datatable-clear-filters"));
@@ -537,13 +582,13 @@ describe("server-side filtering – the LIT-4080 regression guard", () => {
 
 describe("pagination display – total count comes from useKeys", () => {
   it("shows total_count and page count from the useKeys response", async () => {
-    mockUseKeys.mockReturnValue(keysResult([mockKey], { total_count: 509, total_pages: 11 }));
+    mockUseKeys.mockReturnValue(keysResult([mockKey], { total_count: 509, total_pages: 51 }));
 
     renderWithProviders(<VirtualKeysTable />);
 
     await waitFor(() => {
-      expect(screen.getByTestId("pagination-range")).toHaveTextContent("Showing 1-50 of 509");
-      expect(screen.getByTestId("pagination-page")).toHaveTextContent("Page 1 of 11");
+      expect(screen.getByTestId("pagination-range")).toHaveTextContent("Showing 1-10 of 509");
+      expect(screen.getByTestId("pagination-page")).toHaveTextContent("Page 1 of 51");
     });
   });
 

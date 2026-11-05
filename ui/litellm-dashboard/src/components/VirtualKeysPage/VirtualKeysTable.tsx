@@ -13,6 +13,7 @@ import {
 } from "@/components/shared/DataTable";
 import { SearchSelect } from "@/components/shared/SearchSelect";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { DashboardSection } from "@/components/shared/DashboardSection";
 import { Input } from "@/components/ui/input";
 import { useDebouncedValue } from "@tanstack/react-pacer/debouncer";
 import { ColumnFiltersState, OnChangeFn, PaginationState, SortingState } from "@tanstack/react-table";
@@ -46,7 +47,7 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
 
   const [selectedKeyId, setSelectedKeyId] = useQueryState("key", parseAsString.withOptions({ history: "push" }));
   const [sorting, setSorting] = useState<SortingState>(DEFAULT_SORTING);
-  const [tablePagination, setTablePagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 50 });
+  const [tablePagination, setTablePagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 10 });
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [searchInput, setSearchInput] = useState("");
@@ -137,9 +138,9 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
   const handleSelectedKeyDataUpdate = useCallback(
     (updated: Partial<KeyResponse>) => {
       const rotatedToken = updated.token ?? updated.token_id;
+      void refetch();
       if (!rotatedToken || rotatedToken === selectedKeyId) return;
       void setSelectedKeyId(rotatedToken);
-      void refetch();
     },
     [refetch, selectedKeyId, setSelectedKeyId],
   );
@@ -177,13 +178,14 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
   }
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-hidden">
+    <div className="flex min-w-0 flex-col gap-4">
       <PageHeader
         icon={<KeyRound />}
         title={t("virtualKeys.title")}
         subtitle={t("virtualKeys.subtitle")}
         primaryAction={headerActions}
       />
+      <DashboardSection title={t("ui.Keys")} summary={t("ui.Total: {{count}}", { count: rowCount })}>
       <DataTable
         data={keyList}
         columns={columns}
@@ -192,6 +194,7 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
         sortingMode="server"
         sorting={sorting}
         onSortingChange={handleSortingChange}
+        pageSizeOptions={[10, 25, 50, 100]}
         paginationMode="server"
         pagination={tablePagination}
         onPaginationChange={setTablePagination}
@@ -204,7 +207,6 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
         isLoading={isLoading}
         loadingMessage={t("virtualKeys.loading")}
         noDataMessage={t("virtualKeys.noData")}
-        maxBodyHeight="calc(75vh - 210px)"
         size="compact"
         toolbar={(table) => (
           <>
@@ -271,6 +273,7 @@ export function VirtualKeysTable({ headerActions }: VirtualKeysTableProps) {
           </>
         )}
       />
+      </DashboardSection>
     </div>
   );
 }

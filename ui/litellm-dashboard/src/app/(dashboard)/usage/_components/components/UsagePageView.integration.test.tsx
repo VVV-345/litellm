@@ -431,7 +431,7 @@ describe("UsagePage", () => {
     // Check that key metrics are displayed
     const totalRequestElements = screen.getAllByText("Total Requests");
     expect(totalRequestElements.length).toBeGreaterThan(0);
-    expect(await screen.findByText("1,500")).toBeInTheDocument();
+    expect(await screen.findByTitle("1,500")).toBeInTheDocument();
     const successfulRequestLabelElements = screen.getAllByText("Successful Requests");
     expect(successfulRequestLabelElements.length).toBeGreaterThan(0);
     // Successful and Failed Requests both read the gateway counter, not the
@@ -439,10 +439,10 @@ describe("UsagePage", () => {
     // per-model breakdowns. They must share a source, or the tiles contradict the
     // endpoint breakdown chart below them.
     await waitFor(() => {
-      expect(screen.getAllByText("424,242").length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle("424,242").length).toBeGreaterThan(0);
     });
     expect(screen.getAllByText("909").length).toBeGreaterThan(0);
-    expect(screen.queryByText("1,450")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("1,450")).not.toBeInTheDocument();
   });
 
   it("should stop showing the previous range's totals while a new range is in flight", async () => {
@@ -461,7 +461,7 @@ describe("UsagePage", () => {
 
     renderWithProviders(<UsagePage {...defaultProps} />);
     await waitFor(() => {
-      expect(screen.getAllByText("1,500").length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle("1,500").length).toBeGreaterThan(0);
     });
 
     await act(async () => {
@@ -471,13 +471,13 @@ describe("UsagePage", () => {
     await waitFor(() => {
       expect(mockUserDailyActivityAggregatedCall).toHaveBeenCalledTimes(2);
     });
-    expect(screen.queryByText("1,500")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("1,500")).not.toBeInTheDocument();
 
     await act(async () => {
       releaseSecondFetch();
     });
     await waitFor(() => {
-      expect(screen.getAllByText("1,500").length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle("1,500").length).toBeGreaterThan(0);
     });
   });
 
@@ -490,9 +490,9 @@ describe("UsagePage", () => {
       expect(mockGatewayDailyActivityCall).toHaveBeenCalled();
     });
     await waitFor(() => {
-      expect(screen.getAllByText("1,450").length).toBeGreaterThan(0);
+      expect(screen.getAllByTitle("1,450").length).toBeGreaterThan(0);
     });
-    expect(screen.queryByText("424,242")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("424,242")).not.toBeInTheDocument();
     expect(screen.queryByText("909")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gateway-requests-by-endpoint")).not.toBeInTheDocument();
   });
@@ -506,8 +506,25 @@ describe("UsagePage", () => {
       expect(mockUserDailyActivityAggregatedCall).toHaveBeenCalled();
     });
     expect(mockGatewayDailyActivityCall).not.toHaveBeenCalled();
-    expect(screen.queryByText("424,242")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("424,242")).not.toBeInTheDocument();
     expect(screen.queryByTestId("gateway-requests-by-endpoint")).not.toBeInTheDocument();
+  });
+
+  it("defaults to compact metrics, exposes full values and expands details on demand", async () => {
+    renderWithProviders(<UsagePage {...defaultProps} />);
+    const requests = await screen.findByTitle("1,500");
+    expect(requests).toHaveTextContent("1.5K");
+    expect(screen.getByText("View User Spend")).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Budget and spend details" }));
+    expect(screen.getByText("View User Spend")).toBeVisible();
+    const compact = screen.getByRole("button", { name: "Compact numbers (K/M/B)" });
+    expect(compact).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(compact);
+    expect(requests).toHaveTextContent("1,500");
+    expect(compact).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("Top Virtual Keys")).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "More usage breakdowns" }));
+    expect(screen.getByText("Top Virtual Keys")).toBeVisible();
   });
 
   it("should display usage metrics and charts", async () => {
@@ -1061,7 +1078,7 @@ describe("UsagePage", () => {
       });
 
       // Should still render the data from the paginated fallback, which lands a render after the call
-      expect(await screen.findByText("1,500")).toBeInTheDocument();
+      expect(await screen.findByTitle("1,500")).toBeInTheDocument();
     });
 
     it("should stop showing the previous range's paginated pages while a new range is in flight", async () => {
@@ -1085,7 +1102,7 @@ describe("UsagePage", () => {
 
       renderWithProviders(<UsagePage {...defaultProps} />);
       await waitFor(() => {
-        expect(screen.getAllByText("1,500").length).toBeGreaterThan(0);
+        expect(screen.getAllByTitle("1,500").length).toBeGreaterThan(0);
       });
 
       await act(async () => {
@@ -1095,13 +1112,13 @@ describe("UsagePage", () => {
       await waitFor(() => {
         expect(mockUserDailyActivityAggregatedCall).toHaveBeenCalledTimes(2);
       });
-      expect(screen.queryByText("1,500")).not.toBeInTheDocument();
+      expect(screen.queryByTitle("1,500")).not.toBeInTheDocument();
 
       await act(async () => {
         releaseSecondAggregated();
       });
       await waitFor(() => {
-        expect(screen.getAllByText("1,500").length).toBeGreaterThan(0);
+        expect(screen.getAllByTitle("1,500").length).toBeGreaterThan(0);
       });
     });
 
@@ -1245,6 +1262,8 @@ describe("UsagePage", () => {
         expect(mockUserDailyActivityAggregatedCall).toHaveBeenCalled();
       });
 
+      fireEvent.click(screen.getByRole("button", { name: "More usage breakdowns" }));
+
       // Click the "Litellm Model Name" toggle
       const litellmToggle = screen.getAllByText("Litellm Model Name")[0];
       act(() => {
@@ -1263,6 +1282,8 @@ describe("UsagePage", () => {
       await waitFor(() => {
         expect(mockUserDailyActivityAggregatedCall).toHaveBeenCalled();
       });
+
+      fireEvent.click(screen.getByRole("button", { name: "More usage breakdowns" }));
 
       // Switch to individual first
       const litellmToggle = screen.getAllByText("Litellm Model Name")[0];
