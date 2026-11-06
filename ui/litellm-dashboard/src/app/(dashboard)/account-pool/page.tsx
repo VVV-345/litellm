@@ -113,7 +113,6 @@ const POOL_TABS = [
   "providers",
   "credentials",
   "onboarding",
-  "oauth-automation",
   "proxy-layer",
   "upstream-sync",
   "releases",
@@ -127,7 +126,9 @@ export default function AccountPoolPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const legacyTab = searchParams?.get("tab");
-  const legacyTabs: Readonly<Record<string, string>> = { oauth: "providers", quotas: "dashboard" };
+  const legacyTabs: Readonly<Record<string, string>> = {
+    oauth: "providers", quotas: "dashboard", "oauth-automation": "onboarding",
+  };
   const requestedTab = legacyTab ? legacyTabs[legacyTab] ?? legacyTab : "dashboard";
   const [testEnvironmentId, setTestEnvironmentId] = useState<string | null>(null);
   const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
@@ -135,7 +136,7 @@ export default function AccountPoolPage() {
   const [verifyAccessEnvironment, setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
-  const [automationEnvironmentId, setAutomationEnvironmentId] = useState<string | undefined>();
+  const [automationSelection, setAutomationSelection] = useState<{ environmentId?: string; visit: number } | null>(null);
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
@@ -147,8 +148,8 @@ export default function AccountPoolPage() {
     setTabSelection({ query: requestedTab, value });
   };
   const openAutomation = (environmentId?: string) => {
-    setAutomationEnvironmentId(environmentId);
-    setActiveTab("oauth-automation");
+    setAutomationSelection((current) => ({ environmentId, visit: (current?.visit ?? 0) + 1 }));
+    setActiveTab("onboarding");
   };
   const openCreatedCardAutomation = (environmentId: string) => {
     setCreateOpen(false);
@@ -425,12 +426,6 @@ export default function AccountPoolPage() {
             >
               自动化上号
             </TabsTrigger>
-            <TabsTrigger
-              value="oauth-automation"
-              className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
-            >
-              授权自动化
-            </TabsTrigger>
 
             <TabsTrigger
               value="proxy-layer"
@@ -566,19 +561,28 @@ export default function AccountPoolPage() {
             active={activeTab === "onboarding"}
             visited={isTabVisited("onboarding")}
           >
-            {accessToken && <AccountPoolOnboardingPanel accessToken={accessToken} />}
-          </DeferredTabPanel>
-          <DeferredTabPanel
-            value="oauth-automation"
-            className="pt-4"
-            active={activeTab === "oauth-automation"}
-            visited={isTabVisited("oauth-automation")}
-          >
             {accessToken && (
-              <AccountPoolAutomationPanel
-                key={automationEnvironmentId ?? "queue"}
-                accessToken={accessToken}
-                initialEnvironmentId={automationEnvironmentId}
+              <AccountPoolWorkspace
+                key={`${legacyTab === "oauth-automation"}:${automationSelection?.visit ?? 0}`}
+                title="自动化上号"
+                defaultValue={legacyTab === "oauth-automation" || automationSelection ? "authorize" : "cpa"}
+                defaultOpen
+                items={[
+                  {
+                    value: "cpa", label: "CPA 文件导入",
+                    content: <AccountPoolOnboardingPanel accessToken={accessToken} fileFormat="cpa" />,
+                  },
+                  {
+                    value: "sub2api", label: "Sub2API 文件导入",
+                    content: <AccountPoolOnboardingPanel accessToken={accessToken} fileFormat="sub2api" />,
+                  },
+                  {
+                    value: "authorize", label: "2FA / OAuth 授权",
+                    content: <AccountPoolAutomationPanel
+                      accessToken={accessToken} initialEnvironmentId={automationSelection?.environmentId}
+                    />,
+                  },
+                ]}
               />
             )}
           </DeferredTabPanel>

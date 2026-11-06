@@ -63,8 +63,50 @@ def merge_visible_history(
     return current if full_prefix else (*cached, *current)
 
 
-def portable_history_item(item: Mapping[str, JsonValue]) -> bool:
-    return _history_issue(dict(item), "input") is None
+def portable_history_item(item: Mapping[str, JsonValue], *, allow_web_search: bool = False) -> bool:
+    return _history_issue(dict(item), "input", allow_web_search=allow_web_search) is None
+
+
+def web_search_tool(tool: JsonValue) -> bool:
+    return isinstance(tool, dict) and tool.get("type") in (
+        "web_search", "web_search_preview", "web_search_preview_2025_03_11",
+    )
+
+
+def _completed_web_search(item: Mapping[str, JsonValue]) -> bool:
+    if (
+        item.get("status") != "completed"
+        or not isinstance(identifier := item.get("id"), str)
+        or not identifier.startswith("ws_")
+        or not set(item) <= {"type", "id", "status", "action"}
+        or not isinstance(action := item.get("action"), dict)
+    ):
+        return False
+    match action.get("type"):
+        case "search":
+            query: Final = action.get("query")
+            queries: Final = action.get("queries", [])
+            sources: Final = action.get("sources", [])
+            return (
+                set(action) <= {"type", "query", "queries", "sources"}
+                and (query is None or isinstance(query, str))
+                and isinstance(queries, list) and all(isinstance(value, str) and value for value in queries)
+                and isinstance(sources, list) and all(
+                    isinstance(source, dict) and set(source) <= {"type", "url"}
+                    and source.get("type") == "url" and isinstance(source.get("url"), str) and source.get("url")
+                    for source in sources
+                )
+                and bool(query or queries or sources)
+            )
+        case "open_page" | "find_in_page":
+            return (
+                set(action) <= {"type", "url", "pattern"}
+                and isinstance(action.get("url"), str) and bool(action.get("url"))
+                and (action.get("type") == "open_page"
+                     or isinstance(action.get("pattern"), str) and bool(action.get("pattern")))
+            )
+        case _:
+            return False
 
 
 def client_tool(tool: JsonValue) -> bool:
@@ -193,7 +235,7 @@ def visible_reasoning(item: Mapping[str, JsonValue]) -> dict[str, JsonValue] | N
     } if readable else None
 
 
-def _history_issue(item: JsonValue, path: str) -> str | None:
+def _history_issue(item: JsonValue, path: str, *, allow_web_search: bool = False) -> str | None:
     if not isinstance(item, dict):
         return f"unsupported_history:{path}:invalid_item"
     content_blocks: Final = item.get("output", item.get("content"))
@@ -214,10 +256,13 @@ def _history_issue(item: JsonValue, path: str) -> str | None:
             return f"unsupported_content:{path}.output"
     if item.get("type") in ("compaction", "context_compaction"):
         return f"encrypted_compaction:{path}"
+    if allow_web_search and item.get("type") == "web_search_call" and _completed_web_search(item):
+        return None
     if item.get("type") == "additional_tools":
         tools: Final = item.get("tools")
         if tools is not None and (
-            not isinstance(tools, list) or not all(client_tool(tool) for tool in tools)
+            not isinstance(tools, list)
+            or not all(client_tool(tool) or allow_web_search and web_search_tool(tool) for tool in tools)
         ):
             return f"server_or_unknown_tools:{path}"
         return None
@@ -285,7 +330,7 @@ def _history_issue(item: JsonValue, path: str) -> str | None:
     return f"unsupported_history:{path}:invalid_item_or_tools"
 
 
-def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
+def signature_recovery_reason(payload: Mapping[str, JsonValue], *, allow_web_search: bool = False) -> str | None:
     if any(payload.get(key) for key in ("previous_response_id", "conversation", "background")):
         return "server_state_required"
     if payload.get("functions"):
@@ -294,7 +339,8 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
     if not isinstance(tools, list) or not all(
         client_tool(tool)
         or "input" in payload and isinstance(tool, dict)
-        and tool.get("type") in ("image_generation", "web_search", "web_search_preview")
+        and (tool.get("type") in ("image_generation", "web_search", "web_search_preview")
+             or allow_web_search and web_search_tool(tool))
         for tool in tools
     ):
         return "server_or_unknown_tools"
@@ -303,7 +349,8 @@ def signature_recovery_reason(payload: Mapping[str, JsonValue]) -> str | None:
         return "incomplete_history"
     field: Final = "messages" if "messages" in payload else "input"
     issue: Final = next(
-        (reason for index, item in enumerate(history) if (reason := _history_issue(item, f"{field}[{index}]"))),
+        (reason for index, item in enumerate(history)
+         if (reason := _history_issue(item, f"{field}[{index}]", allow_web_search=allow_web_search))),
         None,
     )
     if issue is not None:

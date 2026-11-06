@@ -1546,6 +1546,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/oauth-automation/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete Job */
+        delete: operations["delete_job_account_pool_oauth_automation_jobs__job_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-automation/jobs/{job_id}/action": {
         parameters: {
             query?: never;
@@ -37451,6 +37468,8 @@ export interface components {
         };
         /** OnboardingImport */
         OnboardingImport: {
+            /** Auth File Format */
+            auth_file_format?: ("cpa" | "sub2api") | null;
             /** Entries */
             entries: components["schemas"]["OnboardingEntry"][];
             /**
@@ -48093,6 +48112,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_job_account_pool_oauth_automation_jobs__job_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationView"];
                 };
             };
             /** @description Validation Error */

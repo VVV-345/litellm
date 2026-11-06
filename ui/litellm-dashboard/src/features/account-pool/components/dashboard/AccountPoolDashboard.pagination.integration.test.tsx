@@ -201,3 +201,12 @@ describe("supplier dashboard pagination and filters", () => {
     expect(supplier("OpenAI Codex").getByText("Codex 5")).toBeInTheDocument();
   });
 });
+
+
+it("opens Codex first even when the first returned card is from another supplier", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderDashboard([card("Kimi 1", "kimi"), card("Codex 1", "openai_codex")]);
+  expect(screen.getByRole("tab", { name: /^OpenAI Codex/, selected: true })).toBeVisible();
+  selectSupplier("Kimi");
+  expect(supplier("Kimi").getByText("Kimi 1")).toBeVisible();
+});

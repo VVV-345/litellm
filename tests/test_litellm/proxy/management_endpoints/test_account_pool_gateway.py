@@ -4169,3 +4169,59 @@ def test_image_history_signature_recovery_preserves_result(image_tool):
     assert len(captured) == 2
     assert all("encrypted_content" not in item for item in captured[-1]["input"])
     assert any(block.get("image_url") == "data:image/png;base64,"+png for item in captured[-1]["input"] for block in item.get("content", []) if isinstance(block, dict))
+
+
+@pytest.mark.parametrize("previous,already_output", [("resp_cached", False), ("resp_missing", False), ("resp_cached", True)])
+def test_websocket_old_response_id_replays_only_complete_unstarted_turn(previous, already_output):
+    class OldIDUpstream(FakeUpstreamWebSocket):
+        async def send(self, message):
+            self.sent.append(message)
+            payload = json.loads(message)
+            if payload.get("previous_response_id"):
+                if already_output:
+                    await self.responses.put(json.dumps({"type": "response.output_text.delta", "delta": "started"}))
+                event = {"type": "error", "error": {"code": "previous_response_not_found"}}
+            else:
+                event = {
+                    "type": "response.completed",
+                    "response": {"id": "resp_cached", "model": payload["model"], "output": [
+                        {"type": "message", "role": "assistant", "content": "Remembered"},
+                    ]},
+                }
+            await self.responses.put(json.dumps(event))
+
+    class Dialer(FakeWebSocketDialer):
+        def __init__(self):
+            self.upstream = OldIDUpstream()
+            self.requests = []
+
+    dialer = Dialer()
+    client, control = setup_gateway(lambda _: httpx.Response(500), websocket_dialer=dialer)
+    policy = control.resolution.policy.model_copy(update={"transport": TransportPolicy(websocket="enabled")})
+    enabled = control.resolution.candidates[0].model_copy(update={"policy": policy, "websocket_enabled": True})
+    control.resolution = control.resolution.model_copy(
+        update={"policy": policy, "candidates": (enabled,), "websocket_enabled": True}
+    )
+    with client.websocket_connect("/v1/responses?model=public-model", headers={"Authorization": f"Bearer {_KEY}"}) as socket:
+        socket.send_json({"type": "response.create", "model": "public-model", "input": "Remember A"})
+        assert socket.receive_json()["type"] == "response.completed"
+        socket.send_json({
+            "type": "response.create", "model": "public-model", "input": "Repeat A", "previous_response_id": previous,
+        })
+        if already_output:
+            assert socket.receive_json()["delta"] == "started"
+        assert socket.receive_json()["type"] == (
+            "response.completed" if previous == "resp_cached" and not already_output else "error"
+        )
+    sent = [json.loads(item) for item in dialer.upstream.sent]
+    if previous == "resp_cached" and not already_output:
+        assert len(sent) == 3
+        assert "previous_response_id" not in sent[-1]
+        assert sent[-1]["input"] == [
+            {"role": "user", "content": "Remember A"},
+            {"type": "message", "role": "assistant", "content": "Remembered"},
+            {"role": "user", "content": "Repeat A"},
+        ]
+    else:
+        assert len(sent) == 2
+    assert len(dialer.requests) == 1

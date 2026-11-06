@@ -25,10 +25,15 @@ from litellm.litellm_core_utils.signature_recovery import (
     signature_recovery_reason,
     visible_agent_message,
     visible_reasoning,
+    web_search_tool,
 )
 from litellm.proxy._types import ProxyException
 from litellm.proxy.common_utils.encrypt_decrypt_utils import decrypt_value, encrypt_value
-from litellm.proxy.management_endpoints.account_pool_failover import exception_failure, exception_header
+from litellm.proxy.management_endpoints.account_pool_failover import (
+    exception_failure,
+    exception_header,
+    exception_previous_response_missing,
+)
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingSnapshot,
@@ -40,6 +45,7 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     unavailable_snapshot,
 )
 from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots as quota_snapshots
+from litellm.proxy.management_endpoints.account_pool_retry import has_server_reference
 from litellm.proxy.management_endpoints.account_pool_session import (
     AccountPoolSessionUnavailableError,
     has_signed_history,
@@ -136,6 +142,8 @@ class ConversationStore:
 
 
 def _visible_item(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | None:
+    if item.get("type") == "web_search_call":
+        return item
     if item.get("type") == "agent_message":
         return visible_agent_message(item)
     return readable_reasoning(item) if item.get("type") == "reasoning" else MappingProxyType({
@@ -145,7 +153,9 @@ def _visible_item(item: Mapping[str, JsonValue]) -> Mapping[str, JsonValue] | No
     })
 
 
-def visible_input(value: object, *, lenient: bool = False) -> tuple[Mapping[str, JsonValue], ...] | None:
+def visible_input(
+    value: object, *, lenient: bool = False, allow_web_search: bool = False
+) -> tuple[Mapping[str, JsonValue], ...] | None:
     if isinstance(value, str):
         return (MappingProxyType({"role": "user", "content": value}),) if value else None
     try:
@@ -155,7 +165,8 @@ def visible_input(value: object, *, lenient: bool = False) -> tuple[Mapping[str,
     normalized: Final = tuple(
         image_history_message(item) if item.get("type") == "image_generation_call" else item for item in items
     )
-    if any(item is None or not portable_item(item) for item in normalized):
+    search: Final = allow_web_search and any(item.get("type") == "web_search_call" for item in items)
+    if any(item is None or not portable_item(item, allow_web_search=search) for item in normalized):
         return None
     return tuple(kept for item in normalized if item is not None and (kept := _visible_item(item)) is not None)
 
@@ -192,8 +203,8 @@ def compatible_reasoning_input(router: Router, payload: Mapping[str, object], se
     return [dict(kept) for item in items if (kept := keep(item)) is not None]
 
 
-def portable_item(item: Mapping[str, JsonValue]) -> bool:
-    return portable_history_item(item)
+def portable_item(item: Mapping[str, JsonValue], *, allow_web_search: bool = False) -> bool:
+    return portable_history_item(item, allow_web_search=allow_web_search)
 
 
 def retry_exhausted(error: BaseException, depth: int = 0) -> bool:
@@ -269,13 +280,15 @@ class Conversation:
             if isinstance(previous, str)
             else EncryptedContentAffinityCheck._extract_model_id_from_input(payload.get("input"))  # pyright: ignore[reportPrivateUsage]  # Share the native affinity marker parser.
         )
-        cached: Final = visible_input(_INPUT.validate_python(record.input)) if record is not None else None
+        cached: Final = (
+            visible_input(_INPUT.validate_python(record.input), allow_web_search=True) if record is not None else None
+        )
         raw_input: Final = request.get("input")
         replay_input: Final = [
             item for item in raw_input
             if not isinstance(item, dict) or item.get("type") not in ("compaction", "context_compaction")
         ] if cached is not None and isinstance(raw_input, list) else raw_input
-        current: Final = visible_input(replay_input, lenient=relaxed)
+        current: Final = visible_input(replay_input, lenient=relaxed, allow_web_search=True)
         history: Final = (
             None
             if current is None or record is not None and cached is None
@@ -288,6 +301,9 @@ class Conversation:
         context: Final = {**(record.context if record is not None else {}), **request}
         return cls(identity, model, context, history, origin, store, current, record is not None or previous is None)
 
+    def _search_history(self) -> bool:
+        return any(item.get("type") == "web_search_call" for item in self.history or ())
+
     def _history_replayable(self) -> bool:
         extra: Final = self.request.get("extra_body")
         if isinstance(extra, dict) and any(key in extra for key in (*_FIELDS, "previous_response_id")):
@@ -295,7 +311,10 @@ class Conversation:
         if self.history is None or not self.complete_history or self.request.get("truncation") == "auto":
             return False
         restored: Final = _JSON.validate_python({**self.request, "input": _INPUT.validate_python(self.history)})
-        return signature_recovery_reason(restored) is None
+        search: Final = self._search_history()
+        return (not search or not has_server_reference(restored)) and (
+            signature_recovery_reason(restored, allow_web_search=search) is None
+        )
 
     def can_replay(self, router: Router, payload: Mapping[str, object]) -> bool:
         if (
@@ -344,6 +363,11 @@ class Conversation:
         raw_metadata: Final = payload.get("litellm_metadata")
         metadata: Final = _METADATA.validate_python(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
         metadata["account_pool_signed_continuation"] = False
+        inputs: Final = _INPUT.validate_python(input_items)
+        tools: Final = self.request.get("tools")
+        search_declaration: Final = (
+            _search_declaration(inputs, tools, payload.get("tool_choice")) if self._search_history() else {}
+        )
         return MappingProxyType(
             {
                 **MappingProxyType({
@@ -353,7 +377,8 @@ class Conversation:
                 }),
                 **({"litellm_metadata": metadata} if metadata else {}),
                 **{key: value for key, value in self.request.items() if key in ("instructions", "tools")},
-                "input": _INPUT.validate_python(input_items),
+                "input": inputs,
+                **search_declaration,
                 "_excluded_deployment_ids": excluded,
                 "disable_fallbacks": True,
                 "num_retries": 0,
@@ -420,13 +445,7 @@ class Conversation:
             if payload.get("previous_response_id") and not payload.get("disable_fallbacks") and payload.get("max_fallbacks", router.max_fallbacks) != 0:
                 raise ConversationUnavailableError() from error
             return None
-        previous_excluded: Final = payload.get("_excluded_deployment_ids")
-        excluded: Final = quota_failover_exclusions(
-            deployments,
-            failed,
-            _EXCLUSIONS.validate_python(previous_excluded) if previous_excluded is not None else (),
-            self.model,
-        )
+        excluded: Final = self._excluded(payload, deployments, failed)
         if not any(deployment_id(item) not in excluded for item in deployments):
             return None
         history: Final = self.history if self._history_replayable() else ()
@@ -469,7 +488,13 @@ class Conversation:
         failed: object,
     ) -> tuple[str, ...]:
         previous_excluded: Final = payload.get("_excluded_deployment_ids")
-        base: Final = _EXCLUSIONS.validate_python(previous_excluded) if previous_excluded is not None else ()
+        base: Final = (
+            *(_EXCLUSIONS.validate_python(previous_excluded) if previous_excluded is not None else ()),
+            *(identifier for item in deployments
+              if self._search_history()
+              and (identifier := deployment_id(item)) is not None
+              and not _accepts_search_history(item)),
+        )
         if not isinstance(failed, str):
             return base
         origin: Final = next((item for item in deployments if deployment_id(item) == failed), None)
@@ -497,8 +522,34 @@ class Conversation:
         if migrated and isinstance(excluded_before, (tuple, list)) and failed in excluded_before:
             raise error
         budget: Final = remaining - used
+        if budget <= 0 or time.time() >= self.identity.retry_deadline:
+            raise error
+        if (
+            not migrated and isinstance(payload.get("previous_response_id"), str)
+            and exception_previous_response_missing(error)
+            and self.history is not None and self._history_replayable()
+            and not has_server_reference(list(self.history))
+        ):
+            deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
+            eligible: Final = next((item for item in deployments if deployment_id(item) == failed), None)
+            if (
+                not isinstance(failed, str) or eligible is None
+                or snapshot_for(eligible, quota_snapshots.values) is None
+                or isinstance(excluded_before, (tuple, list)) and failed in excluded_before
+                or self._search_history() and not _accepts_search_history(eligible)
+            ):
+                raise error
+            excluded: Final = tuple(
+                identifier for item in deployments if (identifier := deployment_id(item)) is not None
+                and identifier != failed
+            )
+            token_once: Final = pool_identity.set(self.identity.model_copy(update={"attempt_limit": 1}))
+            try:
+                return await invoke(self._rebuilt(payload, self.history, excluded))
+            finally:
+                pool_identity.reset(token_once)
         rebuilt: Final = self.rebuild(router, payload, error, migrated=migrated)
-        if rebuilt is None or budget <= 0 or time.time() >= self.identity.retry_deadline:
+        if rebuilt is None:
             raise error
         token: Final = pool_identity.set(self.identity.model_copy(update={"attempt_limit": budget}))
         try:
@@ -518,7 +569,7 @@ class Conversation:
         ):
             return
         deployment_id: Final = ResponsesAPIRequestUtils.get_model_id_from_response_id(response.id)
-        output: Final = visible_input(response.model_dump(mode="json").get("output"))
+        output: Final = visible_input(response.model_dump(mode="json").get("output"), allow_web_search=True)
         if deployment_id is None or output is None:
             return
         await self.store.save(
@@ -589,6 +640,33 @@ class ConversationStream(BaseResponsesAPIStreamingIterator):
             response: Final = getattr(self.source, "response", None)
             if isinstance(response, httpx.Response):
                 await response.aclose()
+
+
+def _accepts_search_history(deployment: Mapping[str, object]) -> bool:
+    snapshot: Final = snapshot_for(deployment, quota_snapshots.values)
+    return snapshot is not None and snapshot.web_search_history
+
+
+def _search_declaration(
+    items: list[dict[str, JsonValue]], tools: JsonValue, choice: object,
+) -> Mapping[str, object]:
+    top: Final = tools if isinstance(tools, list) else []
+    extra: Final = tuple(
+        (index, declared) for index, item in enumerate(items)
+        if item.get("type") == "additional_tools" and isinstance(declared := item.get("tools"), list)
+    )
+    if any(web_search_tool(tool) for tool in (*top, *(tool for _, entries in extra for tool in entries))):
+        return {}
+    tool: Final = {"type": "web_search", "external_web_access": False}
+    inhibit: Final = (
+        {"tool_choice": "none"} if not top and not any(entries for _, entries in extra) and choice in (None, "auto", "none")
+        else {}
+    )
+    # Responses Lite 的历史工具定义位于 input，保持压缩触发项的原始位置。
+    if extra:
+        index, entries = extra[-1]
+        return {**inhibit, "input": [*items[:index], {**items[index], "tools": [*entries, tool]}, *items[index + 1:]]}
+    return {**inhibit, "tools": [*top, tool]}
 
 
 def deployment_id(deployment: Mapping[str, object]) -> str | None:

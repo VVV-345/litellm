@@ -40,8 +40,10 @@ export interface AccountPoolProviderFamily {
 const isRetryableGatewayError = (error: unknown): error is ApiError =>
   error instanceof ApiError && (error.status === 502 || error.status === 504);
 
-const runIdempotentMutation = async <T>(request: (idempotencyKey: string) => Promise<T>): Promise<T> => {
-  const idempotencyKey = uuidv4();
+const runIdempotentMutation = async <T>(
+  request: (idempotencyKey: string) => Promise<T>,
+  idempotencyKey = uuidv4(),
+): Promise<T> => {
   try {
     return await request(idempotencyKey);
   } catch (error) {
@@ -77,13 +79,15 @@ export const getAccountPoolEnvironment = (
 export const createAccountPoolEnvironment = (
   accessToken: string,
   request: AccountPoolCreateRequest,
+  operationId?: string,
 ): Promise<AccountPoolAuthorization> =>
-  runIdempotentMutation((idempotencyKey) =>
-    apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
+  runIdempotentMutation(
+    (idempotencyKey) => apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
       accessToken,
       body: request,
       headers: { "Idempotency-Key": idempotencyKey },
     }),
+    operationId,
   );
 
 interface AccountPoolOpenAICompatibleCreateRequest {

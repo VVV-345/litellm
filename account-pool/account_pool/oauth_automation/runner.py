@@ -19,6 +19,7 @@ from account_pool.oauth_automation.models import ACTIVE, AutomationScreen, JobVi
 from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.oauth_automation.worker import AutomationWorker
 from account_pool.oauth_browser import OAuthBrowserAutomation, OAuthBrowserSessionGrant, OAuthBrowserSessionStatus
+from account_pool.onboarding.models import onboarding_card_name
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import StateCipher
 
@@ -461,8 +462,23 @@ class AutomationRunner:
                     await self.browser.runtime.remove_oauth_browser(row.item.browser_session_id)
                     await self.browser.sessions.mark_cleaned(row.item.browser_session_id)
                 if current is not None and current.oauth_automation_operation == operation(row):
+                    email: Final = current.credential_email
+                    # 仅替换已验收账号的默认占位名，不改自定义名称或代理配置。
+                    name: Final = (
+                        onboarding_card_name(current.supplier.value, email.lower(), current.quota.plan_type)
+                        if row.item.stage == "completed" and email and current.quota.plan_type
+                        and not current.configuration_pending
+                        and self.registry.identity(email) == row.account_digest
+                        and current.name == onboarding_card_name(current.supplier.value, email.lower())
+                        else current.name
+                    )
+                    configuration: Final = current.desired_configuration
                     unlocked: Final = await self.registry.environments.save_if_version(
-                        current.model_copy(update={"version": current.version + 1, "oauth_automation_operation": None}),
+                        current.model_copy(update={
+                            "version": current.version + 1, "oauth_automation_operation": None, "name": name,
+                            "desired_configuration": configuration.model_copy(update={"name": name})
+                            if name != current.name and configuration is not None else configuration,
+                        }),
                         current.version,
                     )
                     if unlocked is None:

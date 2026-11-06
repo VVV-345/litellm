@@ -279,6 +279,34 @@ def failure_headers(reason: FailureReason, *, exhausted: bool = False) -> Mappin
     return MappingProxyType({"x-account-pool-failure": reason})
 
 
+def previous_response_missing(value: object) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    nested: Final = value.get("error")
+    if isinstance(nested, Mapping):
+        return previous_response_missing(nested)
+    message: Final = value.get("message")
+    return value.get("code") == "previous_response_not_found" or (
+        isinstance(message, str) and message.strip().casefold() == "previous_response_id is not available for this user"
+    )
+
+
+def exception_previous_response_missing(error: BaseException) -> bool:
+    if isinstance(error, MidStreamFallbackError) and (not error.is_pre_first_chunk or error.generated_content):
+        return False
+    response: Final = getattr(error, "response", None)
+    status: Final = response.status_code if isinstance(response, httpx.Response) else getattr(error, "status_code", None)
+    if status not in (400, 404):
+        return False
+    if isinstance(response, httpx.Response):
+        try:
+            if previous_response_missing(_STREAM_ERROR.validate_json(response.content)):
+                return True
+        except (ValidationError, httpx.ResponseNotRead):
+            pass
+    return previous_response_missing(getattr(error, "body", None))
+
+
 def exception_failure(error: BaseException, depth: int = 0) -> FailureReason | None:
     reason: Final = exception_header(error, "x-account-pool-failure", depth)
     if reason in FAILURE_REASONS:

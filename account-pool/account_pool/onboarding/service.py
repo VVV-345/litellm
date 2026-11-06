@@ -45,6 +45,7 @@ from account_pool.onboarding.models import (
     OnboardingState,
     OnboardingTarget,
     OnboardingTargetView,
+    onboarding_card_name,
 )
 from account_pool.onboarding.repository import OnboardingRepository, StoredOnboarding
 from account_pool.ports import EnvironmentRepository
@@ -55,13 +56,6 @@ from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose,
 _LOGGER: Final = logging.getLogger(__name__)
 _ACTIVE: Final = frozenset({"queued", "running", "awaiting_authorization"})
 _COMPLETED: Final = frozenset({"ready", "cooling_down", "disabled"})
-_SUPPLIER_NAMES: Final = {
-    "openai_codex": "Codex",
-    "anthropic_claude": "Claude",
-    "google_antigravity": "Antigravity",
-    "kimi": "Kimi",
-    "xai": "xAI",
-}
 
 
 class OnboardingPayload(BaseModel):
@@ -96,7 +90,7 @@ def import_entries(request: OnboardingImport) -> tuple[tuple[OnboardingEntry, ..
         try:
             return tuple(
                 (item.model_copy(update={"proxy_profile_id": entry.proxy_profile_id}), None)
-                for item in expand_import_file(entry, request.supplier)
+                for item in expand_import_file(entry, request.supplier, request.auth_file_format)
             )
         except CredentialConflict as error:
             return ((entry, str(error)),)
@@ -467,7 +461,7 @@ class OnboardingService:
     async def _process(self, row: StoredOnboarding) -> None:
         payload: Final = self._payload(row)
         request: Final = CreateEnvironmentRequest(
-            name=f"{_SUPPLIER_NAMES[row.item.supplier]}-套餐待识别-{row.item.label}"[:80],
+            name=onboarding_card_name(row.item.supplier, row.item.label),
             supplier=SupplierKind(row.item.supplier),
             proxy_profile_id=payload.proxy_profile_id,
             operation_id=f"onboarding:{row.item.id}",
@@ -588,7 +582,7 @@ class OnboardingService:
                 await self._save(row, "failed", "实际授权账号与导入邮箱不一致，卡片已停用，请检查登录账号")
             return
         account: Final = record.credential_email or record.credential_account_id or row.item.label.removesuffix(".json")
-        name: Final = f"{_SUPPLIER_NAMES[row.item.supplier]}-{record.quota.plan_type or '套餐待识别'}-{account}"[:80]
+        name: Final = onboarding_card_name(row.item.supplier, account, record.quota.plan_type)
         if row.item.card_name is None and record.name != name:
             renamed: Final = await self._service.update_environment(
                 record.id,

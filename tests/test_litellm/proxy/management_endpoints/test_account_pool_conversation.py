@@ -1332,3 +1332,117 @@ async def test_compaction_can_rebuild_only_with_verified_complete_parent(degrade
     assert [item["content"] for item in verified.history] == ["Original context", "Original reply", "Next"]
     missing = await Conversation.start(router, {"model": "shared", "previous_response_id": response(first).id, "input": current})
     assert not missing.can_replay(router, {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_history,reject_twice", [(True, False), (True, True), (False, False)])
+async def test_old_response_id_retries_on_the_same_card_only_once(pool, has_history, reject_twice):
+    import httpx
+
+    from litellm.exceptions import BadRequestError
+
+    router, (first, _) = pool
+    attempts = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        attempts.append((card, kwargs.get("previous_response_id"), kwargs["input"]))
+        if kwargs.get("previous_response_id") or reject_twice and len(attempts) > 1:
+            raise BadRequestError(
+                message="Previous response unavailable", model="shared", llm_provider="openai",
+                response=httpx.Response(
+                    400, json={"error": {"code": "previous_response_not_found"}},
+                    request=httpx.Request("POST", "http://local/v1/responses"),
+                ),
+            )
+        return response(first, "Original result")
+
+    initial = (
+        await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input="Remember A")
+        if has_history else response(first)
+    )
+    attempts.clear()
+    kwargs = dict(original_function=provider, model="shared", input="Repeat it", previous_response_id=initial.id)
+    if not has_history or reject_twice:
+        with pytest.raises(BadRequestError):
+            await router._aresponses_with_streaming_fallbacks(**kwargs)
+    else:
+        result = await router._aresponses_with_streaming_fallbacks(**kwargs)
+        assert result.status == "completed"
+    assert [card for card, _, _ in attempts] == [str(first)] * (2 if has_history else 1)
+    if has_history:
+        assert attempts[-1][1:] == (None, [
+            {"role": "user", "content": "Remember A"},
+            {"type": "message", "role": "assistant", "content": "Original result"},
+            {"role": "user", "content": "Repeat it"},
+        ])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("search_declared", [False, True])
+async def test_completed_search_history_crosses_codex_cards_without_reexecuting_search(degraded, search_declared):
+    router, (first, second) = degraded
+    snapshots.replace({
+        str(card): RoutingSnapshot(quota_switch_project=True).model_copy(update={"web_search_history": True})
+        for card in (first, second)
+    })
+    item = {
+        "type": "web_search_call", "id": "ws_prior", "status": "completed",
+        "action": {"type": "search", "query": "prior query", "sources": [{"type": "url", "url": "https://example.com"}]},
+    }
+    history = [
+        {"role": "user", "content": "Find a source"},
+        item,
+        {"role": "assistant", "content": "I found https://example.com"},
+        {"role": "user", "content": "What was the source?"},
+    ]
+    unchanged = copy.deepcopy(history)
+    tools = [{"type": "web_search", "external_web_access": True}] if search_declared else []
+    attempts = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        attempts.append(card)
+        if card == str(first):
+            raise RateLimitError(message="quota_exhausted", model="shared", llm_provider="openai")
+        assert kwargs["input"] == unchanged
+        assert kwargs["tools"] == (tools if search_declared else [{"type": "web_search", "external_web_access": False}])
+        assert kwargs.get("tool_choice") == ("auto" if search_declared else "none")
+        assert kwargs["store"] is False
+        return response(second, "https://example.com")
+
+    result = await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input=history, tools=tools, tool_choice="auto", store=False,
+    )
+    assert result.status == "completed"
+    assert attempts == [str(first), str(second)]
+    assert history == unchanged
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("completed,backup_supports_search", [(False, True), (True, False)])
+async def test_does_not_send_incomplete_or_unrecognized_search_history_to_backup(
+    degraded, completed, backup_supports_search,
+):
+    router, (first, second) = degraded
+    snapshots.replace({
+        str(first): RoutingSnapshot(quota_switch_project=True, web_search_history=True),
+        str(second): RoutingSnapshot(quota_switch_project=True, web_search_history=backup_supports_search),
+    })
+    seen = []
+
+    async def provider(**kwargs):
+        seen.append(chosen(kwargs))
+        raise RateLimitError(message="quota_exhausted", model="shared", llm_provider="openai")
+
+    with pytest.raises(ConversationUnavailableError if not completed else RateLimitError):
+        await router._aresponses_with_streaming_fallbacks(
+            original_function=provider, model="shared", store=False,
+            input=[
+                {"role": "user", "content": "Find something"},
+                {"type": "web_search_call", "id": "ws_record", "status": "completed" if completed else "searching",
+                 "action": {"type": "search", "query": "query"}},
+                {"role": "user", "content": "Continue"},
+            ],
+        )
+    assert seen == [str(first)]

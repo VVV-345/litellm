@@ -214,7 +214,11 @@ class EventStream:
             from litellm.proxy.management_endpoints.account_pool_signature import signature_error
 
             self.signature_rejected = signature_error(error)
-            code: Final = error.get("code") or error.get("type")
+            from litellm.proxy.management_endpoints.account_pool_failover import previous_response_missing
+
+            code: Final = (
+                "previous_response_not_found" if previous_response_missing(error) else error.get("code") or error.get("type")
+            )
             self.error_code = code if isinstance(code, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code) else None
             error_type: Final = error.get("type")
             self.error_type = (
@@ -244,6 +248,7 @@ class EventStream:
                     "invalid_prompt",
                     "thinking_signature_invalid",
                     "invalid_encrypted_content",
+                    "previous_response_not_found",
                     "content_policy_violation",
                 )
                 or self.error_type == "invalid_request_error"

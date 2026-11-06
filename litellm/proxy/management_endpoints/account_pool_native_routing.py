@@ -64,6 +64,7 @@ class RoutingSnapshot(BaseModel):
     quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
     quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
     quota_snapshot_max_age: int = 300
+    web_search_history: bool = False
     supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
     passthrough_enabled: bool = False
     quota_switch_project: bool = False

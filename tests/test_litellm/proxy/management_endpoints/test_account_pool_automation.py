@@ -62,3 +62,27 @@ def test_proxy_matching_defaults_and_matched_location_survive_gateway_forwarding
     assert response.json()["location"]["timezone"] == "Asia/Tokyo"
     import json
     assert json.loads(manager.await_args.args[2])["auto_match_proxy"] is True
+
+
+@pytest.mark.parametrize("admin", [False, True])
+def test_automation_job_delete_is_admin_only_and_targets_the_same_record(admin):
+    manager = AsyncMock(return_value=httpx.Response(409, json={"detail": "private job data"}))
+    job_id = uuid4()
+
+    def require_admin(user):
+        if user.user_role != LitellmUserRoles.PROXY_ADMIN:
+            raise HTTPException(403, "admin only")
+
+    app = FastAPI()
+    app.include_router(create_automation_router(manager, require_admin), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(
+        user_role=LitellmUserRoles.PROXY_ADMIN if admin else LitellmUserRoles.INTERNAL_USER
+    )
+    with TestClient(app) as client:
+        result = client.delete(f"/account_pool/oauth-automation/jobs/{job_id}")
+    assert result.status_code == (409 if admin else 403)
+    assert "private job data" not in result.text
+    if admin:
+        manager.assert_awaited_once_with("DELETE", f"/api/oauth-automation/jobs/{job_id}", None)
+    else:
+        manager.assert_not_awaited()

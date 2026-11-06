@@ -334,7 +334,7 @@ export const AccountPoolDashboard = ({
       ) : (
         <AccountPoolWorkspace
           title="卡片"
-          defaultValue={environments[0]?.supplier}
+          defaultValue={visibleGroups.some((group) => group.supplier === "openai_codex") ? "openai_codex" : visibleGroups[0]?.supplier}
           defaultOpen
           items={visibleGroups.map((group) => ({
             value: group.supplier,

@@ -330,6 +330,22 @@ class AutomationRegistry:
             )
             return Success(item)
 
+    async def delete_job(self, job_id: UUID) -> Result[AutomationView]:
+        # 和 worker 的重试、清理互斥，避免删除正在重新排队的记录。
+        async with self.repository.worker_lock() as acquired:
+            if not acquired:
+                return Failure(FailureCode.CONFLICT, "任务正在推进，请稍后刷新再删除")
+            async with self.repository.transaction() as tx:
+                row: Final = next((job for job in tx.snapshot.jobs if job.item.id == job_id), None)
+                if row is None:
+                    return Failure(FailureCode.NOT_FOUND, "任务不存在")
+                if row.item.stage in ACTIVE | {"queued"} or row.cleanup_pending:
+                    return Failure(FailureCode.CONFLICT, "只能删除已结束且清理完成的任务记录")
+                await tx.save(tx.snapshot.model_copy(
+                    update={"jobs": tuple(job for job in tx.snapshot.jobs if job.item.id != job_id)}
+                ))
+        return Success(await self.view())
+
     async def delete_profile(self, profile_id: UUID) -> Result[AutomationView]:
         async with self.repository.transaction() as tx:
             row: Final = next((profile for profile in tx.snapshot.profiles if profile.item.id == profile_id), None)

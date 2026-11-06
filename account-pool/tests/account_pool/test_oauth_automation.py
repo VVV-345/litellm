@@ -46,6 +46,10 @@ class MemoryAutomationStore:
     async def transaction(self):
         yield self
 
+    @asynccontextmanager
+    async def worker_lock(self):
+        yield True
+
 
 @pytest.fixture
 def deletion_registry():
@@ -712,3 +716,71 @@ async def test_takeover_waits_for_worker_ack_and_running_credentials_are_immutab
     assert isinstance(await runner.action(submitted.value.id, "resume"), Success)
     assert (await service.view()).jobs[0].stage == "running"
     assert commands.count("start") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage,cleanup,can_delete", [
+    ("completed", False, True), ("cancelled", False, True), ("failed", False, True),
+    ("queued", False, False), ("running", False, False), ("failed", True, False),
+])
+async def test_delete_automation_job_removes_only_finished_clean_record(deletion_registry, stage, cleanup, can_delete):
+    from types import SimpleNamespace
+
+    from account_pool.oauth_automation.api import create_automation_router
+    from fastapi import FastAPI
+
+    registry, card = deletion_registry
+    profile = await registry.create_profile(ProfileInput(name="keep"))
+    job = await registry.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(profile, Success) and isinstance(job, Success)
+    async with registry.repository.transaction() as tx:
+        (row,) = tx.snapshot.jobs
+        await tx.save(tx.snapshot.model_copy(update={"jobs": (row.model_copy(update={
+            "cleanup_pending": cleanup, "item": row.item.model_copy(update={"stage": stage}),
+        }),)}))
+    app = FastAPI()
+    app.include_router(create_automation_router(SimpleNamespace(registry=registry), lambda: None))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://local") as client:
+        result = await client.delete(f"/api/oauth-automation/jobs/{job.value.id}")
+        assert result.status_code == (200 if can_delete else 409)
+        if can_delete:
+            assert result.json()["jobs"] == []
+            assert (await client.delete(f"/api/oauth-automation/jobs/{job.value.id}")).status_code == 404
+    view = await registry.view()
+    assert len(view.jobs) == (0 if can_delete else 1)
+    assert view.profiles[0].bound_environment_id == card.id
+    assert await registry.environments.get(card.id) == card
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial,expected", [
+    ("Codex-套餐待识别-one@example.test", "Codex-plus-one@example.test"),
+    ("我的备卡", "我的备卡"),
+])
+async def test_completed_browser_job_uses_shared_card_naming_without_overwriting_custom_names(
+    deletion_registry, initial, expected,
+):
+    from types import SimpleNamespace
+
+    from account_pool.oauth_automation.runner import AutomationRunner, operation
+
+    registry, card = deletion_registry
+    await registry.create_profile(ProfileInput(name="keep"))
+    job = await registry.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(job, Success)
+    async with registry.repository.transaction() as tx:
+        (row,) = tx.snapshot.jobs
+        finished = row.model_copy(update={
+            "cleanup_pending": True, "item": row.item.model_copy(update={"stage": "completed"}),
+        })
+        await tx.save(tx.snapshot.model_copy(update={"jobs": (finished,)}))
+    await registry.environments.save(card.model_copy(update={
+        "name": initial, "status": EnvironmentStatus.READY, "credential_email": "one@example.test",
+        "quota": card.quota.model_copy(update={"plan_type": "plus"}),
+        "oauth_automation_operation": operation(finished),
+    }))
+    await AutomationRunner(registry, SimpleNamespace(), registry.worker).run_once()
+    saved = await registry.environments.get(card.id)
+    assert saved.name == expected
+    assert saved.oauth_automation_operation is None
+    assert saved.proxy_profile_id == card.proxy_profile_id

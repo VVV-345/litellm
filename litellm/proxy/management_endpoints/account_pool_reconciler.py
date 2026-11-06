@@ -83,6 +83,7 @@ class GatewayEnvironment(BaseModel):
     quota_reserve_5h_percent: int | None = Field(default=None, ge=0, le=100)
     quota_reserve_weekly_percent: int | None = Field(default=None, ge=0, le=100)
     quota_snapshot_max_age: int = 300
+    web_search_history: bool = False
     supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
     passthrough_enabled: bool = False
     quota_switch_project: bool = False
@@ -303,6 +304,7 @@ async def reconcile(client: ManagerGatewayClient, store: DeploymentStore) -> boo
                 quota_reserve_5h_percent=environment.quota_reserve_5h_percent,
                 quota_reserve_weekly_percent=environment.quota_reserve_weekly_percent,
                 supported_protocols=environment.supported_protocols,
+                web_search_history=environment.web_search_history,
                 passthrough_enabled=environment.passthrough_enabled,
                 quota_snapshot_max_age=environment.quota_snapshot_max_age,
                 quota_switch_project=environment.quota_switch_project,

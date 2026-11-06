@@ -121,7 +121,8 @@ describe("account card local configuration", () => {
     listAccounts.mockResolvedValue([{ ...environment, status: "awaiting_authorization", proxy_profile_id: "proxy-test" }]);
     renderPage();
     await user.click(await screen.findByRole("button", { name: `自动化授权 ${environment.name}` }));
-    expect(screen.getByRole("tab", { name: "授权自动化" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "自动化上号", selected: true })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "2FA / OAuth 授权", selected: true })).toBeVisible();
     await screen.findByRole("option", { name: environment.name });
     expect(screen.getByRole("combobox", { name: "空白 Codex 卡片" })).toHaveValue(environment.id);
     expect(screen.getByRole("textbox", { name: "单账号资料" })).toHaveValue("");
@@ -223,6 +224,16 @@ describe("account card local configuration", () => {
       }
     },
   );
+
+  it("opens the authorization subtab from the old URL without a duplicate top-level module", () => {
+    searchState.value = "tab=oauth-automation";
+    renderPage();
+    expect(screen.getByRole("tab", { name: "自动化上号", selected: true })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "CPA 文件导入" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "Sub2API 文件导入" })).toBeVisible();
+    expect(screen.getByRole("tab", { name: "2FA / OAuth 授权", selected: true })).toBeVisible();
+    expect(screen.queryByRole("tab", { name: "授权自动化" })).not.toBeInTheDocument();
+  });
 
   it("opens runtime configuration from the card and saves without navigation", async () => {
     const user = userEvent.setup();

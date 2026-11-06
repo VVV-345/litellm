@@ -156,7 +156,7 @@ def replay_safe(payload: Mapping[str, object]) -> bool:
         and (
             cast(Mapping[str, object], item).get("encrypted_content")
             or cast(Mapping[str, object], item).get("type")
-            in ("function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "item_reference")
+            in ("function_call", "function_call_output", "custom_tool_call", "custom_tool_call_output", "item_reference", "web_search_call")
         )
         for item in cast(list[object], inputs)
     ):

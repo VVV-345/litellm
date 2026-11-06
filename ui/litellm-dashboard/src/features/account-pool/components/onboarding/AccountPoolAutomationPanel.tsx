@@ -3,7 +3,7 @@
 
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fingerprint, ListChecks, Settings2 } from "lucide-react";
+import { Fingerprint, ListChecks, Mail, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -23,6 +23,7 @@ import {
   actOnAutomation,
   checkAutomationImage,
   createAutomationProfile,
+  deleteAutomationJob,
   deleteAutomationProfile,
   getAutomation,
   openAutomationScreen,
@@ -33,6 +34,10 @@ import {
   type AutomationProfile,
   type AutomationSettings,
 } from "../../api/AccountPoolAutomationApi";
+import { createAccountPoolEnvironment } from "../../api/AccountPoolApi";
+import { parseMailboxAccounts } from "../../api/AccountPoolOnboardingApi";
+import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
+import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
 import { createAccountPoolJobId, getAccountPoolOAuthBrowserUrl } from "../../api/AccountPoolManagementApi";
 import { accountPoolEnvironmentOptions } from "../../hooks/accountPoolOptions";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
@@ -238,6 +243,8 @@ function JobRow({
   view: (id: string) => Promise<void>;
 }) {
   const [retryModel, setRetryModel] = useState(job.model || "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const finished = !active.has(job.stage) && job.stage !== "queued";
   const deadline = job.human_expires_at || job.expires_at;
   const remaining = deadline ? Math.max(0, Math.ceil((Date.parse(deadline) - now) / 1000)) : null;
   const interactive = ["running", "waiting", "manual"].includes(job.stage);
@@ -288,8 +295,28 @@ function JobRow({
               {job.credentials_saved || job.callback_consumed ? "仅重试验收" : "新会话重试"}
             </Button>
           )}
+          {finished && (
+            <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>
+              删除记录
+            </Button>
+          )}
         </fieldset>
       </div>
+      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除授权任务记录</DialogTitle>
+            <DialogDescription>只删除这条任务历史，不删除卡片、认证文件或指纹绑定。</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>取消</Button>
+            <Button type="button" variant="destructive" disabled={disabled} onClick={() => {
+              setConfirmDelete(false);
+              void run(() => deleteAutomationJob(accessToken, job.id));
+            }}>确认删除记录</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <p hidden={!cardMissing} className="text-sm text-muted-foreground">
         原卡片已删除，请使用新卡提交新任务；不能重试旧卡任务
       </p>
@@ -337,6 +364,11 @@ export function AccountPoolAutomationPanel({
   const [credentials, setCredentials] = useState("");
   const [fileError, setFileError] = useState("");
   const [selectedCard, setSelectedCard] = useState(initialEnvironmentId ?? "");
+  const creatingCard = selectedCard === "__new__";
+  const [newProxyId, setNewProxyId] = useState("");
+  const { options: proxyOptions, profilesQuery, defaultLabel } = useAccountPoolProxyOptions(accessToken, creatingCard);
+  const pendingCreation = useRef<{ name: string; proxy: string; id: string } | null>(null);
+  const validProxy = profilesQuery.isSuccess && proxyOptions.some((option) => option.value === newProxyId);
   const [screen, setScreen] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const fileGeneration = useRef(0);
@@ -371,9 +403,36 @@ export function AccountPoolAutomationPanel({
       credentials,
       model: String(form.get("model") || "") || null,
     };
+    const explicitName = String(form.get("card_name") || "").trim();
+    const account = creatingCard ? (() => {
+      try {
+        const entries = parseMailboxAccounts(credentials);
+        return entries.length === 1 && entries[0].totp_secret ? entries[0].label.toLowerCase() : null;
+      } catch {
+        return null;
+      }
+    })() : null;
+    if (creatingCard && (!validProxy || !account || new TextEncoder().encode(credentials).length > 8192)) {
+      setFileError("请选有效代理，并填写一条有效的 2FA 登录资料");
+      return;
+    }
+    const name = explicitName || `Codex-套餐待识别-${account ?? ""}`.slice(0, 80);
     fileGeneration.current += 1;
     setCredentials("");
-    void run(() => submitAutomation(accessToken, body));
+    setFileError("");
+    void run(async () => {
+      if (!creatingCard) return submitAutomation(accessToken, body);
+      const pending = pendingCreation.current;
+      const id = pending?.name === name && pending.proxy === newProxyId ? pending.id : body.id;
+      pendingCreation.current = { name, proxy: newProxyId, id };
+      const result = await createAccountPoolEnvironment(accessToken, {
+        name, provider: "openai", supplier: "openai_codex", channel: "cliproxyapi", proxy_profile_id: newProxyId,
+      }, id);
+      setSelectedCard(result.environment.id);
+      pendingCreation.current = null;
+      await client.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
+      return submitAutomation(accessToken, { ...body, id, environment_id: result.environment.id });
+    });
   };
   const readCredentialFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -430,10 +489,11 @@ export function AccountPoolAutomationPanel({
             className="h-9 w-full rounded-md border bg-background px-3 text-sm"
             required
             disabled={busy}
-            value={selectedCardAvailable ? selectedCard : ""}
+            value={creatingCard || selectedCardAvailable ? selectedCard : ""}
             onChange={(event) => setSelectedCard(event.target.value)}
           >
             <option value="">选择已同步出口代理的空白卡片</option>
+            <option value="__new__">新建 Codex 卡片</option>
             {emptyCards.map((card) => (
               <option key={card.id} value={card.id}>
                 {card.name}
@@ -441,7 +501,26 @@ export function AccountPoolAutomationPanel({
             ))}
           </select>
         </div>
-        {linkedCardUnavailable && (
+        {creatingCard && (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="automation-card-name">卡片名称（可留空）</Label>
+              <Input id="automation-card-name" name="card_name" maxLength={80} disabled={busy}
+                placeholder="留空按 Codex-套餐-账号 命名" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="automation-proxy-profile">OAuth 出站代理</Label>
+              <select id="automation-proxy-profile" required disabled={busy || profilesQuery.isPending}
+                value={newProxyId} onChange={(event) => setNewProxyId(event.target.value)}
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+                <option value="">选择代理节点</option>
+                {proxyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <p className="text-xs text-muted-foreground">{defaultLabel}</p>
+            </div>
+          </>
+        )}
+        {linkedCardUnavailable && !creatingCard && (
           <p role="status" className="text-sm text-muted-foreground md:col-span-2">
             所选卡片不满足空白 Codex 卡片与代理同步条件，请检查卡片状态后再选择。不会自动替换为其他账号
           </p>
@@ -483,8 +562,8 @@ export function AccountPoolAutomationPanel({
             </p>
           )}
         </div>
-        <Button className="w-fit" disabled={busy || !credentials || !selectedCardAvailable} type="submit">
-          添加到串行队列
+        <Button className="w-fit" disabled={busy || !credentials || !(creatingCard ? validProxy : selectedCardAvailable)} type="submit">
+          {creatingCard ? "创建卡片并加入队列" : "添加到串行队列"}
         </Button>
         {!state.settings.enabled && <p className="text-sm text-muted-foreground">当前自动化关闭，添加后不会开始登录</p>}
       </form>
@@ -626,6 +705,12 @@ export function AccountPoolAutomationPanel({
                 />
               </div>
             ),
+          },
+          {
+            value: "legacy-oauth",
+            label: "手动 OAuth / 邮箱库存",
+            icon: Mail,
+            content: <AccountPoolOnboardingPanel accessToken={accessToken} legacyOAuth />,
           },
         ]}
       />

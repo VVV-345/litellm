@@ -190,3 +190,37 @@ async def test_manager_cleanup_requires_auth_and_rejects_naive_cutoffs(tmp_path)
         assert bad.status_code == 422
         good = await client.post("/api/onboarding/items/cleanup", headers=headers, json={"source": "auth_file"})
         assert good.status_code == 200 and good.json() == {"cleared": 0}
+
+
+@pytest.mark.parametrize("selected,actual,expected", [
+    ("cpa", "cpa", "valid"), ("sub2api", "sub2api", "valid"),
+    ("cpa", "sub2api", "invalid"), ("sub2api", "cpa", "invalid"),
+    ("cpa", "2fa", "invalid"), ("sub2api", "2fa", "invalid"),
+])
+async def test_explicit_file_imports_separate_cpa_and_sub2api_from_2fa(tmp_path, selected, actual, expected):
+    import json
+    from uuid import uuid4
+
+    from test_onboarding_service import sub2api_fixture
+
+    service, tasks, _, _, _, environments = setup_service(tmp_path)
+    app = FastAPI()
+    app.include_router(create_router(environments, "manager-test", onboarding_service=service))
+    content = {
+        "cpa": json.dumps({"type": "codex", "refresh_token": "fixture-refresh"}),
+        "sub2api": json.dumps(sub2api_fixture()),
+        "2fa": "fixture@example.test----fixture-password----JBSWY3DPEHPK3PXP",
+    }[actual]
+    body = {
+        "job_id": str(uuid4()), "source": "auth_file", "supplier": "openai_codex", "auth_file_format": selected,
+        "entries": [{"label": "fixture.json", "content": content}],
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        headers = {"Authorization": "Bearer manager-test"}
+        preview = await client.post("/api/onboarding/preview", headers=headers, json=body)
+        assert preview.status_code == 200
+        assert preview.json()[0]["status"] == expected
+        if expected == "invalid":
+            await client.post("/api/onboarding/imports", headers=headers, json=body)
+            assert not tasks.rows
+    assert "fixture-refresh" not in preview.text and "fixture-password" not in preview.text

@@ -174,9 +174,17 @@ const OnboardingProxySelector = ({
   );
 };
 
-export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: string }) {
+export function AccountPoolOnboardingPanel({
+  accessToken,
+  fileFormat,
+  legacyOAuth = false,
+}: {
+  accessToken: string;
+  fileFormat?: "cpa" | "sub2api";
+  legacyOAuth?: boolean;
+}) {
   const client = useQueryClient();
-  const [source, setSource] = useState<"auth_file" | "oauth">("auth_file");
+  const [source, setSource] = useState<"auth_file" | "oauth">(legacyOAuth ? "oauth" : "auth_file");
   const [supplier, setSupplier] = useState<OnboardingImport["supplier"]>("openai_codex");
   const [mailbox, setMailbox] = useState<"outlook" | "gmail" | "mail">("outlook");
   const [proxyProfileId, setProxyProfileId] = useState("");
@@ -278,6 +286,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
       const body: OnboardingImport = {
         job_id: crypto.randomUUID(),
         source,
+        ...(fileFormat ? { auth_file_format: fileFormat } : {}),
         supplier,
         mailbox,
         prepare_mailbox: prepareMailbox,
@@ -337,24 +346,32 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
           }
         }}
       >
-        <TabsList>
-          <TabsTrigger value="auth_file">
-            <FileJson className="size-4" />
-            认证文件导入
-          </TabsTrigger>
-          <TabsTrigger value="oauth">
-            <Mail className="size-4" />
-            OAuth 上号
-          </TabsTrigger>
-        </TabsList>
+        {!fileFormat && !legacyOAuth && (
+          <TabsList>
+            <TabsTrigger value="auth_file">
+              <FileJson className="size-4" />
+              认证文件导入
+            </TabsTrigger>
+            <TabsTrigger value="oauth">
+              <Mail className="size-4" />
+              OAuth 上号
+            </TabsTrigger>
+          </TabsList>
+        )}
         <TabsContent value={source}>
           <Card>
             <CardHeader>
-              <CardTitle>{source === "auth_file" ? "批量导入认证文件" : "导入邮箱账号库存"}</CardTitle>
+              <CardTitle>{fileFormat === "cpa" ? "批量导入 CPA 认证文件"
+                : fileFormat === "sub2api" ? "批量导入 Sub2API 认证文件"
+                : source === "auth_file" ? "批量导入认证文件" : "导入邮箱账号库存"}</CardTitle>
               <CardDescription>
-                {source === "auth_file"
-                  ? "自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。Token 文件创建卡片并验证模型；2FA 登录资料进入 OAuth 任务，需人工完成登录和二次验证。"
-                  : "邮箱账号与供应商账号分别保存。沿用现有 OAuth 授权，登录、验证码和二次验证由你完成，后台自动验证并更新卡片。"}
+                {fileFormat === "cpa"
+                  ? "上传 CPA 导出的认证 JSON。2FA 登录资料请使用 2FA / OAuth 授权。"
+                  : fileFormat === "sub2api"
+                    ? "上传 Sub2API 导出的 OpenAI OAuth JSON，支持多账号整包。"
+                    : source === "auth_file"
+                      ? "自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。Token 文件创建卡片并验证模型；2FA 登录资料进入 OAuth 任务，需人工完成登录和二次验证。"
+                      : "邮箱账号与供应商账号分别保存。沿用现有 OAuth 授权，登录、验证码和二次验证由你完成，后台自动验证并更新卡片。"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -364,7 +381,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                   <select
                     id="onboarding-supplier"
                     className="h-9 w-full rounded-md border bg-background px-3"
-                    disabled={busy || suppliersQuery.isPending}
+                    disabled={busy || suppliersQuery.isPending || fileFormat === "sub2api"}
                     value={supplier}
                     onChange={(event) => {
                       setSupplier(event.target.value as OnboardingImport["supplier"]);
@@ -431,7 +448,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     key={`${source}-${supplier}-${mailbox}-${prepareMailbox}`}
                     id="onboarding-files"
                     type="file"
-                    accept=".json,.txt,application/json,text/plain"
+                    accept={fileFormat ? ".json,application/json" : ".json,.txt,application/json,text/plain"}
                     multiple={source === "auth_file"}
                     disabled={fileInputDisabled}
                     onChange={(event) => {
@@ -455,8 +472,8 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
                     使用默认认证模板
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    认证模板仅用于单账号 JSON，不用于 2FA 文本或多账号整包；显式选择节点优先于模板。2FA
-                    文本须选择出站代理
+                    认证模板仅用于单账号 JSON；显式选择节点优先于模板。多账号整包不使用模板。
+                    {!fileFormat && " 2FA 文本须选择出站代理"}
                   </p>
                   {useTemplate && template && (
                     <p className="text-xs text-muted-foreground">
@@ -574,7 +591,7 @@ export function AccountPoolOnboardingPanel({ accessToken }: { accessToken: strin
       </Tabs>
       {source === "oauth" && <AccountPoolOnboardingTarget accessToken={accessToken} supplier={supplier} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-semibold">{source === "oauth" ? "OAuth 账号汇总与任务" : "认证文件任务"}</h3>
+        <h3 className="font-semibold">{source === "oauth" ? "OAuth 账号汇总与任务" : fileFormat ? "认证文件任务（CPA / Sub2API）" : "认证文件任务"}</h3>
         <div className="flex flex-wrap gap-2">
           <AccountPoolOnboardingCleanup key={source} accessToken={accessToken} source={source} onChange={refresh} />
           <Button variant="outline" size="sm" onClick={() => void refresh()}>

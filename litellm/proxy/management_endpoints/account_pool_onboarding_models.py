@@ -36,6 +36,7 @@ class OnboardingImport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     job_id: UUID
     source: Literal["auth_file", "oauth"]
+    auth_file_format: Literal["cpa", "sub2api"] | None = None
     supplier: OnboardingSupplier
     mailbox: MailboxKind = "mail"
     prepare_mailbox: bool = True

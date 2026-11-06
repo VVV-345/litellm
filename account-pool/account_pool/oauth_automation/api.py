@@ -85,6 +85,9 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
     async def submit(request: JobInput) -> JobView:
         return _unwrap(await registry.submit(request))
 
+    async def delete_job(job_id: UUID) -> AutomationView:
+        return _unwrap(await registry.delete_job(job_id))
+
     async def cancel(job_id: UUID) -> JobView:
         return _unwrap(await registry.cancel(job_id))
 
@@ -101,6 +104,7 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
     router.add_api_route("/profiles/{profile_id}", update_profile, methods=["PUT"])
     router.add_api_route("/profiles/{profile_id}", delete_profile, methods=["DELETE"])
     router.add_api_route("/jobs", submit, methods=["POST"], status_code=202)
+    router.add_api_route("/jobs/{job_id}", delete_job, methods=["DELETE"])
     router.add_api_route("/jobs/{job_id}/cancel", cancel, methods=["POST"])
     router.add_api_route("/jobs/{job_id}/action", action, methods=["POST"])
     router.add_api_route("/jobs/{job_id}/screen", screen, methods=["POST"])

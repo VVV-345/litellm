@@ -6,7 +6,7 @@ import base64
 import json
 import re
 from datetime import datetime, timezone
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import JsonValue, TypeAdapter
 
@@ -63,6 +63,10 @@ def parse_two_factor_text(content: str, supplier: str) -> tuple[OnboardingEntry,
     return tuple(parse(line) for line in lines)
 
 
+def _looks_like_sub2api(value: dict[str, JsonValue]) -> bool:
+    return "credentials" in value or "platform" in value
+
+
 def normalize_auth_file(content: bytes, supplier: str) -> bytes:
     try:
         value: Final = _JSON.validate_json(content)
@@ -79,7 +83,7 @@ def normalize_auth_file(content: bytes, supplier: str) -> bytes:
         return normalize_auth_file(json.dumps(value[0]).encode(), supplier)
     if not isinstance(value, dict):
         raise CredentialConflict("认证文件必须是 JSON 对象")
-    if "credentials" not in value and "platform" not in value:
+    if not _looks_like_sub2api(value):
         return content
     if supplier != "openai_codex" or value.get("platform") != "openai" or value.get("type") != "oauth":
         raise CredentialConflict("当前仅支持 OpenAI OAuth 的 Sub2API 文件，且须选择 Codex")
@@ -131,10 +135,14 @@ def normalize_auth_file(content: bytes, supplier: str) -> bytes:
     ).encode()
 
 
-def expand_import_file(entry: OnboardingEntry, supplier: str) -> tuple[OnboardingEntry, ...]:
+def expand_import_file(
+    entry: OnboardingEntry, supplier: str, file_format: Literal["cpa", "sub2api"] | None = None,
+) -> tuple[OnboardingEntry, ...]:
     if any(character in entry.label for character in ("/", "\\", "\x00")):
         raise CredentialConflict("请选择不含路径的文件名")
     if is_two_factor_text(entry.content):
+        if file_format is not None:
+            raise CredentialConflict("2FA 登录资料请使用 2FA / OAuth 授权")
         return parse_two_factor_text(entry.content, supplier)
     try:
         value: Final = _JSON.validate_json(entry.content)
@@ -144,6 +152,11 @@ def expand_import_file(entry: OnboardingEntry, supplier: str) -> tuple[Onboardin
     items: Final = accounts if isinstance(accounts, list) else [accounts]
     if not 1 <= len(items) <= 100:
         raise CredentialConflict("每批最多导入 100 个账号")
+    if file_format is not None and any(
+        not isinstance(item, dict) or _looks_like_sub2api(item) != (file_format == "sub2api")
+        for item in items
+    ):
+        raise CredentialConflict(f"文件与所选 {file_format.upper() if file_format == 'cpa' else 'Sub2API'} 格式不符")
     return tuple(
         OnboardingEntry(
             label=entry.label

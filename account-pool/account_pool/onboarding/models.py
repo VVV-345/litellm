@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
@@ -22,6 +22,19 @@ OnboardingState = Literal[
 ]
 
 
+_SUPPLIER_NAMES: Final = {
+    "openai_codex": "Codex",
+    "anthropic_claude": "Claude",
+    "google_antigravity": "Antigravity",
+    "kimi": "Kimi",
+    "xai": "xAI",
+}
+
+
+def onboarding_card_name(supplier: str, account: str, plan: str | None = None) -> str:
+    return f"{_SUPPLIER_NAMES[supplier]}-{plan or '套餐待识别'}-{account}"[:80]
+
+
 class OnboardingEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     label: str = Field(min_length=1, max_length=254)
@@ -36,6 +49,7 @@ class OnboardingImport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     job_id: UUID
     source: Literal["auth_file", "oauth"]
+    auth_file_format: Literal["cpa", "sub2api"] | None = None
     supplier: OnboardingSupplier
     mailbox: MailboxKind = "mail"
     prepare_mailbox: bool = True

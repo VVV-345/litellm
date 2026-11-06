@@ -20,7 +20,11 @@ from websockets.typing import Subprotocol
 
 from litellm.litellm_core_utils.signature_recovery import merge_visible_history, recover_signature_history
 from litellm.litellm_core_utils.url_utils import validate_url
-from litellm.proxy.management_endpoints.account_pool_failover import ACCOUNT_POOL_QUOTA_CODES, QUOTA_CODES
+from litellm.proxy.management_endpoints.account_pool_failover import (
+    ACCOUNT_POOL_QUOTA_CODES,
+    QUOTA_CODES,
+    previous_response_missing,
+)
 from litellm.proxy.management_endpoints.account_pool_gateway_client import GatewayControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
@@ -777,10 +781,20 @@ class _ResponsesRelay:
             if migrated
             else (nested if isinstance(nested, dict) else original)
         )
-        outgoing: Final = (
-            {**original, "response": source} if isinstance(nested, dict) else {**source, "type": "response.create"}
+        def frame(params: dict[str, JsonValue]) -> str | bytes:
+            outgoing: Final = (
+                {**original, "response": params} if isinstance(nested, dict)
+                else {**params, "type": "response.create"}
+            )
+            return _rewrite_model(json.dumps(outgoing), self.public_model, self.upstream_model, strict=True)
+
+        wire: Final = frame(source)
+        retry_wire: Final = (
+            frame({**recovered, "model": self.upstream_model})
+            if not migrated and safe and isinstance(source.get("previous_response_id"), str)
+            and source.get("truncation") != "auto"
+            else None
         )
-        wire: Final = _rewrite_model(json.dumps(outgoing), self.public_model, self.upstream_model, strict=True)
         self.log.observe_websocket(wire, incoming=True)
         seconds: Final = min(
             self.resolution.policy.transport.request_timeout_seconds,
@@ -789,20 +803,28 @@ class _ResponsesRelay:
         next_account: Final = self.selected[indices[number]].account.id if safe and number < len(indices) else None
         async with asyncio.timeout(seconds):
             await self.upstream.send(wire)
-            result: Final = await self._events(portable, next_account)
+            result: Final = await self._events(portable, next_account, retry_wire)
         if result:
             return True
         return None if self.attempt.result.failure_reason == "quota_exhausted" else False
 
-    async def _events(self, portable: dict[str, JsonValue], next_account: UUID | None) -> bool:
+    async def _events(
+        self, portable: dict[str, JsonValue], next_account: UUID | None, retry_wire: str | bytes | None = None,
+    ) -> bool:
         self.output_visible = False
         self.cancelled = False
         self.lifecycle_frames = ()
-        while (result := await self._event(portable, next_account)) is None:
+        while (result := await self._event(portable, next_account, recover_old_id=retry_wire is not None)) is None:
             pass
-        return result
+        if result == "previous_response_not_found" and retry_wire is not None:
+            self.log.observe_websocket(retry_wire, incoming=True)
+            await self.upstream.send(retry_wire)
+            return await self._events(portable, next_account)
+        return result is True
 
-    async def _event(self, portable: dict[str, JsonValue], next_account: UUID | None) -> bool | None:
+    async def _event(
+        self, portable: dict[str, JsonValue], next_account: UUID | None, *, recover_old_id: bool,
+    ) -> bool | Literal["previous_response_not_found"] | None:
         retry: Final = next_account is not None and not self.cancelled
         data: Final = await self._recv()
         if _message_size(data) > _MAX_MESSAGE:
@@ -817,6 +839,8 @@ class _ResponsesRelay:
             for key in ("code", "type")
         )
         self.log.observe_websocket(data)
+        if recover_old_id and not self.output_visible and not self.cancelled and previous_response_missing(error):
+            return "previous_response_not_found"
         if quota and isinstance(error, dict):
             self.turn_failure_reasons = (*self.turn_failure_reasons, "quota_exhausted")
             self.attempt.result = self.attempt.result.model_copy(
@@ -832,7 +856,7 @@ class _ResponsesRelay:
             await _finish_attempt(self.control, self.attempt, self.log)
             if retry and not self.output_visible:
                 return False
-        if retry and not self.output_visible and event.get("type") in _PRE_OUTPUT_EVENTS:
+        if (retry or recover_old_id) and not self.output_visible and event.get("type") in _PRE_OUTPUT_EVENTS:
             self.lifecycle_frames = (*self.lifecycle_frames, data)
             return None
         frames: Final = (*self.lifecycle_frames, data)

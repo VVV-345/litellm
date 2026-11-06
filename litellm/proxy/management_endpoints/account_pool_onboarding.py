@@ -59,17 +59,23 @@ def create_onboarding_router(
     async def suppliers() -> tuple[OnboardingSupplierOption, ...]:
         return parse_response(await call("GET", "/suppliers"), TypeAdapter(tuple[OnboardingSupplierOption, ...]))
 
+    def import_body(request: OnboardingImport) -> bytes:
+        return request.model_dump_json(
+            exclude={"auth_file_format"} if request.auth_file_format is None else None,
+        ).encode()
+
     @router.post("/preview")
     async def preview(request: OnboardingImport) -> tuple[OnboardingPreview, ...]:
         return parse_response(
-            await call("POST", "/preview", request.model_dump_json().encode()),
+            await call("POST", "/preview", import_body(request)),
             TypeAdapter(tuple[OnboardingPreview, ...]),
         )
 
     @router.post("/imports", status_code=202)
     async def submit(request: OnboardingImport) -> OnboardingImportResult:
         return parse_response(
-            await call("POST", "/imports", request.model_dump_json().encode()), TypeAdapter(OnboardingImportResult)
+            await call("POST", "/imports", import_body(request)),
+            TypeAdapter(OnboardingImportResult)
         )
 
     @router.get("/items")

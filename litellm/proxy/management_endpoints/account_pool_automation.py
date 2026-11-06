@@ -89,6 +89,9 @@ def create_automation_router(
     async def submit(request: JobInput) -> JobView:
         return await call("POST", "/jobs", TypeAdapter(JobView), request.model_dump_json().encode())
 
+    async def delete_job(job_id: UUID) -> AutomationView:
+        return await call("DELETE", f"/jobs/{job_id}", TypeAdapter(AutomationView))
+
     async def action(job_id: UUID, request: JobAction) -> JobView:
         return await call("POST", f"/jobs/{job_id}/action", TypeAdapter(JobView), request.model_dump_json().encode())
 
@@ -102,6 +105,7 @@ def create_automation_router(
     router.add_api_route("/profiles/{profile_id}", update_profile, methods=["PUT"])
     router.add_api_route("/profiles/{profile_id}", delete_profile, methods=["DELETE"])
     router.add_api_route("/jobs", submit, methods=["POST"], status_code=202)
+    router.add_api_route("/jobs/{job_id}", delete_job, methods=["DELETE"])
     router.add_api_route("/jobs/{job_id}/action", action, methods=["POST"])
     router.add_api_route("/jobs/{job_id}/screen", screen, methods=["POST"])
     return router
