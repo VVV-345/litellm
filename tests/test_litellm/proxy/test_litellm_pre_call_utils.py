@@ -961,6 +961,7 @@ async def test_add_litellm_data_to_request_strips_user_control_fields():
         "internal_call_origin": "autorouter_classifier",
         "_guardrail_pipelines": [{"name": "spoofed"}],
         "_pipeline_managed_guardrails": ["evaded"],
+        "_failover_excluded_ids": ["forged-deployment"],
         "safe_user_metadata": "kept",
     }
     data = {
@@ -969,6 +970,7 @@ async def test_add_litellm_data_to_request_strips_user_control_fields():
         "mock_response": "free response",
         "fallback_depth": 1,
         "_target_order": 2,
+        "_excluded_deployment_ids": ["forged-deployment"],
         "attempted_targets": ["forged"],
         "max_fallbacks": 0,
         "mock_tool_calls": [{"id": "call_1"}],
@@ -998,6 +1000,7 @@ async def test_add_litellm_data_to_request_strips_user_control_fields():
 
     assert "fallback_depth" not in updated
     assert "_target_order" not in updated
+    assert "_excluded_deployment_ids" not in updated
     assert "attempted_targets" not in updated
     assert updated["max_fallbacks"] == 0
 
@@ -1019,6 +1022,7 @@ async def test_add_litellm_data_to_request_strips_user_control_fields():
         "internal_call_origin",
         "_guardrail_pipelines",
         "_pipeline_managed_guardrails",
+        "_failover_excluded_ids",
     }
     assert "litellm_metadata" not in updated
     for stripped_key in stripped_keys:

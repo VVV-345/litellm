@@ -55,7 +55,7 @@ def test_release_manifest_records_all_components_and_adapter_provenance(
         assert image["platform_digests"] == {f"linux/{arch}": "sha256:" + "c" * 64 for arch in architectures}
     assert manifest["images"]["litellm"]["source_revision"] == REVISION
     adapted: Final = manifest["images"]["cliproxyapi"]
-    assert adapted["source_revision"] == "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
+    assert adapted["source_revision"] == "aa122d37a8eba20624b07cc819cf57a2d60df679"
     assert adapted["patch_sha256"] == hashlib.sha256(
         (ROOT / "account-pool/cliproxy-adapter/settings-adaptation.patch").read_bytes()
     ).hexdigest()
@@ -147,7 +147,7 @@ def test_independent_cpa_receipt_is_bound_to_manager(tmp_path: Path, broken: str
         receipt = json.loads(path.read_bytes())
         receipt["cpa_build_key"] = "e" * 64
         if component == "cliproxyapi":
-            receipt["revision"] = "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
+            receipt["revision"] = "aa122d37a8eba20624b07cc819cf57a2d60df679"
             if broken == "key":
                 receipt["cpa_build_key"] = "f" * 64
             elif broken == "revision":

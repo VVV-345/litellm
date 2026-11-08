@@ -287,3 +287,13 @@ def warn_on_provider_credential_mismatch(model_name: str, litellm_params: Mappin
     )
     verbose_router_logger.warning(warning)
     return warning
+
+
+def as_excluded_deployment_ids(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple, set, frozenset)):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
+
+
+def deployment_ids_failed_in_request(request_kwargs: Mapping[str, object]) -> frozenset[str]:
+    return frozenset(as_excluded_deployment_ids(request_kwargs.get("_excluded_deployment_ids")))

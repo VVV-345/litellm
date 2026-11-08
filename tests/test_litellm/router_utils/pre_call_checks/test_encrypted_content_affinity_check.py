@@ -1957,3 +1957,67 @@ async def test_official_stream_fallback_remembers_source_boundary(same_boundary,
         await stream.aclose()
     finally:
         router.discard()
+
+
+def _region_deployment(region: str) -> dict:
+    return {
+        "model_name": "gpt-5.4",
+        "litellm_params": {
+            "model": "openai/gpt-5.4",
+            "api_base": f"https://{region}.example.com/v1",
+            "api_key": f"key-{region}",
+        },
+        "model_info": {"id": region},
+    }
+
+
+def _reasoning_input_minted_by(origin: str) -> list:
+    return [
+        {
+            "type": "reasoning",
+            "id": ResponsesAPIRequestUtils._build_encrypted_item_id(origin, "rs_test"),
+            "encrypted_content": ResponsesAPIRequestUtils._wrap_encrypted_content_with_model_id("gAAAAA-blob", origin),
+            "summary": [{"type": "summary_text", "text": "scattering"}],
+        },
+        {"role": "user", "content": "and sunsets?"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_affinity_strips_and_dispatches_when_origin_already_failed_this_request():
+    group = [_region_deployment("region-a"), _region_deployment("region-b")]
+    reasoning_input = _reasoning_input_minted_by("region-a")
+
+    result = await EncryptedContentAffinityCheck().async_filter_deployments(
+        model="gpt-5.4",
+        healthy_deployments=group,
+        messages=None,
+        request_kwargs={"litellm_metadata": {}, "input": reasoning_input, "_excluded_deployment_ids": ["region-a"]},
+    )
+
+    assert result is group
+    assert reasoning_input[0] == {"type": "reasoning", "summary": [{"type": "summary_text", "text": "scattering"}]}
+
+
+@pytest.mark.asyncio
+async def test_affinity_keeps_origin_and_reasoning_when_previous_response_id_binds_the_failed_origin():
+    pool = [_region_deployment("region-a"), _region_deployment("region-b")]
+    reasoning_input = _reasoning_input_minted_by("region-a")
+    original_reasoning = dict(reasoning_input[0])
+
+    result = await EncryptedContentAffinityCheck().async_filter_deployments(
+        model="gpt-5.4",
+        healthy_deployments=pool,
+        messages=None,
+        request_kwargs={
+            "litellm_metadata": {},
+            "input": reasoning_input,
+            "previous_response_id": ResponsesAPIRequestUtils._build_responses_api_response_id(
+                "openai", "region-a", "resp_test"
+            ),
+            "_excluded_deployment_ids": ["region-a"],
+        },
+    )
+
+    assert result == [pool[0]]
+    assert reasoning_input[0] == original_reasoning

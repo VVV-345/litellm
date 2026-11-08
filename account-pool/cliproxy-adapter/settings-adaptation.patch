@@ -1,5 +1,5 @@
 diff --git a/internal/api/handlers/management/api_tools.go b/internal/api/handlers/management/api_tools.go
-index 29f00100c2cf64484df19841afeab0e645975cc4..8392a6937d5b79d39bc0dbfaa8771972de6fda72 100644
+index 29f00100..8392a693 100644
 --- a/internal/api/handlers/management/api_tools.go
 +++ b/internal/api/handlers/management/api_tools.go
 @@ -170,7 +170,8 @@ func (h *Handler) executeAPICall(
@@ -22,10 +22,10 @@ index 29f00100c2cf64484df19841afeab0e645975cc4..8392a6937d5b79d39bc0dbfaa8771972
  				return apiCallResponse{}, fmt.Errorf("refresh credential after unauthorized response: %w", errRefresh)
  			}
 diff --git a/internal/api/handlers/management/api_tools_test.go b/internal/api/handlers/management/api_tools_test.go
-index 066b6bd..fff3a43 100644
+index 066b6bd3..fff3a43e 100644
 --- a/internal/api/handlers/management/api_tools_test.go
 +++ b/internal/api/handlers/management/api_tools_test.go
-@@ -2,8 +2,10 @@
+@@ -2,8 +2,10 @@ package management
  
  import (
  	"context"
@@ -36,7 +36,7 @@ index 066b6bd..fff3a43 100644
  	"io"
  	"net/http"
  	"net/http/httptest"
-@@ -23,7 +25,7 @@
+@@ -23,7 +25,7 @@ func (f managementRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, e
  	return f(req)
  }
  
@@ -45,7 +45,7 @@ index 066b6bd..fff3a43 100644
  
  func (*managementRefreshExecutor) Identifier() string { return "test-refresh" }
  
-@@ -35,7 +37,8 @@
+@@ -35,7 +37,8 @@ func (*managementRefreshExecutor) ExecuteStream(context.Context, *coreauth.Auth,
  	return nil, nil
  }
  
@@ -55,7 +55,7 @@ index 066b6bd..fff3a43 100644
  	auth.Metadata["access_token"] = "new-token"
  	auth.Metadata["key"] = "new-token"
  	return auth, nil
-@@ -447,3 +450,133 @@
+@@ -447,3 +450,133 @@ func TestAuthByIndexDistinguishesSharedAPIKeysAcrossProviders(t *testing.T) {
  		t.Fatalf("authByIndex(compat) returned %q, want %q", gotCompat.ID, compatAuth.ID)
  	}
  }
@@ -190,7 +190,7 @@ index 066b6bd..fff3a43 100644
 +	}
 +}
 diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
-index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..1f4e03cf67c615e64acad917a878b00d1b6647dc 100644
+index 38b94c80..1f4e03cf 100644
 --- a/internal/api/handlers/management/auth_files.go
 +++ b/internal/api/handlers/management/auth_files.go
 @@ -341,11 +341,18 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
@@ -213,7 +213,7 @@ index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..1f4e03cf67c615e64acad917a878b00d
  		entry["model_quotas"] = modelQuotas
  	}
 diff --git a/internal/api/handlers/management/auth_files_fields.go b/internal/api/handlers/management/auth_files_fields.go
-index bbe12e5418a273a00f39df24030dacf1e09d21b9..30a218f9f2f1dcfe2b29da2273cb4398440fe12b 100644
+index bbe12e54..30a218f9 100644
 --- a/internal/api/handlers/management/auth_files_fields.go
 +++ b/internal/api/handlers/management/auth_files_fields.go
 @@ -540,6 +540,12 @@ func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]str
@@ -230,7 +230,7 @@ index bbe12e5418a273a00f39df24030dacf1e09d21b9..30a218f9f2f1dcfe2b29da2273cb4398
  		if prefix, okString := auth.Metadata["prefix"].(string); okString {
  			auth.Prefix = strings.TrimSpace(prefix)
 diff --git a/internal/api/handlers/management/auth_files_patch_fields_test.go b/internal/api/handlers/management/auth_files_patch_fields_test.go
-index 16368fd5344ec298a3ba880329aec72303ce8474..9ecb69dabcbf3242e0a46ee67a377869b2cf2613 100644
+index 16368fd5..9ecb69da 100644
 --- a/internal/api/handlers/management/auth_files_patch_fields_test.go
 +++ b/internal/api/handlers/management/auth_files_patch_fields_test.go
 @@ -598,3 +598,55 @@ func TestSetSourceAuthFileDisabledNormalizesLegacyMetadata(t *testing.T) {
@@ -289,9 +289,22 @@ index 16368fd5344ec298a3ba880329aec72303ce8474..9ecb69dabcbf3242e0a46ee67a377869
 +		})
 +	}
 +}
+diff --git a/internal/api/handlers/management/auth_files_provider_oauth.go b/internal/api/handlers/management/auth_files_provider_oauth.go
+index 278eeaf2..a623691d 100644
+--- a/internal/api/handlers/management/auth_files_provider_oauth.go
++++ b/internal/api/handlers/management/auth_files_provider_oauth.go
+@@ -48,7 +48,7 @@ func (h *Handler) RequestAnthropicToken(c *gin.Context) {
+ 	}
+ 
+ 	// Generate random state parameter
+-	state, err := misc.GenerateRandomState()
++	state, err := claude.GenerateState()
+ 	if err != nil {
+ 		log.Errorf("Failed to generate state parameter: %v", err)
+ 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to generate state parameter"})
 diff --git a/internal/api/handlers/management/credential_refresh.go b/internal/api/handlers/management/credential_refresh.go
 new file mode 100644
-index 0000000..b3e5513
+index 00000000..b3e55139
 --- /dev/null
 +++ b/internal/api/handlers/management/credential_refresh.go
 @@ -0,0 +1,51 @@
@@ -348,7 +361,7 @@ index 0000000..b3e5513
 +}
 diff --git a/internal/api/handlers/management/quota_recovery.go b/internal/api/handlers/management/quota_recovery.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..d2d166555414d32ed43f2a465f4b11e130ee3326
+index 00000000..d2d16655
 --- /dev/null
 +++ b/internal/api/handlers/management/quota_recovery.go
 @@ -0,0 +1,49 @@
@@ -403,7 +416,7 @@ index 0000000000000000000000000000000000000000..d2d166555414d32ed43f2a465f4b11e1
 +}
 diff --git a/internal/api/handlers/management/quota_recovery_test.go b/internal/api/handlers/management/quota_recovery_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..99dedc9d27decc3644b9199dc28f0bd60c5d3eef
+index 00000000..99dedc9d
 --- /dev/null
 +++ b/internal/api/handlers/management/quota_recovery_test.go
 @@ -0,0 +1,266 @@
@@ -674,7 +687,7 @@ index 0000000000000000000000000000000000000000..99dedc9d27decc3644b9199dc28f0bd6
 +	}
 +}
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go
-index fef08895bc42519fcabe795052410c3d6ccd8854..6998b89e5e159ece855694e7f53e96960616a8d6 100644
+index fef08895..6998b89e 100644
 --- a/internal/api/server_management.go
 +++ b/internal/api/server_management.go
 @@ -27,6 +27,16 @@ func (s *Server) registerManagementRoutes() {
@@ -695,7 +708,7 @@ index fef08895bc42519fcabe795052410c3d6ccd8854..6998b89e5e159ece855694e7f53e9696
  		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
  		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
 diff --git a/internal/api/server_test.go b/internal/api/server_test.go
-index 8eb33721ff8f0c209353046c843f2c2220887463..f480637cf3a007e4dcc6c68d23e7e5419a85c6b2 100644
+index 8eb33721..f480637c 100644
 --- a/internal/api/server_test.go
 +++ b/internal/api/server_test.go
 @@ -1521,6 +1521,41 @@ func TestNewServerWithoutPluginHostLeavesHandlerInterceptorsDisabled(t *testing.
@@ -740,8 +753,103 @@ index 8eb33721ff8f0c209353046c843f2c2220887463..f480637cf3a007e4dcc6c68d23e7e541
  func TestManagementUsageRequiresManagementAuthAndPopsArray(t *testing.T) {
  	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
  
+diff --git a/internal/auth/claude/anthropic_auth.go b/internal/auth/claude/anthropic_auth.go
+index 893c37f8..e4f8542a 100644
+--- a/internal/auth/claude/anthropic_auth.go
++++ b/internal/auth/claude/anthropic_auth.go
+@@ -29,10 +29,11 @@ const (
+ 	ProfileURL      = "https://api.anthropic.com/api/oauth/profile"
+ 	// RolesURL is the claude_cli role endpoint the native client queries right
+ 	// after a successful token exchange, alongside the profile lookup.
+-	RolesURL         = "https://api.anthropic.com/api/oauth/claude_cli/roles"
+-	ClientID         = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+-	RedirectURI      = "http://localhost:54545/callback"
+-	ClaudeOAuthScope = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
++	RolesURL                = "https://api.anthropic.com/api/oauth/claude_cli/roles"
++	ClientID                = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
++	RedirectURI             = "http://localhost:54545/callback"
++	ClaudeOAuthScope        = "org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
++	claudeOAuthRefreshScope = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
+ 
+ 	claudeRefreshMinBackoff       = 5 * time.Second
+ 	claudeRefreshMaxBackoff       = 5 * time.Minute
+@@ -556,7 +557,7 @@ func (o *ClaudeAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+ 		"client_id":     ClientID,
+ 		"grant_type":    "refresh_token",
+ 		"refresh_token": refreshToken,
+-		"scope":         ClaudeOAuthScope,
++		"scope":         claudeOAuthRefreshScope,
+ 	}
+ 
+ 	jsonBody, err := json.Marshal(reqBody)
+diff --git a/internal/auth/claude/anthropic_auth_test.go b/internal/auth/claude/anthropic_auth_test.go
+index 671045b2..8fdd0f52 100644
+--- a/internal/auth/claude/anthropic_auth_test.go
++++ b/internal/auth/claude/anthropic_auth_test.go
+@@ -2,6 +2,7 @@ package claude
+ 
+ import (
+ 	"context"
++	"encoding/base64"
+ 	"io"
+ 	"net/http"
+ 	"net/url"
+@@ -449,7 +450,7 @@ func TestRefreshTokensUsesNative220ControlPlaneShape(t *testing.T) {
+ 					if errRead != nil {
+ 						t.Fatal(errRead)
+ 					}
+-					wantBody := `{"client_id":"` + ClientID + `","grant_type":"refresh_token","refresh_token":"` + refreshToken + `","scope":"` + ClaudeOAuthScope + `"}`
++					wantBody := `{"client_id":"` + ClientID + `","grant_type":"refresh_token","refresh_token":"` + refreshToken + `","scope":"` + claudeOAuthRefreshScope + `"}`
+ 					if got := string(body); got != wantBody {
+ 						t.Fatalf("refresh body = %q, want %q", got, wantBody)
+ 					}
+@@ -578,3 +579,24 @@ func TestUpdateTokenStoragePreservesAccountWhenRefreshOmitsIt(t *testing.T) {
+ 		t.Fatalf("organization = %q/%q, want preserved", storage.OrganizationUUID, storage.OrganizationName)
+ 	}
+ }
++
++func TestGenerateStateMatchesNativeClaudeCode(t *testing.T) {
++	seen := map[string]struct{}{}
++	for range 4 {
++		state, errGenerate := GenerateState()
++		if errGenerate != nil {
++			t.Fatalf("GenerateState() error = %v", errGenerate)
++		}
++		if len(state) != 43 {
++			t.Fatalf("state length = %d, want 43", len(state))
++		}
++		decoded, errDecode := base64.RawURLEncoding.DecodeString(state)
++		if errDecode != nil || len(decoded) != 32 {
++			t.Fatalf("state must encode 32 random bytes as unpadded base64url: decoded length = %d, error = %v", len(decoded), errDecode)
++		}
++		if _, duplicate := seen[state]; duplicate {
++			t.Fatal("GenerateState() reused a state")
++		}
++		seen[state] = struct{}{}
++	}
++}
+diff --git a/internal/auth/claude/pkce.go b/internal/auth/claude/pkce.go
+index 98d40202..445284ed 100644
+--- a/internal/auth/claude/pkce.go
++++ b/internal/auth/claude/pkce.go
+@@ -10,6 +10,15 @@ import (
+ 	"fmt"
+ )
+ 
++// GenerateState returns a 43-character OAuth state matching native Claude Code.
++func GenerateState() (string, error) {
++	stateBytes := make([]byte, 32)
++	if _, err := rand.Read(stateBytes); err != nil {
++		return "", fmt.Errorf("failed to generate Claude OAuth state: %w", err)
++	}
++	return base64.RawURLEncoding.EncodeToString(stateBytes), nil
++}
++
+ // GeneratePKCECodes generates a PKCE code verifier and challenge pair
+ // following RFC 7636 specifications for OAuth 2.0 PKCE extension.
+ // This provides additional security for the OAuth flow by ensuring that
 diff --git a/internal/auth/codex/openai_auth.go b/internal/auth/codex/openai_auth.go
-index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f4776ac0e8dd 100644
+index 074146ff..2bf689ee 100644
 --- a/internal/auth/codex/openai_auth.go
 +++ b/internal/auth/codex/openai_auth.go
 @@ -7,8 +7,10 @@ package codex
@@ -858,7 +966,7 @@ index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f477
  
  // UpdateTokenStorage updates an existing CodexTokenStorage with new token data.
 diff --git a/internal/auth/codex/openai_auth_test.go b/internal/auth/codex/openai_auth_test.go
-index 6144f0e53821b34054ee55669c149c38808a53f2..77385cabe8cbc884595e998f21bf82bf43c69816 100644
+index 6144f0e5..77385cab 100644
 --- a/internal/auth/codex/openai_auth_test.go
 +++ b/internal/auth/codex/openai_auth_test.go
 @@ -2,7 +2,9 @@ package codex
@@ -958,7 +1066,7 @@ index 6144f0e53821b34054ee55669c149c38808a53f2..77385cabe8cbc884595e998f21bf82bf
 +	}
 +}
 diff --git a/internal/runtime/executor/codex_executor_auth.go b/internal/runtime/executor/codex_executor_auth.go
-index e200d69021c90394433314b37d80d9e598f978b2..b14c997cae8fa27262194210ac3503710d78eb0c 100644
+index e200d690..b14c997c 100644
 --- a/internal/runtime/executor/codex_executor_auth.go
 +++ b/internal/runtime/executor/codex_executor_auth.go
 @@ -34,24 +34,36 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
@@ -1004,7 +1112,7 @@ index e200d69021c90394433314b37d80d9e598f978b2..b14c997cae8fa27262194210ac350371
  
  func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
 diff --git a/internal/runtime/executor/codex_executor_execute.go b/internal/runtime/executor/codex_executor_execute.go
-index d7c6dbd7f6d2583f0fe38c8e8cb3de41bad0fc07..a2d8a69d9596eccf2a4ffbf9a9ba0bd44deb9eba 100644
+index d7c6dbd7..a2d8a69d 100644
 --- a/internal/runtime/executor/codex_executor_execute.go
 +++ b/internal/runtime/executor/codex_executor_execute.go
 @@ -19,6 +19,10 @@ import (
@@ -1031,7 +1139,7 @@ index d7c6dbd7f6d2583f0fe38c8e8cb3de41bad0fc07..a2d8a69d9596eccf2a4ffbf9a9ba0bd4
  	apiKey, baseURL := codexCreds(auth)
 diff --git a/internal/runtime/executor/codex_executor_refresh_test.go b/internal/runtime/executor/codex_executor_refresh_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..c9f9d92c9901ced9be2d6e0236f03209e7dcd5ea
+index 00000000..c9f9d92c
 --- /dev/null
 +++ b/internal/runtime/executor/codex_executor_refresh_test.go
 @@ -0,0 +1,20 @@
@@ -1056,7 +1164,7 @@ index 0000000000000000000000000000000000000000..c9f9d92c9901ced9be2d6e0236f03209
 +	}
 +}
 diff --git a/internal/runtime/executor/codex_executor_request.go b/internal/runtime/executor/codex_executor_request.go
-index 88f2d40f6e539b35c97112a9b27efe91b83b74a5..430f253a1a0a77ead2b19b4796a3038e6507381d 100644
+index 88f2d40f..430f253a 100644
 --- a/internal/runtime/executor/codex_executor_request.go
 +++ b/internal/runtime/executor/codex_executor_request.go
 @@ -54,6 +54,11 @@ func (e *CodexExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Aut
@@ -1124,7 +1232,7 @@ index 88f2d40f6e539b35c97112a9b27efe91b83b74a5..430f253a1a0a77ead2b19b4796a3038e
  		return
  	}
 diff --git a/internal/runtime/executor/codex_executor_stream.go b/internal/runtime/executor/codex_executor_stream.go
-index b51e273c255c79904035949578c2cee6f80468b5..645c083660b560bba3c1cf399f3dc1561078094c 100644
+index b51e273c..645c0836 100644
 --- a/internal/runtime/executor/codex_executor_stream.go
 +++ b/internal/runtime/executor/codex_executor_stream.go
 @@ -21,6 +21,10 @@ import (
@@ -1140,7 +1248,7 @@ index b51e273c255c79904035949578c2cee6f80468b5..645c083660b560bba3c1cf399f3dc156
  	}
 diff --git a/internal/runtime/executor/codex_managed_identity.go b/internal/runtime/executor/codex_managed_identity.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..4f3c7dcf568b15fd32593c3a9caea50411916eb4
+index 00000000..4f3c7dcf
 --- /dev/null
 +++ b/internal/runtime/executor/codex_managed_identity.go
 @@ -0,0 +1,18 @@
@@ -1164,7 +1272,7 @@ index 0000000000000000000000000000000000000000..4f3c7dcf568b15fd32593c3a9caea504
 +}
 diff --git a/internal/runtime/executor/codex_managed_identity_test.go b/internal/runtime/executor/codex_managed_identity_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..7efa0dd1385a50a3ccca580f1dca79783cb3a9c8
+index 00000000..7efa0dd1
 --- /dev/null
 +++ b/internal/runtime/executor/codex_managed_identity_test.go
 @@ -0,0 +1,207 @@
@@ -1376,7 +1484,7 @@ index 0000000000000000000000000000000000000000..7efa0dd1385a50a3ccca580f1dca7978
 +	}
 +}
 diff --git a/internal/runtime/executor/codex_websockets_execute.go b/internal/runtime/executor/codex_websockets_execute.go
-index 664daffe7de9ab119c03f0ddcf8b0c34ecd2b9ae..e91c2eea0a73b91ca3837d7c1a56b4d8fddc9f07 100644
+index 664daffe..e91c2eea 100644
 --- a/internal/runtime/executor/codex_websockets_execute.go
 +++ b/internal/runtime/executor/codex_websockets_execute.go
 @@ -20,6 +20,10 @@ import (
@@ -1403,7 +1511,7 @@ index 664daffe7de9ab119c03f0ddcf8b0c34ecd2b9ae..e91c2eea0a73b91ca3837d7c1a56b4d8
  	wsHeaders = applyCodexWebsocketHeaders(ctx, wsHeaders, auth, apiKey, e.cfg, opts.Headers)
  	applyModelHeaderOverrides(wsHeaders, baseModel)
 diff --git a/internal/runtime/executor/codex_websockets_stream.go b/internal/runtime/executor/codex_websockets_stream.go
-index 589e3c55b4536dd8bcd7ee8475d523e125f79a74..f3ade6bc3548ac08afa94e90d73c24b95866d5f6 100644
+index 589e3c55..f3ade6bc 100644
 --- a/internal/runtime/executor/codex_websockets_stream.go
 +++ b/internal/runtime/executor/codex_websockets_stream.go
 @@ -19,6 +19,10 @@ import (
@@ -1431,7 +1539,7 @@ index 589e3c55b4536dd8bcd7ee8475d523e125f79a74..f3ade6bc3548ac08afa94e90d73c24b9
  	applyModelHeaderOverrides(wsHeaders, baseModel)
 diff --git a/internal/runtime/executor/helps/managed_identity.go b/internal/runtime/executor/helps/managed_identity.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..65cae545d3ae74ef0a4f3e47c173bc444841d8f0
+index 00000000..65cae545
 --- /dev/null
 +++ b/internal/runtime/executor/helps/managed_identity.go
 @@ -0,0 +1,353 @@
@@ -1790,7 +1898,7 @@ index 0000000000000000000000000000000000000000..65cae545d3ae74ef0a4f3e47c173bc44
 +}
 diff --git a/internal/runtime/executor/helps/managed_identity_host.go b/internal/runtime/executor/helps/managed_identity_host.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..f972c6f5b387408302b4a6673ee3cad6827afb6b
+index 00000000..f972c6f5
 --- /dev/null
 +++ b/internal/runtime/executor/helps/managed_identity_host.go
 @@ -0,0 +1,132 @@
@@ -1928,7 +2036,7 @@ index 0000000000000000000000000000000000000000..f972c6f5b387408302b4a6673ee3cad6
 +}
 diff --git a/internal/runtime/executor/helps/managed_identity_host_test.go b/internal/runtime/executor/helps/managed_identity_host_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..6f5360019767888543c1765bd6a59081b40e91d5
+index 00000000..6f536001
 --- /dev/null
 +++ b/internal/runtime/executor/helps/managed_identity_host_test.go
 @@ -0,0 +1,117 @@
@@ -2051,7 +2159,7 @@ index 0000000000000000000000000000000000000000..6f5360019767888543c1765bd6a59081
 +}
 diff --git a/internal/runtime/executor/helps/managed_identity_test.go b/internal/runtime/executor/helps/managed_identity_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..5ffedab0573e0a317326678756b1347b69150677
+index 00000000..5ffedab0
 --- /dev/null
 +++ b/internal/runtime/executor/helps/managed_identity_test.go
 @@ -0,0 +1,161 @@
@@ -2217,7 +2325,7 @@ index 0000000000000000000000000000000000000000..5ffedab0573e0a317326678756b1347b
 +	}
 +}
 diff --git a/internal/watcher/synthesizer/file_test.go b/internal/watcher/synthesizer/file_test.go
-index 24e343d94ab8092689663f9680d283ec1482402e..b78dc3062f506e420ce966bed4cae900ed4e4e28 100644
+index 24e343d9..b78dc306 100644
 --- a/internal/watcher/synthesizer/file_test.go
 +++ b/internal/watcher/synthesizer/file_test.go
 @@ -3,6 +3,7 @@ package synthesizer
@@ -2268,7 +2376,7 @@ index 24e343d94ab8092689663f9680d283ec1482402e..b78dc3062f506e420ce966bed4cae900
 +	}
 +}
 diff --git a/internal/watcher/synthesizer/helpers.go b/internal/watcher/synthesizer/helpers.go
-index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb7ab78554 100644
+index 98202e83..4467f3c9 100644
 --- a/internal/watcher/synthesizer/helpers.go
 +++ b/internal/watcher/synthesizer/helpers.go
 @@ -5,6 +5,7 @@ import (
@@ -2319,8 +2427,21 @@ index 98202e83fd4bddf08e067a5d10acd6d767e28464..4467f3c906de301b68b0a318a78815cb
  }
  
  // addConfigHeadersToAttrs adds header configuration to auth attributes.
+diff --git a/sdk/auth/claude.go b/sdk/auth/claude.go
+index 8f83cbf8..14579fea 100644
+--- a/sdk/auth/claude.go
++++ b/sdk/auth/claude.go
+@@ -56,7 +56,7 @@ func (a *ClaudeAuthenticator) Login(ctx context.Context, cfg *config.Config, opt
+ 		return nil, fmt.Errorf("claude pkce generation failed: %w", err)
+ 	}
+ 
+-	state, err := misc.GenerateRandomState()
++	state, err := claude.GenerateState()
+ 	if err != nil {
+ 		return nil, fmt.Errorf("claude state generation failed: %w", err)
+ 	}
 diff --git a/sdk/auth/filestore.go b/sdk/auth/filestore.go
-index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..520eee8547fded199c2500442b93ab0f1b71f9d4 100644
+index c9c4dee9..520eee85 100644
 --- a/sdk/auth/filestore.go
 +++ b/sdk/auth/filestore.go
 @@ -117,7 +117,7 @@ func (s *FileTokenStore) Save(ctx context.Context, auth *cliproxyauth.Auth) (str
@@ -2405,7 +2526,7 @@ index c9c4dee9cb82bb516bb112c4059019e8bd7535b2..520eee8547fded199c2500442b93ab0f
  		}
  		if !strings.HasSuffix(strings.ToLower(d.Name()), ".json") {
 diff --git a/sdk/auth/filestore_test.go b/sdk/auth/filestore_test.go
-index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..cde1f171b097299492687f180ee569293d779810 100644
+index 4ce9883f..cde1f171 100644
 --- a/sdk/auth/filestore_test.go
 +++ b/sdk/auth/filestore_test.go
 @@ -2,14 +2,84 @@ package auth
@@ -2537,7 +2658,7 @@ index 4ce9883f7cd2e57bd28ec8af5d2017a4dde68119..cde1f171b097299492687f180ee56929
 +}
 diff --git a/sdk/cliproxy/auth/access_token_fallback.go b/sdk/cliproxy/auth/access_token_fallback.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..51a21de14aa16c19bc3e9a24f16069b439119236
+index 00000000..51a21de1
 --- /dev/null
 +++ b/sdk/cliproxy/auth/access_token_fallback.go
 @@ -0,0 +1,245 @@
@@ -2788,7 +2909,7 @@ index 0000000000000000000000000000000000000000..51a21de14aa16c19bc3e9a24f16069b4
 +}
 diff --git a/sdk/cliproxy/auth/access_token_fallback_test.go b/sdk/cliproxy/auth/access_token_fallback_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..753b574eb1998a636b4f157ed5a52e996411218e
+index 00000000..753b574e
 --- /dev/null
 +++ b/sdk/cliproxy/auth/access_token_fallback_test.go
 @@ -0,0 +1,277 @@
@@ -3070,10 +3191,10 @@ index 0000000000000000000000000000000000000000..753b574eb1998a636b4f157ed5a52e99
 +	}
 +}
 diff --git a/sdk/cliproxy/auth/auto_refresh_loop.go b/sdk/cliproxy/auth/auto_refresh_loop.go
-index b4217b3..d33488e 100644
+index b2edccd2..41d5dc07 100644
 --- a/sdk/cliproxy/auth/auto_refresh_loop.go
 +++ b/sdk/cliproxy/auth/auto_refresh_loop.go
-@@ -339,6 +339,15 @@
+@@ -340,6 +340,15 @@ func nextRefreshCheckAt(now time.Time, auth *Auth, interval time.Duration) (time
  	if auth == nil {
  		return time.Time{}, false
  	}
@@ -3086,11 +3207,11 @@ index b4217b3..d33488e 100644
 +	if auth.refreshLastResult == "pending" || auth.refreshLastResult == "unknown_outcome" {
 +		return time.Time{}, false
 +	}
- 	if hasUnauthorizedAuthFailure(auth) {
+ 	if hasUnauthorizedAuthFailure(auth) || hasDisabledInvalidGrantFailure(auth) {
  		return time.Time{}, false
  	}
 diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
-index c245ff3715384256a2230d4a39aeff68640223c2..fbbf3663f38769e3decc1d04069b8e2e3e35728a 100644
+index 6112bba6..3acc491f 100644
 --- a/sdk/cliproxy/auth/conductor.go
 +++ b/sdk/cliproxy/auth/conductor.go
 @@ -44,6 +44,7 @@ type ExecutionSessionCloser interface {
@@ -3102,10 +3223,10 @@ index c245ff3715384256a2230d4a39aeff68640223c2..fbbf3663f38769e3decc1d04069b8e2e
  	AuthID string
  	// Provider is copied for convenience when emitting hooks.
 diff --git a/sdk/cliproxy/auth/conductor_cooldown.go b/sdk/cliproxy/auth/conductor_cooldown.go
-index d69cd99..34cfc04 100644
+index bfb386be..9445cdfa 100644
 --- a/sdk/cliproxy/auth/conductor_cooldown.go
 +++ b/sdk/cliproxy/auth/conductor_cooldown.go
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,7 @@ import (
  	"fmt"
  	"io"
  	"net/http"
@@ -3113,7 +3234,7 @@ index d69cd99..34cfc04 100644
  	"sort"
  	"strings"
  	"sync/atomic"
-@@ -334,6 +335,31 @@
+@@ -334,6 +335,31 @@ func (m *Manager) RestoreCooldownStates(ctx context.Context) error {
  
  func (m *Manager) restoreCooldownRecordLocked(record CooldownStateRecord, now time.Time) bool {
  	authID := strings.TrimSpace(record.AuthID)
@@ -3145,7 +3266,7 @@ index d69cd99..34cfc04 100644
  	if authID == "" || record.NextRetryAfter.IsZero() || !record.NextRetryAfter.After(now) {
  		return false
  	}
-@@ -604,10 +630,19 @@
+@@ -604,10 +630,19 @@ func (m *Manager) cooldownStateRecordsSnapshot() []CooldownStateRecord {
  }
  
  func (m *Manager) cooldownStateRecordsForAuthLocked(auth *Auth, now time.Time) []CooldownStateRecord {
@@ -3167,7 +3288,7 @@ index d69cd99..34cfc04 100644
  	if record, ok := authCooldownStateRecord(auth, now); ok {
  		records = append(records, record)
  	}
-@@ -635,7 +670,7 @@
+@@ -635,7 +670,7 @@ func cooldownStateRecordsEqual(a, b []CooldownStateRecord) bool {
  }
  
  func cooldownStateRecordEqual(a, b CooldownStateRecord) bool {
@@ -3176,11 +3297,10 @@ index d69cd99..34cfc04 100644
  		a.AuthID != b.AuthID ||
  		a.AuthFile != b.AuthFile ||
  		a.Model != b.Model ||
-@@ -748,6 +783,15 @@
- 		trackCooldownState := m.cooldownStore != nil
+@@ -749,6 +784,15 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
  		if trackCooldownState {
  			cooldownRecordsBefore = m.cooldownStateRecordsForAuthLocked(auth, now)
-+		}
+ 		}
 +		if result.CredentialFingerprint != "" && result.CredentialFingerprint != refreshCredentialFingerprint(auth) {
 +			m.mu.Unlock()
 +			return
@@ -3189,10 +3309,11 @@ index d69cd99..34cfc04 100644
 +			auth.AccessFallback = auth.AccessFallback.Clone()
 +			auth.AccessFallback.AccessRejected = true
 +			result.Error = cloneError(result.Error)
- 		}
++		}
  		auth.recordRecentRequest(now, result.Success)
  		if result.Success {
-@@ -1493,7 +1537,10 @@
+ 			auth.Success++
+@@ -1604,7 +1648,10 @@ func isUnauthorizedError(err error) bool {
  		return true
  	}
  	raw := strings.ToLower(err.Error())
@@ -3204,7 +3325,7 @@ index d69cd99..34cfc04 100644
  }
  
  func hasUnauthorizedAuthFailure(auth *Auth) bool {
-@@ -1512,7 +1559,7 @@
+@@ -1623,7 +1670,7 @@ func refreshErrorFromError(err error) *Error {
  		statusCode = http.StatusUnauthorized
  	}
  	authErr := &Error{Message: err.Error(), HTTPStatus: statusCode}
@@ -3213,8 +3334,59 @@ index d69cd99..34cfc04 100644
  		authErr.Code = "unauthorized"
  		authErr.Retryable = false
  	}
+@@ -1819,11 +1866,48 @@ func isRequestScopedResultError(err *Error) bool {
+ }
+ 
+ func isCountTokensEndpointNotFoundError(err error, requestedModel string) bool {
+-	if err == nil || statusCodeFromError(err) != http.StatusNotFound {
++	if err == nil {
+ 		return false
+ 	}
+ 	baseModel := thinking.ParseSuffix(requestedModel).ModelName
+-	return !isExplicitModelNotFoundError(err, baseModel)
++	if isExplicitModelNotFoundError(err, baseModel) {
++		return false
++	}
++	status := statusCodeFromError(err)
++	if status == http.StatusNotFound {
++		return true
++	}
++	if isCredentialScopedError(err) || isCloudflareChallengeError(err) || isInvalidGrantError(err) || isModelSupportErrorMessage(err.Error()) {
++		return false
++	}
++	switch status {
++	case http.StatusUnauthorized, http.StatusPaymentRequired, http.StatusForbidden, http.StatusTooManyRequests:
++		return false
++	case http.StatusNotImplemented:
++		return true
++	case 0:
++		return isCountTokensUnsupportedErrorCode(countTokensErrorCode(err))
++	default:
++		return false
++	}
++}
++
++func countTokensErrorCode(err error) string {
++	var authErr *Error
++	if errors.As(err, &authErr) && authErr != nil {
++		return strings.TrimSpace(authErr.Code)
++	}
++	return ""
++}
++
++func isCountTokensUnsupportedErrorCode(value string) bool {
++	normalized := strings.NewReplacer("-", "_", " ", "_").Replace(strings.ToLower(strings.TrimSpace(value)))
++	switch normalized {
++	case "not_implemented", "count_tokens_unsupported", "unsupported_capability":
++		return true
++	default:
++		return false
++	}
+ }
+ 
+ func isResponsesCompactRequest(opts cliproxyexecutor.Options) bool {
 diff --git a/sdk/cliproxy/auth/conductor_execution.go b/sdk/cliproxy/auth/conductor_execution.go
-index 3aa1f67d3411641ecdd28e3b2cd7be8a97bef409..30ba610209cee59dcd732ff685cb2caffd2469c7 100644
+index 4163d731..af4c2381 100644
 --- a/sdk/cliproxy/auth/conductor_execution.go
 +++ b/sdk/cliproxy/auth/conductor_execution.go
 @@ -479,7 +479,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req
@@ -3226,16 +3398,16 @@ index 3aa1f67d3411641ecdd28e3b2cd7be8a97bef409..30ba610209cee59dcd732ff685cb2caf
  			m.MarkResult(execCtx, result)
  			lastErr = errPrepare
  			continue
-@@ -539,7 +539,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req
+@@ -541,7 +541,7 @@ func (m *Manager) executeMixedOnce(ctx context.Context, providers []string, req
  			if errCancel := claudeOAuthRequestCancellation(execCtx, auth, errExec); errCancel != nil {
  				return cliproxyexecutor.Response{}, errCancel
  			}
--			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts}
-+			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, ExecutionSeq: executionSeq}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, ExecutionSeq: executionSeq}
  			if errExec != nil {
  				result.Error = resultErrorFromError(errExec)
  				if ra := retryAfterFromError(errExec); ra != nil {
-@@ -670,7 +670,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
+@@ -672,7 +672,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
  			if stateModel == "" {
  				stateModel = canonicalModelKey(routeModel)
  			}
@@ -3244,16 +3416,31 @@ index 3aa1f67d3411641ecdd28e3b2cd7be8a97bef409..30ba610209cee59dcd732ff685cb2caf
  			m.MarkResult(execCtx, result)
  			lastErr = errPrepare
  			continue
-@@ -730,7 +730,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
+@@ -734,7 +734,7 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
  			if errCancel := claudeOAuthRequestCancellation(execCtx, auth, errExec); errCancel != nil {
  				return cliproxyexecutor.Response{}, errCancel
  			}
--			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true}
-+			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true, ExecutionSeq: executionSeq}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: errExec == nil, Options: execOpts, SkipQuotaObservation: true, ExecutionSeq: executionSeq}
  			if errExec != nil {
  				result.Error = resultErrorFromError(errExec)
  				if ra := retryAfterFromError(errExec); ra != nil {
-@@ -994,7 +994,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
+@@ -742,10 +742,10 @@ func (m *Manager) executeCountMixedOnce(ctx context.Context, providers []string,
+ 				}
+ 				action, okAction := matchRequestScopedErrorAction(auth, errExec, m.runtimeConfigSnapshot())
+ 				applyRequestScopedActionToResult(action, okAction, &result)
+-				// Some Anthropic-compatible upstreams do not implement the
+-				// count_tokens route and return a generic endpoint 404. Record
+-				// the failure for hooks and metrics without suspending a model
+-				// that remains usable through the messages endpoint.
++				// Some Anthropic-compatible upstreams do not implement count_tokens
++				// and return a generic endpoint 404, HTTP 501, or an unsupported
++				// capability code. Record the failure for hooks and metrics
++				// without suspending a model that remains usable through messages.
+ 				if isCountTokensEndpointNotFoundError(errExec, execReq.Model) && (result.Error == nil || result.Error.Code != ErrorCodeForceCooldown) {
+ 					m.recordAvailabilityNeutralResult(execCtx, result)
+ 				} else {
+@@ -998,7 +998,7 @@ func (m *Manager) executeStreamMixedOnce(ctx context.Context, providers []string
  			if stateModel == "" {
  				stateModel = canonicalModelKey(routeModel)
  			}
@@ -3263,10 +3450,10 @@ index 3aa1f67d3411641ecdd28e3b2cd7be8a97bef409..30ba610209cee59dcd732ff685cb2caf
  				m.reportHomeResult(execCtx, result, auth)
  				releaseAttempt()
 diff --git a/sdk/cliproxy/auth/conductor_lifecycle.go b/sdk/cliproxy/auth/conductor_lifecycle.go
-index d14b661..87fb54d 100644
+index d14b6615..87fb54dc 100644
 --- a/sdk/cliproxy/auth/conductor_lifecycle.go
 +++ b/sdk/cliproxy/auth/conductor_lifecycle.go
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ package auth
  import (
  	"context"
  	"fmt"
@@ -3274,7 +3461,7 @@ index d14b661..87fb54d 100644
  	"strings"
  	"time"
  
-@@ -76,6 +77,9 @@
+@@ -76,6 +77,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
  	if auth.ID == "" {
  		auth.ID = uuid.NewString()
  	}
@@ -3284,7 +3471,7 @@ index d14b661..87fb54d 100644
  	now := time.Now()
  	if auth.Generation == 0 {
  		auth.Generation = 1
-@@ -85,6 +89,7 @@
+@@ -85,6 +89,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
  	}
  	auth.UpdatedAt = now
  	cooldownStateChanged := normalizeModelStates(auth)
@@ -3292,10 +3479,13 @@ index d14b661..87fb54d 100644
  	if m.cooldownDisabledForAuth(auth) || auth.Disabled || auth.Status == StatusDisabled {
  		cooldownStateChanged = clearCooldownStateForAuth(auth, now) || cooldownStateChanged
  	}
-@@ -125,6 +130,16 @@
- 	if auth == nil || auth.ID == "" {
- 		return nil, nil
- 	}
+@@ -122,6 +127,16 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+ 
+ // Update replaces an existing auth entry and notifies hooks.
+ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
++	if auth == nil || auth.ID == "" {
++		return nil, nil
++	}
 +	lock := m.authRefreshLock(auth.ID)
 +	lock.commitMu.Lock()
 +	defer lock.commitMu.Unlock()
@@ -3303,25 +3493,22 @@ index d14b661..87fb54d 100644
 +}
 +
 +func (m *Manager) updateAuth(ctx context.Context, auth *Auth, refreshCommit bool) (*Auth, error) {
-+	if auth == nil || auth.ID == "" {
-+		return nil, nil
-+	}
- 	NormalizeCredentialMetadata(auth.Metadata)
- 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
- 		return nil, fmt.Errorf("update auth: %w", errWeight)
-@@ -134,6 +149,11 @@
- 	if !ok || existing == nil {
+ 	if auth == nil || auth.ID == "" {
+ 		return nil, nil
+ 	}
+@@ -135,6 +150,11 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  		m.mu.Unlock()
  		return nil, nil
-+	}
+ 	}
 +	if shouldSkipPersist(ctx) && existing.refreshConsumedCredential == refreshCredentialFingerprint(auth) && !sameRefreshCredential(existing, auth) {
 +		current := existing.Clone()
 +		m.mu.Unlock()
 +		return current, nil
- 	}
++	}
  	if m.authEpochs == nil {
  		m.authEpochs = make(map[string]uint64)
-@@ -154,6 +174,46 @@
+ 	}
+@@ -154,6 +174,46 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  		auth.Index = existing.Index
  		auth.indexAssigned = existing.indexAssigned
  	}
@@ -3368,7 +3555,7 @@ index d14b661..87fb54d 100644
  	auth.Success = existing.Success
  	auth.Failed = existing.Failed
  	auth.recentRequests = existing.recentRequests
-@@ -177,7 +237,7 @@
+@@ -177,7 +237,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  	}
  	now := time.Now()
  	auth.UpdatedAt = now
@@ -3377,7 +3564,7 @@ index d14b661..87fb54d 100644
  	if m.cooldownDisabledForAuth(auth) || auth.Disabled || auth.Status == StatusDisabled {
  		cooldownStateChanged = clearCooldownStateForAuth(auth, now) || cooldownStateChanged
  	}
-@@ -192,12 +252,24 @@
+@@ -192,12 +252,24 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  		m.scheduler.upsertAuth(authClone.Clone())
  	}
  	m.queueRefreshReschedule(auth.ID)
@@ -3404,7 +3591,7 @@ index d14b661..87fb54d 100644
  }
  
  // Remove deletes an auth from runtime state without persisting.
-@@ -211,6 +283,9 @@
+@@ -211,6 +283,9 @@ func (m *Manager) Remove(ctx context.Context, id string) {
  		return
  	}
  	_ = ctx
@@ -3414,11 +3601,115 @@ index d14b661..87fb54d 100644
  
  	m.mu.Lock()
  	existing := m.auths[id]
+diff --git a/sdk/cliproxy/auth/conductor_overrides_test.go b/sdk/cliproxy/auth/conductor_overrides_test.go
+index 27665bf1..3c8abd52 100644
+--- a/sdk/cliproxy/auth/conductor_overrides_test.go
++++ b/sdk/cliproxy/auth/conductor_overrides_test.go
+@@ -1961,6 +1961,99 @@ func TestManager_ExecuteCount_GenericRouteNotFoundDoesNotSuspendModel(t *testing
+ 	}
+ }
+ 
++func TestManager_ExecuteCount_NotImplementedDoesNotSuspendModelOrExtendCooldown(t *testing.T) {
++	previous := quotaCooldownDisabled.Load()
++	quotaCooldownDisabled.Store(false)
++	t.Cleanup(func() { quotaCooldownDisabled.Store(previous) })
++
++	hook := &resultCaptureHook{}
++	m := NewManager(nil, nil, hook)
++	executor := &authFallbackExecutor{
++		id: "claude",
++		countTokenErrors: map[string]error{
++			"count-501-auth": &Error{
++				Code:       "not_implemented",
++				HTTPStatus: http.StatusNotImplemented,
++				Message:    "count-tokens/http-request are not implemented yet",
++			},
++		},
++	}
++	m.RegisterExecutor(executor)
++
++	model := "count-501-model"
++	existing := time.Now().Add(30 * time.Minute).UTC().Truncate(time.Second)
++	auth := &Auth{
++		ID:       "count-501-auth",
++		Provider: "claude",
++		ModelStates: map[string]*ModelState{
++			model: {NextRetryAfter: existing},
++		},
++	}
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(auth.ID, auth.Provider, []*registry.ModelInfo{{ID: model}})
++	t.Cleanup(func() { reg.UnregisterClient(auth.ID) })
++	if _, errRegister := m.Register(context.Background(), auth); errRegister != nil {
++		t.Fatalf("register auth: %v", errRegister)
++	}
++
++	for attempt := 1; attempt <= 2; attempt++ {
++		if _, errCount := m.ExecuteCount(context.Background(), []string{"claude"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{}); errCount == nil {
++			t.Fatalf("attempt %d: expected count_tokens 501", attempt)
++		}
++	}
++
++	updated, ok := m.GetByID(auth.ID)
++	if !ok || updated == nil {
++		t.Fatal("expected auth to remain registered")
++	}
++	if updated.Unavailable {
++		t.Fatal("expected count_tokens 501 to keep auth available")
++	}
++	state := updated.ModelStates[model]
++	if state == nil || !state.NextRetryAfter.Equal(existing) {
++		t.Fatalf("model cooldown = %#v, want existing deadline %v", state, existing)
++	}
++	if count := reg.GetModelCount(model); count != 1 {
++		t.Fatalf("available model count = %d, want 1", count)
++	}
++	resp, errExecute := m.Execute(context.Background(), []string{"claude"}, cliproxyexecutor.Request{Model: model}, cliproxyexecutor.Options{})
++	if errExecute != nil {
++		t.Fatalf("execute after count_tokens 501: %v", errExecute)
++	}
++	if string(resp.Payload) != auth.ID {
++		t.Fatalf("execute payload = %q, want %q", string(resp.Payload), auth.ID)
++	}
++}
++
++func TestCountTokensUnsupportedClassifier(t *testing.T) {
++	model := "count-classifier-model"
++	for _, err := range []error{
++		&Error{HTTPStatus: http.StatusNotFound, Message: "404 page not found"},
++		&Error{HTTPStatus: http.StatusNotImplemented, Code: "not_implemented", Message: "count tokens are not implemented"},
++		&Error{Code: "not_implemented"},
++		&Error{Code: "count_tokens_unsupported"},
++		&Error{Code: "unsupported_capability"},
++		&Error{Code: "Not-Implemented"},
++	} {
++		if !isCountTokensEndpointNotFoundError(err, model) {
++			t.Fatalf("expected availability-neutral count_tokens error, got %#v", err)
++		}
++	}
++	for _, err := range []error{
++		&Error{HTTPStatus: http.StatusNotFound, Code: "model_not_found", Message: "model count-classifier-model was not found"},
++		&Error{HTTPStatus: http.StatusUnauthorized, Code: "not_implemented", Message: "unauthorized"},
++		&Error{HTTPStatus: http.StatusPaymentRequired, Message: "payment required"},
++		&Error{HTTPStatus: http.StatusTooManyRequests, Code: "not_implemented", Message: "rate limited"},
++		&Error{HTTPStatus: http.StatusBadRequest, Message: "invalid_grant"},
++		&Error{Code: "not_implemented", Message: "cloudflare challenge"},
++		&Error{HTTPStatus: http.StatusNotImplemented, Message: "model not supported"},
++	} {
++		if isCountTokensEndpointNotFoundError(err, model) {
++			t.Fatalf("expected count_tokens error to keep cooldown classification, got %#v", err)
++		}
++	}
++}
++
+ func TestManager_ExecuteCount_ExplicitModelNotFoundSuspendsModel(t *testing.T) {
+ 	previous := quotaCooldownDisabled.Load()
+ 	quotaCooldownDisabled.Store(false)
 diff --git a/sdk/cliproxy/auth/conductor_refresh.go b/sdk/cliproxy/auth/conductor_refresh.go
-index aedd26f..344e268 100644
+index 715641bf..8b89aab1 100644
 --- a/sdk/cliproxy/auth/conductor_refresh.go
 +++ b/sdk/cliproxy/auth/conductor_refresh.go
-@@ -2,9 +2,12 @@
+@@ -2,9 +2,12 @@ package auth
  
  import (
  	"context"
@@ -3431,7 +3722,7 @@ index aedd26f..344e268 100644
  	"strconv"
  	"strings"
  	"sync"
-@@ -115,6 +118,15 @@
+@@ -117,6 +120,15 @@ func (m *Manager) shouldRefresh(a *Auth, now time.Time) bool {
  	if a == nil {
  		return false
  	}
@@ -3444,10 +3735,10 @@ index aedd26f..344e268 100644
 +	if accessFallbackBound(a) && a.AccessFallback.RefreshRejected {
 +		return false
 +	}
- 	if hasUnauthorizedAuthFailure(a) {
+ 	if hasUnauthorizedAuthFailure(a) || hasDisabledInvalidGrantFailure(a) {
  		return false
  	}
-@@ -341,7 +353,45 @@
+@@ -343,7 +355,45 @@ func (m *Manager) markRefreshPending(id string, now time.Time) bool {
  }
  
  type authRefreshLock struct {
@@ -3494,7 +3785,7 @@ index aedd26f..344e268 100644
  }
  
  func authAccessToken(auth *Auth) string {
-@@ -413,9 +463,13 @@
+@@ -415,9 +465,13 @@ func (m *Manager) tryRefreshAfterUnauthorized(ctx context.Context, auth *Auth, e
  	if !isUnauthorizedError(execErr) || !authHasRefreshCredential(auth) {
  		return auth, false
  	}
@@ -3509,7 +3800,7 @@ index aedd26f..344e268 100644
  		log.Debugf("credential refresh before fallback failed for %s (%s): %v", auth.Provider, auth.ID, errRefresh)
  		return auth, false
  	}
-@@ -423,18 +477,26 @@
+@@ -440,7 +494,7 @@ func invalidGrantBackoffDuration(failures int) time.Duration {
  }
  
  func (m *Manager) refreshAuth(ctx context.Context, id string) {
@@ -3518,14 +3809,14 @@ index aedd26f..344e268 100644
  }
  
  // RefreshAuth forces one provider credential refresh and persists the result.
- func (m *Manager) RefreshAuth(ctx context.Context, id string) (*Auth, error) {
+@@ -448,10 +502,18 @@ func (m *Manager) RefreshAuth(ctx context.Context, id string) (*Auth, error) {
  	return m.refreshAuthForRequest(ctx, id, "")
-+}
-+
-+func (m *Manager) RefreshAuthAfterUnauthorized(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
-+	return m.refreshAuthForRequest(ctx, id, failedAccessToken)
  }
  
++func (m *Manager) RefreshAuthAfterUnauthorized(ctx context.Context, id, failedAccessToken string) (*Auth, error) {
++	return m.refreshAuthForRequest(ctx, id, failedAccessToken)
++}
++
  // refreshAuthForRequest performs a synchronous credential refresh for the given auth.
  // failedAccessToken lets concurrent callers reuse a refresh that already replaced the
  // access token that produced the unauthorized response.
@@ -3537,7 +3828,7 @@ index aedd26f..344e268 100644
  	if m == nil {
  		return nil, errors.New("auth manager is nil")
  	}
-@@ -446,17 +508,13 @@
+@@ -463,17 +525,13 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
  		return nil, errors.New("auth id is empty")
  	}
  
@@ -3558,10 +3849,10 @@ index aedd26f..344e268 100644
  	var exec ProviderExecutor
  	if auth != nil {
  		// Use the same effective provider key as request execution so OpenAI-compat
-@@ -468,36 +526,135 @@
- 		return nil, errors.New("auth or executor not found")
+@@ -487,46 +545,150 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 	if hasDisabledInvalidGrantFailure(auth) {
+ 		return nil, errors.New("auth is disabled with invalid grant")
  	}
- 
 +	if auth.refreshSavePending {
 +		lock.commitMu.Lock()
 +		defer lock.commitMu.Unlock()
@@ -3608,22 +3899,20 @@ index aedd26f..344e268 100644
 +			return auth, nil
 +		}
 +	}
-+
+ 
  	// Another request may already have refreshed this credential.
  	if failedAccessToken != "" {
  		if currentToken := authAccessToken(auth); currentToken != "" && currentToken != failedAccessToken {
  			return auth.Clone(), nil
  		}
--	}
--
 +		if hasUnauthorizedAuthFailure(auth) {
 +			return nil, errors.New("credential refresh already rejected; reauthentication required")
 +		}
 +	}
 +	if err := ctx.Err(); err != nil {
 +		return nil, err
-+	}
-+
+ 	}
+ 
 +	if auth.Provider == "codex" {
 +		if err := m.beginCodexRefresh(ctx, auth, started); err != nil {
 +			return nil, err
@@ -3663,54 +3952,89 @@ index aedd26f..344e268 100644
  	now := time.Now()
  	if err != nil {
  		unauthorized := isUnauthorizedError(err)
+ 		invalidGrant := isInvalidGrantError(err)
 +		var outcome interface{ RefreshOutcomeUnknown() bool }
 +		unknown := errors.As(err, &outcome) && outcome.RefreshOutcomeUnknown() || auth.Provider == "codex" && errors.Is(err, context.Canceled)
  		shouldReschedule := false
+ 		isPermanentlyDisabled := false
  		m.mu.Lock()
  		if current := m.auths[id]; current != nil {
  			current.Generation++
  			current.UpdatedAt = now
 -			current.LastError = refreshErrorFromError(err)
--			if unauthorized {
 +			current.refreshLastResult = "failed"
 +			if current.Provider == "codex" && (unauthorized || unknown) {
 +				markRefreshRejected(current, refreshErrorFromError(err), now)
 +			}
+ 			isDisabled := current.Disabled || current.Status == StatusDisabled
+-			if isDisabled && invalidGrant {
 +			if unknown && current.Provider == "codex" {
 +				current.refreshLastResult = "unknown_outcome"
++				current.RefreshFailures = 0
++				current.NextRefreshAfter = time.Time{}
++				if !isDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
++					current.LastError = refreshErrorFromError(err)
++					current.Unavailable = true
++					current.Status = StatusError
++					current.StatusMessage = "refresh_outcome_unknown"
++				}
++				shouldReschedule = !isDisabled
++			} else if isDisabled && invalidGrant {
++				current.refreshLastResult = "rejected"
+ 				current.Unavailable = true
+ 				current.Status = StatusDisabled
+ 				current.NextRefreshAfter = time.Time{}
+ 				current.RefreshFailures = 0
+ 				current.StatusMessage = "disabled (invalid grant)"
++				if reflect.DeepEqual(current.LastError, auth.LastError) {
++					current.LastError = refreshErrorFromError(err)
++				}
+ 				isPermanentlyDisabled = true
+ 			} else if unauthorized {
++				current.refreshLastResult = "rejected"
+ 				current.RefreshFailures = 0
  				current.NextRefreshAfter = time.Time{}
 -				current.Unavailable = true
 -				current.Status = StatusError
 -				current.StatusMessage = "unauthorized"
-+			} else if unauthorized {
-+				current.refreshLastResult = "rejected"
-+				current.NextRefreshAfter = time.Time{}
- 			} else {
- 				current.NextRefreshAfter = now.Add(refreshFailureBackoff)
-+			}
-+			// 防重放状态独立合并；不能因停用或并发额度错误而漏记凭据已被消费。
-+			if !current.Disabled && current.Status != StatusDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
-+				current.LastError = refreshErrorFromError(err)
-+				if unauthorized || unknown && current.Provider == "codex" {
++				if !isDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
++					current.LastError = refreshErrorFromError(err)
 +					current.Unavailable = true
 +					current.Status = StatusError
 +					current.StatusMessage = "unauthorized"
-+					if unknown {
-+						current.StatusMessage = "refresh_outcome_unknown"
-+					}
 +				}
+ 				shouldReschedule = true
+ 			} else if invalidGrant {
+ 				current.RefreshFailures++
+@@ -535,10 +697,16 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
+ 				if current.Status == "" || current.Status == StatusActive {
+ 					current.Status = StatusError
+ 				}
++				if reflect.DeepEqual(current.LastError, auth.LastError) {
++					current.LastError = refreshErrorFromError(err)
++				}
+ 				shouldReschedule = true
+ 			} else {
+ 				current.RefreshFailures = 0
+ 				current.NextRefreshAfter = now.Add(refreshFailureBackoff)
++				if !isDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
++					current.LastError = refreshErrorFromError(err)
++				}
+ 				shouldReschedule = true
  			}
  			m.auths[id] = current
- 			shouldReschedule = true
-@@ -507,6 +664,7 @@
+@@ -548,8 +716,10 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
  		}
  		m.mu.Unlock()
  		if shouldReschedule {
 +			m.persistCooldownStates(context.Background())
  			m.queueRefreshReschedule(id)
+ 		} else if isPermanentlyDisabled {
++			m.persistCooldownStates(context.Background())
+ 			m.queueRefreshUnschedule(id)
  		}
  		return nil, err
-@@ -514,25 +672,45 @@
+@@ -557,26 +727,44 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
  	if updated == nil {
  		updated = cloned
  	}
@@ -3724,6 +4048,7 @@ index aedd26f..344e268 100644
 -	updated.LastError = nil
 -	updated.StatusMessage = ""
 -	updated.Unavailable = false
+-	updated.RefreshFailures = 0
 -	if updated.Status == StatusError {
 -		updated.Status = StatusActive
 -	}
@@ -3735,6 +4060,7 @@ index aedd26f..344e268 100644
 -	saved, errUpdate := m.Update(ctx, updated)
 +	merged := current.Clone()
 +	merged.AccessFallback = nil
++	merged.RefreshFailures = 0
 +	merged.refreshConsumedCredential = refreshCredentialFingerprint(auth)
 +	if merged.Metadata == nil {
 +		merged.Metadata = make(map[string]any)
@@ -3753,14 +4079,12 @@ index aedd26f..344e268 100644
 +	merged.LastRefreshedAt = now
 +	merged.refreshLastResult = "saved"
 +	merged.NextRefreshAfter = time.Time{}
-+	if !merged.Disabled && merged.Status != StatusDisabled {
-+		if hasUnauthorizedAuthFailure(merged) && reflect.DeepEqual(current.LastError, auth.LastError) {
-+			merged.LastError = nil
-+			merged.StatusMessage = ""
-+			merged.Unavailable = false
-+			if merged.Status == StatusError {
-+				merged.Status = StatusActive
-+			}
++	if !merged.Disabled && merged.Status != StatusDisabled && reflect.DeepEqual(current.LastError, auth.LastError) {
++		merged.LastError = nil
++		merged.StatusMessage = ""
++		merged.Unavailable = false
++		if merged.Status == StatusError {
++			merged.Status = StatusActive
 +		}
 +		if reflect.DeepEqual(current.ModelStates, auth.ModelStates) {
 +			_ = clearUnauthorizedModelStates(merged, now)
@@ -3775,7 +4099,7 @@ index aedd26f..344e268 100644
  	targetAuth := saved
  	if targetAuth == nil {
  		targetAuth = updated
-@@ -549,7 +727,7 @@
+@@ -593,7 +781,7 @@ func (m *Manager) refreshAuthForRequest(ctx context.Context, id, failedAccessTok
  		registry.GetGlobalRegistry().ApplyClientModelProjections(id, regEpoch, targetAuth.Generation, projections)
  	}
  	if errUpdate != nil {
@@ -3785,10 +4109,10 @@ index aedd26f..344e268 100644
  	if saved != nil {
  		return saved, nil
 diff --git a/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go b/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
-index 8ccae63..824e483 100644
+index 8ccae636..824e4831 100644
 --- a/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
 +++ b/sdk/cliproxy/auth/conductor_scheduler_refresh_test.go
-@@ -48,6 +48,7 @@
+@@ -48,6 +48,7 @@ func (e unauthorizedRefreshTestExecutor) Refresh(ctx context.Context, auth *Auth
  func TestManager_RefreshAuthUnauthorizedFailureStopsAutoRefreshRetry(t *testing.T) {
  	ctx := context.Background()
  	manager := NewManager(nil, &RoundRobinSelector{}, nil)
@@ -3796,7 +4120,7 @@ index 8ccae63..824e483 100644
  	manager.RegisterExecutor(unauthorizedRefreshTestExecutor{
  		schedulerProviderTestExecutor: schedulerProviderTestExecutor{provider: "codex"},
  	})
-@@ -56,7 +57,8 @@
+@@ -56,7 +57,8 @@ func TestManager_RefreshAuthUnauthorizedFailureStopsAutoRefreshRetry(t *testing.
  		ID:       "unauthorized-refresh",
  		Provider: "codex",
  		Metadata: map[string]any{
@@ -3807,15 +4131,15 @@ index 8ccae63..824e483 100644
  	}
  	if _, errRegister := manager.Register(ctx, auth); errRegister != nil {
 diff --git a/sdk/cliproxy/auth/conductor_stream.go b/sdk/cliproxy/auth/conductor_stream.go
-index d0d46e07eeb9270a3eecec29b0e2ebe44a95a706..70ca6d14d3684c751611fb8fb581037de66f181a 100644
+index 31144ec3..007477df 100644
 --- a/sdk/cliproxy/auth/conductor_stream.go
 +++ b/sdk/cliproxy/auth/conductor_stream.go
 @@ -138,7 +138,7 @@ func (m *Manager) wrapStreamResult(ctx context.Context, auth *Auth, provider, re
  				warnLogUpstreamFailure(ctx, entry, provider, resultModel, auth, time.Since(streamStart), chunk.Err)
  				rerr := resultErrorFromError(chunk.Err)
  				action, okAction := matchRequestScopedErrorAction(auth, chunk.Err, m.runtimeConfigSnapshot())
--				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: opts}
-+				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: opts}
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: opts, ExecutionSeq: executionSeq}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: opts, ExecutionSeq: executionSeq}
  				applyRequestScopedActionToResult(action, okAction, &result)
  				m.recordExecutionResult(ctx, result, auth, ephemeralResult)
  			}
@@ -3823,70 +4147,70 @@ index d0d46e07eeb9270a3eecec29b0e2ebe44a95a706..70ca6d14d3684c751611fb8fb581037d
  			}
  		}
  		if !failed && (ephemeralResult || claudeOAuthRequestCancellation(ctx, auth, nil) == nil) {
--			m.recordExecutionResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: true, Options: opts}, auth, ephemeralResult)
-+			m.recordExecutionResult(ctx, Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: true, Options: opts}, auth, ephemeralResult)
+-			m.recordExecutionResult(ctx, Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: true, Options: opts, ExecutionSeq: executionSeq}, auth, ephemeralResult)
++			m.recordExecutionResult(ctx, Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: true, Options: opts, ExecutionSeq: executionSeq}, auth, ephemeralResult)
  		}
  	}()
  	return &cliproxyexecutor.StreamResult{Headers: headers, Chunks: out}
-@@ -281,7 +281,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+@@ -283,7 +283,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
  		if errStream != nil {
  			rerr := resultErrorFromError(errStream)
  			action, okAction := matchRequestScopedErrorAction(auth, errStream, m.runtimeConfigSnapshot())
--			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
-+			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
  			result.RetryAfter = retryAfterFromError(errStream)
  			if isCredentialScopedError(errStream) {
  				result.CredentialScope = true
-@@ -367,7 +367,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+@@ -370,7 +370,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
  			action, okAction := matchRequestScopedErrorAction(auth, bootstrapErr, m.runtimeConfigSnapshot())
  			if okAction {
  				rerr := resultErrorFromError(bootstrapErr)
--				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
-+				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
  				result.RetryAfter = retryAfterFromError(bootstrapErr)
  				if isCredentialScopedError(bootstrapErr) {
  					result.CredentialScope = true
-@@ -387,7 +387,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+@@ -390,7 +390,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
  			}
  			if isRequestInvalidError(bootstrapErr) {
  				rerr := resultErrorFromError(bootstrapErr)
--				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
-+				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
  				result.RetryAfter = retryAfterFromError(bootstrapErr)
  				if isCredentialScopedError(bootstrapErr) {
  					result.CredentialScope = true
-@@ -398,7 +398,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+@@ -401,7 +401,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
  			}
  			if idx < len(execModels)-1 {
  				rerr := resultErrorFromError(bootstrapErr)
--				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
-+				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+-				result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
++				result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
  				result.RetryAfter = retryAfterFromError(bootstrapErr)
  				if isCredentialScopedError(bootstrapErr) {
  					result.CredentialScope = true
-@@ -413,7 +413,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+@@ -416,7 +416,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
  				continue
  			}
  			rerr := resultErrorFromError(bootstrapErr)
--			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
-+			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: rerr, Options: execOpts, ExecutionSeq: executionSeq}
  			result.RetryAfter = retryAfterFromError(bootstrapErr)
  			if isCredentialScopedError(bootstrapErr) {
  				result.CredentialScope = true
-@@ -431,7 +431,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
+@@ -434,7 +434,7 @@ func (m *Manager) executeStreamWithModelPool(ctx context.Context, executor Provi
  				upstreamErr = currentErr
  			}
  			warnLogUpstreamFailure(ctx, entry, provider, execModel, auth, time.Since(startStream), emptyErr)
--			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(emptyErr), Options: execOpts}
-+			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(emptyErr), Options: execOpts}
+-			result := Result{AuthID: auth.ID, Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(emptyErr), Options: execOpts, ExecutionSeq: executionSeq}
++			result := Result{AuthID: auth.ID, CredentialFingerprint: refreshCredentialFingerprint(auth), Provider: provider, Model: resultModel, RouteModel: routeModel, Success: false, Error: resultErrorFromError(emptyErr), Options: execOpts, ExecutionSeq: executionSeq}
  			m.recordExecutionResult(ctx, result, auth, ephemeralResult)
  			if idx < len(execModels)-1 {
  				lastErr = emptyErr
 diff --git a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
-index 3745192..018ee6a 100644
+index 37451925..018ee6a4 100644
 --- a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
 +++ b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
-@@ -2,9 +2,11 @@
+@@ -2,9 +2,11 @@ package auth
  
  import (
  	"context"
@@ -3898,7 +4222,7 @@ index 3745192..018ee6a 100644
  
  	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
  	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-@@ -138,6 +140,7 @@
+@@ -138,6 +140,7 @@ func newUnauthorizedRefreshFixture(t *testing.T, refreshFail bool) (*Manager, *u
  	}
  
  	m := NewManager(nil, nil, nil)
@@ -3906,7 +4230,7 @@ index 3745192..018ee6a 100644
  	m.RegisterExecutor(executor)
  
  	reg := registry.GetGlobalRegistry()
-@@ -334,3 +337,319 @@
+@@ -334,3 +337,319 @@ func TestManager_Execute_UnauthorizedRefreshThenRetryStillFailsFallsBackOnce(t *
  		t.Fatalf("Execute calls = %v, want [primary, primary, backup]", got)
  	}
  }
@@ -4227,10 +4551,10 @@ index 3745192..018ee6a 100644
 +	}
 +}
 diff --git a/sdk/cliproxy/auth/conductor_warn_logging_test.go b/sdk/cliproxy/auth/conductor_warn_logging_test.go
-index a769be4..33199f5 100644
+index a769be4e..33199f54 100644
 --- a/sdk/cliproxy/auth/conductor_warn_logging_test.go
 +++ b/sdk/cliproxy/auth/conductor_warn_logging_test.go
-@@ -450,6 +450,7 @@
+@@ -450,6 +450,7 @@ func TestWarnLogOnUpstreamFailure_401RefreshSuccess_DoesNotLogWarn(t *testing.T)
  
  	hook := setupTestLoggerHook(t)
  	m := NewManager(nil, nil, nil)
@@ -4239,7 +4563,7 @@ index a769be4..33199f5 100644
  	auth := &Auth{
  		ID:         "auth-test-401-refresh",
 diff --git a/sdk/cliproxy/auth/cooldown_state.go b/sdk/cliproxy/auth/cooldown_state.go
-index 830a2e6e91e0cc2c389e9fdc6ca9c800e142383c..460748332c98646a6f415e08d4cc9f0eb54ed2ca 100644
+index 830a2e6e..46074833 100644
 --- a/sdk/cliproxy/auth/cooldown_state.go
 +++ b/sdk/cliproxy/auth/cooldown_state.go
 @@ -17,16 +17,18 @@ import (
@@ -4273,7 +4597,7 @@ index 830a2e6e91e0cc2c389e9fdc6ca9c800e142383c..460748332c98646a6f415e08d4cc9f0e
  // CooldownStateStore persists runtime cooldown state independently from auth tokens.
 diff --git a/sdk/cliproxy/auth/credential_refresh.go b/sdk/cliproxy/auth/credential_refresh.go
 new file mode 100644
-index 0000000..d0c294e
+index 00000000..d0c294ef
 --- /dev/null
 +++ b/sdk/cliproxy/auth/credential_refresh.go
 @@ -0,0 +1,149 @@
@@ -4428,7 +4752,7 @@ index 0000000..d0c294e
 +}
 diff --git a/sdk/cliproxy/auth/credential_refresh_test.go b/sdk/cliproxy/auth/credential_refresh_test.go
 new file mode 100644
-index 0000000..cb43789
+index 00000000..cb437894
 --- /dev/null
 +++ b/sdk/cliproxy/auth/credential_refresh_test.go
 @@ -0,0 +1,403 @@
@@ -4837,7 +5161,7 @@ index 0000000..cb43789
 +}
 diff --git a/sdk/cliproxy/auth/error_scope.go b/sdk/cliproxy/auth/error_scope.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..eafe8d812f7ff5331bf1a06f6d11cbe414088d3f
+index 00000000..eafe8d81
 --- /dev/null
 +++ b/sdk/cliproxy/auth/error_scope.go
 @@ -0,0 +1,27 @@
@@ -4870,7 +5194,7 @@ index 0000000000000000000000000000000000000000..eafe8d812f7ff5331bf1a06f6d11cbe4
 +}
 diff --git a/sdk/cliproxy/auth/error_scope_test.go b/sdk/cliproxy/auth/error_scope_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..19deb7b84f89871155ecfe84bc0eed907f76afe4
+index 00000000..19deb7b8
 --- /dev/null
 +++ b/sdk/cliproxy/auth/error_scope_test.go
 @@ -0,0 +1,35 @@
@@ -4911,7 +5235,7 @@ index 0000000000000000000000000000000000000000..19deb7b84f89871155ecfe84bc0eed90
 +}
 diff --git a/sdk/cliproxy/auth/quota_recovery.go b/sdk/cliproxy/auth/quota_recovery.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..6f847f0b4403670149bed8bd15f7cb9616a9a49f
+index 00000000..6f847f0b
 --- /dev/null
 +++ b/sdk/cliproxy/auth/quota_recovery.go
 @@ -0,0 +1,209 @@
@@ -5126,7 +5450,7 @@ index 0000000000000000000000000000000000000000..6f847f0b4403670149bed8bd15f7cb96
 +}
 diff --git a/sdk/cliproxy/auth/quota_recovery_test.go b/sdk/cliproxy/auth/quota_recovery_test.go
 new file mode 100644
-index 0000000000000000000000000000000000000000..5786ee900e928877cb9509f1574faccf27aa72af
+index 00000000..5786ee90
 --- /dev/null
 +++ b/sdk/cliproxy/auth/quota_recovery_test.go
 @@ -0,0 +1,202 @@
@@ -5333,7 +5657,7 @@ index 0000000000000000000000000000000000000000..5786ee900e928877cb9509f1574faccf
 +	}
 +}
 diff --git a/sdk/cliproxy/auth/selector.go b/sdk/cliproxy/auth/selector.go
-index 657be2379717200904fdb79eb80c5e4995c0e684..3e402b10a1f569a8e591b1ecaec1788127c02bf7 100644
+index 657be237..3e402b10 100644
 --- a/sdk/cliproxy/auth/selector.go
 +++ b/sdk/cliproxy/auth/selector.go
 @@ -588,6 +588,12 @@ func isAuthBlockedForModel(auth *Auth, model string, now time.Time) (bool, block
@@ -5350,7 +5674,7 @@ index 657be2379717200904fdb79eb80c5e4995c0e684..3e402b10a1f569a8e591b1ecaec17881
  		return true, blockReasonCooldown, auth.Quota.NextRecoverAt
  	}
 diff --git a/sdk/cliproxy/auth/types.go b/sdk/cliproxy/auth/types.go
-index 3bfcd3d16b3673acb78ac1cdd73550fd0ed25a62..68b0493eeaa37d4450e792350ff71bf4cd46e029 100644
+index fdd209e3..14d25346 100644
 --- a/sdk/cliproxy/auth/types.go
 +++ b/sdk/cliproxy/auth/types.go
 @@ -45,6 +45,7 @@ func GetRequestInfo(ctx context.Context) *RequestInfo {
@@ -5361,23 +5685,20 @@ index 3bfcd3d16b3673acb78ac1cdd73550fd0ed25a62..68b0493eeaa37d4450e792350ff71bf4
  	// ID uniquely identifies the auth record across restarts.
  	ID string `json:"id"`
  	// RegistrationEpoch tracks monotonic registration cycles across unregister/re-register.
-@@ -100,8 +101,13 @@ type Auth struct {
+@@ -102,6 +103,12 @@ type Auth struct {
  	Success int64 `json:"-"`
  	Failed  int64 `json:"-"`
  
--	recentRequests recentRequestRing `json:"-"`
--	indexAssigned  bool              `json:"-"`
 +	refreshSavePending        bool
 +	refreshAttemptedAt        time.Time
 +	refreshLastResult         string
 +	refreshInProgress         bool
 +	refreshConsumedCredential string
-+	recentRequests            recentRequestRing `json:"-"`
-+	indexAssigned             bool              `json:"-"`
- }
- 
- const (
-@@ -289,6 +295,7 @@ func (a *Auth) Clone() *Auth {
++
+ 	// cooldownRecordedSeq is the execution sequence watermark captured when
+ 	// the current auth-level cooldown was recorded. Successes from executions
+ 	// stamped at or below it were dispatched before the cooldown existed and
+@@ -304,6 +311,7 @@ func (a *Auth) Clone() *Auth {
  		return nil
  	}
  	copyAuth := *a

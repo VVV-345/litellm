@@ -25,6 +25,7 @@ from litellm.caching.dual_cache import DualCache
 from litellm.constants import SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY
 from litellm.integrations.custom_logger import CustomLogger, Span
 from litellm.responses.utils import ResponsesAPIRequestUtils
+from litellm.router_utils.common_utils import deployment_ids_failed_in_request
 from litellm.types.llms.openai import AllMessageValues
 from litellm.types.utils import CallTypes
 
@@ -611,6 +612,7 @@ class DeploymentAffinityCheck(CustomLogger):
         session_affinity_active: Final = (
             enable_session_id or self._get_marker_session_affinity_ttl(request_kwargs=request_kwargs) is not None
         )
+        failed_deployment_ids: Final = deployment_ids_failed_in_request(request_kwargs)
         user_key: Final = (
             self._get_user_key_from_request_kwargs(request_kwargs=request_kwargs)
             if (session_affinity_active or enable_user_key)
@@ -645,14 +647,14 @@ class DeploymentAffinityCheck(CustomLogger):
                         healthy_deployments=typed_healthy_deployments,
                         model_id=session_model_id,
                     )
-                    if session_deployment is not None:
+                    if session_deployment is not None and session_model_id not in failed_deployment_ids:
                         verbose_router_logger.debug(
                             "DeploymentAffinityCheck: session-id affinity hit -> deployment=%s session_id=%s",
                             session_model_id,
                             session_id,
                         )
                         return [session_deployment]
-                    else:
+                    if session_deployment is None:
                         if any(
                             md.get("account_pool_signed_continuation") is True
                             for md in self._iter_metadata_dicts(request_kwargs)
@@ -696,7 +698,7 @@ class DeploymentAffinityCheck(CustomLogger):
             # Backwards / safety: allow raw string values.
             model_id = cache_result
 
-        if not model_id:
+        if not model_id or model_id in failed_deployment_ids:
             return typed_healthy_deployments
 
         deployment = self._find_deployment_by_model_id(

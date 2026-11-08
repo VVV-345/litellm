@@ -8,4 +8,4 @@ Cockpit Tools 作者为 jlcodes99，来源为 https://github.com/jlcodes99/cockp
 
 Cockpit 固定提交的 README.md “许可证”段落声明默认采用 CC BY-NC-SA 4.0，允许非商业使用和修改，要求署名并按相同协议分享。复用内容和对应改编遵守 [CC BY-NC-SA 4.0 完整条款](https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode.zh-hans)，不改其他独立文件原有许可。当前用途是用户确认的个人非商业自用；商业用途需另获作者书面许可，不能把这个适配后的引擎当成纯 MIT 构建发布
 
-CLIProxyAPI 源码来自 `https://github.com/VVV-345/CLIProxyAPI`，固定提交 `b3c954b63df09156ac2ac52ad038b3dc3a20748f`。其原有 MIT 许可保存在 `CLIProxyAPI.LICENSE`，应随源码及二进制分发保留
+CLIProxyAPI 源码来自 `https://github.com/VVV-345/CLIProxyAPI`。本预览分支的 `sources.json` 指向 Phase1 工作提交 `aa122d37a8eba20624b07cc819cf57a2d60df679`，仅供预览构建。正式生产钉点仍是 `CLIProxyAPI分支` 上的 `b3c954b63df09156ac2ac52ad038b3dc3a20748f`，已发布镜像标签不因这次预览改动而更换。其原有 MIT 许可保存在 `CLIProxyAPI.LICENSE`，应随源码及二进制分发保留

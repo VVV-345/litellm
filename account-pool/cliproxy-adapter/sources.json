@@ -2,7 +2,7 @@
   "schema_version": 1,
   "cliproxyapi": {
     "repository": "https://github.com/VVV-345/CLIProxyAPI.git",
-    "commit": "b3c954b63df09156ac2ac52ad038b3dc3a20748f"
+    "commit": "aa122d37a8eba20624b07cc819cf57a2d60df679"
   },
   "cockpit": {
     "repository": "https://github.com/jlcodes99/cockpit-tools.git",
@@ -13,8 +13,10 @@
   },
   "official_upstream_observed_head": "ceb045a129d43f805e93a5e4aef3a59b108f34f7",
   "observed_date": "2026-10-23",
+  "preview_only": true,
+  "preview_note": "仅预览。cliproxyapi.commit 指向 Phase1 工作提交 aa122d37a8eba20624b07cc819cf57a2d60df679，不是正式生产钉点。CLIProxyAPI分支仍使用 b3c954b63df09156ac2ac52ad038b3dc3a20748f。不要把本分支算出的 managed 标签写成生产默认镜像。",
   "patch": {
     "file": "settings-adaptation.patch",
-    "sha256": "b7af6bff82c2e11b03ebeb4c0a1363711b02d0c99b65623e22193ce0ec647b52"
+    "sha256": "b54f04c7b538d51177b5b5720d65e03a97521cbaa9693066558504a31613b3d7"
   }
 }
