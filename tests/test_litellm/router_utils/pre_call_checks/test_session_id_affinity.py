@@ -7,6 +7,7 @@ import pytest
 import litellm
 from litellm.caching.dual_cache import DualCache
 from litellm.constants import SESSION_DEPLOYMENT_AFFINITY_TTL_METADATA_KEY
+from litellm.responses.utils import ResponsesAPIRequestUtils
 from litellm.router_utils.pre_call_checks.deployment_affinity_check import (
     DeploymentAffinityCheck,
 )
@@ -958,3 +959,49 @@ async def test_repin_read_falls_back_locally_when_redis_raises():
         request_kwargs={"metadata": {"user_api_key_hash": "user", "session_id": "s1"}},
     )
     assert [item["model_info"]["id"] for item in filtered] == ["dep-old"]
+
+
+@pytest.mark.asyncio
+async def test_session_affinity_yields_when_pinned_deployment_already_failed_this_request():
+    cache = DualCache()
+    callback = DeploymentAffinityCheck(cache, 60, False, True, True)
+    healthy = [
+        {"model_name": "group", "litellm_params": {"model": "gpt-4o"}, "model_info": {"id": "A"}},
+        {"model_name": "group", "litellm_params": {"model": "gpt-4o"}, "model_info": {"id": "B"}},
+    ]
+    key = DeploymentAffinityCheck.get_session_affinity_cache_key("group", "sess-1", None)
+    cache.in_memory_cache.set_cache(key, {"model_id": "A"}, ttl=60)
+
+    filtered = await callback.async_filter_deployments(
+        model="group",
+        healthy_deployments=healthy,
+        messages=[],
+        request_kwargs={"metadata": {"session_id": "sess-1"}, "_excluded_deployment_ids": ["A"]},
+    )
+
+    assert [item["model_info"]["id"] for item in filtered] == ["A", "B"]
+    assert cache.in_memory_cache.get_cache(key) == {"model_id": "A"}
+
+
+@pytest.mark.asyncio
+async def test_previous_response_id_pin_holds_after_its_deployment_failed_this_request():
+    callback = DeploymentAffinityCheck(DualCache(), 60, True, True, True)
+    healthy = [
+        {"model_name": "gpt-4o", "litellm_params": {"model": "gpt-4o"}, "model_info": {"id": "A"}},
+        {"model_name": "gpt-4o", "litellm_params": {"model": "gpt-4o"}, "model_info": {"id": "B"}},
+    ]
+
+    filtered = await callback.async_filter_deployments(
+        model="gpt-4o",
+        healthy_deployments=healthy,
+        messages=None,
+        request_kwargs={
+            "previous_response_id": ResponsesAPIRequestUtils._build_responses_api_response_id(
+                "openai", "A", "resp_upstream"
+            ),
+            "_excluded_deployment_ids": ["A"],
+            "metadata": {"user_api_key_hash": "hashed-key"},
+        },
+    )
+
+    assert filtered == [healthy[0]]

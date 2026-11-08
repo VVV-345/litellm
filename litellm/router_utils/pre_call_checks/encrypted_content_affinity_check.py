@@ -57,6 +57,7 @@ from litellm.litellm_core_utils.prompt_templates.common_utils import (
     strip_encrypted_reasoning_from_messages,
 )
 from litellm.responses.utils import ResponsesAPIRequestUtils
+from litellm.router_utils.common_utils import as_excluded_deployment_ids
 from litellm.router_utils.cooldown_cache import CooldownCacheValue
 from litellm.types.llms.openai import AllMessageValues
 from litellm.types.router import Deployment
@@ -256,6 +257,14 @@ class EncryptedContentAffinityCheck(CustomLogger):
         strip_encrypted_reasoning_from_messages(anthropic_messages, should_strip=should_strip_anthropic_block)
 
     @staticmethod
+    def _deployment_model_id(deployment: Mapping[str, object]) -> str | None:
+        model_info: Final = deployment.get("model_info")
+        if not isinstance(model_info, Mapping):
+            return None
+        deployment_id: Final = cast(Mapping[str, object], model_info).get("id")  # cast-ok: model_info is a mapping
+        return None if deployment_id is None else str(deployment_id)
+
+    @staticmethod
     def _find_deployment_by_model_id(
         healthy_deployments: list[dict[str, object]], model_id: str
     ) -> dict[str, object] | None:
@@ -383,8 +392,20 @@ class EncryptedContentAffinityCheck(CustomLogger):
             model_id,
         )
 
+        previous_response_id: Final = typed_kwargs.get("previous_response_id")
+        previous_response_origin: Final = ResponsesAPIRequestUtils.get_model_id_from_response_id(
+            None if previous_response_id is None else str(previous_response_id)
+        )
+        excluded_ids: Final = (
+            frozenset()
+            if previous_response_origin == model_id
+            else frozenset(as_excluded_deployment_ids(typed_kwargs.get("_excluded_deployment_ids")))
+        )
+        untried_candidates: Final = [
+            candidate for candidate in candidates if self._deployment_model_id(candidate) not in excluded_ids
+        ]
         deployment: Final = self._find_deployment_by_model_id(
-            healthy_deployments=candidates,
+            healthy_deployments=untried_candidates,
             model_id=model_id,
         )
         if deployment is not None:
@@ -400,7 +421,7 @@ class EncryptedContentAffinityCheck(CustomLogger):
 
         # Follow-up switched model_name (LIT-2531): pin by Azure resource instead.
         boundary_matches, _originating = self._find_deployments_on_same_encryption_boundary(
-            healthy_deployments=candidates,
+            healthy_deployments=untried_candidates,
             model_id=model_id,
         )
         if boundary_matches:
