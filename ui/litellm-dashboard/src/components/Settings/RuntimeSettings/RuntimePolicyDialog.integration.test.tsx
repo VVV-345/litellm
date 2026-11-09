@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -98,6 +98,35 @@ const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
   );
 
 describe("RuntimePolicyDialog", () => {
+  it("jumps to policy sections, keeps drafts and validates the whole card before saving", async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    const navigation = within(await screen.findByRole("navigation", { name: "配置分区" }));
+    const quota = navigation.getByRole("button", { name: "额度与模型" });
+    await user.click(quota);
+    expect(screen.getByRole("heading", { name: "额度与模型" })).toHaveFocus();
+    const reserve = screen.getByRole("spinbutton", { name: "5 小时额度保留比例 (%)" });
+    fireEvent.change(reserve, { target: { value: "101" } });
+
+    await user.click(navigation.getByRole("button", { name: "传输策略" }));
+    expect(screen.getByRole("heading", { name: "传输策略" })).toHaveFocus();
+    fireEvent.change(screen.getByRole("spinbutton", { name: /读取空闲超时/ }), { target: { value: "60" } });
+    const save = screen.getByRole("button", { name: "保存配置" });
+    await user.click(save);
+    expect(savePolicy).not.toHaveBeenCalled();
+
+    await user.click(quota);
+    expect(reserve).toHaveValue(101);
+    fireEvent.change(reserve, { target: { value: "19" } });
+    await user.click(save);
+    await waitFor(() => expect(savePolicy).toHaveBeenCalledOnce());
+    expect(savePolicy).toHaveBeenCalledWith("token", environment.id, 3, expect.objectContaining({
+      routing: expect.objectContaining({ quota_reserve_5h_percent: 19 }),
+      transport: expect.objectContaining({ read_timeout_seconds: 60 }),
+    }));
+  });
+
   it("adopts a refreshed policy when there are no unsaved changes", async () => {
     const pending = Promise.withResolvers<PolicyView>();
     getPolicy.mockReturnValue(pending.promise);

@@ -1,6 +1,6 @@
 /** 编辑单张号池卡片的路由、传输和供应商策略。 */
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { confirmDiscardChanges, useUnsavedChanges } from "@/lib/useUnsavedChanges";
 import { useTranslation } from "react-i18next";
@@ -135,6 +135,13 @@ const defaults: FormPolicy = {
 };
 
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const POLICY_SECTION_LABELS = {
+  overview: "accountPool.policy.sectionOverview",
+  routing: "accountPool.policy.sectionRouting",
+  quotaModels: "accountPool.policy.sectionQuotaModels",
+  transport: "accountPool.policy.transport",
+  provider: "accountPool.policy.provider",
+} as const;
 
 const FieldCard = ({ children, className = "" }: { children: ReactNode; className?: string }) => (
   <div className={`min-w-0 rounded-lg border border-border bg-background p-4 ${className}`}>{children}</div>
@@ -185,17 +192,18 @@ export function RuntimePolicyDialog({
       <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl">
         <DialogHeader className="shrink-0 border-b border-border px-6 pt-5 pb-3 pr-12">
           <DialogTitle>{t("accountPool.policy.title", { name: environment.name })}</DialogTitle>
-          <DialogDescription>{t("accountPool.policy.description")}</DialogDescription>
-          <div className="flex flex-col items-start justify-between gap-3 rounded-lg border bg-muted/30 p-3 text-sm sm:flex-row sm:items-center">
-            <p className="min-w-0 flex-1 leading-6 text-muted-foreground">
-              {t("accountPool.policy.cardScopedDescription")}
-            </p>
-            <Button type="button" variant="outline" size="sm" onClick={() => { if (confirmDiscardChanges()) onOpenRuntimeConfig(); }}>
-              {t("accountPool.policy.openRuntimeConfig")}
-            </Button>
-          </div>
+          <DialogDescription>{t("accountPool.policy.cardScopedDescription")}</DialogDescription>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-fit"
+            onClick={() => { if (confirmDiscardChanges()) onOpenRuntimeConfig(); }}
+          >
+            {t("accountPool.policy.openRuntimeConfig")}
+          </Button>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto overscroll-contain px-6">
+        <div className="min-h-0 overflow-y-auto overscroll-contain px-6 scroll-pt-24 scroll-pb-20 max-[360px]:scroll-pt-36 sm:scroll-pt-16">
           {query.isPending && <p className="py-6">{t("accountPool.management.loading")}</p>}
           {query.isError && (
             <div className="grid gap-3 py-6" role="alert">
@@ -232,6 +240,7 @@ function PolicyForm({
   save: (policy: AccountPolicy, version: number) => Promise<PolicyView>;
 }) {
   const { t } = useTranslation();
+  const sectionId = useId();
   const source = value.policy ?? defaults;
   const sourceRouting = { ...defaults.routing, ...source.routing };
   const initial: FormPolicy = {
@@ -502,8 +511,35 @@ function PolicyForm({
       setBusy(false);
     }
   };
+  const jumpToSection = (section: string) => {
+    const heading = document.getElementById(`${sectionId}-${section}`);
+    heading?.scrollIntoView?.({ block: "start" });
+    heading?.focus({ preventScroll: true });
+  };
+  const sectionHeading = (section: keyof typeof POLICY_SECTION_LABELS) => (
+    <h3 id={`${sectionId}-${section}`} tabIndex={-1} className="font-medium">
+      {t(POLICY_SECTION_LABELS[section])}
+    </h3>
+  );
   return (
-    <form className="grid gap-6 pt-5" onSubmit={handleSubmit}>
+    <form className="grid gap-4" onSubmit={handleSubmit}>
+      <nav
+        aria-label={t("accountPool.policy.sectionNavigation")}
+        className="sticky top-0 z-sticky -mx-6 flex flex-wrap gap-1.5 border-b border-border bg-popover px-6 py-2"
+      >
+        {Object.entries(POLICY_SECTION_LABELS).map(([section, label]) => (
+          <Button
+            key={section}
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => jumpToSection(section)}
+          >
+            {t(label)}
+          </Button>
+        ))}
+      </nav>
+      {sectionHeading("overview")}
       <div className="grid gap-3 sm:grid-cols-2">
         {multiField(tagsField)}
         <FieldCard>
@@ -576,13 +612,16 @@ function PolicyForm({
         </dl>
       </section>
       <section className="grid gap-3">
-        <h3 className="font-medium">{t("accountPool.policy.routing")}</h3>
+        {sectionHeading("routing")}
         <RuntimePolicyRoutingSection
           routing={policy.routing}
           accounts={options.accounts}
           busy={busy}
           onChange={updateRouting}
         />
+      </section>
+      <section className="grid gap-3 border-t border-border pt-4">
+        {sectionHeading("quotaModels")}
         <div className="grid gap-3 sm:grid-cols-2">
           {numberField(
             t("accountPool.policy.quota_reserve_percent"),
@@ -627,8 +666,8 @@ function PolicyForm({
           {textField(t("accountPool.policy.model_aliases"), description("model_aliases"), aliases, setAliases)}
         </div>
       </section>
-      <section className="grid gap-3">
-        <h3 className="font-medium">{t("accountPool.policy.transport")}</h3>
+      <section className="grid gap-3 border-t border-border pt-4">
+        {sectionHeading("transport")}
         <div className="grid gap-3 sm:grid-cols-2">
           {toggleField(
             t("accountPool.policy.inheritProtocols"), t("accountPool.policy.inheritProtocolsDescription"),
@@ -682,9 +721,9 @@ function PolicyForm({
           )}
         </div>
       </section>
-      <section className="grid gap-3">
+      <section className="grid gap-3 border-t border-border pt-4">
         <div className="space-y-1">
-          <h3 className="font-medium">{t("accountPool.policy.provider")}</h3>
+          {sectionHeading("provider")}
           <p className="text-sm leading-6 text-muted-foreground">{t("accountPool.policy.providerDescription")}</p>
         </div>
         <div className="grid gap-3 lg:grid-cols-2">
