@@ -107,3 +107,69 @@ it("clears the unsaved warning after a successful configuration save", async () 
   unmount();
   client.clear();
 });
+
+it("discovers Codex models without saving or changing the draft, then enables all only on save", async () => {
+  const card = {
+    ...environment,
+    channel: "cliproxyapi",
+    supplier: "openai_codex",
+    authorization_flow: "browser_oauth",
+    proxy_mode: "default_gateway",
+    proxy_profile_id: null,
+    available_models: ["model-a", "model-removed"],
+    enabled_models: ["model-a"],
+    configured_models: ["model-a"],
+  } satisfies AccountPoolEnvironment;
+  const saveRequests: string[][] = [];
+  const catalogs = [
+    Response.json(["model-a", "model-b", "model-removed"]),
+    Response.json(["model-a", "model-b", "model-new"]),
+    Response.json({ detail: "unavailable" }, { status: 503 }),
+  ];
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    if (String(input).endsWith("/model-catalog")) return catalogs.shift()!;
+    if (init?.method === "PUT") {
+      const body = JSON.parse(String(init.body));
+      saveRequests.push(body.enabled_models);
+      return Response.json({ ...card, ...body });
+    }
+    return Response.json([]);
+  });
+  vi.stubGlobal("fetch", fetch);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const { unmount } = render(
+    <QueryClientProvider client={client}>
+      <RuntimeConfigDialog
+        accessToken="token"
+        environment={card}
+        open
+        onOpenChange={vi.fn()}
+        onRefresh={vi.fn()}
+        onSaved={vi.fn()}
+      />
+    </QueryClientProvider>,
+  );
+  const restored = await screen.findByRole("checkbox", { name: "model-b" });
+  expect(restored).not.toBeChecked();
+  fireEvent.click(restored);
+  expect(restored).toBeChecked();
+  fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsaved name" } });
+  fireEvent.click(screen.getByRole("button", { name: "重新发现模型" }));
+  expect(await screen.findByRole("checkbox", { name: "model-new" })).not.toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "model-a" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "model-b" })).toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: "model-removed" })).not.toBeInTheDocument();
+  expect(screen.getByText(/新增：model-new.*移除：model-removed/)).toBeInTheDocument();
+  expect(screen.getByRole("textbox")).toHaveValue("unsaved name");
+  fireEvent.click(screen.getByRole("button", { name: "重新发现模型" }));
+  await screen.findByText(/未能发现模型/);
+  expect(screen.getByRole("checkbox", { name: "model-new" })).not.toBeChecked();
+  expect(saveRequests).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "启用全部" }));
+  expect(screen.getByRole("checkbox", { name: "model-b" })).toBeChecked();
+  expect(saveRequests).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
+  await waitFor(() => expect(saveRequests).toEqual([["model-a", "model-b", "model-new"]]));
+  unmount();
+  client.clear();
+});

@@ -51,7 +51,8 @@ export const validateAccountPoolUpdate = (
   if (!Number.isInteger(form.concurrency_limit) || form.concurrency_limit < 0 || form.concurrency_limit > 1000) {
     return t("accountPool.validation.concurrencyRange");
   }
-  const unsupportedModel = form.enabled_models.find((model) => !environment.available_models.includes(model));
+  const knownModels = new Set([...environment.available_models, ...(environment.configured_models ?? [])]);
+  const unsupportedModel = form.enabled_models.find((model) => !knownModels.has(model));
   if (unsupportedModel) return t("accountPool.validation.modelUnavailable", { model: unsupportedModel });
   return validateProxyProfileSelection(t, form.proxy_mode, form.proxy_profile_id, profiles);
 };

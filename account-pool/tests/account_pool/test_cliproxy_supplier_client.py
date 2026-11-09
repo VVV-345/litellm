@@ -24,6 +24,7 @@ from account_pool.domain import (
     QuotaSnapshot,
     QuotaWindow,
     SupplierKind,
+    configuration_from_record,
     utc_now,
 )
 from account_pool.policies import AccountPolicy, AntigravityPolicy, ClaudePolicy, CodexPolicy, KimiPolicy, XaiPolicy
@@ -61,6 +62,75 @@ def _record() -> EnvironmentRecord:
         created_at=now,
         updated_at=now,
     )
+
+
+@pytest.mark.asyncio
+async def test_codex_models_stay_configurable_after_exclusion() -> None:
+    record = _record().model_copy(update={
+        "auth_file_name": "card.json", "auth_index": "card-index",
+        "available_models": ("model-a", "model-b"),
+    })
+    supplier = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    excluded: set[str] = set()
+    written: list[dict[str, list[str]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200, json={"files": [{"name": "card.json", "provider": "codex"}]})
+        if request.url.path.endswith("/auth-files/models"):
+            return httpx.Response(200, json={
+                "models": [{"id": model} for model in ("model-a", "model-b") if model not in excluded],
+            })
+        if request.url.path.endswith("/oauth-excluded-models"):
+            if request.method == "GET":
+                return httpx.Response(200, json={"oauth-excluded-models": {"codex": sorted(excluded), "kimi": ["keep"]}})
+            excluded.clear()
+            body = json.loads(request.content)
+            excluded.update(body["codex"])
+            written.append(body)
+            return httpx.Response(200)
+        pytest.fail(f"unexpected request: {request.method} {request.url.path}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        proxy = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http)
+        await proxy.set_enabled_models(record, supplier, ("model-a",))
+        observed = await proxy.read_account(record, supplier)
+        assert observed.available_models == ("model-a", "model-b")
+        assert observed.enabled_models == ("model-a",)
+        assert excluded == {"model-b"}
+        assert written[-1]["kimi"] == ["keep"]
+        await proxy.set_enabled_models(observed, supplier, ("model-a", "model-b"), oauth_excluded_models=("global-*",))
+        assert excluded == {"global-*"}
+
+
+@pytest.mark.asyncio
+async def test_codex_all_disabled_does_not_default_back_to_enabled() -> None:
+    record = _record().model_copy(update={
+        "auth_file_name": "card.json", "available_models": (), "enabled_models": (), "model_selection": (),
+    })
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
+        200, json={"files": [{"name": "card.json", "provider": "codex"}]}
+        if request.url.path.endswith("/auth-files") else {"models": [{"id": "model-new"}]},
+    ))) as http:
+        proxy = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http)
+        observed = await proxy.read_account(record)
+    assert observed.available_models == ("model-new",)
+    assert observed.enabled_models == ()
+
+
+@pytest.mark.asyncio
+async def test_first_codex_authorization_keeps_default_models_after_pre_authorization_settings() -> None:
+    record = _record().model_copy(update={
+        "status": EnvironmentStatus.VALIDATING, "available_models": (), "enabled_models": (),
+    })
+    record = record.model_copy(update={"desired_configuration": configuration_from_record(record)})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(
+        200, json={"files": [{"name": "card.json", "provider": "codex"}]}
+        if request.url.path.endswith("/auth-files") else {"models": [{"id": "model-a"}]},
+    ))) as http:
+        proxy = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http)
+        observed = await proxy.read_account(record)
+    assert observed.available_models == observed.enabled_models == ("model-a",)
 
 
 @pytest.mark.asyncio
@@ -1239,6 +1309,8 @@ async def test_apply_configuration_syncs_card_proxy_into_auth_file() -> None:
 
     async def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, json={"oauth-excluded-models": {}}, request=request)
         return httpx.Response(204, request=request)
 
     client: Final = httpx.AsyncClient(transport=httpx.MockTransport(handler))

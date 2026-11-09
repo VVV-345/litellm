@@ -58,6 +58,8 @@ from account_pool.domain import (
     ProviderHTTPMethod,
     QuotaSnapshot,
     SupplierKind,
+    configured_models,
+    uses_codex_model_catalog,
 )
 from account_pool.policies import ManagedIdentityUnavailableError, PolicyRuntimeRejected
 from account_pool.providers.usage.contracts import ProviderQuotaError, ProviderQuotaRefresh, QuotaObservation
@@ -69,6 +71,8 @@ _QuotaObservation = QuotaObservation
 
 _AUTH_FILES_ADAPTER: Final = TypeAdapter(_AuthFilesResponse)
 _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
+_MODEL_IDS_ADAPTER: Final = TypeAdapter(tuple[str, ...])
+_OAUTH_EXCLUSIONS_ADAPTER: Final = TypeAdapter(dict[str, list[str]])
 _DEFAULT_SUPPLIERS: Final = SupplierRegistry.default()
 
 
@@ -241,10 +245,28 @@ class HttpCLIProxyClient:
         )
         models: Final = _ModelsResponse.model_validate(model_response.json())
         observed_models: Final = tuple(dict.fromkeys(model.id for model in (*models.models, *models.data)))
-        # 禁用的凭据会从 CPA 注册表移除，空响应不能抹掉用户原有的模型配置。
-        available_models: Final = observed_models or (record.available_models if auth_file.disabled else ())
+        # 注册表只返回当前生效的模型；普通轮询不能把禁用项从配置目录移除。
+        codex_catalog: Final = uses_codex_model_catalog(record) and selected_supplier.kind is SupplierKind.OPENAI_CODEX
+        available_models: Final = (
+            tuple(dict.fromkeys((*record.available_models, *observed_models)))
+            if codex_catalog
+            else observed_models or (record.available_models if auth_file.disabled else ())
+        )
+        registered: Final = frozenset(observed_models or (record.enabled_models if auth_file.disabled else ()))
+        # 新卡可能已在授权前保存了代理等设置，此时空的模型选择不是一次「全部禁用」。
+        first_catalog: Final = not record.available_models and record.model_selection is None and (
+            record.desired_configuration is None or (
+                record.status in (EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.VALIDATING)
+                and not record.desired_configuration.enabled_models
+            )
+        )
+        selection: Final = (
+            observed_models if first_catalog else configured_models(record)
+        )
         enabled_models: Final = (
-            available_models
+            tuple(model for model in selection if model in registered)
+            if codex_catalog
+            else available_models
             if not record.available_models
             else tuple(model for model in record.enabled_models if model in available_models)
         )
@@ -377,6 +399,7 @@ class HttpCLIProxyClient:
                 "auth_file_disabled": auth_file.disabled,
                 "available_models": available_models,
                 "enabled_models": enabled_models,
+                **({"model_selection": selection} if codex_catalog and record.desired_configuration is None else {}),
                 "quota": quota,
                 "model_quotas": model_quotas,
                 "model_cooldowns": tuple(
@@ -597,11 +620,22 @@ class HttpCLIProxyClient:
         models: Final = _ModelsResponse.model_validate(response.json())
         return tuple(dict.fromkeys(model.id for model in (*models.models, *models.data)))
 
+    async def discover_model_catalog(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:
+        response: Final = await self._request(
+            record, "GET", "/v0/management/auth-files/model-catalog",
+            params={"name": filename, "auth_index": record.auth_index or ""},
+        )
+        models: Final = tuple(dict.fromkeys(_MODEL_IDS_ADAPTER.validate_python(response.json())))
+        if not models or any(not model.strip() for model in models):
+            raise ValueError("Codex model catalog is unavailable")
+        return models
+
     async def set_proxy_url(self, record: EnvironmentRecord, proxy_url: str) -> None:
         await self._request(record, "PUT", "/v0/management/proxy-url", json={"value": proxy_url})
 
     async def set_enabled_models(
-        self, record: EnvironmentRecord, supplier: SupplierDefinition, enabled_models: Sequence[str]
+        self, record: EnvironmentRecord, supplier: SupplierDefinition, enabled_models: Sequence[str],
+        *, oauth_excluded_models: Sequence[str] = (),
     ) -> None:
         excluded: Final = tuple(model for model in record.available_models if model not in frozenset(enabled_models))
         if (
@@ -620,6 +654,17 @@ class HttpCLIProxyClient:
                     path,
                     json={"index": 0, "value": {"excluded-models": list(excluded)}},
                 )
+            return
+        if uses_codex_model_catalog(record) and supplier.kind is SupplierKind.OPENAI_CODEX and record.auth_file_name:
+            path = "/v0/management/oauth-excluded-models"
+            current = _JSON_OBJECT_ADAPTER.validate_python((await self._request(record, "GET", path)).json())
+            exclusions = _OAUTH_EXCLUSIONS_ADAPTER.validate_python(current.get("oauth-excluded-models") or {})
+            known = frozenset(record.available_models)
+            # 保留目录外的旧排除项（含通配符），也不能用单卡勾选覆盖全局排除。
+            retained = tuple(model for model in exclusions.get(supplier.excluded_models_key, ()) if model not in known)
+            exclusions[supplier.excluded_models_key] = list(dict.fromkeys((*retained, *oauth_excluded_models, *excluded)))
+            payload: dict[str, JSONValue] = {key: [*items] for key, items in exclusions.items()}
+            await self._request(record, "PUT", path, json=payload)
             return
         await self._request(
             record,
@@ -776,7 +821,10 @@ class HttpCLIProxyClient:
             await self.patch_auth_file_fields(
                 record, record.auth_file_name, {"proxy_url": selected_configuration.proxy_url or ""}
             )
-        await self.set_enabled_models(record, selected_supplier, selected_configuration.enabled_models)
+        await self.set_enabled_models(
+            record, selected_supplier, selected_configuration.enabled_models,
+            oauth_excluded_models=selected_configuration.oauth_excluded_models,
+        )
         await self.set_credential_enabled(record, selected_configuration.credential_enabled)
 
     async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final, Literal
 from uuid import UUID, uuid4
@@ -33,7 +34,9 @@ from account_pool.domain import (
     SettingsProfileBaselines,
     UpdateEnvironmentRequest,
     configuration_from_record,
+    configured_models,
     to_view,
+    uses_codex_model_catalog,
     utc_now,
 )
 from account_pool.ports import (
@@ -42,10 +45,12 @@ from account_pool.ports import (
 )
 from account_pool.shared.error_safety import safe_error as _safe_error
 from account_pool.shared.result import Failure, FailureCode, Result, Success
+from account_pool.settings import AccountPoolSettings, settings_for_card
 
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentConfigurationOperations:
+    _account_pool_settings: Callable[[], Awaitable[AccountPoolSettings]]
     _channel: ChannelOperation
     _lock_for: LockForOperation
     _log_event: LogEventOperation
@@ -94,7 +99,9 @@ class EnvironmentConfigurationOperations:
                 or record.desired_configuration_version > record.observed_configuration_version
             ):
                 return Failure(FailureCode.CONFLICT, "environment configuration is still being applied")
-            unknown_models: Final = frozenset(request.enabled_models).difference(record.available_models)
+            codex_catalog: Final = uses_codex_model_catalog(record) and record.auth_file_name is not None
+            known_models: Final = frozenset(record.available_models).union(configured_models(record) if codex_catalog else ())
+            unknown_models: Final = frozenset(request.enabled_models).difference(known_models)
             if unknown_models:
                 return Failure(FailureCode.INVALID, "enabled_models contains unsupported models")
             profile_result: Final = await self.resolve_proxy(request)
@@ -144,7 +151,13 @@ class EnvironmentConfigurationOperations:
                     "manual_cooldown": request.manual_cooldown,
                     "proxy_mode": request.proxy_mode,
                     "proxy_profile_id": request.proxy_profile_id,
-                    "enabled_models": request.enabled_models,
+                    # 新勾选项先进入期望配置，等 CPA 注册表观测到后才进入路由名单。
+                    "enabled_models": (
+                        tuple(model for model in request.enabled_models if model in record.enabled_models)
+                        if codex_catalog
+                        else request.enabled_models
+                    ),
+                    **({"model_selection": request.enabled_models} if codex_catalog else {}),
                     "auth_file_disabled": (
                         not credential_enabled
                         if record.channel is ChannelKind.CLIPROXYAPI and record.auth_file_name is not None
@@ -220,7 +233,14 @@ class EnvironmentConfigurationOperations:
     ) -> Result[EnvironmentView]:
         try:
             channel: Final = self._channel(record)
-            await channel.apply_configuration(record, desired)
+            applied: Final = (
+                desired.model_copy(update={
+                    "oauth_excluded_models": settings_for_card(await self._account_pool_settings(), record.id).oauth_excluded_models,
+                })
+                if uses_codex_model_catalog(record) and record.auth_file_name
+                else desired
+            )
+            await channel.apply_configuration(record, applied)
         except Exception as error:
             # 失败持久化后的版本已变化，必须以该版本完成 ERROR + pending 检查点写入。
             failed: Final = record.model_copy(

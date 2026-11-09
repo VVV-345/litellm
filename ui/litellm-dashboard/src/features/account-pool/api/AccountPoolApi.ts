@@ -58,6 +58,9 @@ export const listAccountPoolProviderFamilies = (accessToken: string): Promise<Ac
 export const listAccountPoolEnvironments = (accessToken: string): Promise<AccountPoolEnvironment[]> =>
   apiClient.get<AccountPoolEnvironment[]>("/account_pool/environments", { accessToken });
 
+export const discoverAccountPoolModelCatalog = (accessToken: string, environmentId: string): Promise<string[]> =>
+  apiClient.post<string[]>(`/account_pool/environments/${encodeURIComponent(environmentId)}/model-catalog`, { accessToken });
+
 export const submitAccountPoolOAuthCallback = (
   accessToken: string,
   environmentId: string,

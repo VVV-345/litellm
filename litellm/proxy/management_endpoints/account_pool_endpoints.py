@@ -327,6 +327,7 @@ class AccountPoolEnvironment(BaseModel):
     proxy_profile_id: str | None
     available_models: tuple[str, ...]
     enabled_models: tuple[str, ...]
+    configured_models: tuple[str, ...] | None = None
     quota: AccountPoolQuotaSnapshot
     model_quotas: tuple[AccountPoolModelQuotaSnapshot, ...] = ()
     model_cooldowns: tuple[AccountPoolModelCooldown, ...] = ()
@@ -1018,6 +1019,17 @@ def create_account_pool_router(
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(
             client_factory, "GET", f"/api/environments/{environment_id}/auth-file/models"
+        )
+        return _validate_response(response, TypeAdapter(tuple[str, ...]))
+
+    @router.post("/environments/{environment_id}/model-catalog", response_model=tuple[str, ...])
+    async def discover_model_catalog(
+        environment_id: UUID,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[str, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "POST", f"/api/environments/{environment_id}/model-catalog"
         )
         return _validate_response(response, TypeAdapter(tuple[str, ...]))
 

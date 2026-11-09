@@ -706,6 +706,10 @@ def create_router(
     async def get_auth_file_models(environment_id: UUID) -> tuple[str, ...]:
         return _unwrap(await service.get_auth_file_models(environment_id))
 
+    @router.post("/api/environments/{environment_id}/model-catalog", dependencies=[Depends(require_manager)])
+    async def discover_model_catalog(environment_id: UUID) -> tuple[str, ...]:
+        return _unwrap(await service.discover_model_catalog(environment_id))
+
     @router.post("/api/environments/{environment_id}/credentials", dependencies=[Depends(require_manager)])
     async def add_credential(
         environment_id: UUID,

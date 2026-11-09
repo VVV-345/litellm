@@ -967,6 +967,35 @@ async def test_environment_listing_includes_card_spend(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_discover_model_catalog_does_not_change_configuration_or_routing(tmp_path: Path) -> None:
+    class CatalogCLI(FakeCLIProxy):
+        async def discover_model_catalog(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:
+            assert record.auth_file_name == filename == "codex.json"
+            return ("gpt-5", "model-recovered")
+
+    record = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"available_models": ("gpt-5", "model-removed")}
+    )
+    cli = CatalogCLI()
+    service = _service(record, cli, tmp_path)
+    result = await service.discover_model_catalog(record.id)
+    assert result == Success(("gpt-5", "model-recovered"))
+    durable = await service._repository.get(record.id)
+    assert durable == record.model_copy(update={"available_models": result.value})
+    assert not cli.configuration_calls and not cli.refresh_quota_calls
+
+    changed = await service.update_environment(record.id, UpdateEnvironmentRequest(
+        version=record.version, name=record.name, concurrency_limit=record.concurrency_limit,
+        enabled=True, manual_cooldown=False, proxy_mode=record.proxy_mode,
+        enabled_models=("gpt-5", "model-recovered"),
+    ))
+    assert isinstance(changed, Success)
+    assert changed.value.configured_models == ("gpt-5", "model-recovered")
+    assert changed.value.enabled_models == ("gpt-5",)
+    assert cli.model_calls == [("gpt-5", "model-recovered")]
+
+
+@pytest.mark.asyncio
 async def test_explicit_refresh_requests_live_quota_but_environment_listing_does_not(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     cli: Final = FakeCLIProxy()

@@ -166,6 +166,9 @@ class CLIProxyAPIChannel:
     async def get_auth_file_models(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:
         return await self._client.get_auth_file_models(record, filename)
 
+    async def discover_model_catalog(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:
+        return await self._client.discover_model_catalog(record, filename)
+
     async def list_plugins(self, record: EnvironmentRecord) -> Mapping[str, object]:
         return await self._client.list_plugins(record)
 

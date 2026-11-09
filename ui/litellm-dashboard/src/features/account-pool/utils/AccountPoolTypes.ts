@@ -85,6 +85,6 @@ export const toUpdateRequest = (
   manual_cooldown: environment.manual_cooldown,
   proxy_mode: environment.proxy_mode,
   proxy_profile_id: environment.proxy_profile_id,
-  enabled_models: environment.enabled_models,
+  enabled_models: environment.configured_models ?? environment.enabled_models,
   ...changes,
 });

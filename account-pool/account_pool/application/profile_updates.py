@@ -14,6 +14,7 @@ from account_pool.domain import (
     ProxyMode,
     SettingsProfileBaselines,
     UpdateEnvironmentRequest,
+    configured_models,
 )
 from account_pool.settings import AccountPoolSettings
 
@@ -109,7 +110,7 @@ def explicit_profile_update(
             manual_cooldown=record.manual_cooldown,
             proxy_mode=proxy_mode,
             proxy_profile_id=proxy_profile_id,
-            enabled_models=record.enabled_models,
+            enabled_models=configured_models(record),
         ),
         baselines=next_baselines,
     )

@@ -190,10 +190,61 @@ index 066b6bd..fff3a43 100644
 +	}
 +}
 diff --git a/internal/api/handlers/management/auth_files.go b/internal/api/handlers/management/auth_files.go
-index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..1f4e03cf67c615e64acad917a878b00d1b6647dc 100644
+index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..f43375810f289dbc2b5b167d3493b0946899cdb4 100644
 --- a/internal/api/handlers/management/auth_files.go
 +++ b/internal/api/handlers/management/auth_files.go
-@@ -341,11 +341,18 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
+@@ -4,6 +4,7 @@ import (
+ 	"encoding/json"
+ 	"errors"
+ 	"fmt"
++	"net/http"
+ 	"os"
+ 	"path/filepath"
+ 	"sort"
+@@ -213,6 +214,42 @@ func (h *Handler) GetAuthFileModels(c *gin.Context) {
+ 	c.JSON(200, gin.H{"models": result})
+ }
+ 
++// GetAuthFileModelCatalog returns a bound Codex OAuth credential's model options
++// without changing registration, exclusions, or the credential itself.
++func (h *Handler) GetAuthFileModelCatalog(c *gin.Context) {
++	auth, ok := h.lookupAuthFile(c.Query("name"), c.Query("auth_index"))
++	if !ok {
++		c.JSON(http.StatusNotFound, gin.H{"error": "auth file not found"})
++		return
++	}
++	if !strings.EqualFold(auth.Provider, "codex") || auth.AuthKind() == "apikey" {
++		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "requires a Codex OAuth credential"})
++		return
++	}
++	models := registry.GetCodexModelsForPlan(auth.Attributes["plan_type"])
++	if len(models) == 0 {
++		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": "Codex credential plan is unknown"})
++		return
++	}
++	ids := make([]string, 0, len(models))
++	seen := make(map[string]bool, len(models))
++	for _, model := range models {
++		if model != nil && !seen[model.ID] {
++			seen[model.ID] = true
++			ids = append(ids, model.ID)
++		}
++	}
++	// Keep custom registered aliases, but do not admit a built-in from a
++	// different tier while the live registry catches up after a plan change.
++	for _, model := range registry.GetGlobalRegistry().GetModelsForClient(auth.ID) {
++		if model != nil && !seen[model.ID] && registry.LookupStaticModelInfo(model.ID) == nil {
++			seen[model.ID] = true
++			ids = append(ids, model.ID)
++		}
++	}
++	c.JSON(http.StatusOK, ids)
++}
++
+ // List auth files from disk when the auth manager is unavailable.
+ func (h *Handler) listAuthFilesFromDisk(c *gin.Context) {
+ 	nameFilter := strings.TrimSpace(c.Query("name"))
+@@ -341,11 +378,18 @@ func (h *Handler) buildAuthFileEntryLocked(auth *coreauth.Auth) gin.H {
  		"source":         "memory",
  		"size":           int64(0),
  	}
@@ -674,7 +725,7 @@ index 0000000000000000000000000000000000000000..99dedc9d27decc3644b9199dc28f0bd6
 +	}
 +}
 diff --git a/internal/api/server_management.go b/internal/api/server_management.go
-index fef08895bc42519fcabe795052410c3d6ccd8854..6998b89e5e159ece855694e7f53e96960616a8d6 100644
+index fef08895bc42519fcabe795052410c3d6ccd8854..aec7138680c414ea117839c01779269c495398df 100644
 --- a/internal/api/server_management.go
 +++ b/internal/api/server_management.go
 @@ -27,6 +27,16 @@ func (s *Server) registerManagementRoutes() {
@@ -694,6 +745,14 @@ index fef08895bc42519fcabe795052410c3d6ccd8854..6998b89e5e159ece855694e7f53e9696
  		mgmt.GET("/config", s.mgmt.GetConfig)
  		mgmt.GET("/config.yaml", s.mgmt.GetConfigYAML)
  		mgmt.PUT("/config.yaml", s.mgmt.PutConfigYAML)
+@@ -165,6 +175,7 @@ func (s *Server) registerManagementRoutes() {
+ 
+ 		mgmt.GET("/auth-files", s.mgmt.ListAuthFiles)
+ 		mgmt.GET("/auth-files/models", s.mgmt.GetAuthFileModels)
++		mgmt.GET("/auth-files/model-catalog", s.mgmt.GetAuthFileModelCatalog)
+ 		mgmt.GET("/model-definitions/:channel", s.mgmt.GetStaticModelDefinitions)
+ 		mgmt.GET("/auth-files/download", s.mgmt.DownloadAuthFile)
+ 		mgmt.POST("/auth-files", s.mgmt.UploadAuthFile)
 diff --git a/internal/api/server_test.go b/internal/api/server_test.go
 index 8eb33721ff8f0c209353046c843f2c2220887463..f480637cf3a007e4dcc6c68d23e7e5419a85c6b2 100644
 --- a/internal/api/server_test.go
@@ -5385,3 +5444,133 @@ index 3bfcd3d16b3673acb78ac1cdd73550fd0ed25a62..68b0493eeaa37d4450e792350ff71bf4
  	copyAuth.Quota = a.Quota.Clone()
  	if len(a.Attributes) > 0 {
  		copyAuth.Attributes = make(map[string]string, len(a.Attributes))
+diff --git a/internal/api/handlers/management/auth_files_model_catalog_test.go b/internal/api/handlers/management/auth_files_model_catalog_test.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..de6eb961c8999311be5234e252c8aaa1bd60df86
+--- /dev/null
++++ b/internal/api/handlers/management/auth_files_model_catalog_test.go
+@@ -0,0 +1,69 @@
++package management
++
++import (
++	"context"
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"slices"
++	"testing"
++
++	"github.com/gin-gonic/gin"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/config"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
++	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
++)
++
++func TestCodexModelCatalogUsesBoundPlanWithoutUnregisteringExclusions(t *testing.T) {
++	manager := coreauth.NewManager(nil, nil, nil)
++	auth, err := manager.Register(context.Background(), &coreauth.Auth{
++		ID: "model-catalog-fixture.json", FileName: "model-catalog-fixture.json", Provider: "codex",
++		Attributes: map[string]string{"plan_type": "free", "excluded_models": "fixture-disabled"},
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	_, err = manager.Register(context.Background(), &coreauth.Auth{
++		ID: "unknown-plan.json", FileName: "unknown-plan.json", Provider: "codex",
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	reg := registry.GetGlobalRegistry()
++	reg.RegisterClient(auth.ID, "codex", []*registry.ModelInfo{{ID: "fixture-registered-alias"}, {ID: "gpt-5.6-sol"}})
++	defer reg.UnregisterClient(auth.ID)
++	h := NewHandlerWithoutConfigFilePath(&config.Config{}, manager)
++	query := func(name, index string) *httptest.ResponseRecorder {
++		rec := httptest.NewRecorder()
++		ctx, _ := gin.CreateTestContext(rec)
++		ctx.Request = httptest.NewRequest(http.MethodGet, "/auth-files/model-catalog?"+url.Values{
++			"name": {name}, "auth_index": {index},
++		}.Encode(), nil)
++		h.GetAuthFileModelCatalog(ctx)
++		return rec
++	}
++
++	rec := query(auth.FileName, auth.EnsureIndex())
++	var ids []string
++	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &ids) != nil {
++		t.Fatalf("catalog response: %d %s", rec.Code, rec.Body.String())
++	}
++	var want []string
++	for _, model := range registry.GetCodexFreeModels() {
++		want = append(want, model.ID)
++	}
++	want = append(want, "fixture-registered-alias")
++	if !slices.Equal(ids, want) {
++		t.Fatalf("catalog = %v, want free plan + registered alias = %v", ids, want)
++	}
++	if got := reg.GetModelsForClient(auth.ID); len(got) != 2 {
++		t.Fatalf("live registry changed: %v", got)
++	}
++	if got := query(auth.FileName, "other-index").Code; got != http.StatusNotFound {
++		t.Fatalf("mismatched credential returned %d", got)
++	}
++	if got := query("unknown-plan.json", "").Code; got != http.StatusUnprocessableEntity {
++		t.Fatalf("unknown tier returned %d instead of failing closed", got)
++	}
++}
+diff --git a/internal/registry/model_definitions.go b/internal/registry/model_definitions.go
+index 649888ef261ab3e076f54796c8f1c8f00d983cb7..f5edf6a5f1c02039631a28711c4fb673e16388ac 100644
+--- a/internal/registry/model_definitions.go
++++ b/internal/registry/model_definitions.go
+@@ -332,6 +332,23 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
+ 	}
+ }
+ 
++// GetCodexModelsForPlan returns the catalogue before OAuth model exclusions.
++// Unknown plans have no catalogue; callers decide how to handle them.
++func GetCodexModelsForPlan(plan string) []*ModelInfo {
++	switch strings.ToLower(strings.TrimSpace(plan)) {
++	case "pro":
++		return GetCodexProModels()
++	case "plus":
++		return GetCodexPlusModels()
++	case "team", "business", "go":
++		return GetCodexTeamModels()
++	case "free":
++		return GetCodexFreeModels()
++	default:
++		return nil
++	}
++}
++
+ // LookupStaticModelInfo searches all static model definitions for a model by ID.
+ // Returns nil if no matching model is found.
+ func LookupStaticModelInfo(modelID string) *ModelInfo {
+diff --git a/sdk/cliproxy/service_models.go b/sdk/cliproxy/service_models.go
+index 553123b5f1354d27956c23085b9ff4064af4f6eb..b7812d55a140dee8c71452e25007fa43cec59602 100644
+--- a/sdk/cliproxy/service_models.go
++++ b/sdk/cliproxy/service_models.go
+@@ -124,20 +124,8 @@ func (s *Service) registerModelsForAuthWithCache(ctx context.Context, a *coreaut
+ 			break
+ 		}
+ 
+-		codexPlanType := ""
+-		if a.Attributes != nil {
+-			codexPlanType = strings.TrimSpace(a.Attributes["plan_type"])
+-		}
+-		switch strings.ToLower(codexPlanType) {
+-		case "pro":
+-			models = registry.GetCodexProModels()
+-		case "plus":
+-			models = registry.GetCodexPlusModels()
+-		case "team", "business", "go":
+-			models = registry.GetCodexTeamModels()
+-		case "free":
+-			models = registry.GetCodexFreeModels()
+-		default:
++		models = registry.GetCodexModelsForPlan(a.Attributes["plan_type"])
++		if models == nil {
+ 			models = registry.GetCodexProModels()
+ 		}
+ 		models = applyExcludedModels(models, excluded)

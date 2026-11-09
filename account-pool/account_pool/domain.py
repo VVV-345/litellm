@@ -212,6 +212,7 @@ class EnvironmentConfiguration(BaseModel):
     enabled_models: tuple[str, ...] = ()
     proxy_url: str = ""
     credential_enabled: bool = True
+    oauth_excluded_models: tuple[str, ...] = ()
 
     @model_validator(mode="after")
     def normalize_proxy_mode(self) -> EnvironmentConfiguration:
@@ -504,6 +505,7 @@ class EnvironmentRecord(BaseModel):
     proxy_profile_id: str | None
     available_models: tuple[str, ...]
     enabled_models: tuple[str, ...]
+    model_selection: tuple[str, ...] | None = None
     auth_file_name: str | None
     auth_index: str | None
     auth_file_disabled: bool = False
@@ -557,6 +559,7 @@ class EnvironmentView(BaseModel):
     proxy_profile_id: str | None
     available_models: tuple[str, ...]
     enabled_models: tuple[str, ...]
+    configured_models: tuple[str, ...] | None = None
     quota: QuotaSnapshot
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
     model_cooldowns: tuple[ModelCooldown, ...] = ()
@@ -693,6 +696,19 @@ def configured_proxy_url(record: EnvironmentRecord) -> str:
     return record.desired_configuration.proxy_url
 
 
+def uses_codex_model_catalog(record: EnvironmentRecord) -> bool:
+    return record.channel is ChannelKind.CLIPROXYAPI and record.supplier is SupplierKind.OPENAI_CODEX
+
+
+def configured_models(record: EnvironmentRecord) -> tuple[str, ...]:
+    if uses_codex_model_catalog(record):
+        if record.desired_configuration is not None:
+            return record.desired_configuration.enabled_models
+        if record.model_selection is not None:
+            return record.model_selection
+    return record.enabled_models
+
+
 def configuration_from_record(record: EnvironmentRecord, proxy_url: str = "") -> EnvironmentConfiguration:
     """从当前记录生成不含凭据的期望配置快照。"""
     return EnvironmentConfiguration(
@@ -702,7 +718,7 @@ def configuration_from_record(record: EnvironmentRecord, proxy_url: str = "") ->
         manual_cooldown=record.manual_cooldown,
         proxy_mode=record.proxy_mode,
         proxy_profile_id=record.proxy_profile_id,
-        enabled_models=record.enabled_models,
+        enabled_models=configured_models(record),
         proxy_url=proxy_url,
         credential_enabled=record.enabled and not record.manual_cooldown,
     )
@@ -765,6 +781,7 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
         proxy_profile_id=record.proxy_profile_id,
         available_models=record.available_models,
         enabled_models=record.enabled_models,
+        configured_models=configured_models(record) if uses_codex_model_catalog(record) and record.auth_file_name else None,
         quota=record.quota,
         model_quotas=record.model_quotas,
         model_cooldowns=record.model_cooldowns,

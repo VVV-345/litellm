@@ -30,6 +30,7 @@ from account_pool.domain import (
     QuotaSnapshot,
     configuration_from_record,
     to_view,
+    uses_codex_model_catalog,
     utc_now,
 )
 from account_pool.ports import (
@@ -227,6 +228,7 @@ class EnvironmentAuthFiles:
                     "oauth_authorization_url": None,
                     "authorization_user_code": None,
                     "available_models": (),
+                    "model_selection": None,
                     "enabled_models": (),
                     "updated_at": utc_now(),
                 }
@@ -345,3 +347,30 @@ class EnvironmentAuthFiles:
         except Exception as error:
             await self._log_event(record, "authentication", error)
             return Failure(FailureCode.UPSTREAM, "auth file model query failed")
+
+    async def discover_model_catalog(self, environment_id: UUID) -> Result[tuple[str, ...]]:
+        lock: Final = await self._lock_for(environment_id)
+        async with lock, self._ownership.operation(environment_id):
+            record: Final = await self._repository.get(environment_id)
+            if record is None:
+                return Failure(FailureCode.NOT_FOUND, "environment not found")
+            if not uses_codex_model_catalog(record) or record.auth_file_name is None:
+                return Failure(FailureCode.INVALID, "card has no bound Codex credential")
+            if record.configuration_pending or record.oauth_automation_operation or record.status in (
+                EnvironmentStatus.PROVISIONING, EnvironmentStatus.VALIDATING,
+                EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.DELETING,
+            ):
+                return Failure(FailureCode.CONFLICT, "card operation is in progress")
+            try:
+                models: Final = await self._cli_proxy.discover_model_catalog(record, record.auth_file_name)
+            except Exception as error:
+                await self._log_event(record, "configuration", error)
+                return Failure(FailureCode.UPSTREAM, "Codex model catalog query failed")
+            if models != record.available_models:
+                # 只写目录；与正在编辑的配置共用锁，但不改勾选、版本、认证和额度。
+                saved: Final = await self._repository.save_if_version(
+                    record.model_copy(update={"available_models": models}), record.version,
+                )
+                if saved is None:
+                    return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+            return Success(models)

@@ -13,6 +13,8 @@ export const accountPoolQueryKeys = {
   feedbackTokens: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback-tokens", accessToken] as const,
   environmentsRoot: [...ACCOUNT_POOL_ROOT, "environments"] as const,
   environments: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "environments", accessToken] as const,
+  modelCatalog: (accessToken: string | null, cardId: string, version: number) =>
+    [...ACCOUNT_POOL_ROOT, "model-catalog", accessToken, cardId, version] as const,
   providerFamilies: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "provider-families", accessToken] as const,
   credentials: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "credentials", accessToken] as const,
   authFileRefresh: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "auth-file-refresh", accessToken] as const,

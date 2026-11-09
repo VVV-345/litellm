@@ -191,6 +191,7 @@ class EnvironmentService:
             _start_authorization=self._start_authorization,
         )
         self._configuration_operations: Final = EnvironmentConfigurationOperations(
+            _account_pool_settings=self._account_pool_settings,
             _channel=self._channel,
             _lock_for=self._lock_for,
             _log_event=self._log_event,
@@ -452,6 +453,9 @@ class EnvironmentService:
 
     async def get_auth_file_models(self, environment_id: UUID) -> Result[tuple[str, ...]]:
         return await self._auth_files_operations.get_auth_file_models(environment_id)
+
+    async def discover_model_catalog(self, environment_id: UUID) -> Result[tuple[str, ...]]:
+        return await self._auth_files_operations.discover_model_catalog(environment_id)
 
     async def list_proxy_gateways(self) -> tuple[GatewayView, ...]:
         return await self._proxy_gateways.list_gateways()

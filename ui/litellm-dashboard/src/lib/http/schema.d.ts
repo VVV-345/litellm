@@ -1082,6 +1082,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/environments/{environment_id}/model-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discover Model Catalog */
+        post: operations["discover_model_catalog_account_pool_environments__environment_id__model_catalog_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments/{environment_id}/oauth-browser-sessions": {
         parameters: {
             query?: never;
@@ -24956,6 +24973,8 @@ export interface components {
              * @default false
              */
             configuration_pending: boolean;
+            /** Configured Models */
+            configured_models?: string[] | null;
             /** Cooldown Until */
             cooldown_until: string | null;
             /** Created At */
@@ -47055,6 +47074,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolCredentialRefreshResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_model_catalog_account_pool_environments__environment_id__model_catalog_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
                 };
             };
             /** @description Validation Error */

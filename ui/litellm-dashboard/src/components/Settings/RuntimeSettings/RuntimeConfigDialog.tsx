@@ -5,7 +5,6 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -42,6 +41,7 @@ import { toUpdateRequest } from "@/features/account-pool/utils/AccountPoolTypes"
 import type { AccountPoolEnvironment, AccountPoolUpdateRequest } from "@/features/account-pool/utils/AccountPoolTypes";
 import { useProxyGatewayQuery } from "@/features/account-pool/hooks/useProxyGateways";
 import { accountPoolProxyProfileOptions } from "@/features/account-pool/hooks/accountPoolOptions";
+import { RuntimeModelChoices, useRuntimeModelCatalog } from "./RuntimeModelChoices";
 
 interface RuntimeConfigDialogProps {
   accessToken: string | null;
@@ -67,6 +67,7 @@ export const RuntimeConfigDialog = ({
   const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
   useUnsavedChanges(dirty || saving);
   const lifecycleDisabled = !canConfigureEnvironment(environment);
+  const modelCatalog = useRuntimeModelCatalog(accessToken, environment, open && !lifecycleDisabled);
   const profilesQuery = useQuery({
     ...accountPoolProxyProfileOptions(accessToken),
     enabled: open && accessToken !== null,
@@ -97,7 +98,9 @@ export const RuntimeConfigDialog = ({
 
   const handleSave = async () => {
     if (!accessToken || lifecycleDisabled) return;
-    const validationError = validateAccountPoolUpdate(t, form, environment, profiles);
+    const validationError = validateAccountPoolUpdate(
+      t, form, { ...environment, available_models: modelCatalog.models }, profiles,
+    );
     if (validationError) {
       toast.error(validationError);
       return;
@@ -292,34 +295,12 @@ export const RuntimeConfigDialog = ({
                 </>
               )}
             </div>
-            <div className="grid gap-2">
-              <Label>{t("accountPool.config.enabledModels")}</Label>
-              <div className="grid gap-2 rounded-md border border-border p-3 sm:grid-cols-2">
-                {environment.available_models.map((model) => {
-                  const checked = form.enabled_models.includes(model);
-                  return (
-                    <label key={model} className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        checked={checked}
-                        disabled={saving || lifecycleDisabled}
-                        onCheckedChange={(next) =>
-                          update(
-                            "enabled_models",
-                            next === true
-                              ? [...form.enabled_models, model]
-                              : form.enabled_models.filter((enabledModel) => enabledModel !== model),
-                          )
-                        }
-                      />
-                      <span className="truncate">{model}</span>
-                    </label>
-                  );
-                })}
-                {environment.available_models.length === 0 && (
-                  <p className="text-sm text-muted-foreground">{t("accountPool.config.noAvailableModels")}</p>
-                )}
-              </div>
-            </div>
+            <RuntimeModelChoices
+              catalog={modelCatalog}
+              selected={form.enabled_models}
+              disabled={saving || lifecycleDisabled || accessToken === null}
+              onChange={(models) => update("enabled_models", models)}
+            />
             <div className="grid gap-3 rounded-md border border-border p-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
