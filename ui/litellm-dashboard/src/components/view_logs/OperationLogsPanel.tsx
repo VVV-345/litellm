@@ -27,6 +27,7 @@ import { toast } from "@/lib/toast";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import { getLiveTailRefetchInterval } from "./log_filter_logic";
 import { LogAutoRefresh } from "./LogAutoRefresh";
+import { LogModelName } from "./LogModelName";
 
 const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
   style: "currency",
@@ -36,7 +37,6 @@ const COST_FORMAT_OPTIONS: Intl.NumberFormatOptions = {
 };
 
 const SUMMARY_COLUMN_LABELS: Readonly<Record<string, string | undefined>> = {
-  card_id: "账号与模型",
   input_tokens: "用量",
   cost_usd: "费用（USD）",
 };
@@ -505,13 +505,13 @@ export function OperationLogsPanel({
             </caption>
             <thead className="bg-muted/60 text-muted-foreground">
               <tr>
-                {["time", "card_id", "input_tokens", "cost_usd", "duration_ms", "result", "message"].map((field) => (
+                {["time", "model", "card_id", "input_tokens", "cost_usd", "duration_ms", "result", "message"].map((field) => (
                   <th
                     key={field}
                     className={`whitespace-nowrap px-3 py-3 font-medium ${field.endsWith("tokens") || field === "duration_ms" ? "text-right" : ""}`}
                     scope="col"
                   >
-                    {SUMMARY_COLUMN_LABELS[field] ?? t(`accountPool.logs.${field}`)}
+                    {field === "model" ? t("ui.Model used") : (SUMMARY_COLUMN_LABELS[field] ?? t(`accountPool.logs.${field}`))}
                   </th>
                 ))}
               </tr>
@@ -525,15 +525,15 @@ export function OperationLogsPanel({
                   <td className="whitespace-nowrap px-3 py-3 tabular-nums">
                     {formatDateTime(event.occurred_at, i18n.language)}
                   </td>
+                  <td className="min-w-48 max-w-56 px-3 py-3">
+                    <LogModelName model={event.model} missingLabel={t("accountPool.dashboard.unknown")} />
+                  </td>
                   <td className="min-w-40 max-w-60 px-3 py-3">
                     <p className="break-words font-medium">
                       {environments.find((item) => item.id === event.card_id)?.name ?? event.card_id}
                     </p>
                     <p className="mt-1 text-[11px] text-muted-foreground">
                       {t(`accountPool.supplier.${event.supplier}`)}
-                    </p>
-                    <p className="mt-1 break-words font-mono text-xs text-muted-foreground">
-                      {event.model ?? t("accountPool.dashboard.unknown")}
                     </p>
                   </td>
                   <td className="min-w-44 px-3 py-3">

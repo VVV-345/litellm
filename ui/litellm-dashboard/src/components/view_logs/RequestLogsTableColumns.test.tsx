@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -94,6 +94,23 @@ describe("row action cells", () => {
 
     await user.click(screen.getByText("sess-42"));
     expect(deps.onSessionClick).toHaveBeenCalledWith("sess-42");
+  });
+});
+
+describe("Model used column", () => {
+  it("shows the logged model and does not substitute the route group for a missing model", () => {
+    const model = "openai/gpt-6-astra-2026-11-09-long-context";
+    renderRows([
+      logEntry({ model, model_group: "codex-default" }),
+      logEntry({ request_id: "req-no-model", model: "", model_group: "codex-default" }),
+    ]);
+
+    const header = screen.getByRole("columnheader", { name: "使用模型" });
+    const columnIndex = screen.getAllByRole("columnheader").indexOf(header);
+    const [, recorded, missing] = screen.getAllByRole("row");
+    expect(within(recorded).getAllByRole("cell")[columnIndex]).toHaveTextContent(model);
+    expect(within(missing).getAllByRole("cell")[columnIndex]).toHaveTextContent("—");
+    expect(screen.queryByText("codex-default")).not.toBeInTheDocument();
   });
 });
 

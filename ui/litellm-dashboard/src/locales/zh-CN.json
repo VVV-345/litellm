@@ -419,6 +419,7 @@
     "Duration (s)": "耗时（秒）",
     "TTFT (s)": "首字节时间（秒）",
     "Model": "模型",
+    "Model used": "使用模型",
     "Tokens": "Token 数",
     "Internal User": "内部用户",
     "End User": "最终用户",

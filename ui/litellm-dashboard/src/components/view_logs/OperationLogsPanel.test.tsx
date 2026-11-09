@@ -97,7 +97,14 @@ describe("OperationLogsPanel", () => {
     listLogs.mockResolvedValue({
       items: [
         { ...log, cache_read_input_tokens: 8, cache_creation_input_tokens: 0, cache_rate: 0.8 },
-        { ...log, event_id: "unknown", message: "No usage reported", input_tokens: null, output_tokens: null },
+        {
+          ...log,
+          event_id: "unknown",
+          message: "No usage reported",
+          model: null,
+          input_tokens: null,
+          output_tokens: null,
+        },
       ],
       has_more: false,
       total: 2,
@@ -108,7 +115,9 @@ describe("OperationLogsPanel", () => {
       </QueryClientProvider>,
     );
     const row = await screen.findByRole("row", { name: /Request completed/ });
-    expect(within(row).getByText(log.model)).toBeInTheDocument();
+    const header = screen.getByRole("columnheader", { name: "使用模型" });
+    const columnIndex = screen.getAllByRole("columnheader").indexOf(header);
+    expect(within(row).getAllByRole("cell")[columnIndex]).toHaveTextContent(log.model);
     expect(within(row).getByLabelText("输入 Token")).toHaveTextContent("10");
     expect(within(row).getByLabelText("输出 Token")).toHaveTextContent("5");
     expect(within(row).getByLabelText("缓存读取")).toHaveTextContent("8");
@@ -117,7 +126,8 @@ describe("OperationLogsPanel", () => {
     expect(within(row).getByText(/80\.0%/)).toBeInTheDocument();
     expect(within(row).getByText("50 ms")).toBeInTheDocument();
     const unknown = screen.getByRole("row", { name: /No usage reported/ });
-    expect(within(unknown).getAllByText("暂无数据")).toHaveLength(4);
+    expect(within(unknown).getAllByRole("cell")[columnIndex]).toHaveTextContent("暂无数据");
+    expect(within(unknown).getAllByText("暂无数据")).toHaveLength(5);
   });
 
   it("shows reported cost coverage and the selected route reason", async () => {

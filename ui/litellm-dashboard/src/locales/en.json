@@ -419,6 +419,7 @@
     "Duration (s)": "Duration (s)",
     "TTFT (s)": "TTFT (s)",
     "Model": "Model",
+    "Model used": "Model used",
     "Tokens": "Tokens",
     "Internal User": "Internal User",
     "End User": "End User",

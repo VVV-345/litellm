@@ -11,6 +11,7 @@ import { getSpendString } from "@/utils/dataUtils";
 import { getProviderLogoAndName } from "../provider_info_helpers";
 import type { LogEntry } from "./columns";
 import { AGENT_CALL_TYPES, MCP_CALL_TYPES } from "./constants";
+import { LogModelName } from "./LogModelName";
 import { AgentBadge, AgentIcon, LlmBadge, McpBadge, SparkleIcon, WrenchIcon } from "./TypeBadges";
 
 export interface RequestLogsTableColumnsDeps {
@@ -234,26 +235,26 @@ export const getRequestLogsTableColumns = ({
   {
     id: "model",
     accessorKey: "model",
-    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model")} variant="dropdown-tristate" />,
+    header: ({ column }) => <DataTableSortHeader column={column} title={t("ui.Model used")} variant="dropdown-tristate" />,
     size: 200,
     enableSorting: true,
+    meta: { className: "min-w-48" },
     cell: ({ row }) => {
       const log = row.original;
       const provider = log.custom_llm_provider;
-      const modelName = log.model ?? "";
       return (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
           {provider && (
             <img
               src={getLogoUrl(log, provider)}
               alt=""
-              className="w-4 h-4"
+              className="size-4 shrink-0"
               onError={(event) => {
                 event.currentTarget.style.display = "none";
               }}
             />
           )}
-          <CellTooltip content={modelName} trigger={<span className="max-w-[15ch] truncate block">{modelName}</span>} />
+          <LogModelName model={log.model} />
         </div>
       );
     },
