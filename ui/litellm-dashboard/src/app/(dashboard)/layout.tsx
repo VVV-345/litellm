@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState, useRef, useEffect } from "react";
+import React, { Suspense, useState, useRef, useEffect, useTransition } from "react";
 import { DashboardHeader } from "@/components/DashboardHeader";
 import Navbar from "@/components/navbar";
 import LoadingScreen from "@/components/common_components/LoadingScreen";
@@ -16,9 +16,12 @@ import { legacyKeyForPathname, migratedHref, pageHref } from "@/utils/migratedPa
 import { PluginModeProvider, usePluginMode } from "@/contexts/PluginModeContext";
 import { createApiClient } from "@/lib/http/client";
 import { getProxyBaseUrl, getUISettings } from "@/components/networking";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { LoaderCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import DashboardWarmup from "@/components/DashboardWarmup";
 import { disabledPagesOrDefault, isPageDisabled } from "@/lib/moduleVisibility";
+import { accountPoolEnvironmentOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 
 const pluginApiClient = createApiClient({ getBaseUrl: () => getProxyBaseUrl() ?? "" });
 
@@ -121,6 +124,9 @@ function DashboardShell({
   const searchParams = useSearchParams();
   const pathname = usePathname();
   const { accessToken } = useAuth();
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [openingAccountPool, startAccountPoolNavigation] = useTransition();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -138,7 +144,17 @@ function DashboardShell({
   const pageDisabled = isPageDisabled(page, disabledUiPages);
 
   const navigateToPage = (newPage: string) => {
-    router.push(pageHref(newPage));
+    const href = pageHref(newPage);
+    if (newPage !== "account-pool" || page === newPage) {
+      router.push(href);
+      return;
+    }
+    if (openingAccountPool) return;
+    // 让卡片请求和路由切换并行；与号池页面、预热共用缓存和在途请求。
+    if (accessToken && !isPageDisabled(newPage, disabledUiPages)) {
+      void queryClient.prefetchQuery(accountPoolEnvironmentOptions(accessToken));
+    }
+    startAccountPoolNavigation(() => router.push(href));
   };
 
   // Non-gateway (agent control plane) mode keeps the original full-width Navbar,
@@ -174,6 +190,12 @@ function DashboardShell({
       />
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <DashboardHeader page={page} />
+        {openingAccountPool && page !== "account-pool" && (
+          <div role="status" className="flex items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm">
+            <LoaderCircle aria-hidden="true" className="size-4 motion-safe:animate-spin" />
+            {t("nav.openingAccountPool")}
+          </div>
+        )}
         <DebugWarningBanner accessToken={accessToken} />
         <NoRedisWarningBanner accessToken={accessToken} />
         <LicenseExpiryBanner accessToken={accessToken} />

@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, act, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { use, useState } from "react";
 import { AuthProvider } from "@/contexts/AuthContext";
+import i18n from "@/i18n";
 import Layout from "./layout";
 
-const { replaceMock } = vi.hoisted(() => ({ replaceMock: vi.fn() }));
+const { pushMock, replaceMock } = vi.hoisted(() => ({ pushMock: vi.fn(), replaceMock: vi.fn() }));
 
 let searchParamsValue = new URLSearchParams();
 let pathnameValue = "/ui/api-keys";
 
 vi.mock("next/navigation", () => ({
-  useRouter: vi.fn(() => ({ push: vi.fn(), replace: replaceMock })),
+  useRouter: vi.fn(() => ({ push: pushMock, replace: replaceMock })),
   useSearchParams: vi.fn(() => searchParamsValue),
   usePathname: vi.fn(() => pathnameValue),
 }));
@@ -20,10 +22,15 @@ vi.mock("@/components/DashboardHeader", () => ({
 }));
 
 vi.mock("@/app/(dashboard)/components/SidebarProvider", () => ({
-  default: ({ sidebarCollapsed, onToggleCollapsed }: { sidebarCollapsed: boolean; onToggleCollapsed: () => void }) => (
-    <button data-testid="sidebar" data-collapsed={sidebarCollapsed} onClick={onToggleCollapsed}>
-      Toggle sidebar
-    </button>
+  default: ({ sidebarCollapsed, onToggleCollapsed, setPage }: {
+    sidebarCollapsed: boolean; onToggleCollapsed: () => void; setPage: (page: string) => void;
+  }) => (
+    <>
+      <button data-testid="sidebar" data-collapsed={sidebarCollapsed} onClick={onToggleCollapsed}>
+        Toggle sidebar
+      </button>
+      <button onClick={() => setPage("account-pool")}>Account Pool</button>
+    </>
   ),
 }));
 
@@ -76,9 +83,41 @@ describe("(dashboard) Layout", () => {
   afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
+    pushMock.mockReset();
     pendingUiConfig = createDeferred();
     searchParamsValue = new URLSearchParams();
     pathnameValue = "/ui/api-keys";
+  });
+
+  it("acknowledges the first click from logs and does not restart a pending account pool transition", async () => {
+    pathnameValue = "/ui/logs/";
+    const route = createDeferred();
+    function AccountPoolDestination() {
+      use(route.promise);
+      return <div>Pool content</div>;
+    }
+    function TestNavigation() {
+      const [opened, setOpened] = useState(false);
+      pushMock.mockImplementation(() => setOpened(true));
+      return <Layout>{opened ? <AccountPoolDestination /> : <div>Log content</div>}</Layout>;
+    }
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AuthProvider>
+          <TestNavigation />
+        </AuthProvider>
+      </QueryClientProvider>,
+    );
+    pendingUiConfig.resolve();
+    const link = await screen.findByRole("button", { name: "Account Pool" });
+    await act(async () => { fireEvent.click(link); });
+    expect(screen.getByRole("status")).toHaveTextContent(i18n.t("nav.openingAccountPool"));
+    expect(screen.getByText("Log content")).toBeVisible();
+    await act(async () => { fireEvent.click(link); });
+    expect(pushMock).toHaveBeenCalledExactlyOnceWith("/ui/account-pool/");
+    await act(async () => route.resolve());
+    expect(await screen.findByText("Pool content")).toBeVisible();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("collapses the sidebar on narrow screens and responds to breakpoint changes", async () => {

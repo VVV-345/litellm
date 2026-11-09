@@ -203,6 +203,7 @@ export default function AccountPoolPage() {
     () => setDeleteEnvironment(null),
   );
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
+  const environmentsBlocked = environmentsQuery.isLoading || environmentsQuery.isLoadingError;
   const testEnvironment = environments.find((environment) => environment.id === testEnvironmentId);
   const policies = useMemo(() => policiesQuery.data ?? [], [policiesQuery.data]);
   const gatewaysByProfile = useMemo(
@@ -328,14 +329,14 @@ export default function AccountPoolPage() {
   const renderContent = () => {
     if (environmentsQuery.isLoading) {
       return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div role="status" aria-label={t("nav.openingAccountPool")} className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {["one", "two", "three"].map((key) => (
             <Skeleton key={key} className="h-64 w-full" />
           ))}
         </div>
       );
     }
-    if (environmentsQuery.isError) {
+    if (environmentsQuery.isLoadingError) {
       const managerNotConfigured = environmentsQuery.error.message === "Account Pool Manager is not configured";
       return (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 p-6">
@@ -458,26 +459,42 @@ export default function AccountPoolPage() {
             active={activeTab === "dashboard"}
             visited={isTabVisited("dashboard")}
           >
-            {environmentsQuery.isLoading || environmentsQuery.isError ? (
+            {environmentsBlocked ? (
               renderContent()
             ) : (
-              <AccountPoolDashboard
-                accessToken={accessToken}
-                statsDays={statsDays}
-                onStatsDaysChange={setStatsDays}
-                compactNumbers={compactNumbers}
-                onCompactNumbersChange={setCompactNumbers}
-                environments={environments}
-                statsByCard={statsByCard}
-                statsLoading={statsLoading}
-                standardSummary={dashboardStatsQuery.data?.summary}
-                gatewayLatency={dashboardStatsQuery.data?.gateway_latency}
-                statsError={dashboardStatsQuery.isError}
-                renderCard={renderCard}
-                quotaRefreshStatus={quotaRefreshStatusQuery.data ?? null}
-                onRefreshQuotas={refreshQuotas}
-                refreshingQuotas={refreshingQuotas}
-              />
+              <>
+                {environmentsQuery.isRefetchError && (
+                  <div className="mb-3 flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                    <p role="status">{t("accountPool.cardRefreshFailed")}</p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={environmentsQuery.isFetching}
+                      onClick={() => void environmentsQuery.refetch()}
+                    >
+                      {t("accountPool.retry")}
+                    </Button>
+                  </div>
+                )}
+                <AccountPoolDashboard
+                  accessToken={accessToken}
+                  statsDays={statsDays}
+                  onStatsDaysChange={setStatsDays}
+                  compactNumbers={compactNumbers}
+                  onCompactNumbersChange={setCompactNumbers}
+                  environments={environments}
+                  statsByCard={statsByCard}
+                  statsLoading={statsLoading}
+                  standardSummary={dashboardStatsQuery.data?.summary}
+                  gatewayLatency={dashboardStatsQuery.data?.gateway_latency}
+                  statsError={dashboardStatsQuery.isError}
+                  renderCard={renderCard}
+                  quotaRefreshStatus={quotaRefreshStatusQuery.data ?? null}
+                  onRefreshQuotas={refreshQuotas}
+                  refreshingQuotas={refreshingQuotas}
+                />
+              </>
             )}
           </DeferredTabPanel>
           <DeferredTabPanel
@@ -543,7 +560,7 @@ export default function AccountPoolPage() {
               accessToken={accessToken}
               enabled={canManage}
               environments={environments}
-              environmentsLoading={environmentsQuery.isLoading || environmentsQuery.isError}
+              environmentsLoading={environmentsBlocked}
             />
           </DeferredTabPanel>
 

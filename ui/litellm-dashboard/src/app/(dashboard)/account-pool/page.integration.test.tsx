@@ -115,6 +115,27 @@ describe("account card local configuration", () => {
     expect(await screen.findByTestId(`account-pool-card-${environment.id}`)).toBeInTheDocument();
   });
 
+  it("renders cached cards immediately on return and keeps them after a failed background refresh", async () => {
+    const pending = Promise.withResolvers<AccountPoolEnvironment[]>();
+    listAccounts.mockReturnValue(pending.promise);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    client.setQueryData(accountPoolQueryKeys.environments("token"), [environment], { updatedAt: 1 });
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <AccountPoolPage />
+      </QueryClientProvider>,
+    );
+    const card = `account-pool-card-${environment.id}`;
+    expect(screen.getByTestId(card)).toBeVisible();
+    await waitFor(() => expect(listAccounts).toHaveBeenCalledOnce());
+    await act(async () => pending.reject(new Error("slow request failed")));
+    await waitFor(() => expect(client.getQueryState(accountPoolQueryKeys.environments("token"))?.status).toBe("error"));
+    expect(screen.getByTestId(card)).toBeVisible();
+    expect(screen.getByText("卡片刷新失败，仍显示上次数据。")).toBeVisible();
+    unmount();
+    client.clear();
+  });
+
   it("opens the single automation workspace from OAuth with the selected blank card", async () => {
     const user = userEvent.setup();
     searchState.value = "tab=oauth";
