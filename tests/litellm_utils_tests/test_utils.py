@@ -2379,11 +2379,14 @@ def test_get_whitelisted_models():
             whitelisted_models.append(model)
 
         # Write to a local file
-    with open("whitelisted_bedrock_models.txt", "w") as file:
+    with open(
+        os.path.join(os.path.dirname(__file__), "..", "local_testing", "fixtures", "whitelisted_bedrock_models.txt"),
+        "w",
+    ) as file:
         for model in whitelisted_models:
             file.write(f"{model}\n")
 
-    print("whitelisted_models written to whitelisted_bedrock_models.txt")
+    print("whitelisted_models written to tests/local_testing/fixtures/whitelisted_bedrock_models.txt")
 
 
 def test_delta_tool_calls_sequential_indices():

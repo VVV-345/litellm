@@ -430,7 +430,7 @@ This release has a known issue...
   - **New Providers** - Provider name, supported endpoints, description
   - **New LLM API Endpoints** (optional) - Endpoint, method, description, documentation link
 - Only include major new provider integrations, not minor provider updates
-- **IMPORTANT**: When adding new providers, also update `provider_endpoints_support.json` in the repository root (see Section 13)
+- **IMPORTANT**: When adding new providers, also update `docs/reference/provider_endpoints_support.json` (see Section 13)
 
 ### 12. Section Header Counts
 
@@ -468,7 +468,7 @@ This release has a known issue...
 
 ### 13. Update provider_endpoints_support.json
 
-**When adding new providers or endpoints, you MUST also update `provider_endpoints_support.json` in the repository root.**
+**When adding new providers or endpoints, you MUST also update `docs/reference/provider_endpoints_support.json`.**
 
 This file tracks which endpoints are supported by each LiteLLM provider and is used to generate documentation.
 

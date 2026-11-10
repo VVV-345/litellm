@@ -16,7 +16,7 @@ git rev-parse HEAD
 
 ## 相关代码放在哪里
 
-在 VS Code 或兼容编辑器中打开根目录的 [litellm.code-workspace](../../litellm.code-workspace)，资源管理器会按号池、界面、网关、集成测试、部署和手册分组。需要浏览上游其余源码时展开“90 完整仓库”。这不是新 worktree，不复制或移动源码，也不改变 Python 导入、前端路由或构建目录
+在 VS Code 或兼容编辑器中打开 [litellm.code-workspace](litellm.code-workspace)，资源管理器会按号池、界面、网关、集成测试、部署和手册分组。需要浏览上游其余源码时展开“90 完整仓库”。这不是新 worktree，不复制或移动源码，也不改变 Python 导入、前端路由或构建目录
 
 工作区只隐藏依赖、缓存和本地测试产物，不删除文件。要查看它们可在工作区设置关闭对应 `files.exclude` 项；直接打开原仓库目录时不受这份工作区设置影响。目录职责见[代码目录表](project-map.md)，历史验收记录见[归档](archive/README.md)
 

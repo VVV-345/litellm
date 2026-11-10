@@ -1,6 +1,6 @@
 # 项目结构表
 
-推荐打开根目录的 [litellm.code-workspace](../../litellm.code-workspace)，按模块选择入口，不必在完整仓库的文件列表中反复滚动。源码保留原路径；根目录原有验收与迁移文档集中在[历史归档](archive/README.md)
+推荐打开 [litellm.code-workspace](litellm.code-workspace)，按模块选择入口，不必在完整仓库的文件列表中反复滚动。源码保留原路径；根目录原有验收与迁移文档集中在[历史归档](archive/README.md)。LiteLLM 上游结构见[架构说明](litellm-architecture.md)
 
 本项目统一使用 LiteLLM 对外入口，号池负责实际账号的选择和约束。LiteLLM 与号池 Manager 保持两个进程，分别管理请求和容器生命周期
 

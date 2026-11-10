@@ -1,4 +1,4 @@
-本分支开发入口：[按模块打开工作区](litellm.code-workspace) · [项目手册](docs/handbook/README.md) · [代码目录表](docs/handbook/project-map.md)
+本分支开发入口：[按模块打开工作区](docs/handbook/litellm.code-workspace) · [项目手册](docs/handbook/README.md) · [代码目录表](docs/handbook/project-map.md)
 
 <h1 align="center">
         🚅 LiteLLM
