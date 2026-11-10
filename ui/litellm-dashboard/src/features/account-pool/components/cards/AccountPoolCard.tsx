@@ -97,9 +97,9 @@ const AccountPoolCardComponent = ({
       })
     : environment.proxy_profile_id;
   const authorizationAction =
-    environment.status === "error" || environment.access_token_fallback?.failure_source === "refresh"
-      ? t("accountPool.reauthorize")
-      : t("accountPool.continueAuthorization");
+    environment.status === "awaiting_authorization"
+      ? t("accountPool.continueAuthorization")
+      : t("accountPool.reauthorize");
   const usableModels = accountPoolUsableModels(environment);
   const visibleModels = accountPoolVisibleModels(environment);
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
@@ -248,8 +248,7 @@ const AccountPoolCardComponent = ({
             >
               <Settings2 />
             </Button>
-            {(canAuthorizeEnvironment(environment) ||
-              environment.access_token_fallback?.failure_source === "refresh") && (
+            {canAuthorizeEnvironment(environment) && (
               <Button
                 type="button"
                 variant="ghost"

@@ -33,6 +33,7 @@ from account_pool.compose import ComposeRuntime, _communicate_with_timeout, rend
 from account_pool.compose_runtime import run_docker
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import (
+    AccessTokenFallbackStatus,
     AuthorizationFlow,
     ChannelKind,
     CreateDirectCredentialEnvironmentRequest,
@@ -3620,6 +3621,40 @@ async def test_authorize_environment_refreshes_recoverable_environment_without_p
     assert str(result.value.authorization_url).startswith("https://example.com/oauth?state=")
     assert "state-for-test-1234" not in str(result.value.authorization_url)
     assert runtime.provisioned == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expired", (False, True), ids=("verified-fallback", "expired-fallback"))
+async def test_reauthorize_preserves_working_access_fallback(tmp_path: Path, expired: bool) -> None:
+    now: Final = utc_now()
+    fallback: Final = AccessTokenFallbackStatus(
+        enabled=True,
+        active=True,
+        reason="temporary_access",
+        expires_at=now + timedelta(minutes=-5 if expired else 5),
+        verified_models=("gpt-5",),
+        failure_source="refresh",
+    )
+    record: Final = _record(
+        status=EnvironmentStatus.COOLING_DOWN if expired else EnvironmentStatus.READY
+    ).model_copy(update={"access_token_fallback": fallback, "auth_index": "bound-test-index"})
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service.authorize_environment(record.id, "manual-reauth")
+    durable: Final = await service._repository.get(record.id)
+
+    if expired:
+        assert isinstance(result, Success)
+        assert result.value.environment.status == EnvironmentStatus.AWAITING_AUTHORIZATION
+        assert str(result.value.authorization_url).startswith("https://example.com/oauth?state=")
+        assert cli.events.count("oauth") == 1
+    else:
+        assert isinstance(result, Failure) and result.code is FailureCode.CONFLICT
+        assert durable == record
+        assert "oauth" not in cli.events
+        assert fallback.usable_for("gpt-5", now)
+        assert service.gateway_environment(record).routable
 
 
 @pytest.mark.asyncio

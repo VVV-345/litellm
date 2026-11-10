@@ -12,6 +12,8 @@ const TRANSITIONAL_STATUSES: ReadonlySet<AccountPoolStatus> = new Set([
   "deleting",
 ]);
 
+const AUTHORIZATION_RECOVERY_STATUSES: ReadonlySet<AccountPoolStatus> = new Set(["ready", "cooling_down", "disabled"]);
+
 const isConfigurationPending = (environment: AccountPoolEnvironment): boolean =>
   environment.configuration_pending === true;
 
@@ -27,7 +29,22 @@ export const canConfigureEnvironment = (environment: AccountPoolEnvironment): bo
 export const canDeleteEnvironment = (environment: AccountPoolEnvironment): boolean =>
   !isConfigurationPending(environment) && environment.status !== "deleting";
 
-export const canAuthorizeEnvironment = (environment: AccountPoolEnvironment): boolean =>
-  environment.authorization_flow !== "direct_credential" &&
-  !isConfigurationPending(environment) &&
-  (environment.status === "awaiting_authorization" || environment.status === "error");
+export const canAuthorizeEnvironment = (environment: AccountPoolEnvironment): boolean => {
+  if (environment.authorization_flow === "direct_credential" || isConfigurationPending(environment)) return false;
+
+  const { status, access_token_fallback: fallback, credential_refresh: refresh } = environment;
+  const canRetry = status === "awaiting_authorization" || status === "error";
+  const canRecover = AUTHORIZATION_RECOVERY_STATUSES.has(status);
+  if (fallback?.failure_source === "refresh") {
+    const now = Date.now();
+    const expiresAt = Date.parse(fallback.expires_at ?? "");
+    const verified = fallback.active && fallback.verified_models.length > 0;
+    // Refresh Token 失败不代表 Access Token 失效，仍有模型可用时不发起重新授权。
+    if (fallback.enabled && verified && expiresAt > now) return false;
+    const accessLost = expiresAt <= now || fallback.reason === "access_expired" || fallback.reason === "access_rejected";
+    if (accessLost) return canRetry || canRecover;
+    if (fallback.enabled) return canRetry;
+  }
+  const refreshRejected = status !== "ready" && refresh?.schedule_reason === "reauthorization_required";
+  return canRetry || (canRecover && refreshRejected);
+};

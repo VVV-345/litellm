@@ -74,6 +74,38 @@ describe("account pool lifecycle controls", () => {
     expect(canAuthorizeEnvironment({ ...environment("error"), authorization_flow: "direct_credential" })).toBe(false);
   });
 
+  it("distinguishes a verified, pending, or expired access fallback from ordinary cooldown", () => {
+    const fallback = {
+      enabled: true,
+      active: true,
+      failure_source: "refresh",
+      reason: "temporary_access",
+      expires_at: "2090-01-01T00:00:00Z",
+      verified_models: ["gpt-4o"],
+    };
+    const cooldown = { ...environment("cooling_down"), access_token_fallback: fallback };
+    const expired = {
+      ...cooldown,
+      access_token_fallback: { ...fallback, expires_at: "2000-01-01T00:00:00Z" },
+    };
+    expect(canAuthorizeEnvironment({ ...cooldown, status: "error" })).toBe(false);
+    expect(canAuthorizeEnvironment(expired)).toBe(true);
+    expect(canAuthorizeEnvironment({ ...expired, status: "ready" })).toBe(true);
+    expect(canAuthorizeEnvironment({ ...expired, status: "validating" })).toBe(false);
+    expect(canAuthorizeEnvironment({ ...expired, configuration_pending: true })).toBe(false);
+    expect(canAuthorizeEnvironment({ ...expired, authorization_flow: "direct_credential" })).toBe(false);
+    expect(canAuthorizeEnvironment(environment("cooling_down"))).toBe(false);
+    const refresh = { running: false, save_pending: false, last_result: "rejected", schedule_reason: "reauthorization_required" };
+    expect(canAuthorizeEnvironment({ ...environment("cooling_down"), credential_refresh: refresh })).toBe(true);
+    expect(
+      canAuthorizeEnvironment({
+        ...cooldown,
+        credential_refresh: refresh,
+        access_token_fallback: { ...fallback, active: false, reason: "verification_required", verified_models: [] },
+      }),
+    ).toBe(false);
+  });
+
   it("rejects missing, removed, and unsafe proxy profiles before saving", () => {
     expect(validateProxyProfileSelection(chinese, "profile", null, profiles)).toBe("请选择代理 Profile");
     expect(validateProxyProfileSelection(chinese, "profile", "missing", profiles)).toContain("已删除");

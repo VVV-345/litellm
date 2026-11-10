@@ -11,6 +11,7 @@ import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQ
 const push = vi.fn();
 const listAccounts = vi.fn();
 const updateAccount = vi.fn();
+const authorizeAccount = vi.fn();
 const searchState = { value: "" };
 const loadStats = vi.fn();
 vi.mock("@/features/account-pool/api/AccountPoolAutomationApi", async (original) => ({
@@ -28,6 +29,7 @@ vi.mock("@/features/account-pool/api/AccountPoolApi", async (original) => ({
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolApi")>()),
   listAccountPoolEnvironments: (...args: unknown[]) => listAccounts(...args),
   updateAccountPoolEnvironment: (...args: unknown[]) => updateAccount(...args),
+  authorizeAccountPoolEnvironment: (...args: unknown[]) => authorizeAccount(...args),
   listAccountPoolProxyGateways: async () => [],
   listAccountPoolProxyProfiles: async () => [],
 }));
@@ -149,6 +151,45 @@ describe("account card local configuration", () => {
     expect(screen.getByRole("textbox", { name: "单账号资料" })).toHaveValue("");
   });
 
+  it("starts a new OAuth session directly from a card whose access fallback has been rejected", async () => {
+    const user = userEvent.setup();
+    listAccounts.mockResolvedValue([
+      {
+        ...environment,
+        status: "cooling_down",
+        automatic_cooldown: true,
+        access_token_fallback: {
+          enabled: true,
+          active: false,
+          failure_source: "refresh",
+          reason: "access_rejected",
+          expires_at: "2090-01-01T00:00:00Z",
+          verified_models: [],
+        },
+      },
+    ]);
+    const authorizationUrl = "https://example.test/authorize?state=reauth-test";
+    const authorization = {
+      environment: { ...environment, status: "awaiting_authorization", version: 2 },
+      flow: "browser_oauth",
+      authorization_url: authorizationUrl,
+      expires_at: "2090-01-01T00:00:00Z",
+      ssh_command: null,
+      user_code: null,
+    };
+    authorizeAccount.mockResolvedValue(authorization);
+    renderPage();
+    const dashboardTab = screen.getByRole("tab", { name: "仪表盘", selected: true });
+
+    await user.click(await screen.findByRole("button", { name: `重新授权 ${environment.name}` }));
+
+    const dialog = await screen.findByRole("dialog", { name: "完成账号授权" });
+    expect(within(dialog).getByRole("textbox", { name: "授权链接" })).toHaveValue(authorizationUrl);
+    expect(within(dialog).getByRole("textbox", { name: "回调地址" })).toBeEnabled();
+    expect(authorizeAccount).toHaveBeenCalledExactlyOnceWith("token", environment.id);
+    expect(dashboardTab).toHaveAttribute("aria-selected", "true");
+  });
+
   it("updates an open model test when query refresh removes access proof, and closes it after card deletion", async () => {
     const user = userEvent.setup();
     const fallbackCard: AccountPoolEnvironment = {
@@ -169,7 +210,10 @@ describe("account card local configuration", () => {
         <AccountPoolPage />
       </QueryClientProvider>,
     );
-    await user.click(await screen.findByRole("button", { name: `测试 ${environment.name} 的模型连接` }));
+    const modelTest = await screen.findByRole("button", { name: `测试 ${environment.name} 的模型连接` });
+    expect(screen.queryByRole("button", { name: `重新授权 ${environment.name}` })).not.toBeInTheDocument();
+    expect(authorizeAccount).not.toHaveBeenCalled();
+    await user.click(modelTest);
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("button", { name: "开始测试" })).toBeEnabled();
     listAccounts.mockResolvedValue([
