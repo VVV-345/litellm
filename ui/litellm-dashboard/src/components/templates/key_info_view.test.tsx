@@ -8,6 +8,7 @@ import { KeyResponse, Team } from "../key_team_helpers/key_list";
 import { keyDeleteCall, keyUpdateCall } from "../networking";
 import { QueryClient } from "@tanstack/react-query";
 import KeyInfoView from "./key_info_view";
+import i18n from "@/i18n";
 
 const editViewMocks = vi.hoisted(() => ({
   onSubmit: undefined as ((v: Record<string, any>) => Promise<void>) | undefined,
@@ -83,7 +84,8 @@ vi.mock("@/utils/dataUtils", () => ({
 }));
 
 describe("KeyInfoView", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.mocked(useTeams).mockReturnValue({
       teams: [],
       setTeams: vi.fn(),
@@ -115,6 +117,7 @@ describe("KeyInfoView", () => {
     budget_reset_at: "never",
     allowed_cache_controls: [],
     allowed_routes: [],
+    key_type: null,
     permissions: {},
     model_spend: {},
     model_max_budget: {},
@@ -124,6 +127,7 @@ describe("KeyInfoView", () => {
     organization_id: null,
     created_at: "2025-10-29T01:26:41.613000Z",
     updated_at: "2025-10-29T01:47:33.980000Z",
+    last_active: null,
     team_spend: 100,
     team_alias: "",
     team_tpm_limit: 100,
@@ -165,12 +169,16 @@ describe("KeyInfoView", () => {
     accessToken: "test-token",
     userId: "test-user",
     userRole: "admin",
+    userRoleLabel: "Admin",
+    isViewOnly: false,
+    isLoading: false,
+    isAuthorized: true,
     premiumUser: true,
     token: "test-token",
     userEmail: null,
     disabledPersonalKeyCreation: null,
     showSSOBanner: false,
-  };
+  } satisfies ReturnType<typeof useAuthorized>;
 
   const openMoreKeyActions = async () => {
     await userEvent.click(await screen.findByRole("button", { name: /more key actions/i }));

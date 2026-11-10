@@ -29,14 +29,34 @@ export default function RouterSettingsSummary({
     <div className="space-y-1 text-sm">
       {settings.routing_strategy != null && (
         <div>
-          {i18n.t("ui.Routing Strategy:")}<Badge variant="secondary">{String(settings.routing_strategy)}</Badge>
+          {i18n.t("ui.Routing Strategy:")} <Badge variant="secondary">{String(settings.routing_strategy)}</Badge>
         </div>
       )}
-      {settings.num_retries != null && <div>{i18n.t("ui.Number of Retries:")}{String(settings.num_retries)}</div>}
-      {settings.allowed_fails != null && <div>{i18n.t("ui.Allowed Failures:")}{String(settings.allowed_fails)}</div>}
-      {settings.cooldown_time != null && <div>{i18n.t("ui.Cooldown Time:")}{String(settings.cooldown_time)}s</div>}
-      {settings.timeout != null && <div>{i18n.t("ui.Timeout:")}{String(settings.timeout)}s</div>}
-      {settings.retry_after != null && <div>{i18n.t("ui.Retry After:")}{String(settings.retry_after)}s</div>}
+      {settings.num_retries != null && (
+        <div>
+          {i18n.t("ui.Number of Retries:")} {String(settings.num_retries)}
+        </div>
+      )}
+      {settings.allowed_fails != null && (
+        <div>
+          {i18n.t("ui.Allowed Failures:")} {String(settings.allowed_fails)}
+        </div>
+      )}
+      {settings.cooldown_time != null && (
+        <div>
+          {i18n.t("ui.Cooldown Time:")} {String(settings.cooldown_time)}s
+        </div>
+      )}
+      {settings.timeout != null && (
+        <div>
+          {i18n.t("ui.Timeout:")} {String(settings.timeout)}s
+        </div>
+      )}
+      {settings.retry_after != null && (
+        <div>
+          {i18n.t("ui.Retry After:")} {String(settings.retry_after)}s
+        </div>
+      )}
       {Boolean(settings.enable_tag_filtering) && <div>{i18n.t("ui.Tag Filtering: Enabled")}</div>}
       {fallbacks.length > 0 && (
         <div>

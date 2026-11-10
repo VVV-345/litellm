@@ -325,6 +325,22 @@ export function AccountPoolOnboardingPanel({
     }
   };
 
+  let importTitle = "导入邮箱账号库存";
+  let importDescription =
+    "邮箱账号与供应商账号分别保存。沿用现有 OAuth 授权，登录、验证码和二次验证由你完成，后台自动验证并更新卡片。";
+  if (fileFormat === "cpa") {
+    importTitle = "批量导入 CPA 认证文件";
+    importDescription = "上传 CPA 导出的认证 JSON。2FA 登录资料请使用 2FA / OAuth 授权。";
+  } else if (fileFormat === "sub2api") {
+    importTitle = "批量导入 Sub2API 认证文件";
+    importDescription = "上传 Sub2API 导出的 OpenAI OAuth JSON，支持多账号整包。";
+  } else if (source === "auth_file") {
+    importTitle = "批量导入认证文件";
+    importDescription =
+      "自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。Token 文件创建卡片并验证模型；2FA 登录资料进入 OAuth 任务，需人工完成登录和二次验证。";
+  }
+  const fileTasksTitle = fileFormat ? "认证文件任务（CPA / Sub2API）" : "认证文件任务";
+
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
@@ -361,18 +377,8 @@ export function AccountPoolOnboardingPanel({
         <TabsContent value={source}>
           <Card>
             <CardHeader>
-              <CardTitle>{fileFormat === "cpa" ? "批量导入 CPA 认证文件"
-                : fileFormat === "sub2api" ? "批量导入 Sub2API 认证文件"
-                : source === "auth_file" ? "批量导入认证文件" : "导入邮箱账号库存"}</CardTitle>
-              <CardDescription>
-                {fileFormat === "cpa"
-                  ? "上传 CPA 导出的认证 JSON。2FA 登录资料请使用 2FA / OAuth 授权。"
-                  : fileFormat === "sub2api"
-                    ? "上传 Sub2API 导出的 OpenAI OAuth JSON，支持多账号整包。"
-                    : source === "auth_file"
-                      ? "自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。Token 文件创建卡片并验证模型；2FA 登录资料进入 OAuth 任务，需人工完成登录和二次验证。"
-                      : "邮箱账号与供应商账号分别保存。沿用现有 OAuth 授权，登录、验证码和二次验证由你完成，后台自动验证并更新卡片。"}
-              </CardDescription>
+              <CardTitle>{importTitle}</CardTitle>
+              <CardDescription>{importDescription}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
@@ -591,7 +597,7 @@ export function AccountPoolOnboardingPanel({
       </Tabs>
       {source === "oauth" && <AccountPoolOnboardingTarget accessToken={accessToken} supplier={supplier} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-semibold">{source === "oauth" ? "OAuth 账号汇总与任务" : fileFormat ? "认证文件任务（CPA / Sub2API）" : "认证文件任务"}</h3>
+        <h3 className="font-semibold">{source === "oauth" ? "OAuth 账号汇总与任务" : fileTasksTitle}</h3>
         <div className="flex flex-wrap gap-2">
           <AccountPoolOnboardingCleanup key={source} accessToken={accessToken} source={source} onChange={refresh} />
           <Button variant="outline" size="sm" onClick={() => void refresh()}>

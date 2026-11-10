@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldGroup, FieldTitle } from "@/components/ui/field";
-import { AGENT_FORM_CONFIG, getAgentFormConfig, getSkillFieldConfig, SKILL_FIELD_CONFIG } from "./agent_config";
+import { AGENT_FORM_CONFIG, getAgentFormConfig, getSkillFieldConfig } from "./agent_config";
 import CostConfigFields, { COST_FIELD_NAMES } from "./cost_config_fields";
 import {
   AgentFormField,

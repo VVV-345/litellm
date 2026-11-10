@@ -1,8 +1,13 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import i18n from "@/i18n";
 import RouterSettingsSummary from "./RouterSettingsSummary";
 
 describe("RouterSettingsSummary", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
   it("should list each configured fallback mapping", () => {
     render(
       <RouterSettingsSummary

@@ -81,11 +81,7 @@ const ToolArgumentControl: React.FC<{
         value={(control.value as string) ?? ""}
         className="w-full rounded-lg border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-colors focus:border-ring focus:ring-3 focus:ring-ring/50 focus:outline-hidden"
       >
-        {!field.required && (
-          <option value="">
-            {selectPlaceholder}
-          </option>
-        )}
+        {!field.required && <option value="">{selectPlaceholder}</option>}
         {prop.enum.map((option) => (
           <option key={option} value={option}>
             {option}
@@ -118,17 +114,13 @@ const ToolArgumentControl: React.FC<{
         <SelectTrigger
           id={control.id}
           aria-invalid={control["aria-invalid"]}
-          title={control.value === true ? t("ui.True") : control.value === false ? t("ui.False") : undefined}
+          title={booleanItems.find((item) => item.value === control.value)?.label}
           className="w-full"
         >
           <SelectValue placeholder={selectPlaceholder} />
         </SelectTrigger>
         <SelectContent>
-          {!field.required && (
-            <SelectItem value="">
-              {selectPlaceholder}
-            </SelectItem>
-          )}
+          {!field.required && <SelectItem value="">{selectPlaceholder}</SelectItem>}
           <SelectItem value={true}>{t("ui.True")}</SelectItem>
           <SelectItem value={false}>{t("ui.False")}</SelectItem>
         </SelectContent>
@@ -224,6 +216,7 @@ export const ToolArgumentsForm: React.FC<{
   });
 
   const submit = form.handleSubmit((values) => onRun(buildToolCallArguments(fields, values.args)));
+  const idleLabel = hasRun ? t("ui.Call Again") : t("ui.Call Tool");
 
   return (
     <TooltipProvider>
@@ -239,7 +232,7 @@ export const ToolArgumentsForm: React.FC<{
             className="w-full"
           >
             {isLoading && <UiLoadingSpinner className="size-4" />}
-            {isLoading ? t("ui.Calling Tool...") : hasRun ? t("ui.Call Again") : t("ui.Call Tool")}
+            {isLoading ? t("ui.Calling Tool...") : idleLabel}
           </Button>
         </div>
       </form>

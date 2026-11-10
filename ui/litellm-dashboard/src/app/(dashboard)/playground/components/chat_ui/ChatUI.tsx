@@ -792,7 +792,7 @@ const ChatUI: React.FC<ChatUIProps> = ({
       return;
     }
 
-    const effectiveApiKey = simplified ? accessToken : apiKeySource === "session" ? accessToken : apiKey;
+    const effectiveApiKey = simplified || apiKeySource === "session" ? accessToken : apiKey;
 
     if (!effectiveApiKey) {
       toast.fromError(t("ui.Please provide a Virtual Key or select Current UI Session"));
@@ -1179,38 +1179,49 @@ const ChatUI: React.FC<ChatUIProps> = ({
     () => filterModelsForEndpoint(modelInfo, endpointType as EndpointType),
     [modelInfo, endpointType],
   );
-  const modelEmptyText = modelLoadError
-    ? t("ui.Unable to load models for this key")
-    : apiKeySource === "custom" && !apiKey.trim()
-      ? t("ui.Enter a Virtual Key to load models")
-      : modelInfo.length > 0 && modelsForEndpoint.length === 0
-        ? t("ui.No models available for this endpoint")
-        : t("ui.No models available for this key");
+  let modelEmptyText: string;
+  if (modelLoadError) {
+    modelEmptyText = t("ui.Unable to load models for this key");
+  } else if (apiKeySource === "custom" && !apiKey.trim()) {
+    modelEmptyText = t("ui.Enter a Virtual Key to load models");
+  } else if (modelInfo.length > 0 && modelsForEndpoint.length === 0) {
+    modelEmptyText = t("ui.No models available for this endpoint");
+  } else {
+    modelEmptyText = t("ui.No models available for this key");
+  }
 
-  const inputPlaceholder =
-    endpointType === EndpointType.CHAT ||
-    endpointType === EndpointType.EMBEDDINGS ||
-    endpointType === EndpointType.RESPONSES ||
-    endpointType === EndpointType.ANTHROPIC_MESSAGES ||
-    endpointType === EndpointType.INTERACTIONS
-      ? t("ui.Type your message... (Shift+Enter for new line)")
-      : endpointType === EndpointType.A2A_AGENTS
-        ? t("ui.Send a message to the A2A agent...")
-        : endpointType === EndpointType.IMAGE_EDITS
-          ? t("ui.Describe how you want to edit the image...")
-          : endpointType === EndpointType.SPEECH
-            ? t("ui.Enter text to convert to speech...")
-            : endpointType === EndpointType.TRANSCRIPTION
-              ? t("ui.Optional: Add context or prompt for transcription...")
-              : t("ui.Describe the image you want to generate...");
+  let inputPlaceholder: string;
+  switch (endpointType) {
+    case EndpointType.CHAT:
+    case EndpointType.EMBEDDINGS:
+    case EndpointType.RESPONSES:
+    case EndpointType.ANTHROPIC_MESSAGES:
+    case EndpointType.INTERACTIONS:
+      inputPlaceholder = t("ui.Type your message... (Shift+Enter for new line)");
+      break;
+    case EndpointType.A2A_AGENTS:
+      inputPlaceholder = t("ui.Send a message to the A2A agent...");
+      break;
+    case EndpointType.IMAGE_EDITS:
+      inputPlaceholder = t("ui.Describe how you want to edit the image...");
+      break;
+    case EndpointType.SPEECH:
+      inputPlaceholder = t("ui.Enter text to convert to speech...");
+      break;
+    case EndpointType.TRANSCRIPTION:
+      inputPlaceholder = t("ui.Optional: Add context or prompt for transcription...");
+      break;
+    default:
+      inputPlaceholder = t("ui.Describe the image you want to generate...");
+  }
 
-  const sendDisabled =
-    isLoading ||
-    (endpointType === EndpointType.MCP
-      ? !(selectedMCPServers.length === 1 && selectedMCPServers[0] !== "__all__" && selectedMCPDirectTool)
-      : endpointType === EndpointType.TRANSCRIPTION
-        ? !uploadedAudio
-        : !inputMessage.trim());
+  let missingInput = !inputMessage.trim();
+  if (endpointType === EndpointType.MCP) {
+    missingInput = !(selectedMCPServers.length === 1 && selectedMCPServers[0] !== "__all__" && selectedMCPDirectTool);
+  } else if (endpointType === EndpointType.TRANSCRIPTION) {
+    missingInput = !uploadedAudio;
+  }
+  const sendDisabled = isLoading || missingInput;
 
   return (
     <div className={`min-h-0 min-w-0 bg-card ${simplified ? "flex h-full w-full flex-col" : "h-full w-full p-3"}`}>

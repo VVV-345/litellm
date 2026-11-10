@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import GuardrailInfoView from "./guardrail_info";
 import { chooseSelectOption } from "@/../tests/test-utils";
+import i18n from "@/i18n";
 
 vi.mock("@/components/networking", () => ({
   getGuardrailInfo: vi.fn(),
@@ -88,7 +89,8 @@ const renderView = () => render(<GuardrailInfoView guardrailId="123" onClose={()
 const lastPayload = () => vi.mocked(networking.updateGuardrailCall).mock.calls.at(-1)?.[2];
 
 describe("GuardrailInfoView update payload characterization", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     vi.mocked(networking.getGuardrailUISettings).mockResolvedValue(uiSettings);
     vi.mocked(networking.getGuardrailProviderSpecificParams).mockResolvedValue(bedrockParams);

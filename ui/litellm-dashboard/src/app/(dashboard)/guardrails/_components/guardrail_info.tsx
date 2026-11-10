@@ -152,32 +152,14 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
       const response = await getGuardrailInfo(accessToken, guardrailId);
       setGuardrailData(response);
 
-      // Initialize PII configuration from guardrail data
-      if (response.litellm_params?.pii_entities_config) {
-        const piiConfig = response.litellm_params.pii_entities_config;
-
-        // Clear previous selections
-        setSelectedPiiEntities([]);
-        setSelectedPiiActions({});
-
-        // Only if there are entities configured
-        if (Object.keys(piiConfig).length > 0) {
-          const entities: string[] = [];
-          const actions: { [key: string]: string } = {};
-
-          Object.entries(piiConfig).forEach(([entity, action]: [string, any]) => {
-            entities.push(entity);
-            actions[entity] = typeof action === "string" ? action : "MASK";
-          });
-
-          setSelectedPiiEntities(entities);
-          setSelectedPiiActions(actions);
-        }
-      } else {
-        // Clear selections if no PII config exists
-        setSelectedPiiEntities([]);
-        setSelectedPiiActions({});
-      }
+      const entities: string[] = [];
+      const actions: Record<string, string> = {};
+      Object.entries(response.litellm_params?.pii_entities_config ?? {}).forEach(([entity, action]) => {
+        entities.push(entity);
+        actions[entity] = typeof action === "string" ? action : "MASK";
+      });
+      setSelectedPiiEntities(entities);
+      setSelectedPiiActions(actions);
     } catch (error) {
       toast.fromError(t("ui.Failed to load guardrail information"));
       console.error("Error fetching guardrail info:", error);
@@ -508,6 +490,13 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
   };
 
   const isConfigGuardrail = guardrailData.guardrail_definition_location === "config";
+  const selectedProvider = Object.keys(guardrail_provider_map).find(
+    (key) => guardrail_provider_map[key] === guardrailData.litellm_params?.guardrail,
+  );
+  const optionalParams = selectedProvider
+    ? guardrailProviderSpecificParams?.[guardrail_provider_map[selectedProvider]?.toLowerCase()]?.optional_params
+    : undefined;
+  const piiEntries = Object.entries(guardrailData.litellm_params?.pii_entities_config ?? {});
 
   return (
     <div className="p-4">
@@ -582,48 +571,45 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
               </Card>
             </div>
 
-            {guardrailData.litellm_params?.pii_entities_config &&
-              Object.keys(guardrailData.litellm_params.pii_entities_config).length > 0 && (
-                <Card className="block mt-6 p-6">
-                  <div className="flex justify-between items-center">
-                    <p className="font-medium">{t("ui.PII Protection")}</p>
-                    <Badge variant="secondary">
-                      {Object.keys(guardrailData.litellm_params.pii_entities_config).length}{" "}
-                      {t("ui.PII entities configured")}
-                    </Badge>
-                  </div>
-                </Card>
-              )}
+            {piiEntries.length > 0 && (
+              <Card className="block mt-6 p-6">
+                <div className="flex justify-between items-center">
+                  <p className="font-medium">{t("ui.PII Protection")}</p>
+                  <Badge variant="secondary">
+                    {piiEntries.length} {t("ui.PII entities configured")}
+                  </Badge>
+                </div>
+              </Card>
+            )}
 
-            {guardrailData.litellm_params?.pii_entities_config &&
-              Object.keys(guardrailData.litellm_params.pii_entities_config).length > 0 && (
-                <Card className="block mt-6 p-6">
-                  <p className="mb-4 text-lg font-semibold">{t("ui.PII Entity Configuration")}</p>
-                  <div className="border rounded-lg overflow-hidden shadow-xs">
-                    <div className="bg-muted px-5 py-3 border-b flex">
-                      <p className="flex-1 font-semibold text-foreground">{t("ui.Entity Type")}</p>
-                      <p className="flex-1 font-semibold text-foreground">{t("ui.Configuration")}</p>
-                    </div>
-                    <div className="max-h-[400px] overflow-y-auto">
-                      {Object.entries(guardrailData.litellm_params?.pii_entities_config).map(([key, value]) => (
-                        <div key={key} className="px-5 py-3 flex border-b hover:bg-muted/50 transition-colors">
-                          <p className="flex-1 font-medium text-foreground">{key}</p>
-                          <p className="flex-1">
-                            <span
-                              className={`inline-flex items-center gap-1.5 ${
-                                value === "MASK" ? "text-info" : "text-destructive"
-                              }`}
-                            >
-                              {value === "MASK" ? <EyeOff className="size-3.5" /> : <Ban className="size-3.5" />}
-                              {String(value)}
-                            </span>
-                          </p>
-                        </div>
-                      ))}
-                    </div>
+            {piiEntries.length > 0 && (
+              <Card className="block mt-6 p-6">
+                <p className="mb-4 text-lg font-semibold">{t("ui.PII Entity Configuration")}</p>
+                <div className="border rounded-lg overflow-hidden shadow-xs">
+                  <div className="bg-muted px-5 py-3 border-b flex">
+                    <p className="flex-1 font-semibold text-foreground">{t("ui.Entity Type")}</p>
+                    <p className="flex-1 font-semibold text-foreground">{t("ui.Configuration")}</p>
                   </div>
-                </Card>
-              )}
+                  <div className="max-h-[400px] overflow-y-auto">
+                    {piiEntries.map(([key, value]) => (
+                      <div key={key} className="px-5 py-3 flex border-b hover:bg-muted/50 transition-colors">
+                        <p className="flex-1 font-medium text-foreground">{key}</p>
+                        <p className="flex-1">
+                          <span
+                            className={`inline-flex items-center gap-1.5 ${
+                              value === "MASK" ? "text-info" : "text-destructive"
+                            }`}
+                          >
+                            {value === "MASK" ? <EyeOff className="size-3.5" /> : <Ban className="size-3.5" />}
+                            {String(value)}
+                          </span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+            )}
 
             {guardrailData.litellm_params?.guardrail === "tool_permission" && (
               <Card className="block mt-6 p-6">
@@ -799,11 +785,7 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                           <>
                             {/* Provider-specific fields */}
                             <GuardrailProviderFields
-                              selectedProvider={
-                                Object.keys(guardrail_provider_map).find(
-                                  (key) => guardrail_provider_map[key] === guardrailData.litellm_params?.guardrail,
-                                ) || null
-                              }
+                              selectedProvider={selectedProvider || null}
                               control={form.control}
                               accessToken={accessToken}
                               providerParams={guardrailProviderSpecificParams}
@@ -811,27 +793,14 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                             />
 
                             {/* Optional parameters */}
-                            {guardrailProviderSpecificParams &&
-                              (() => {
-                                const currentProvider = Object.keys(guardrail_provider_map).find(
-                                  (key) => guardrail_provider_map[key] === guardrailData.litellm_params?.guardrail,
-                                );
-                                if (!currentProvider) return null;
-
-                                const providerKey = guardrail_provider_map[currentProvider]?.toLowerCase();
-                                const providerFields = guardrailProviderSpecificParams[providerKey];
-
-                                if (!providerFields || !providerFields.optional_params) return null;
-
-                                return (
-                                  <GuardrailOptionalParams
-                                    optionalParams={providerFields.optional_params}
-                                    parentFieldKey="optional_params"
-                                    control={form.control}
-                                    values={guardrailData.litellm_params}
-                                  />
-                                );
-                              })()}
+                            {Boolean(optionalParams) && (
+                              <GuardrailOptionalParams
+                                optionalParams={optionalParams}
+                                parentFieldKey="optional_params"
+                                control={form.control}
+                                values={guardrailData.litellm_params}
+                              />
+                            )}
                           </>
                         )}
 
@@ -888,18 +857,16 @@ const GuardrailInfoView: React.FC<GuardrailInfoProps> = ({ guardrailId, onClose,
                       </Badge>
                     </div>
 
-                    {guardrailData.litellm_params?.pii_entities_config &&
-                      Object.keys(guardrailData.litellm_params.pii_entities_config).length > 0 && (
-                        <div>
-                          <p className="font-medium">{t("ui.PII Protection")}</p>
-                          <div className="mt-2">
-                            <Badge variant="secondary">
-                              {Object.keys(guardrailData.litellm_params.pii_entities_config).length}{" "}
-                              {t("ui.PII entities configured")}
-                            </Badge>
-                          </div>
+                    {piiEntries.length > 0 && (
+                      <div>
+                        <p className="font-medium">{t("ui.PII Protection")}</p>
+                        <div className="mt-2">
+                          <Badge variant="secondary">
+                            {piiEntries.length} {t("ui.PII entities configured")}
+                          </Badge>
                         </div>
-                      )}
+                      </div>
+                    )}
 
                     <div>
                       <p className="font-medium">{t("ui.Created At")}</p>

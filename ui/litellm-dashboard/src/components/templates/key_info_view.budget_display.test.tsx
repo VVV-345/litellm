@@ -8,6 +8,11 @@ import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import useTeams from "@/app/(dashboard)/hooks/useTeams";
 import { useOrganizations } from "@/app/(dashboard)/hooks/organizations/useOrganizations";
 import type { Organization } from "../networking";
+import i18n from "@/i18n";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 // IMPORTANT: do not mock `@/utils/dataUtils` here. We want to exercise the
 // real `formatNumberWithCommas` so this test catches the LIT-2845 regression
@@ -105,6 +110,8 @@ const baseAuthorized = {
   accessToken: "test-token",
   userId: "test-user",
   userRole: "admin",
+  userRoleLabel: "Admin",
+  isViewOnly: false,
   premiumUser: true,
   token: "test-token",
   userEmail: null,
@@ -112,7 +119,7 @@ const baseAuthorized = {
   showSSOBanner: false,
   isLoading: false,
   isAuthorized: true,
-};
+} satisfies ReturnType<typeof useAuthorized>;
 
 const makeTeam = (overrides: Partial<Team>): Team => ({
   team_id: "team-default",

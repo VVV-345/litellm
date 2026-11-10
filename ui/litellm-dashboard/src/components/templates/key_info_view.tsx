@@ -1,5 +1,4 @@
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
-import i18n from "@/i18n";
 import { VirtualKeySecret } from "@/components/VirtualKeysPage/VirtualKeySecret";
 import { useProjects } from "@/app/(dashboard)/hooks/projects/useProjects";
 import { useUISettings } from "@/app/(dashboard)/hooks/uiSettings/useUISettings";
@@ -235,7 +234,9 @@ export default function KeyInfoView({
             (toolsetId) => !(allMcpToolsets ?? []).some((toolset) => toolset.toolset_id === toolsetId),
           );
         if (unresolvableSelection && Object.keys(mcpEntitlement.mcp_tool_permissions).length > 0) {
-          toast.error(t("ui.MCP server or toolset list is unavailable, so MCP permissions cannot be saved yet. Retry."));
+          toast.error(
+            t("ui.MCP server or toolset list is unavailable, so MCP permissions cannot be saved yet. Retry."),
+          );
           return;
         }
         formValues.object_permission = {
@@ -530,7 +531,9 @@ export default function KeyInfoView({
       <DeleteResourceModal
         isOpen={isDeleteModalOpen}
         title={t("ui.Delete Key")}
-        alertMessage={t("ui.This action is irreversible and will immediately revoke access for any applications using this key.")}
+        alertMessage={t(
+          "ui.This action is irreversible and will immediately revoke access for any applications using this key.",
+        )}
         message={t("ui.Are you sure you want to delete this Virtual Key?")}
         resourceInformationTitle={t("ui.Key Information")}
         resourceInformation={[
@@ -568,11 +571,15 @@ export default function KeyInfoView({
             <DialogTitle>{t("ui.Reset Key Spend")}</DialogTitle>
           </DialogHeader>
           <p>
-            {t("ui.Reset spend for")} <strong>{currentKeyData?.key_alias || currentKeyData?.token_id || t("ui.this key")}</strong> {t("ui.to")}
+            {t("ui.Reset spend for")}{" "}
+            <strong>{currentKeyData?.key_alias || currentKeyData?.token_id || t("ui.this key")}</strong> {t("ui.to")}
             <strong>$0</strong>？
           </p>
           <p style={{ color: "#666", fontSize: "0.875rem", marginTop: 8 }}>
-            {t("ui.Current spend")}: <strong>${formatNumberWithCommas(currentKeyData.spend, 4)}</strong>。{t("ui.Spend history is preserved in logs. This resets the current period spend counter, the same as an automatic budget reset.")}
+            {t("ui.Current spend")}: <strong>${formatNumberWithCommas(currentKeyData.spend, 4)}</strong>。
+            {t(
+              "ui.Spend history is preserved in logs. This resets the current period spend counter, the same as an automatic budget reset.",
+            )}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsResetSpendModalOpen(false)}>
@@ -597,7 +604,9 @@ export default function KeyInfoView({
           <p style={{ color: "#666", fontSize: "0.875rem", marginTop: 8 }}>
             {isBlocked
               ? t("ui.Requests using this key will be accepted again.")
-              : t("ui.Requests using this key will be rejected with a 401 error until it is unblocked. The key is not deleted and can be unblocked at any time.")}
+              : t(
+                  "ui.Requests using this key will be rejected with a 401 error until it is unblocked. The key is not deleted and can be unblocked at any time.",
+                )}
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsBlockModalOpen(false)}>
@@ -640,7 +649,9 @@ export default function KeyInfoView({
                     <InheritedBudgetHint gates={inheritedGates} />
                   </p>
                   {currentKeyData.budget_reset_at && (
-                    <p className="text-sm">{t("ui.Resets")} {formatTimestamp(currentKeyData.budget_reset_at)}</p>
+                    <p className="text-sm">
+                      {t("ui.Resets")} {formatTimestamp(currentKeyData.budget_reset_at)}
+                    </p>
                   )}
                 </div>
               </Card>
@@ -649,10 +660,12 @@ export default function KeyInfoView({
                 <p className="text-sm">{t("ui.Rate Limits")}</p>
                 <div className="mt-2">
                   <p className="text-sm">
-                    {i18n.t("ui.TPM:")}{currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
+                    {i18n.t("ui.TPM:")}
+                    {currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
                   </p>
                   <p className="text-sm">
-                    {i18n.t("ui.RPM:")}{currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
+                    {i18n.t("ui.RPM:")}
+                    {currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
                   </p>
                   {Boolean(currentKeyData.metadata?.throttle_on_budget_exceeded) && (
                     <p className="text-sm">{t("ui.Throttle on budget exceeded: Yes")}</p>
@@ -714,7 +727,9 @@ export default function KeyInfoView({
                           <Badge variant="secondary" className="min-w-0 break-words">
                             {policy}
                           </Badge>
-                          {loadingPolicies && <p className="text-xs text-muted-foreground">{t("ui.Loading guardrails...")}</p>}
+                          {loadingPolicies && (
+                            <p className="text-xs text-muted-foreground">{t("ui.Loading guardrails...")}</p>
+                          )}
                         </div>
                         {!loadingPolicies && policyGuardrails[policy] && policyGuardrails[policy].length > 0 && (
                           <div className="ml-4 pl-3 border-l-2 border-border">
@@ -805,7 +820,10 @@ export default function KeyInfoView({
 
                   <div>
                     <p className="text-sm font-medium">{t("ui.Secret Key")}</p>
-                    <VirtualKeySecret key={currentKeyData.token_id || currentKeyData.token} token={currentKeyData.token_id || currentKeyData.token} />
+                    <VirtualKeySecret
+                      key={currentKeyData.token_id || currentKeyData.token}
+                      token={currentKeyData.token_id || currentKeyData.token}
+                    />
                   </div>
 
                   <div>
@@ -839,7 +857,9 @@ export default function KeyInfoView({
 
                   <div>
                     <p className="text-sm font-medium">{t("ui.Organization")}</p>
-                    <p className="text-sm">{(currentKeyData.organization_id ?? currentKeyData.org_id) || t("ui.Not Set")}</p>
+                    <p className="text-sm">
+                      {(currentKeyData.organization_id ?? currentKeyData.org_id) || t("ui.Not Set")}
+                    </p>
                   </div>
 
                   <div>
@@ -885,7 +905,9 @@ export default function KeyInfoView({
 
                   <div>
                     <p className="text-sm font-medium">{t("ui.Spend")}</p>
-                    <p className="text-sm">${formatNumberWithCommas(currentKeyData.spend, 4)} {t("ui.USD")}</p>
+                    <p className="text-sm">
+                      ${formatNumberWithCommas(currentKeyData.spend, 4)} {t("ui.USD")}
+                    </p>
                   </div>
 
                   <div>
@@ -1014,13 +1036,15 @@ export default function KeyInfoView({
                   <div>
                     <p className="text-sm font-medium">{t("ui.Rate Limits")}</p>
                     <p className="text-sm">
-                      {i18n.t("ui.TPM:")}{currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
+                      {i18n.t("ui.TPM:")}
+                      {currentKeyData.tpm_limit !== null ? currentKeyData.tpm_limit : t("ui.Unlimited")}
                     </p>
                     <p className="text-sm">
-                      {i18n.t("ui.RPM:")}{currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
+                      {i18n.t("ui.RPM:")}
+                      {currentKeyData.rpm_limit !== null ? currentKeyData.rpm_limit : t("ui.Unlimited")}
                     </p>
                     <p className="text-sm">
-                      {t("ui.Max Parallel Requests")}: {" "}
+                      {t("ui.Max Parallel Requests")}:{" "}
                       {currentKeyData.max_parallel_requests !== null
                         ? currentKeyData.max_parallel_requests
                         : t("ui.Unlimited")}
