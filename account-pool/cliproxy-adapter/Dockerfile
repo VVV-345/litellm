@@ -7,6 +7,7 @@ RUN GOTOOLCHAIN=local go mod download
 COPY . .
 ARG VERSION
 ARG COMMIT
+RUN GOTOOLCHAIN=local CGO_ENABLED=1 go test -mod=readonly ./internal/api/handlers/management -run '^TestCodexModelCatalog' -count=1
 RUN GOTOOLCHAIN=local CGO_ENABLED=1 GOOS=linux go build -mod=readonly -buildvcs=false -trimpath -ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.BuildDate=unknown" -o /CLIProxyAPI ./cmd/server/
 
 FROM ${CPA_RUNTIME}

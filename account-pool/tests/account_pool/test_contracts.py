@@ -198,6 +198,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "proxy_profile_id": None,
             "available_models": [],
             "enabled_models": [],
+            "configured_models": None,
             "quota": {
                 "observed_at": None,
                 "refresh_attempted_at": None,

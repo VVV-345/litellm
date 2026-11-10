@@ -24,6 +24,7 @@ from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import StateCipher
 
 _LOGGER: Final = logging.getLogger(__name__)
+_CLEANUP_MESSAGE: Final = "\n清理状态："
 
 
 def operation(job: StoredJob) -> str:
@@ -430,6 +431,14 @@ class AutomationRunner:
             return
         await self._cleanup(finished)
 
+    async def _cleanup_blocked(self, row: StoredJob, message: str) -> None:
+        result: Final = row.item.message.partition(_CLEANUP_MESSAGE)[0]
+        notice: Final = f"{result}{_CLEANUP_MESSAGE}{message}；清理完成前暂停后续任务，系统会自动重试"
+        if row.item.message == notice:
+            return
+        _LOGGER.warning("OAuth automation cleanup pending: job=%s reason=%s", row.item.id, message)
+        await self._save(row.model_copy(update={"item": row.item.model_copy(update={"message": notice})}))
+
     async def _cleanup(self, row: StoredJob) -> None:
         try:
             session: Final = (
@@ -442,6 +451,7 @@ class AutomationRunner:
                 and session.status is OAuthBrowserSessionStatus.CALLBACK_PENDING
                 and self.clock() < min(session.expires_at, row.item.expires_at or session.expires_at)
             ):
+                await self._cleanup_blocked(row, "回调仍在完成，等待清理")
                 return
             record: Final = await self.registry.environments.get(row.item.environment_id)
             if (
@@ -452,6 +462,7 @@ class AutomationRunner:
             ):
                 result: Final = await self.browser.service.cancel_oauth_session(record.id, operation_id=operation(row))
                 if isinstance(result, Failure):
+                    await self._cleanup_blocked(row, "取消授权会话失败，清理未完成")
                     return
             async with self.registry.ownership.operation(row.item.environment_id):
                 current: Final = await self.registry.environments.get(row.item.environment_id)
@@ -482,11 +493,14 @@ class AutomationRunner:
                         current.version,
                     )
                     if unlocked is None:
+                        await self._cleanup_blocked(row, "卡片状态已改变，尚未释放清理锁")
                         return
-            await self._save(row.model_copy(update={"cleanup_pending": False, "session_ciphertext": None}))
+            await self._save(row.model_copy(update={
+                "cleanup_pending": False, "session_ciphertext": None,
+                "item": row.item.model_copy(update={"message": row.item.message.partition(_CLEANUP_MESSAGE)[0]}),
+            }))
         except Exception:
-            # 保留 cleanup_pending；未确认清理之前不启动下一个账号。
-            return
+            await self._cleanup_blocked(row, "授权任务清理或状态保存失败，请检查 Manager 日志及运行环境")
 
     async def action(
         self, job_id: UUID, action: Literal["cancel", "retry", "takeover", "resume"], *, model: str | None = None

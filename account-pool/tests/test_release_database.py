@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import pytest
 from account_pool.release_database import DockerReleaseDatabase
-from account_pool.release_models import DatabaseDump, DatabaseSnapshot
+from account_pool.release_models import DatabaseDump, DatabaseSnapshot, ReleasePair
 from account_pool.release_runtime import DockerReleaseRuntime, ReleaseSettings
 from account_pool.release_service import ReleaseService
 from account_pool.release_store import ReleaseError, ReleaseStore
@@ -155,6 +155,37 @@ def test_preflight_failure_is_retryable_without_stopping_or_recovering_business(
     assert database.events == []
     assert not any(event.startswith("apply:") for event in runtime.events)
     assert service.prepare(action(service, "scan"), "admin").token
+
+
+@pytest.mark.parametrize("marker", (json.dumps({"release_id": CURRENT.commit}), "{invalid"))
+def test_pending_card_rollout_blocks_new_release_before_stopping_business(tmp_path: Path, marker: str) -> None:
+    def no_docker(*args: str, timeout: int = 120) -> bytes:
+        raise AssertionError("Preflight must not run Docker")
+
+    gate = DockerReleaseRuntime(
+        ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy"), no_docker,
+    )
+
+    class GatedRuntime(Runtime):
+        def preflight_apply(self, selected: ReleasePair) -> None:
+            gate.preflight_apply(selected)
+
+        def apply(self, selected: ReleasePair, configuration: bytes) -> None:
+            if selected == NEW:
+                gate.apply(selected, configuration)
+            super().apply(selected, configuration)
+
+    runtime, clock, database = GatedRuntime(), Clock(), Database()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database)
+    (tmp_path / "card-rollout-active.json").write_text(marker, encoding="utf-8")
+
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+
+    assert database.events == []
+    assert runtime.running == CURRENT
+    assert runtime.events == ("pull:" + NEW.commit,)
+    assert service.store.jobs()[0].status == "failed"
+    assert service.store.backup(CURRENT.id) is None
 
 
 def test_scan_refreshes_data_even_when_image_archive_exists(setup_data):
@@ -337,6 +368,102 @@ def test_interrupted_database_replacement_restores_frozen_recovery_snapshot(setu
     assert database.data == b"new-data"
     assert runtime.running == CURRENT
     assert service.store.jobs()[0].status == "recovered"
+
+
+@pytest.mark.parametrize("failure", ("archive", "configuration", "snapshot", "load", "startup", "unknown"))
+def test_invalid_recovery_material_never_stops_or_restores_database(tmp_path: Path, failure: str) -> None:
+    class RecoveryRuntime(Runtime):
+        def load(self, selected: ReleasePair, archive: Path) -> None:
+            if failure == "load":
+                raise ReleaseError("recovery image import failed")
+            if failure == "unknown":
+                raise RuntimeError("password=secret-recovery-token")
+            super().load(selected, archive)
+
+    runtime, clock, database = RecoveryRuntime(), Clock(), Database()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database)
+    recovery = service.capture_database(service.backup(CURRENT, runtime.compose())).database_snapshot
+    assert recovery is not None
+    job = queued(service, clock, action(service, "deploy", tag=NEW.commit))
+    service.store.save_job(job.model_copy(update={
+        "status": "running", "phase": "恢复数据库", "recovery_id": CURRENT.id, "database_recovery": recovery,
+    }))
+    runtime.running = NEW
+    database.data = b"partially-restored"
+    if failure == "startup":
+        runtime.unsafe_startup = CURRENT.id
+    if failure in ("archive", "configuration", "snapshot"):
+        name = {"archive": "images.tar.gz", "configuration": "compose.json", "snapshot": recovery.files[0].filename}[failure]
+        path = service.store.path(CURRENT.id) / name
+        path.write_bytes(b"x" * path.stat().st_size)
+
+    service.recover_interrupted()
+
+    assert database.events == ["capture"]
+    assert database.data == b"partially-restored"
+    assert runtime.running == NEW
+    assert not any(event.startswith("apply:") for event in runtime.events)
+    failed = service.store.jobs()[0]
+    assert failed.status == "failed"
+    assert failed.phase == "需要人工恢复"
+    expected = {
+        "archive": "备份校验失败",
+        "configuration": "备份校验失败",
+        "snapshot": "invalid snapshot",
+        "load": "recovery image import failed",
+        "startup": "启动自动重建",
+        "unknown": "未显示可能包含凭据的底层错误",
+    }[failure]
+    assert expected in failed.message
+    assert "已恢复" not in failed.message
+    assert "secret-recovery-token" not in failed.message
+    assert "password=" not in failed.message
+
+
+@pytest.mark.parametrize("matching_target", (False, True))
+def test_recovery_checks_rollout_target_before_restoring_database(tmp_path: Path, matching_target: bool) -> None:
+    def no_docker(*args: str, timeout: int = 120) -> bytes:
+        raise AssertionError("Preflight must not run Docker")
+
+    gate = DockerReleaseRuntime(
+        ReleaseSettings(token="t" * 32, root=tmp_path, deployment=tmp_path.parent / "deploy"), no_docker,
+    )
+
+    class GatedRuntime(Runtime):
+        def preflight_apply(self, selected: ReleasePair) -> None:
+            gate.preflight_apply(selected)
+
+        def apply(self, selected: ReleasePair, configuration: bytes) -> None:
+            self.preflight_apply(selected)
+            super().apply(selected, configuration)
+
+    runtime, clock, database = GatedRuntime(), Clock(), Database()
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database)
+    recovery = service.capture_database(service.backup(CURRENT, runtime.compose())).database_snapshot
+    assert recovery is not None
+    job = queued(service, clock, action(service, "deploy", tag=NEW.commit))
+    service.store.save_job(job.model_copy(update={
+        "status": "running", "phase": "恢复数据库", "recovery_id": CURRENT.id, "database_recovery": recovery,
+    }))
+    runtime.running = NEW
+    database.data = b"partially-restored"
+    (tmp_path / "card-rollout-active.json").write_text(
+        json.dumps({"release_id": CURRENT.commit if matching_target else NEW.commit}), encoding="utf-8",
+    )
+
+    service.recover_interrupted()
+
+    if matching_target:
+        assert database.data == b"current-data"
+        assert runtime.running == CURRENT
+        assert service.store.jobs()[0].status == "recovered"
+    else:
+        assert database.events == ["capture"]
+        assert database.data == b"partially-restored"
+        assert runtime.running == NEW
+        assert service.store.jobs()[0].phase == "需要人工恢复"
+        assert "逐卡发布尚未完成" in service.store.jobs()[0].message
+        assert "已恢复" not in service.store.jobs()[0].message
 
 
 def test_interrupted_backup_does_not_restore_database(setup_data):

@@ -166,6 +166,8 @@ jobs:
             tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_proxy_admin_can_manage_upstream_compatibility_workflow \
             tests/test_litellm/proxy/management_endpoints/test_deployment_version.py \
             account-pool/tests/test_account_pool.py \
+            account-pool/tests/account_pool/test_contracts.py \
+            account-pool/tests/account_pool/test_oauth_automation.py \
             account-pool/tests/account_pool/test_gateway_service.py \
             account-pool/tests/account_pool/test_upstream_sync.py \
             account-pool/tests/account_pool/test_settings.py \
@@ -204,14 +206,20 @@ jobs:
             src/components/Settings/RuntimeSettings/RuntimeSettingsSection.test.tsx \
             src/features/account-pool/components/dashboard/AccountPoolDashboard.test.tsx \
             src/features/account-pool/components/dashboard/AccountPoolSettingsOverview.test.tsx \
-            src/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel.test.tsx
+            src/features/account-pool/components/upstream/AccountPoolUpstreamSyncPanel.test.tsx \
+            'src/app/(dashboard)/layout.test.tsx'
           npm exec -- vitest run --project integration \
             src/features/account-pool/components/proxy/ProxyManagerPanel.integration.test.tsx
           npm exec -- vitest run --project unit \
-            src/features/account-pool/api/AccountPoolManagementApi.test.ts
+            src/features/account-pool/api/AccountPoolManagementApi.test.ts \
+            src/features/account-pool/api/AccountPoolApi.test.ts \
+            src/features/account-pool/utils/AccountPoolFormatters.test.ts
           npm exec -- vitest run --project integration \
             src/features/account-pool/components/onboarding/AccountPoolOnboardingPanel.integration.test.tsx \
-            src/features/account-pool/components/releases/AccountPoolRuntimeCards.integration.test.tsx
+            src/features/account-pool/components/releases/AccountPoolRuntimeCards.integration.test.tsx \
+            src/components/Settings/RuntimeSettings/RuntimeConfigDialog.integration.test.tsx \
+            src/components/Settings/RuntimeSettings/RuntimePolicyDialog.integration.test.tsx \
+            'src/app/(dashboard)/account-pool/page.integration.test.tsx'
 
   build-and-publish:
     name: Build ${{ matrix.image }} (${{ matrix.arch }})

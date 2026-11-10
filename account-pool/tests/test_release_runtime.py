@@ -1086,7 +1086,10 @@ def test_native_rollout_stops_at_failed_card_keeps_old_managers_out_and_resumes(
     assert command.switches == (cards[0],)
     marker = tmp_path / "card-rollout-active.json"
     assert marker.is_file()
+    runtime.preflight_apply(selected)
     other = selected.model_copy(update={"commit": "b" * 40})
+    with pytest.raises(ReleaseError, match="Manager"):
+        runtime.preflight_apply(other)
     with pytest.raises(ReleaseError, match="Manager"):
         runtime.apply(other, configuration)
     with pytest.raises(ReleaseError, match="未完成"):

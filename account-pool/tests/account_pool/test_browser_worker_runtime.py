@@ -338,7 +338,11 @@ def test_worker_health_command_reports_unavailable_service_without_traceback(wor
 
 
 @pytest.mark.parametrize("status", (204, 409))
-def test_callback_relay_preserves_http_status_without_response_body(worker: ModuleType, status: int) -> None:
+def test_callback_relay_preserves_http_status_without_response_body(
+    worker: ModuleType, status: int, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             self.send_response(status)

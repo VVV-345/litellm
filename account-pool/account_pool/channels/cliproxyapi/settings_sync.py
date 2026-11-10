@@ -10,7 +10,7 @@ from pydantic import JsonValue, TypeAdapter
 
 from account_pool.channels.cliproxyapi.client import HttpCLIProxyClient, JSONValue
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
-from account_pool.domain import EnvironmentRecord, SupplierKind
+from account_pool.domain import AuthorizationFlow, EnvironmentRecord, SupplierKind, configured_models
 from account_pool.policies import (
     AccountPolicy,
     AntigravityPolicy,
@@ -57,7 +57,7 @@ class CLIProxySettingsSynchronizer:
         )
         for path, value in scalar_fields:
             await self._client.put_value(record, path, value)
-        await self._client.put_json(record, "/v0/management/oauth-excluded-models", self._excluded_models(settings))
+        await self._client.put_json(record, "/v0/management/oauth-excluded-models", self._excluded_models(record, settings))
         await self._client.put_json(record, "/v0/management/oauth-model-alias", self._model_aliases(settings))
         await self._client.put_json(
             record,
@@ -114,9 +114,19 @@ class CLIProxySettingsSynchronizer:
         if updated != document:
             await self._client.put_config_yaml(record, yaml.safe_dump(updated, sort_keys=False, allow_unicode=False))
 
-    def _excluded_models(self, settings: AccountPoolSettings) -> JSONValue:
+    def _excluded_models(self, record: EnvironmentRecord, settings: AccountPoolSettings) -> JSONValue:
+        selected: Final = frozenset(configured_models(record))
+        card_excluded: Final = tuple(model for model in record.available_models if model not in selected)
         return {
-            definition.excluded_models_key: list(settings.oauth_excluded_models)
+            definition.excluded_models_key: list(dict.fromkeys((
+                *settings.oauth_excluded_models,
+                *(
+                    card_excluded
+                    if definition.kind is record.supplier
+                    and record.authorization_flow is not AuthorizationFlow.DIRECT_CREDENTIAL
+                    else ()
+                ),
+            )))
             for definition in self._suppliers.definitions.values()
             if definition.uses_oauth_model_exclusions
         }

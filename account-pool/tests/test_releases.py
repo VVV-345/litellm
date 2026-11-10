@@ -144,6 +144,9 @@ class Runtime:
         self.events += ("load:" + pair.id,)
         self.missing_image = None
 
+    def preflight_apply(self, pair: ReleasePair) -> None:
+        return None
+
     def apply(self, pair: ReleasePair, configuration: bytes) -> None:
         assert configuration == self.running_compose()
         self.events += ("apply:" + pair.id,)

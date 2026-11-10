@@ -784,3 +784,95 @@ async def test_completed_browser_job_uses_shared_card_naming_without_overwriting
     assert saved.name == expected
     assert saved.oauth_automation_operation is None
     assert saved.proxy_profile_id == card.proxy_profile_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["browser", "cancel", "conflict"])
+async def test_cleanup_failure_is_visible_redacted_and_retried_before_next_job(deletion_registry, caplog, failure):
+    from types import SimpleNamespace
+
+    from account_pool.oauth_automation.runner import AutomationRunner, operation
+    from account_pool.shared.result import FailureCode
+
+    registry, card = deletion_registry
+    await registry.create_profile(ProfileInput(name="cleanup"))
+    submitted = await registry.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(submitted, Success)
+    faults = [failure]
+    removals = []
+
+    class Environments(MemoryRepository):
+        async def save_if_version(self, record, version):
+            if "conflict" in faults:
+                return None
+            return await super().save_if_version(record, version)
+
+    async def cancel_oauth_session(environment_id, *, operation_id):
+        if "cancel" in faults:
+            return Failure(FailureCode.UPSTREAM, "private-refresh-token-do-not-log")
+        return Success(None)
+
+    async def remove_oauth_browser(session_id):
+        if "browser" in faults:
+            raise RuntimeError("private-refresh-token-do-not-log")
+        removals.append(session_id)
+
+    async def get_session(session_id):
+        return None
+
+    async def update_session(*args):
+        return None
+
+    async with registry.repository.transaction() as tx:
+        (row,) = tx.snapshot.jobs
+        finished = row.model_copy(update={
+            "cleanup_pending": True,
+            "session_ciphertext": "encrypted-session",
+            "item": row.item.model_copy(update={
+                "stage": "failed", "message": "登录未完成", "browser_session_id": uuid4(),
+            }),
+        })
+        queued = row.model_copy(update={"item": row.item.model_copy(update={"id": uuid4()})})
+        await tx.save(tx.snapshot.model_copy(update={"jobs": (finished, queued)}))
+    environments = Environments(card.model_copy(update={
+        "oauth_automation_operation": operation(finished),
+        "oauth_state": "fixture-oauth-state" if failure == "cancel" else None,
+        "oauth_state_consumed_at": None,
+    }))
+    registry = replace(registry, environments=environments)
+    browser = SimpleNamespace(
+        sessions=SimpleNamespace(get=get_session, transition=update_session, mark_cleaned=update_session),
+        runtime=SimpleNamespace(remove_oauth_browser=remove_oauth_browser),
+        service=SimpleNamespace(cancel_oauth_session=cancel_oauth_session),
+    )
+    runner = AutomationRunner(registry, browser, registry.worker)
+    await runner.run_once()
+    blocked = (await registry.view()).jobs
+    assert blocked[0].stage == "failed"
+    assert "登录未完成" in blocked[0].message
+    assert "清理" in blocked[0].message and "自动重试" in blocked[0].message
+    assert blocked[1].stage == "queued"
+    assert "OAuth automation cleanup pending" in caplog.text
+    assert "private-refresh-token-do-not-log" not in caplog.text + blocked[0].message
+    assert (await environments.get(card.id)).oauth_automation_operation == operation(finished)
+    assert isinstance(await registry.delete_job(finished.item.id), Failure)
+    assert isinstance(await runner.action(finished.item.id, "retry"), Failure)
+    assert (await registry.repository.read()).jobs[0].session_ciphertext == "encrypted-session"
+    assert set((await registry.repository.read()).jobs[0].model_dump()) == {
+        "item", "account_digest", "credential_ciphertext", "session_ciphertext", "cleanup_pending",
+        "login_submitted", "verification_started",
+    }
+    before_retry = caplog.text
+    await runner.run_once()
+    assert (await registry.view()).jobs[0].message == blocked[0].message
+    assert caplog.text == before_retry
+
+    faults.clear()
+    await runner.run_once()
+    recovered = (await registry.view()).jobs
+    assert recovered[0].stage == "failed" and recovered[0].message == "登录未完成"
+    assert recovered[1].stage == "queued"
+    assert (await environments.get(card.id)).oauth_automation_operation is None
+    assert (await registry.repository.read()).jobs[0].session_ciphertext is None
+    assert finished.item.browser_session_id in removals
+    assert isinstance(await registry.delete_job(finished.item.id), Success)

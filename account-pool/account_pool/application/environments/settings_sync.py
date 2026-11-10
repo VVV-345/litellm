@@ -24,6 +24,7 @@ from account_pool.domain import (
     EnvironmentRecord,
     EnvironmentStatus,
     ProxyMode,
+    configured_models,
     configured_proxy_url,
     utc_now,
 )
@@ -213,7 +214,7 @@ class EnvironmentSettingsSync:
             manual_cooldown=snapshot.manual_cooldown,
             proxy_mode=snapshot.proxy_mode,
             proxy_profile_id=snapshot.proxy_profile_id,
-            enabled_models=snapshot.enabled_models,
+            enabled_models=configured_models(snapshot),
             proxy_url=proxy_url,
             credential_enabled=(
                 previous.credential_enabled

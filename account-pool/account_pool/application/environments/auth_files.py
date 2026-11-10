@@ -29,6 +29,7 @@ from account_pool.domain import (
     EnvironmentView,
     QuotaSnapshot,
     configuration_from_record,
+    configured_models,
     to_view,
     uses_codex_model_catalog,
     utc_now,
@@ -165,7 +166,16 @@ class EnvironmentAuthFiles:
             }
         )
         initial_desired: Final = completed.desired_configuration or configuration_from_record(completed)
-        desired: Final = initial_desired.model_copy(update={"enabled_models": completed.enabled_models})
+        first_catalog: Final = (
+            not record.available_models and record.model_selection is None and not configured_models(record)
+        )
+        desired: Final = initial_desired.model_copy(update={
+            "enabled_models": (
+                configured_models(record)
+                if uses_codex_model_catalog(record) and not first_catalog
+                else completed.enabled_models
+            ),
+        })
         pending: Final = completed.model_copy(
             update={
                 "configuration_pending": True,

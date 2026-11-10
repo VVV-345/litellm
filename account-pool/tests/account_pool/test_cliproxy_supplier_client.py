@@ -1523,6 +1523,38 @@ async def test_global_settings_do_not_overlap_configuration_writes() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("supplier_key", ("codex", "claude"))
+async def test_global_settings_preserve_card_model_exclusions(supplier_key: str) -> None:
+    original: Final = _record().model_copy(update={
+        "supplier": SupplierKind.OPENAI_CODEX if supplier_key == "codex" else SupplierKind.ANTHROPIC_CLAUDE,
+        "auth_file_name": "card.json",
+        "available_models": ("model-a", "model-b", "model-unregistered"),
+        "enabled_models": ("model-a", "model-unregistered"),
+    })
+    record: Final = original.model_copy(update={
+        "desired_configuration": configuration_from_record(original),
+        "enabled_models": ("model-a",) if supplier_key == "codex" else original.enabled_models,
+    })
+    written: list[dict[str, list[str]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("oauth-excluded-models"):
+            assert request.method == "PUT"
+            written.append(json.loads(request.content))
+        return httpx.Response(204)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        proxy: Final = HttpCLIProxyClient(EnvironmentSecretDeriver("s" * 32), client=http)
+        sync: Final = CLIProxySettingsSynchronizer(proxy)
+        await sync.apply_global_settings(record, AccountPoolSettings(oauth_excluded_models=("global-*", "model-b")))
+        await sync.apply_global_settings(record, AccountPoolSettings())
+
+    assert written[0][supplier_key] == ["global-*", "model-b"]
+    assert written[1][supplier_key] == ["model-b"]
+    assert all(value == [] for key, value in written[1].items() if key != supplier_key)
+
+
+@pytest.mark.asyncio
 async def test_apply_global_settings_syncs_oauth_maps_for_all_suppliers() -> None:
     record: Final = _record()
     requests: list[httpx.Request] = []

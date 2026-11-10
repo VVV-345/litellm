@@ -109,7 +109,7 @@ class EnvironmentAuthorization:
             fallback: Final = record.access_token_fallback
             now: Final = utc_now()
             # 在锁内保护已经验证的降级凭据，避免旧页面请求清掉仍可用的绑定。
-            if any(fallback.usable_for(model, now) for model in fallback.verified_models):
+            if any(fallback.usable_for(model, now) for model in record.enabled_models):
                 return Failure(FailureCode.CONFLICT, "访问令牌降级仍可用，未启动重新授权")
             blocked: Final = record.model_copy(
                 update={

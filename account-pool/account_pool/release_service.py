@@ -68,6 +68,7 @@ class ReleaseRuntime(Protocol):
     def is_additive_manager_schema_upgrade(self, current: ReleasePair, target: ReleasePair) -> bool: ...
     def evidence(self, pair: ReleasePair) -> RollbackEvidence: ...
     def load(self, pair: ReleasePair, archive: Path) -> None: ...
+    def preflight_apply(self, pair: ReleasePair) -> None: ...
     def apply(self, pair: ReleasePair, configuration: bytes) -> None: ...
     def pull(self, tag: str) -> ReleasePair: ...
     def pull_candidate(self, candidate: ReleaseCandidate) -> ReleasePair: ...
@@ -609,9 +610,7 @@ class ReleaseService:
         return updated
 
     def restore(self, backup: ReleaseBackup) -> None:
-        directory: Final = self.verify(backup)
-        self.runtime.load(backup.pair, directory / "images.tar.gz")
-        self.runtime.apply(backup.pair, (directory / "compose.json").read_bytes())
+        self._restore_recovery(backup, None)
 
     def run(self, job: ReleaseJob) -> None:
         active: Final = self.store.start_job(job)
@@ -758,6 +757,7 @@ class ReleaseService:
         if recovery_startup.status != "compatible":
             raise ReleaseError("当前 Manager 不能作为安全恢复目标；请先准备并核验安全恢复版本。" + recovery_startup.detail)
         target, configuration = self._target(job, current)
+        self.runtime.preflight_apply(target)
         startup: Final = self.runtime.manager_startup_check(target)
         if startup.status != "compatible":
             raise ReleaseError(startup.detail)
@@ -872,13 +872,16 @@ class ReleaseService:
             if backup is None:
                 raise ReleaseError("恢复点不存在")
             self._restore_recovery(backup, job.database_recovery)
-        except Exception:  # noqa: BLE001  # 自动恢复失败后保留恢复点，交由服务器命令继续处理。
+        except Exception as error:  # noqa: BLE001  # 自动恢复失败后保留恢复点，交由服务器命令继续处理。
+            detail: Final = (
+                str(error) if isinstance(error, ReleaseError) else "恢复执行失败，未显示可能包含凭据的底层错误"
+            )
             self.store.save_job(
                 job.model_copy(
                     update={
                         "status": "failed",
                         "phase": "需要人工恢复",
-                        "message": message + "；自动恢复失败，请使用服务器恢复入口",
+                        "message": message + "；自动恢复失败：" + detail + "；请使用服务器恢复入口",
                         "updated_at": time.time(),
                     }
                 )
@@ -903,7 +906,7 @@ class ReleaseService:
             if job.phase == "暂停业务并备份数据库":
                 self._resume_database_backup(job, "备份中断，数据库未被恢复")
             elif job.recovery_id and job.phase in ("替换服务并检查健康", "恢复原运行版本", "恢复数据库"):
-                self._recover(job, "部署管理服务重启，已恢复操作前版本")
+                self._recover(job, "部署管理服务重启，尝试恢复操作前版本")
             else:
                 self.store.save_job(
                     job.model_copy(
@@ -912,12 +915,20 @@ class ReleaseService:
                 )
 
     def _restore_recovery(self, backup: ReleaseBackup, snapshot: DatabaseSnapshot | None) -> None:
+        self.runtime.preflight_apply(backup.pair)
+        directory: Final = self.verify(backup)
+        configuration: Final = (directory / "compose.json").read_bytes()
+        self.runtime.load(backup.pair, directory / "images.tar.gz")
+        startup: Final = self.runtime.manager_startup_check(backup.pair)
+        if startup.status != "compatible":
+            raise ReleaseError(startup.detail)
         if snapshot is not None:
             if self.database is None:
                 raise ReleaseError("恢复需要重新启用数据库备份配置")
+            self.database.verify(self.store.path(snapshot.version_id), snapshot)
             self.database.stop()
             self.database.restore(self.store.path(snapshot.version_id), snapshot)
-        self.restore(backup)
+        self.runtime.apply(backup.pair, configuration)
 
     def _resume_database_backup(self, job: ReleaseJob, message: str) -> None:
         try:

@@ -714,12 +714,15 @@ class DockerReleaseRuntime:
             if self.inspect_image(image.image_id, image.service).revision != pair.commit:
                 raise ReleaseError("导入镜像与备份记录不一致")
 
-    def apply(self, pair: ReleasePair, configuration: bytes) -> None:
+    def preflight_apply(self, pair: ReleasePair) -> None:
         marker: Final = self.settings.root / "card-rollout-active.json"
         if marker.exists():
             pending: Final = TypeAdapter(dict[str, str]).validate_json(marker.read_bytes())
             if pending.get("release_id") != pair.commit:
                 raise ReleaseError("逐卡发布尚未完成，不能切换其他 Manager 版本；请先续跑原目标")
+
+    def apply(self, pair: ReleasePair, configuration: bytes) -> None:
+        self.preflight_apply(pair)
         startup: Final = self.manager_startup_check(pair)
         if startup.status != "compatible":
             raise ReleaseError(startup.detail)

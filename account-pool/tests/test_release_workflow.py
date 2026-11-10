@@ -1,5 +1,6 @@
 """本文件验证发布流水线将正式镜像和 Git tag 限定在构建成功之后。"""
 
+import shlex
 from pathlib import Path
 from typing import Final, cast
 
@@ -222,3 +223,34 @@ def test_browser_worker_probe_runs_the_installed_browser_offline() -> None:
     commands: Final = TypeAdapter(str).validate_python(probe["run"])
     assert 'browser-worker) docker run --rm --network none "$ref" self-check ;;' in commands
     assert "chromium.launch" not in commands
+
+
+def test_model_catalog_and_authorization_regressions_gate_image_publication() -> None:
+    root: Final = Path(__file__).resolve().parents[2]
+    workflow: Final = JSON_MAP.validate_python(yaml.load(
+        (root / ".github/workflows/publish-deployment-images.yml").read_text(encoding="utf-8"), Loader=yaml.BaseLoader,
+    ))
+    jobs: Final = JSON_MAP.validate_python(workflow["jobs"])
+    verify: Final = JSON_MAP.validate_python(jobs["verify-quota"])
+    commands: Final = "\n".join(
+        TypeAdapter(str).validate_python(step.get("run", "")) for step in STEP_LIST.validate_python(verify["steps"])
+    )
+    for test in (
+        "account-pool/tests/account_pool/test_contracts.py",
+        "account-pool/tests/account_pool/test_oauth_automation.py",
+        "account-pool/tests/account_pool/test_cliproxy_supplier_client.py",
+        "RuntimeConfigDialog.integration.test.tsx",
+        "RuntimePolicyDialog.integration.test.tsx",
+        "account-pool/page.integration.test.tsx",
+        "src/app/(dashboard)/layout.test.tsx",
+        "AccountPoolApi.test.ts",
+        "AccountPoolFormatters.test.ts",
+    ):
+        assert test in commands
+    for path in shlex.split(commands):
+        if path.startswith(("account-pool/tests/", "src/")) and path.endswith((".py", ".ts", ".tsx")):
+            base: Final = root / "ui/litellm-dashboard" if path.startswith("src/") else root
+            assert (base / path).is_file(), path
+    dockerfile: Final = (root / "account-pool/cliproxy-adapter/Dockerfile").read_text(encoding="utf-8")
+    assert "go test -mod=readonly ./internal/api/handlers/management -run '^TestCodexModelCatalog' -count=1" in dockerfile
+    assert dockerfile.index("go test") < dockerfile.index("go build")

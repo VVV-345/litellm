@@ -53,6 +53,7 @@ from account_pool.domain import (
     QuotaWindow,
     SupplierKind,
     UpdateEnvironmentRequest,
+    configuration_from_record,
     utc_now,
 )
 from account_pool.error_logs import ErrorLogRecord, ErrorLogService
@@ -875,6 +876,52 @@ async def test_upload_auth_file_binds_credential_and_clears_pending_oauth_sessio
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("selection", (("gpt-5", "gpt-5-mini"), ()))
+@pytest.mark.parametrize("selection_source", ("configuration", "selection", "legacy"))
+async def test_upload_auth_file_preserves_configured_models(
+    tmp_path: Path, selection: tuple[str, ...], selection_source: str
+) -> None:
+    original: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "available_models": ("gpt-5", "gpt-5-mini"),
+            "model_selection": selection if selection_source != "legacy" else None,
+            "enabled_models": selection if selection_source == "legacy" else ("gpt-5",),
+        }
+    )
+    record: Final = original.model_copy(update={
+        "desired_configuration": configuration_from_record(original) if selection_source == "configuration" else None,
+    })
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service.upload_auth_file(
+        record.id, "replacement.json", b'{"refresh_token":"test-replacement"}', "application/json", replace=True
+    )
+
+    assert isinstance(result, Success)
+    assert result.value.configured_models == selection
+    assert cli.configuration_calls[-1][1].enabled_models == selection
+
+
+@pytest.mark.asyncio
+async def test_first_auth_file_upload_initializes_models_after_pre_authorization_settings(tmp_path: Path) -> None:
+    original: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"available_models": (), "enabled_models": ()}
+    )
+    record: Final = original.model_copy(update={"desired_configuration": configuration_from_record(original)})
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service.upload_auth_file(
+        record.id, "initial.json", b'{"refresh_token":"test-initial"}', "application/json"
+    )
+
+    assert isinstance(result, Success)
+    assert result.value.configured_models == ("gpt-5",)
+    assert cli.configuration_calls[-1][1].enabled_models == ("gpt-5",)
+
+
+@pytest.mark.asyncio
 async def test_upload_auth_file_reports_validation_failure_without_claiming_success(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
     cli: Final = FakeCLIProxy(read_error=RuntimeError("invalid access_token=secret-value"))
@@ -1334,8 +1381,14 @@ async def test_named_profiles_restore_the_original_card_configuration_after_unbi
 
 
 @pytest.mark.asyncio
-async def test_global_settings_partial_failure_restores_all_changed_card_configurations(tmp_path: Path) -> None:
-    first: Final = _record(status=EnvironmentStatus.READY)
+@pytest.mark.parametrize("selection", (("gpt-5",), ("gpt-5", "gpt-5-mini"), ()))
+async def test_global_settings_partial_failure_restores_all_changed_card_configurations(
+    tmp_path: Path, selection: tuple[str, ...]
+) -> None:
+    original: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"available_models": ("gpt-5", "gpt-5-mini"), "model_selection": selection}
+    )
+    first: Final = original.model_copy(update={"desired_configuration": configuration_from_record(original)})
     second: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"concurrency_limit": 4})
     repository: Final = MemoryRepository(first)
     await repository.save(second)
@@ -1378,6 +1431,8 @@ async def test_global_settings_partial_failure_restores_all_changed_card_configu
     restored_second: Final = await repository.get(second.id)
     assert restored_first is not None
     assert restored_second is not None
+    assert restored_first.desired_configuration is not None
+    assert restored_first.desired_configuration.enabled_models == selection
     assert (restored_first.concurrency_limit, restored_first.proxy_mode, restored_first.proxy_profile_id) == (
         2,
         ProxyMode.DEFAULT_GATEWAY,
@@ -3621,6 +3676,29 @@ async def test_authorize_environment_refreshes_recoverable_environment_without_p
     assert str(result.value.authorization_url).startswith("https://example.com/oauth?state=")
     assert "state-for-test-1234" not in str(result.value.authorization_url)
     assert runtime.provisioned == []
+
+
+@pytest.mark.asyncio
+async def test_reauthorize_allows_recovery_when_verified_models_are_not_enabled(tmp_path: Path) -> None:
+    fallback: Final = AccessTokenFallbackStatus(
+        enabled=True,
+        active=True,
+        reason="temporary_access",
+        expires_at=utc_now() + timedelta(minutes=5),
+        verified_models=("gpt-5",),
+        failure_source="refresh",
+    )
+    record: Final = _record(status=EnvironmentStatus.COOLING_DOWN).model_copy(
+        update={"access_token_fallback": fallback, "enabled_models": ("gpt-5-mini",)}
+    )
+    cli: Final = FakeCLIProxy()
+    service: Final = _service(record, cli, tmp_path)
+
+    result: Final = await service.authorize_environment(record.id, "manual-reauth")
+
+    assert isinstance(result, Success)
+    assert result.value.environment.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert cli.events.count("oauth") == 1
 
 
 @pytest.mark.asyncio
