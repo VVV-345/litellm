@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import userEvent from "@testing-library/user-event";
 import { render, screen, waitFor } from "@testing-library/react";
@@ -39,7 +40,7 @@ const defaultProps = {
   endDate: "2026-07-24",
 };
 
-function renderDetail(props: Partial<typeof defaultProps> = {}) {
+function renderDetail(props: Partial<React.ComponentProps<typeof GuardrailDetail>> = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<GuardrailDetail {...defaultProps} {...props} />, {
     wrapper: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
@@ -47,7 +48,8 @@ function renderDetail(props: Partial<typeof defaultProps> = {}) {
 }
 
 describe("GuardrailDetail", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     mockGetGuardrailsUsageDetail.mockResolvedValue(detail);
     mockGetGuardrailsUsageLogs.mockResolvedValue({ logs: [], total: 0 });

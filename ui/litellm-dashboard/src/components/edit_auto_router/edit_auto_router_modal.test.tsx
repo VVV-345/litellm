@@ -4,11 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, renderWithProviders, screen, waitFor, within } from "@/../tests/test-utils";
 
 import { toast } from "@/lib/toast";
+import i18n from "@/i18n";
 import EditAutoRouterModal from "./edit_auto_router_modal";
+
 vi.mock(
   "@/app/(dashboard)/hooks/autoRouter/useComplexityScorerDefaults",
   async () => await import("../../../tests/mocks/complexityScorerDefaults"),
 );
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const { modelPatchUpdateCall, modelAvailableCall, getAutoRouterClassifierDefaultPromptCall, validateAutoRouterConfig } =
   vi.hoisted(() => ({

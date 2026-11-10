@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import type { useComplexityScorerDefaults as useScorerDefaults } from "@/app/(dashboard)/hooks/autoRouter/useComplexityScorerDefaults";
 import type { ComplexityScorerDefaults } from "@/components/networking";
 
 /**
@@ -30,4 +31,6 @@ export const LOADED_SCORER_DEFAULTS_QUERY = {
   refetch: vi.fn(),
 };
 
-export const useComplexityScorerDefaults = vi.fn(() => LOADED_SCORER_DEFAULTS_QUERY);
+type ScorerDefaultsQuery = Pick<ReturnType<typeof useScorerDefaults>, "data" | "isPending" | "isError" | "refetch">;
+
+export const useComplexityScorerDefaults = vi.fn<() => ScorerDefaultsQuery>(() => LOADED_SCORER_DEFAULTS_QUERY);

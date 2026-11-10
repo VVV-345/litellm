@@ -111,6 +111,8 @@ describe("TeamMembersComponent", () => {
       isAuthorized: true,
       userId: "test-user-id",
       userRole: "Admin",
+      userRoleLabel: "Admin",
+      isViewOnly: false,
       accessToken: "test-token",
       token: "test-token",
       userEmail: "test@example.com",

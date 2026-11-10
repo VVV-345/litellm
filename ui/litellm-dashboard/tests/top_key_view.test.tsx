@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders, screen, fireEvent } from "./test-utils";
 import TopKeyView from "../src/components/UsagePage/components/EntityUsage/TopKeyView";
@@ -28,6 +29,8 @@ describe("TopKeyView", () => {
     teams: null,
     premiumUser: true,
     showTags: false,
+    topKeysLimit: 5,
+    setTopKeysLimit: vi.fn(),
   };
 
   const mockKeysWithTags = [
@@ -62,14 +65,19 @@ describe("TopKeyView", () => {
     },
   ];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    await i18n.changeLanguage("en");
     mockUseAuthorized.mockReturnValue({
       token: "mock-token",
       accessToken: mockProps.accessToken,
       userId: mockProps.userID,
       userEmail: "test@example.com",
       userRole: mockProps.userRole,
+      userRoleLabel: "Admin",
+      isViewOnly: false,
+      isLoading: false,
+      isAuthorized: true,
       premiumUser: mockProps.premiumUser,
       disabledPersonalKeyCreation: false,
       showSSOBanner: false,

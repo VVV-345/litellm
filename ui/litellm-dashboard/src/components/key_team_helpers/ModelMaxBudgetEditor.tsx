@@ -64,7 +64,9 @@ export const entriesToModelMaxBudget = (entries: readonly ModelBudgetEntry[]): M
       ]),
   );
 
-export const modelMaxBudgetToEntries = (budget: ModelMaxBudget | null | undefined): ModelBudgetEntry[] =>
+export const modelMaxBudgetToEntries = (
+  budget: Readonly<Record<string, Readonly<Record<string, unknown>> | null | undefined>> | null | undefined,
+): ModelBudgetEntry[] =>
   Object.entries(budget ?? {}).map(([model, config], index) => ({
     id: `existing-${index}`,
     model,

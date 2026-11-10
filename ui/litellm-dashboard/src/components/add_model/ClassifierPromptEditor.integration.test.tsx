@@ -2,6 +2,7 @@ import type { Mock } from "vitest";
 import { fireEvent, renderWithProviders, screen } from "../../../tests/test-utils";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
+import i18n from "@/i18n";
 import ClassifierPromptEditor from "./ClassifierPromptEditor";
 import { ClassificationRubric } from "./ComplexityRouterConfig";
 vi.mock(
@@ -20,7 +21,8 @@ vi.mock("@/components/networking", () => ({
 
 const DEFAULT_PROMPT = "Classify the complexity of a user request into exactly one tier. Tiers: SIMPLE ...";
 
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
   getDefaultPrompt.mockReset();
   getDefaultPrompt.mockResolvedValue(DEFAULT_PROMPT);
 });

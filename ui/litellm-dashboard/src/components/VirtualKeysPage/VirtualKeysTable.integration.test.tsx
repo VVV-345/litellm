@@ -93,6 +93,7 @@ const mockKey: KeyResponse = {
   token_id: "key-1",
   key_name: "test-key",
   key_alias: "Test Key Alias",
+  key_type: "default",
   spend: 5.5,
   max_budget: 100,
   expires: "2999-12-31T23:59:59Z",
@@ -113,7 +114,10 @@ const mockKey: KeyResponse = {
   allowed_routes: [],
   permissions: {},
   model_spend: { "gpt-3.5-turbo": 2.5, "gpt-4": 3.0 },
-  model_max_budget: { "gpt-3.5-turbo": 50, "gpt-4": 50 },
+  model_max_budget: {
+    "gpt-3.5-turbo": { budget_limit: 50, time_period: "30d" },
+    "gpt-4": { budget_limit: 50, time_period: "30d" },
+  },
   soft_budget_cooldown: false,
   blocked: false,
   litellm_budget_table: {},
@@ -435,7 +439,9 @@ it("refreshes the key list after saving settings without changing the key identi
   fireEvent.change(screen.getByLabelText("Key Alias"), { target: { value: "Saved key alias" } });
   fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
-  await waitFor(() => expect(keyUpdateCall).toHaveBeenCalledWith("test-token", expect.objectContaining({ key_alias: "Saved key alias" })));
+  await waitFor(() =>
+    expect(keyUpdateCall).toHaveBeenCalledWith("test-token", expect.objectContaining({ key_alias: "Saved key alias" })),
+  );
   expect(screen.getByRole("heading", { name: "Saved key alias" })).toBeVisible();
   expect(refetch).toHaveBeenCalledOnce();
 });

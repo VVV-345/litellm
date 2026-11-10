@@ -107,7 +107,15 @@ vi.mock("@/app/(dashboard)/hooks/tags/useTags", () => ({
   }),
 }));
 
-const mockAuthorizedUser = (userRole: string, userId: string, premiumUser: boolean) => ({
+const mockAuthorizedUser = (
+  userRole: string,
+  userId: string,
+  premiumUser: boolean,
+): ReturnType<typeof import("@/app/(dashboard)/hooks/useAuthorized").default> => ({
+  isLoading: false,
+  isAuthorized: true,
+  userRoleLabel: userRole,
+  isViewOnly: false,
   token: "test-token",
   accessToken: "test-access-token",
   userId,
@@ -122,6 +130,7 @@ const testTeam: Team = {
   team_id: "team-1",
   team_alias: "Test Team",
   models: ["gpt-4"],
+  spend: 0,
   max_budget: 100,
   budget_duration: "monthly",
   tpm_limit: null,

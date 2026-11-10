@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import React from "react";
@@ -147,7 +148,8 @@ const renderTab = () => {
 };
 
 describe("AutoRouterBenchmarksTab", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     mockAutoRouters();
   });
 
@@ -188,7 +190,7 @@ describe("AutoRouterBenchmarksTab", () => {
     mockHook({ data: response([group(), group({ router_name: "gpt-auto" })]) });
     renderTab();
 
-    const tile = screen.getByText("Avg saved per session").closest('[data-slot="card"]');
+    const tile = screen.getByText("Avg saved per session").closest<HTMLElement>('[data-slot="card"]');
     if (!tile) throw new Error("expected avg saved per session to render as a metric tile");
 
     expect(within(tile).getByText("$23.13")).toBeInTheDocument();

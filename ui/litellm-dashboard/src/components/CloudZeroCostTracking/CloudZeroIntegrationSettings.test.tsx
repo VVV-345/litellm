@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,14 +29,15 @@ vi.mock("@/app/(dashboard)/hooks/cloudzero/useCloudZeroExport", () => ({
 
 describe("CloudZeroIntegrationSettings", () => {
   let queryClient: QueryClient;
-  const mockSettings: CloudZeroSettings = {
+  const mockSettings = {
     connection_id: "test-connection-id",
     api_key_masked: "****",
     timezone: "UTC",
     status: "Active",
-  };
+  } satisfies CloudZeroSettings;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },

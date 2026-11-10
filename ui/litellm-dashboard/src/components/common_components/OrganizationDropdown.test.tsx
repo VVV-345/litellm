@@ -15,6 +15,11 @@ const MOCK_ORGS = [
     created_at: "",
     created_by: "",
     updated_at: "",
+    updated_by: "",
+    litellm_budget_table: null,
+    teams: null,
+    users: null,
+    members: null,
   },
   {
     organization_id: "org-2",
@@ -27,6 +32,11 @@ const MOCK_ORGS = [
     created_at: "",
     created_by: "",
     updated_at: "",
+    updated_by: "",
+    litellm_budget_table: null,
+    teams: null,
+    users: null,
+    members: null,
   },
 ];
 

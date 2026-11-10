@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import * as useAuthorizedModule from "@/app/(dashboard)/hooks/useAuthorized";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -107,6 +108,8 @@ const MOCK_AUTHORIZED = {
   userId: "user-123",
   userEmail: "test@example.com",
   userRole: "Admin",
+  userRoleLabel: "Admin",
+  isViewOnly: false,
   premiumUser: true,
   disabledPersonalKeyCreation: false,
   showSSOBanner: false,
@@ -126,7 +129,8 @@ const defaultProps = {
 };
 
 describe("AllModelsTab", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     modelsInfoCalls.length = 0;
     setModelsInfo([makeRow()]);

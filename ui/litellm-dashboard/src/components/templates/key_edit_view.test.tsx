@@ -1,6 +1,7 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
 import { renderWithProviders } from "../../../tests/test-utils";
 import { KeyResponse } from "../key_team_helpers/key_list";
 import { MODEL_MAX_BUDGET_PREMIUM_HINT } from "../key_team_helpers/ModelMaxBudgetEditor";
@@ -153,6 +154,10 @@ const optionByContent = (label: string): HTMLElement | undefined =>
   visibleOptions().find((el) => el.textContent === label);
 
 describe("KeyEditView", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
+  });
+
   const MOCK_KEY_DATA: KeyResponse = {
     token: "test-token-123",
     token_id: "test-token-123",
@@ -221,6 +226,9 @@ describe("KeyEditView", () => {
     rotation_interval: undefined,
     last_rotation_at: undefined,
     key_rotation_at: undefined,
+    project_id: null,
+    key_type: null,
+    last_active: null,
   };
   describe("router settings", () => {
     const UNSUPPORTED_STORED_FIELD = { tag_routing_prefix: "team-" };

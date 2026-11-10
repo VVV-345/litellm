@@ -40,7 +40,7 @@ const RUNS: FakeRun[] = [
 ];
 
 function mockFetch(runs: FakeRun[]) {
-  return vi.fn((url: string) => {
+  return vi.fn((url: string, _init: RequestInit) => {
     if (url.includes("/runs?limit")) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ runs }) });
     }
@@ -96,7 +96,7 @@ describe("WorkflowRuns (migrated onto shared DataTable)", () => {
     await user.click(await screen.findByText("First run"));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(3));
-    for (const [url, init] of fetchSpy.mock.calls as [string, RequestInit][]) {
+    for (const [url, init] of fetchSpy.mock.calls) {
       expect(init.headers, url).toEqual({ "x-litellm-api-key": "Bearer tok" });
     }
   });

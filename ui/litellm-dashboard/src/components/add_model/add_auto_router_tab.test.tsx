@@ -10,10 +10,16 @@ import { buildModelAvailability } from "@/lib/autorouter_presets";
 import { testAutoRouterRouting } from "../networking";
 import { ModelGroup } from "@/components/llm_calls/fetch_models";
 import { getAllPresets, getPresetByKey, getRequiredModelsInPreset } from "@/lib/autorouter_presets";
+import i18n from "@/i18n";
+
 vi.mock(
   "@/app/(dashboard)/hooks/autoRouter/useComplexityScorerDefaults",
   async () => await import("../../../tests/mocks/complexityScorerDefaults"),
 );
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const ANTHROPIC_PRESET = getPresetByKey("anthropic_family")!;
 const ANTHROPIC_TIERS = ANTHROPIC_PRESET.complexity_router_config.tiers;

@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,14 +67,15 @@ describe("TagManagement loading state", () => {
 });
 
 describe("TagManagement delete flow", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     mockTagListCall.mockResolvedValue({});
   });
 
   it("should confirm deletion through the shared DeleteResourceModal and call tagDeleteCall with the tag name", async () => {
     const user = userEvent.setup();
-    mockTagDeleteCall.mockResolvedValue({});
+    mockTagDeleteCall.mockResolvedValue(undefined);
     render(<TagManagement accessToken="sk-test" userID="user-1" userRole="Admin" />);
     await screen.findByText("table-loaded");
 

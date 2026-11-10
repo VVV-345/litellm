@@ -69,10 +69,13 @@ describe("AgentControlPlaneView iframe", () => {
     pluginModeValue.activePlugin = { name: "reports-plugin", display_name: "Reports", url: "http://localhost:3300" };
     render(<AgentControlPlaneView />);
 
-    await waitFor(() => expect(getMock).toHaveBeenCalled());
-    const [path, opts] = getMock.mock.calls[0];
-    expect(path).toBe("/api/plugins/auth-token");
-    expect(opts.query).toEqual({ plugin_name: "reports-plugin" });
+    await waitFor(() =>
+      expect(getMock).toHaveBeenNthCalledWith(
+        1,
+        "/api/plugins/auth-token",
+        expect.objectContaining({ query: { plugin_name: "reports-plugin" } }),
+      ),
+    );
 
     pluginModeValue.activePlugin = {
       name: "litellm-platform-plugin",

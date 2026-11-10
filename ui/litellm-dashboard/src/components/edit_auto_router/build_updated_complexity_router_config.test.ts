@@ -8,14 +8,15 @@ import {
 } from "./edit_auto_router_modal";
 
 // The custom-tier router these cases round-trip, so a variant differs only by what it overrides.
-const storedCustomConfig = (overrides: Record<string, unknown> = {}) => ({
-  tiers: { CASUAL: ["gpt-4o-mini"], AUDIT: ["o1"] },
+const customTiers: Record<string, string[]> = { CASUAL: ["gpt-4o-mini"], AUDIT: ["o1"] };
+const storedCustomConfig = (overrides: { classification_prompt?: string } = {}) => ({
+  tiers: customTiers,
   tier_definitions: [
     { name: "CASUAL", description: "small talk" },
     { name: "AUDIT", description: "security review" },
   ],
   fallback_tier: "CASUAL",
-  classifier_type: "llm",
+  classifier_type: "llm" as const,
   classifier_llm_config: { model: "gpt-4o-mini", timeout_ms: 3000 },
   ...overrides,
 });

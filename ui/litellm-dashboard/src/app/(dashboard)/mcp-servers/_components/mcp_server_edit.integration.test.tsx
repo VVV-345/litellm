@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, act } from "@testing-library/react";
@@ -324,7 +325,8 @@ const saveAndCapture = async (server: MCPServer): Promise<Record<string, unknown
 };
 
 describe("mcp_server_edit save payload contract", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
   });
 
@@ -334,7 +336,7 @@ describe("mcp_server_edit save payload contract", () => {
   });
 
   it("never sends a server-owned field the form does not bind", async () => {
-    const payload = await saveAndCapture({
+    const server: MCPServer = {
       ...BASE,
       status: "healthy",
       last_health_check: "2024-01-02T00:00:00Z",
@@ -342,12 +344,13 @@ describe("mcp_server_edit save payload contract", () => {
       teams: [{ team_id: "t1" }],
       allowed_tools: ["a"],
       has_user_credential: true,
-      approval_status: "approved",
+      approval_status: "active",
       submitted_by: "someone",
       submitted_at: "2024-01-01T00:00:00Z",
       reviewed_at: "2024-01-02T00:00:00Z",
       review_notes: "looks fine",
-    } as MCPServer);
+    };
+    const payload = await saveAndCapture(server);
 
     for (const leaked of [
       "created_at",

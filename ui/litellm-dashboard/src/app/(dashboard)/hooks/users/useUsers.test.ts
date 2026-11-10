@@ -49,6 +49,7 @@ const buildUserListResponse = (page: number, totalPages: number, userCount = 2):
     spend: 0,
     max_budget: null,
     key_count: 0,
+    models: [],
     created_at: "2024-01-01T00:00:00Z",
     updated_at: "2024-01-01T00:00:00Z",
     sso_user_id: null,

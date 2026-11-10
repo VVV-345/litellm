@@ -2,12 +2,15 @@ import { fireEvent, renderWithProviders, screen } from "../../../tests/test-util
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import i18next from "@/i18n";
-import { useComplexityScorerDefaults } from "@/app/(dashboard)/hooks/autoRouter/useComplexityScorerDefaults";
 import ClassificationMethodConfig from "./ClassificationMethodConfig";
 import HeuristicScoringConfig from "./HeuristicScoringConfig";
 import { ClassifierFallback, ClassifierType, ComplexityRouterConfigValue } from "./ComplexityRouterConfig";
 import { DIMENSION_LABELS } from "./heuristic_scoring_knobs";
-import { LOADED_SCORER_DEFAULTS_QUERY, SHIPPED_SCORER_DEFAULTS } from "../../../tests/mocks/complexityScorerDefaults";
+import {
+  LOADED_SCORER_DEFAULTS_QUERY,
+  SHIPPED_SCORER_DEFAULTS,
+  useComplexityScorerDefaults,
+} from "../../../tests/mocks/complexityScorerDefaults";
 
 vi.mock(
   "@/app/(dashboard)/hooks/autoRouter/useComplexityScorerDefaults",
@@ -217,13 +220,16 @@ describe("HeuristicScoringConfig when the defaults request fails", () => {
   const failing = { data: undefined, isPending: false, isError: true, refetch: vi.fn() };
   const pending = { data: undefined, isPending: true, isError: false, refetch: vi.fn() };
 
-  const renderWithQuery = async (query: unknown, value: ComplexityRouterConfigValue) => {
-    vi.mocked(useComplexityScorerDefaults).mockReturnValue(query as never);
+  const renderWithQuery = async (
+    query: ReturnType<typeof useComplexityScorerDefaults>,
+    value: ComplexityRouterConfigValue,
+  ) => {
+    useComplexityScorerDefaults.mockReturnValue(query);
     renderWithProviders(<HeuristicScoringConfig value={value} onChange={vi.fn()} />);
     await userEvent.click(screen.getByText("Advanced scoring"));
   };
 
-  afterEach(() => vi.mocked(useComplexityScorerDefaults).mockReturnValue(LOADED_SCORER_DEFAULTS_QUERY));
+  afterEach(() => useComplexityScorerDefaults.mockReturnValue(LOADED_SCORER_DEFAULTS_QUERY));
 
   it("says so instead of claiming to still be loading", async () => {
     await renderWithQuery(failing, BASE);
@@ -249,15 +255,16 @@ describe("HeuristicScoringConfig when the defaults request fails", () => {
 });
 
 describe("HeuristicScoringConfig degraded states", () => {
-  afterEach(() => vi.mocked(useComplexityScorerDefaults).mockReturnValue(LOADED_SCORER_DEFAULTS_QUERY));
+  afterEach(() => useComplexityScorerDefaults.mockReturnValue(LOADED_SCORER_DEFAULTS_QUERY));
 
   it("states no weight total when the dimension set is unknown, rather than one built from overrides alone", async () => {
-    vi.mocked(useComplexityScorerDefaults).mockReturnValue({
+    const failedQuery = {
       data: undefined,
       isPending: false,
       isError: true,
       refetch: vi.fn(),
-    } as never);
+    };
+    useComplexityScorerDefaults.mockReturnValue(failedQuery);
     renderWithProviders(
       <HeuristicScoringConfig value={{ ...BASE, dimension_weights: { codePresence: 0.5 } }} onChange={vi.fn()} />,
     );

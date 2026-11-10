@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -95,7 +96,7 @@ const DEPLOYMENTS = [
   },
 ];
 
-const pageOf = (data: typeof DEPLOYMENTS) => ({
+const pageOf = <Deployment,>(data: Deployment[]) => ({
   data,
   total_count: data.length,
   current_page: 1,
@@ -146,7 +147,8 @@ const renderPanel = (canModify = true) =>
   );
 
 describe("AutoRoutersPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     // The shared test client caches with staleTime: Infinity and refetchOnMount: false, so
     // without this every test after the first reads the previous test's deployment page.
     testQueryClient.clear();

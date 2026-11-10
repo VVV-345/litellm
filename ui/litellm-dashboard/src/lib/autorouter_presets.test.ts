@@ -664,6 +664,8 @@ describe("autorouter_presets", () => {
           ],
         },
         classifier_type: "heuristic" as const,
+        session_affinity: false,
+        deployment_affinity: true,
       };
       const prefill = buildPresetPrefill(config, groupsOnly(["claude-sonnet-4.5"]));
       // temperature survives from the spelling that would otherwise have been overwritten;

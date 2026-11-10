@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderWithProviders } from "@/../tests/test-utils";
 import { screen, fireEvent } from "@testing-library/react";
@@ -46,6 +47,10 @@ const pendingSubmission = {
 };
 
 const baseAuth = {
+  isLoading: false,
+  isAuthorized: true,
+  userRoleLabel: "",
+  isViewOnly: false,
   token: "test-token",
   accessToken: "test-token",
   userId: "user-1",
@@ -58,7 +63,8 @@ const baseAuth = {
 describe("TeamGuardrailsTab — approve/reject role gate", () => {
   const mockUseAuthorized = vi.mocked(useAuthorized);
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
     vi.mocked(listGuardrailSubmissions).mockResolvedValue({
       submissions: [pendingSubmission],
@@ -77,7 +83,7 @@ describe("TeamGuardrailsTab — approve/reject role gate", () => {
   });
 
   it("hides Approve and Reject buttons for an Admin Viewer, whom the backend rejects with 403", async () => {
-    mockUseAuthorized.mockReturnValue({ ...baseAuth, userRole: "Admin Viewer" });
+    mockUseAuthorized.mockReturnValue({ ...baseAuth, userRole: "Admin Viewer", isViewOnly: true });
     renderWithProviders(<TeamGuardrailsTab accessToken="test-token" />);
 
     await screen.findByText("test-pending-guardrail");
@@ -96,8 +102,8 @@ describe("TeamGuardrailsTab — approve/reject role gate", () => {
     expect(screen.getByRole("button", { name: /reject/i })).toBeInTheDocument();
   });
 
-  it("hides Approve and Reject buttons when userRole is undefined (defaults to non-admin)", async () => {
-    mockUseAuthorized.mockReturnValue({ ...baseAuth, userRole: undefined });
+  it("hides Approve and Reject buttons when userRole is empty (defaults to non-admin)", async () => {
+    mockUseAuthorized.mockReturnValue({ ...baseAuth, userRole: "" });
     renderWithProviders(<TeamGuardrailsTab accessToken="test-token" />);
 
     await screen.findByText("test-pending-guardrail");
