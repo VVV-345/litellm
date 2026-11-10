@@ -5,6 +5,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { chooseSelectOption } from "@/../tests/test-utils";
+import i18n from "@/i18n";
 
 import { OperationLogsPanel } from "./OperationLogsPanel";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
@@ -142,6 +143,34 @@ describe("OperationLogsPanel", () => {
     expect(screen.getByText(/1.*3/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Request completed" }));
     expect(await screen.findAllByText(/卡片优先账号|Preferred card account/i)).not.toHaveLength(0);
+  });
+
+  it.each([
+    ["zh-CN", "与上游的 TLS 握手失败，未收到上游响应"],
+    ["en", "TLS handshake with the upstream failed. No upstream response was received"],
+  ])("localizes the upstream TLS handshake failure in %s without changing HTTP status", async (language, message) => {
+    await i18n.changeLanguage(language);
+    const user = userEvent.setup();
+    const failed = { ...log, final_status: "failed", http_status: 500, message: "Upstream HTTP 500" };
+    const handshake = { ...failed, upstream_code: "upstream_tls_handshake_failed" };
+    listLogs.mockResolvedValue({
+      items: [handshake, { ...failed, event_id: "other-failure" }],
+      has_more: false,
+      total: 2,
+    });
+    getLog.mockResolvedValue({ event: handshake, attempts: [handshake], has_more: false });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <OperationLogsPanel accessToken="token" environments={[]} />
+      </QueryClientProvider>,
+    );
+
+    const button = await screen.findByRole("button", { name: message });
+    const row = screen.getByRole("row", { name: (name) => name.includes(message) });
+    expect(within(row).getByText("500")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Upstream HTTP 500" })).toBeVisible();
+    await user.click(button);
+    expect(await within(screen.getByRole("dialog")).findAllByText(message)).toHaveLength(2);
   });
 
   it("keeps the page account filter across query, export and filter reset", async () => {

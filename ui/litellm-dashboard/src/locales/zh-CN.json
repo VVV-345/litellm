@@ -7678,6 +7678,7 @@
       "method": "方法",
       "http_status": "HTTP 状态",
       "upstream_code": "上游错误码",
+      "upstreamTlsHandshakeFailed": "与上游的 TLS 握手失败，未收到上游响应",
       "duration_ms": "耗时（毫秒）",
       "routing_reason": "路由原因",
       "cost_usd": "上游成本（USD）",

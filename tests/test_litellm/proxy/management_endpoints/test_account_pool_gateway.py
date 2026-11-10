@@ -2456,6 +2456,37 @@ def test_tool_retry_requires_explicit_transient_error(code: str) -> None:
     assert {item.account_id for item in control.acquisitions} == {control.resolution.card_id}
 
 
+@pytest.mark.parametrize("tls_failure", [True, False])
+def test_cliproxy_tls_handshake_diagnostic_preserves_retry_policy(tls_failure: bool) -> None:
+    code = "upstream_tls_handshake_failed"
+    message = "TLS handshake with upstream failed before an HTTP response."
+    error = {
+        "code": "internal_server_error",
+        "type": "server_error",
+        "message": message if tls_failure else "server error",
+    }
+    if tls_failure:
+        error["transport_error"] = code
+    client, control = setup_gateway(lambda _: httpx.Response(500, json={"error": error}), retry=True)
+    policy = control.resolution.policy
+    routing = policy.routing.model_copy(update={"retryable_statuses": (500,)})
+    control.resolution = control.resolution.model_copy(update={"policy": policy.model_copy(update={"routing": routing})})
+    with client:
+        response = client.post(
+            "/v1/responses",
+            json={"model": "model-a", "input": "hello", "tools": [{"type": "function", "name": "lookup"}]},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+
+    assert response.status_code == 500
+    assert response.json()["error"] == error
+    assert len(control.finished) == 2
+    assert {item.account_id for item in control.acquisitions} == {control.resolution.card_id}
+    assert all(item.model_cooldown_seconds == 1 for item in control.finished)
+    assert {item.upstream_code for item in control.finished} == {code if tls_failure else "internal_server_error"}
+    assert {item.message for item in control.finished} == {message if tls_failure else "Upstream HTTP 500"}
+
+
 @pytest.mark.parametrize("extra", [
     {"previous_response_id": "old"},
     {"conversation": "old"},

@@ -5574,3 +5574,122 @@ index 553123b5f1354d27956c23085b9ff4064af4f6eb..b7812d55a140dee8c71452e25007fa43
  			models = registry.GetCodexProModels()
  		}
  		models = applyExcludedModels(models, excluded)
+diff --git a/internal/runtime/executor/helps/utls_client.go b/internal/runtime/executor/helps/utls_client.go
+index 9508320..07ade53 100644
+--- a/internal/runtime/executor/helps/utls_client.go
++++ b/internal/runtime/executor/helps/utls_client.go
+@@ -29,6 +29,10 @@ type utlsRoundTripper struct {
+ 	dialer proxy.Dialer
+ }
+ 
++type UpstreamTLSHandshakeError struct{ error }
++
++func (e *UpstreamTLSHandshakeError) Unwrap() error { return e.error }
++
+ type closeConnectionBody struct {
+ 	io.ReadCloser
+ 	closeConnection func() error
+@@ -85,9 +89,9 @@ func (t *utlsRoundTripper) createConnection(ctx context.Context, host, addr stri
+ 			return nil, fmt.Errorf("utls: TLS handshake: %w", errHandshake)
+ 		}
+ 		if errClose := conn.Close(); errClose != nil {
+-			return nil, fmt.Errorf("utls: TLS handshake: %w; close connection: %v", errHandshake, errClose)
++			return nil, &UpstreamTLSHandshakeError{fmt.Errorf("utls: TLS handshake: %w; close connection: %v", errHandshake, errClose)}
+ 		}
+-		return nil, fmt.Errorf("utls: TLS handshake: %w", errHandshake)
++		return nil, &UpstreamTLSHandshakeError{fmt.Errorf("utls: TLS handshake: %w", errHandshake)}
+ 	}
+ 
+ 	tr := &http2.Transport{}
+diff --git a/sdk/api/handlers/handlers_error_response_test.go b/sdk/api/handlers/handlers_error_response_test.go
+index 8a5b1b4..4e48812 100644
+--- a/sdk/api/handlers/handlers_error_response_test.go
++++ b/sdk/api/handlers/handlers_error_response_test.go
+@@ -3,6 +3,7 @@ package handlers
+ import (
+ 	"bytes"
+ 	"context"
++	"encoding/binary"
+ 	"errors"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -15,10 +16,64 @@ import (
+ 	"github.com/gin-gonic/gin"
+ 	"github.com/router-for-me/CLIProxyAPI/v7/internal/clienterror"
+ 	"github.com/router-for-me/CLIProxyAPI/v7/internal/interfaces"
++	"github.com/router-for-me/CLIProxyAPI/v7/internal/runtime/executor/helps"
+ 	coreauth "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/auth"
+ 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v7/sdk/config"
++	"github.com/tidwall/gjson"
+ )
+ 
++func TestUpstreamTLSHandshakeDiagnostic(t *testing.T) {
++	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		if r.Method != http.MethodConnect || r.Host != "chatgpt.com:443" {
++			t.Errorf("unexpected proxy request: %s %s", r.Method, r.Host)
++			w.WriteHeader(http.StatusBadRequest)
++			return
++		}
++		conn, buf, err := w.(http.Hijacker).Hijack()
++		if err != nil {
++			t.Error(err)
++			return
++		}
++		defer conn.Close()
++		if err := conn.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
++			t.Error(err)
++			return
++		}
++		_, _ = buf.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
++		if err := buf.Flush(); err != nil {
++			t.Error(err)
++			return
++		}
++		record, err := buf.Peek(5)
++		if err != nil {
++			t.Error(err)
++			return
++		}
++		if _, err := buf.Discard(5 + int(binary.BigEndian.Uint16(record[3:5]))); err != nil {
++			t.Error(err)
++		}
++	}))
++	defer proxy.Close()
++
++	client := helps.NewUtlsHTTPClient(t.Context(), nil, &coreauth.Auth{ProxyURL: proxy.URL}, 5*time.Second)
++	_, err := client.Post("https://chatgpt.com/backend-api/codex/responses?token=private-fixture", "application/json", nil)
++	if err == nil || !strings.Contains(err.Error(), "utls: TLS handshake:") {
++		t.Fatalf("expected TLS handshake error, got %v", err)
++	}
++	recorder := httptest.NewRecorder()
++	c, _ := gin.CreateTestContext(recorder)
++	NewBaseAPIHandlers(nil, nil).WriteErrorResponse(c, ExecutionErrorMessage(err))
++	body := recorder.Body.Bytes()
++	if recorder.Code != http.StatusInternalServerError ||
++		gjson.GetBytes(body, "error.code").String() != "internal_server_error" ||
++		gjson.GetBytes(body, "error.type").String() != "server_error" ||
++		gjson.GetBytes(body, "error.transport_error").String() != "upstream_tls_handshake_failed" ||
++		gjson.GetBytes(body, "error.message").String() != "TLS handshake with the upstream service failed" ||
++		bytes.Contains(body, []byte("private-fixture")) || bytes.Contains(body, []byte("chatgpt.com")) {
++		t.Fatalf("unexpected TLS diagnostic: HTTP %d %s", recorder.Code, body)
++	}
++}
++
+ type directResponseTestError struct {
+ 	status int
+ 	body   []byte
+diff --git a/sdk/api/handlers/handlers_execution.go b/sdk/api/handlers/handlers_execution.go
+index 79632ac..3f0fb98 100644
+--- a/sdk/api/handlers/handlers_execution.go
++++ b/sdk/api/handlers/handlers_execution.go
+@@ -359,6 +359,10 @@ func executionErrorMessage(err error) *interfaces.ErrorMessage {
+ 			addon = hdr.Clone()
+ 		}
+ 	}
++	var handshake *helps.UpstreamTLSHandshakeError
++	if status == http.StatusInternalServerError && errors.As(err, &handshake) {
++		err = errors.New(`{"error":{"message":"TLS handshake with the upstream service failed","type":"server_error","code":"internal_server_error","transport_error":"upstream_tls_handshake_failed"}}`)
++	}
+ 	return &interfaces.ErrorMessage{StatusCode: status, Error: err, Addon: addon}
+ }
+ 

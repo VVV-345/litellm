@@ -163,6 +163,7 @@ _SENSITIVE_ERROR_FIELDS: Final = frozenset(
     ("authorization", "api-key", "api_key", "token", "access_token", "refresh_token", "secret", "cookie")
 )
 _SAFE_CONNECT_FAILURES: Final = (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout)
+_UPSTREAM_TLS_HANDSHAKE_FAILED: Final = "upstream_tls_handshake_failed"
 _MESSAGES: Final = TypeAdapter(list[AllMessageValues])
 _CHAT_TOOLS: Final = TypeAdapter(list[ChatCompletionToolParam])
 _TOOL_CHOICE: Final = TypeAdapter(ChatCompletionNamedToolChoiceParam)
@@ -910,11 +911,21 @@ async def execute(
                     retry_after_seconds, reported_code = recorded_upstream_result(
                         failure, response.headers, error_payload, public_status, code
                     )
+                    upstream_error_details: Final = error_payload.get("error")
+                    tls_failure: Final = (
+                        route.account.channel == "cliproxyapi"
+                        and public_status == 500
+                        and code == "internal_server_error"
+                        and isinstance(upstream_error_details, dict)
+                        and upstream_error_details.get("transport_error") == _UPSTREAM_TLS_HANDSHAKE_FAILED
+                    )
                     attempt.outcome(
                         public_status,
-                        f"Upstream HTTP {response.status_code}",
+                        "TLS handshake with upstream failed before an HTTP response."
+                        if tls_failure
+                        else f"Upstream HTTP {response.status_code}",
                         stage="upstream",
-                        upstream_code=reported_code,
+                        upstream_code=_UPSTREAM_TLS_HANDSHAKE_FAILED if tls_failure else reported_code,
                         failure_reason=failure.reason,
                         retryable=retry,
                         switched_account=retry and retry_target != route.account.id,

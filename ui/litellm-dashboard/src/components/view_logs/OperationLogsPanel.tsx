@@ -93,6 +93,10 @@ export function OperationLogsPanel({
   initialCardId?: string;
 }) {
   const { t, i18n } = useTranslation();
+  const eventMessage = (event: LogEvent) =>
+    event.upstream_code === "upstream_tls_handshake_failed"
+      ? t("accountPool.logs.upstreamTlsHandshakeFailed")
+      : event.message;
   const [draft, setDraft] = useState<LogFilters>({ card_id: initialCardId });
   const [filters, setFilters] = useState<LogFilters>({ card_id: initialCardId });
   const [from, setFrom] = useState("");
@@ -583,10 +587,10 @@ export function OperationLogsPanel({
                     <Button
                       variant="link"
                       className="h-auto max-w-full justify-start p-0 text-left text-xs"
-                      title={event.message}
+                      title={eventMessage(event)}
                       onClick={() => setEventId(String(event.event_id))}
                     >
-                      <span className="line-clamp-2 whitespace-normal break-words">{event.message}</span>
+                      <span className="line-clamp-2 whitespace-normal break-words">{eventMessage(event)}</span>
                     </Button>
                     <p className="mt-1 text-[11px] text-muted-foreground">
                       {t(`accountPool.logs.stages.${event.stage}`)}
@@ -665,7 +669,7 @@ export function OperationLogsPanel({
                     {t(`accountPool.logs.results.${detail.data.event.final_status}`)}
                   </Badge>
                 </div>
-                <p className="mt-2 whitespace-pre-wrap break-words text-sm">{detail.data.event.message}</p>
+                <p className="mt-2 whitespace-pre-wrap break-words text-sm">{eventMessage(detail.data.event)}</p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {formatDateTime(detail.data.event.occurred_at, i18n.language)} · {detail.data.event.method}{" "}
                   {detail.data.event.endpoint}
@@ -721,7 +725,7 @@ export function OperationLogsPanel({
                     {formatDateTime(event.occurred_at, i18n.language)} · {t(`accountPool.logs.stages.${event.stage}`)} ·{" "}
                     {t(`accountPool.logs.results.${event.final_status}`)}
                   </p>
-                  <p className="mt-2 whitespace-pre-wrap break-words">{event.message}</p>
+                  <p className="mt-2 whitespace-pre-wrap break-words">{eventMessage(event)}</p>
                   {event.detail && (
                     <details className="mt-3 rounded-lg border bg-background">
                       <summary className="cursor-pointer px-3 py-2 text-xs font-medium">详细记录</summary>

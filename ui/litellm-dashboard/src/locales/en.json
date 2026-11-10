@@ -7678,6 +7678,7 @@
       "method": "Method",
       "http_status": "HTTP status",
       "upstream_code": "Upstream error code",
+      "upstreamTlsHandshakeFailed": "TLS handshake with the upstream failed. No upstream response was received",
       "duration_ms": "Duration (ms)",
       "routing_reason": "Routing reason",
       "cost_usd": "Upstream cost (USD)",
