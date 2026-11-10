@@ -109,8 +109,12 @@ describe("SpendLogsTable", () => {
       expect(screen.queryByRole("tab", { name: "Deleted Teams" })).not.toBeInTheDocument();
     });
 
-    it("never mounts the panels that call the admin-only endpoints for an internal user", () => {
+    it("never mounts admin-only panels while an internal user opens an allowed tab", async () => {
+      const user = userEvent.setup();
       renderAs("Internal User");
+      expect(screen.queryByTestId("deleted-keys-page")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "Deleted Keys" }));
+      await screen.findByTestId("deleted-keys-page");
 
       expect(screen.queryByTestId("audit-logs-panel")).not.toBeInTheDocument();
       expect(screen.queryByTestId("deleted-teams-page")).not.toBeInTheDocument();
@@ -119,11 +123,13 @@ describe("SpendLogsTable", () => {
   });
 
   describe("organization admins", () => {
-    it("shows Deleted Teams to an org admin, whose session role reads as a plain internal user", () => {
+    it("shows Deleted Teams to an org admin, whose session role reads as a plain internal user", async () => {
+      const user = userEvent.setup();
       renderAs("Internal User", ORG_ADMIN_MEMBERSHIPS);
 
-      expect(screen.getByRole("tab", { name: "Deleted Teams" })).toBeInTheDocument();
-      expect(screen.getByTestId("deleted-teams-page")).toBeInTheDocument();
+      expect(screen.queryByTestId("deleted-teams-page")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("tab", { name: "Deleted Teams" }));
+      expect(await screen.findByTestId("deleted-teams-page")).toBeInTheDocument();
     });
 
     it("does not hand an org admin the Audit Logs tab, which the backend still refuses them", () => {
@@ -163,17 +169,18 @@ describe("SpendLogsTable", () => {
 
       await user.click(screen.getByRole("tab", { name: "Deleted Keys" }));
 
-      expect(screen.getByTestId("audit-logs-panel")).toHaveTextContent("inactive");
+      expect(screen.queryByTestId("audit-logs-panel")).not.toBeInTheDocument();
+      expect(await screen.findByTestId("deleted-keys-page")).toBeInTheDocument();
       expect(screen.getByTestId("request-logs-panel")).toHaveTextContent("inactive");
     });
 
-    it("keeps the audit panel inert when an admin selects the last tab", async () => {
+    it("does not mount the audit panel when an admin selects the last tab", async () => {
       const user = userEvent.setup();
       renderAs("Admin");
 
       await user.click(screen.getByRole("tab", { name: "Deleted Teams" }));
 
-      expect(screen.getByTestId("audit-logs-panel")).toHaveTextContent("inactive");
+      expect(screen.queryByTestId("audit-logs-panel")).not.toBeInTheDocument();
       expect(screen.getByTestId("deleted-teams-page")).toBeInTheDocument();
     });
 

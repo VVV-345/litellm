@@ -225,6 +225,11 @@ function ProfileRow({
   );
 }
 
+const remainingJobSeconds = (job: AutomationJob, now: number): number | null => {
+  const deadline = job.human_expires_at || job.expires_at;
+  return deadline ? Math.max(0, Math.ceil((Date.parse(deadline) - now) / 1000)) : null;
+};
+
 function JobRow({
   job,
   cardMissing,
@@ -245,8 +250,7 @@ function JobRow({
   const [retryModel, setRetryModel] = useState(job.model || "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const finished = !active.has(job.stage) && job.stage !== "queued";
-  const deadline = job.human_expires_at || job.expires_at;
-  const remaining = deadline ? Math.max(0, Math.ceil((Date.parse(deadline) - now) / 1000)) : null;
+  const remaining = remainingJobSeconds(job, now);
   const interactive = ["running", "waiting", "manual"].includes(job.stage);
   return (
     <article className="space-y-3 rounded-lg border bg-background p-3" aria-label={`任务 ${job.id.slice(0, 8)}`}>
@@ -309,11 +313,20 @@ function JobRow({
             <DialogDescription>只删除这条任务历史，不删除卡片、认证文件或指纹绑定。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>取消</Button>
-            <Button type="button" variant="destructive" disabled={disabled} onClick={() => {
-              setConfirmDelete(false);
-              void run(() => deleteAutomationJob(accessToken, job.id));
-            }}>确认删除记录</Button>
+            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={disabled}
+              onClick={() => {
+                setConfirmDelete(false);
+                void run(() => deleteAutomationJob(accessToken, job.id));
+              }}
+            >
+              确认删除记录
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -404,14 +417,16 @@ export function AccountPoolAutomationPanel({
       model: String(form.get("model") || "") || null,
     };
     const explicitName = String(form.get("card_name") || "").trim();
-    const account = creatingCard ? (() => {
-      try {
-        const entries = parseMailboxAccounts(credentials);
-        return entries.length === 1 && entries[0].totp_secret ? entries[0].label.toLowerCase() : null;
-      } catch {
-        return null;
-      }
-    })() : null;
+    const account = creatingCard
+      ? (() => {
+          try {
+            const entries = parseMailboxAccounts(credentials);
+            return entries.length === 1 && entries[0].totp_secret ? entries[0].label.toLowerCase() : null;
+          } catch {
+            return null;
+          }
+        })()
+      : null;
     if (creatingCard && (!validProxy || !account || new TextEncoder().encode(credentials).length > 8192)) {
       setFileError("请选有效代理，并填写一条有效的 2FA 登录资料");
       return;
@@ -425,9 +440,17 @@ export function AccountPoolAutomationPanel({
       const pending = pendingCreation.current;
       const id = pending?.name === name && pending.proxy === newProxyId ? pending.id : body.id;
       pendingCreation.current = { name, proxy: newProxyId, id };
-      const result = await createAccountPoolEnvironment(accessToken, {
-        name, provider: "openai", supplier: "openai_codex", channel: "cliproxyapi", proxy_profile_id: newProxyId,
-      }, id);
+      const result = await createAccountPoolEnvironment(
+        accessToken,
+        {
+          name,
+          provider: "openai",
+          supplier: "openai_codex",
+          channel: "cliproxyapi",
+          proxy_profile_id: newProxyId,
+        },
+        id,
+      );
       setSelectedCard(result.environment.id);
       pendingCreation.current = null;
       await client.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
@@ -505,16 +528,30 @@ export function AccountPoolAutomationPanel({
           <>
             <div className="space-y-2">
               <Label htmlFor="automation-card-name">卡片名称（可留空）</Label>
-              <Input id="automation-card-name" name="card_name" maxLength={80} disabled={busy}
-                placeholder="留空按 Codex-套餐-账号 命名" />
+              <Input
+                id="automation-card-name"
+                name="card_name"
+                maxLength={80}
+                disabled={busy}
+                placeholder="留空按 Codex-套餐-账号 命名"
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="automation-proxy-profile">OAuth 出站代理</Label>
-              <select id="automation-proxy-profile" required disabled={busy || profilesQuery.isPending}
-                value={newProxyId} onChange={(event) => setNewProxyId(event.target.value)}
-                className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+              <select
+                id="automation-proxy-profile"
+                required
+                disabled={busy || profilesQuery.isPending}
+                value={newProxyId}
+                onChange={(event) => setNewProxyId(event.target.value)}
+                className="h-9 w-full rounded-md border bg-background px-3 text-sm"
+              >
                 <option value="">选择代理节点</option>
-                {proxyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                {proxyOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
               <p className="text-xs text-muted-foreground">{defaultLabel}</p>
             </div>
@@ -562,7 +599,11 @@ export function AccountPoolAutomationPanel({
             </p>
           )}
         </div>
-        <Button className="w-fit" disabled={busy || !credentials || !(creatingCard ? validProxy : selectedCardAvailable)} type="submit">
+        <Button
+          className="w-fit"
+          disabled={busy || !credentials || !(creatingCard ? validProxy : selectedCardAvailable)}
+          type="submit"
+        >
           {creatingCard ? "创建卡片并加入队列" : "添加到串行队列"}
         </Button>
         {!state.settings.enabled && <p className="text-sm text-muted-foreground">当前自动化关闭，添加后不会开始登录</p>}

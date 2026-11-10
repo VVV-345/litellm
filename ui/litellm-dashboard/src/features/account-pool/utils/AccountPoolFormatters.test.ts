@@ -19,7 +19,7 @@ import {
 } from "./AccountPoolFormatters";
 import { validateAccountPoolUpdate, validateProxyProfileSelection } from "./AccountPoolValidation";
 import { toUpdateRequest } from "./AccountPoolTypes";
-import type { AccountPoolEnvironment, AccountPoolProxyProfile } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolProxyProfile, AccountPoolUpdateRequest } from "./AccountPoolTypes";
 
 const environment = (status: AccountPoolEnvironment["status"]): AccountPoolEnvironment => ({
   id: "00000000-0000-4000-8000-000000000001",
@@ -95,7 +95,12 @@ describe("account pool lifecycle controls", () => {
     expect(canAuthorizeEnvironment({ ...expired, configuration_pending: true })).toBe(false);
     expect(canAuthorizeEnvironment({ ...expired, authorization_flow: "direct_credential" })).toBe(false);
     expect(canAuthorizeEnvironment(environment("cooling_down"))).toBe(false);
-    const refresh = { running: false, save_pending: false, last_result: "rejected", schedule_reason: "reauthorization_required" };
+    const refresh = {
+      running: false,
+      save_pending: false,
+      last_result: "rejected",
+      schedule_reason: "reauthorization_required",
+    };
     expect(canAuthorizeEnvironment({ ...environment("cooling_down"), credential_refresh: refresh })).toBe(true);
     expect(
       canAuthorizeEnvironment({
@@ -104,6 +109,32 @@ describe("account pool lifecycle controls", () => {
         access_token_fallback: { ...fallback, active: false, reason: "verification_required", verified_models: [] },
       }),
     ).toBe(false);
+  });
+
+  it("allows reauthorization when historical fallback proofs no longer cover enabled models", () => {
+    const card = {
+      ...environment("cooling_down"),
+      enabled_models: ["another-model"],
+      access_token_fallback: {
+        enabled: true,
+        active: true,
+        failure_source: "refresh",
+        reason: "temporary_access",
+        expires_at: "2090-01-01T00:00:00Z",
+        verified_models: ["gpt-4o"],
+      },
+    };
+    expect(canAuthorizeEnvironment(card)).toBe(true);
+    expect(canAuthorizeEnvironment({ ...card, enabled_models: [] })).toBe(true);
+    expect(canAuthorizeEnvironment({ ...card, enabled_models: ["gpt-4o"] })).toBe(false);
+    expect(
+      canAuthorizeEnvironment({
+        ...card,
+        enabled_models: ["gpt-4o"],
+        access_token_fallback: { ...card.access_token_fallback, expires_at: null },
+      }),
+    ).toBe(false);
+    expect(canAuthorizeEnvironment({ ...card, status: "validating" })).toBe(false);
   });
 
   it("rejects missing, removed, and unsafe proxy profiles before saving", () => {
@@ -123,14 +154,13 @@ describe("account pool lifecycle controls", () => {
     expect(request.version).toBe(4);
     expect(validateAccountPoolUpdate(chinese, request, current, profiles)).toBeNull();
     expect(validateAccountPoolUpdate(chinese, { ...request, concurrency_limit: 0 }, current, profiles)).toBeNull();
-    expect(
-      validateAccountPoolUpdate(
-        chinese,
-        { ...request, version: 3, proxy_mode: "profile", proxy_profile_id: null },
-        current,
-        profiles,
-      ),
-    ).toBe("请选择代理 Profile");
+    const invalidRequest: AccountPoolUpdateRequest = {
+      ...request,
+      version: 3,
+      proxy_mode: "profile",
+      proxy_profile_id: null,
+    };
+    expect(validateAccountPoolUpdate(chinese, invalidRequest, current, profiles)).toBe("请选择代理 Profile");
   });
 
   it("labels concurrency as an environment-wide limit", () => {
@@ -197,8 +227,15 @@ describe("account pool lifecycle controls", () => {
   });
 });
 
-
-it.each([[0, "0"], [999, "999"], [1200, "1.2K"], [1500000, "1.5M"], [2300000000, "2.3B"]])("formats %i as %s", (value, expected) => {
+it.each([
+  [0, "0"],
+  [999, "999"],
+  [1200, "1.2K"],
+  [1500000, "1.5M"],
+  [2300000000, "2.3B"],
+])("formats %i as %s", (value, expected) => {
   expect(formatCount(Number(value))).toBe(expected);
 });
-it("keeps full counts available", () => { expect(formatCount(1234567, false)).toBe("1,234,567"); });
+it("keeps full counts available", () => {
+  expect(formatCount(1234567, false)).toBe("1,234,567");
+});

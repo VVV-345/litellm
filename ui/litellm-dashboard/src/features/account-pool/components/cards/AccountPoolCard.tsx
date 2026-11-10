@@ -4,6 +4,7 @@ import { PlugZap, KeyRound, Trash2, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import {
   statusVariant,
 } from "../../utils/AccountPoolFormatters";
 import type { ErrorStats } from "../../api/AccountPoolManagementApi";
-import type { PolicyView } from "../../api/AccountPoolManagementApi";
+import type { AccountPolicy, PolicyView } from "../../api/AccountPoolManagementApi";
 import type {
   AccountPoolEnvironment,
   AccountPoolProxyGateway,
@@ -36,7 +37,11 @@ import type {
 import { accountPoolLatency } from "../../utils/accountPoolLatency";
 import { AccountPoolCardQuota } from "./AccountPoolCardQuota";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
-import { accountPoolHiddenModelCount, accountPoolUsableModels, accountPoolVisibleModels } from "../../utils/accountPoolDashboardSelectors";
+import {
+  accountPoolHiddenModelCount,
+  accountPoolUsableModels,
+  accountPoolVisibleModels,
+} from "../../utils/accountPoolDashboardSelectors";
 
 interface AccountPoolCardProps {
   environment: AccountPoolEnvironment;
@@ -61,6 +66,20 @@ interface AccountPoolCardProps {
   policy?: PolicyView;
   disabled?: boolean;
 }
+
+const codexPolicySummary = (policy: NonNullable<AccountPolicy["codex"]>, t: TFunction): string => {
+  const enabled = [
+    policy.identity_fingerprint_mode !== "off" &&
+      `${t("accountPool.policy.identity_fingerprint_mode")}: ${t(
+        `accountPool.policy.options.${policy.identity_fingerprint_mode}`,
+      )}`,
+    policy.cli_only && t("accountPool.policy.cli_only"),
+    policy.allow_app_server && t("accountPool.policy.allow_app_server"),
+    policy.identity_confuse && t("accountPool.policy.identity_confuse"),
+    policy.disable_codex_cloaking && t("accountPool.policy.disable_codex_cloaking"),
+  ].filter(Boolean);
+  return enabled.length > 0 ? enabled.join(" / ") : t("accountPool.policy.options.disabled");
+};
 
 const AccountPoolCardComponent = ({
   environment,
@@ -115,17 +134,7 @@ const AccountPoolCardComponent = ({
     }
     if (!policyValues) return null;
     if (environment.supplier === "openai_codex" && policyValues.codex) {
-      const enabled = [
-        policyValues.codex.identity_fingerprint_mode !== "off" &&
-          `${t("accountPool.policy.identity_fingerprint_mode")}: ${t(
-            `accountPool.policy.options.${policyValues.codex.identity_fingerprint_mode}`,
-          )}`,
-        policyValues.codex.cli_only && t("accountPool.policy.cli_only"),
-        policyValues.codex.allow_app_server && t("accountPool.policy.allow_app_server"),
-        policyValues.codex.identity_confuse && t("accountPool.policy.identity_confuse"),
-        policyValues.codex.disable_codex_cloaking && t("accountPool.policy.disable_codex_cloaking"),
-      ].filter(Boolean);
-      return enabled.length > 0 ? enabled.join(" / ") : t("accountPool.policy.options.disabled");
+      return codexPolicySummary(policyValues.codex, t);
     }
     if (environment.supplier === "anthropic_claude" && policyValues.claude) {
       return `${t(`accountPool.policy.options.${policyValues.claude.fingerprint_profile}`)} / ${t(
@@ -285,9 +294,12 @@ const AccountPoolCardComponent = ({
             {t("accountPool.credential.temporary")}
           </p>
         )}
-        {environment.access_token_fallback?.enabled && environment.access_token_fallback.failure_source === "refresh" && (
-          <p className="text-xs text-muted-foreground">仅显示验证通过的模型；后台自动检查，失败模型每 5 分钟重试，独立冷却不会解除</p>
-        )}
+        {environment.access_token_fallback?.enabled &&
+          environment.access_token_fallback.failure_source === "refresh" && (
+            <p className="text-xs text-muted-foreground">
+              仅显示验证通过的模型；后台自动检查，失败模型每 5 分钟重试，独立冷却不会解除
+            </p>
+          )}
         {environment.credential_refresh?.access_expires_at && (
           <p className="text-xs text-muted-foreground">
             {t("accountPool.credential.expires")}:{" "}
@@ -295,7 +307,9 @@ const AccountPoolCardComponent = ({
           </p>
         )}
         {environment.credential_refresh &&
-          ["failed", "rejected", "unknown_outcome", "save_pending"].includes(environment.credential_refresh.last_result ?? "") && (
+          ["failed", "rejected", "unknown_outcome", "save_pending"].includes(
+            environment.credential_refresh.last_result ?? "",
+          ) && (
             <p role="status" className="text-xs text-destructive">
               {t(`accountPool.credential.result.${environment.credential_refresh.last_result}`)}
             </p>
@@ -312,16 +326,18 @@ const AccountPoolCardComponent = ({
               {t("accountPool.credential.refresh")}
             </Button>
           )}
-          {environment.supplier === "openai_codex" && onVerifyAccess && policyValues?.codex?.allow_valid_access_after_refresh_failure && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={disabled || !environment.enabled}
-              onClick={() => onVerifyAccess(environment)}
-            >
-              {t("accountPool.credential.verify")}
-            </Button>
-          )}
+          {environment.supplier === "openai_codex" &&
+            onVerifyAccess &&
+            policyValues?.codex?.allow_valid_access_after_refresh_failure && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={disabled || !environment.enabled}
+                onClick={() => onVerifyAccess(environment)}
+              >
+                {t("accountPool.credential.verify")}
+              </Button>
+            )}
           {environment.supplier === "openai_codex" && onQuotaReset && (
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>
               {t("accountPool.quotaReset.action")}
@@ -333,67 +349,77 @@ const AccountPoolCardComponent = ({
             </Button>
           )}
         </div>
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
-              <p className="mt-1 break-words font-medium">
-                {proxyLabel && proxyPort ? proxyLabel : proxyName || proxyLabel || t("accountPool.config.defaultGateway")}
-              </p>
-            </div>
-            <div
-              className="flex items-center justify-between gap-2 text-xs"
-              title={latency.checkedAt ? formatDateTime(latency.checkedAt, i18n.language) : undefined}
-            >
-              <span className="text-muted-foreground">{t("accountPool.nodeLatency.label")}</span>
-              <span className="font-medium tabular-nums">
-                {latency.status === "ok" ? `${latency.delay} ms` : t(`accountPool.nodeLatency.${latency.status}`)}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 @sm/card:grid-cols-4">
-              <div><p className="text-xs text-muted-foreground">失败请求</p><p className="mt-1 font-medium">{requestStats ? formatCount(requestStats.failed_requests, compactNumbers) : "-"}</p></div>
-              <div><p className="text-xs text-muted-foreground">Tokens</p><p className="mt-1 font-medium">{requestStats ? formatCount(requestStats.input_tokens + requestStats.output_tokens, compactNumbers) : "-"}</p></div>
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">{t("accountPool.config.outboundProxy")}</p>
+          <p className="mt-1 break-words font-medium">
+            {proxyLabel && proxyPort ? proxyLabel : proxyName || proxyLabel || t("accountPool.config.defaultGateway")}
+          </p>
+        </div>
+        <div
+          className="flex items-center justify-between gap-2 text-xs"
+          title={latency.checkedAt ? formatDateTime(latency.checkedAt, i18n.language) : undefined}
+        >
+          <span className="text-muted-foreground">{t("accountPool.nodeLatency.label")}</span>
+          <span className="font-medium tabular-nums">
+            {latency.status === "ok" ? `${latency.delay} ms` : t(`accountPool.nodeLatency.${latency.status}`)}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 @sm/card:grid-cols-4">
+          <div>
+            <p className="text-xs text-muted-foreground">失败请求</p>
+            <p className="mt-1 font-medium">
+              {requestStats ? formatCount(requestStats.failed_requests, compactNumbers) : "-"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Tokens</p>
+            <p className="mt-1 font-medium">
+              {requestStats ? formatCount(requestStats.input_tokens + requestStats.output_tokens, compactNumbers) : "-"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
+            <p className="mt-1 font-medium">
+              {requestStats ? formatCount(requestStats.total_requests, compactNumbers) : "-"}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.config.concurrencyLimit")}</p>
+            <p className="mt-1 font-medium">
+              {environment.concurrency_limit === 0 ? t("accountPool.config.unlimited") : environment.concurrency_limit}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>
+            <p className="mt-1 font-medium">{successRate === null ? "-" : `${successRate.toFixed(1)}%`}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.health")}</p>
+            <p className="mt-1 font-medium">{healthLabel}</p>
+          </div>
+          {environment.supplier !== "openai_codex" && (
+            <>
               <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.requests")}</p>
-                <p className="mt-1 font-medium">{requestStats ? formatCount(requestStats.total_requests, compactNumbers) : "-"}</p>
+                <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
+                <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.config.concurrencyLimit")}</p>
+                <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
+                <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
+              </div>
+            </>
+          )}
+          {environment.supplier === "xai" &&
+            environment.quota.has_grok_code_access !== null &&
+            environment.quota.has_grok_code_access !== undefined && (
+              <div>
+                <p className="text-xs text-muted-foreground">{t("accountPool.grokCodeAccess")}</p>
                 <p className="mt-1 font-medium">
-                  {environment.concurrency_limit === 0
-                    ? t("accountPool.config.unlimited")
-                    : environment.concurrency_limit}
+                  {t(environment.quota.has_grok_code_access ? "accountPool.available" : "accountPool.unavailable")}
                 </p>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>
-                <p className="mt-1 font-medium">{successRate === null ? "-" : `${successRate.toFixed(1)}%`}</p>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.health")}</p>
-                <p className="mt-1 font-medium">{healthLabel}</p>
-              </div>
-              {environment.supplier !== "openai_codex" && (
-                <>
-                  <div>
-                    <p className="text-xs text-muted-foreground">{t("accountPool.remainingQuota")}</p>
-                    <p className="mt-1 font-medium">{formatQuota(t, quotaWindow)}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground">{t("accountPool.nextReset")}</p>
-                    <p className="mt-1 font-medium">{formatDateTime(quotaWindow?.resets_at, i18n.language)}</p>
-                  </div>
-                </>
-              )}
-              {environment.supplier === "xai" &&
-                environment.quota.has_grok_code_access !== null &&
-                environment.quota.has_grok_code_access !== undefined && (
-                  <div>
-                    <p className="text-xs text-muted-foreground">{t("accountPool.grokCodeAccess")}</p>
-                    <p className="mt-1 font-medium">
-                      {t(environment.quota.has_grok_code_access ? "accountPool.available" : "accountPool.unavailable")}
-                    </p>
-                  </div>
-                )}
-            </div>
+            )}
+        </div>
         <details className="min-w-0 border-t pt-2">
           <summary className="cursor-pointer text-xs text-muted-foreground focus-visible:outline-2">
             {t("accountPool.credential.details")}
@@ -471,7 +497,6 @@ const AccountPoolCardComponent = ({
                 )}
               </div>
             </div>
-
           </div>
         </details>
       </CardContent>

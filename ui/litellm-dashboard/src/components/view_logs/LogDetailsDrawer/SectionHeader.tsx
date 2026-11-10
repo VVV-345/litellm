@@ -54,7 +54,9 @@ export function SectionHeader({
         </div>
 
         {tokens !== undefined && (
-          <span className="text-xs text-muted-foreground">{i18n.t("ui.Tokens:")}{tokens.toLocaleString()}</span>
+          <span className="text-xs text-muted-foreground">
+            {i18n.t("ui.Tokens:")} {tokens.toLocaleString()}
+          </span>
         )}
 
         {cost !== undefined && <span className="text-xs text-muted-foreground">Cost: ${cost.toFixed(6)}</span>}

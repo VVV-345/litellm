@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import AccountPoolPage from "./page";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import i18n from "@/i18n";
+import { ApiError } from "@/lib/http/client";
 import { preloadAccountPoolModules } from "@/features/account-pool/preloadModules";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
 
@@ -16,7 +17,13 @@ const searchState = { value: "" };
 const loadStats = vi.fn();
 vi.mock("@/features/account-pool/api/AccountPoolAutomationApi", async (original) => ({
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolAutomationApi")>()),
-  getAutomation: async () => ({ version: 1, settings: { enabled: false }, profiles: [], jobs: [], image_checked: false }),
+  getAutomation: async () => ({
+    version: 1,
+    settings: { enabled: false },
+    profiles: [],
+    jobs: [],
+    image_checked: false,
+  }),
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
@@ -138,10 +145,32 @@ describe("account card local configuration", () => {
     client.clear();
   });
 
+  it.each([401, 403])("hides cached cards and open actions when refresh returns HTTP %s", async (status) => {
+    const user = userEvent.setup();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <AccountPoolPage />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: `测试 ${environment.name} 的模型连接` }));
+    expect(await screen.findByRole("dialog")).toBeVisible();
+    listAccounts.mockRejectedValue(new ApiError("permission denied", status, undefined));
+    await act(() => client.refetchQueries({ queryKey: accountPoolQueryKeys.environments("token") }));
+    expect(await screen.findByText("号池 is only available to admin users.")).toBeVisible();
+    expect(screen.queryByTestId(`account-pool-card-${environment.id}`)).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `测试 ${environment.name} 的模型连接` })).not.toBeInTheDocument();
+    unmount();
+    client.clear();
+  });
+
   it("opens the single automation workspace from OAuth with the selected blank card", async () => {
     const user = userEvent.setup();
     searchState.value = "tab=oauth";
-    listAccounts.mockResolvedValue([{ ...environment, status: "awaiting_authorization", proxy_profile_id: "proxy-test" }]);
+    listAccounts.mockResolvedValue([
+      { ...environment, status: "awaiting_authorization", proxy_profile_id: "proxy-test" },
+    ]);
     renderPage();
     await user.click(await screen.findByRole("button", { name: `自动化授权 ${environment.name}` }));
     expect(screen.getByRole("tab", { name: "自动化上号", selected: true })).toBeVisible();

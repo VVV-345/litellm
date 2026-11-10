@@ -65,6 +65,25 @@ type FormPolicy = Omit<AccountPolicy, "routing" | "transport" | "codex" | "claud
   antigravity: Antigravity | null;
 };
 
+const policyForSupplier = (policy: FormPolicy, supplier: AccountPoolEnvironment["supplier"]): AccountPolicy => {
+  const {
+    codex: parsedCodex,
+    claude: parsedClaude,
+    kimi: parsedKimi,
+    xai: parsedXai,
+    antigravity: parsedAntigravity,
+    ...rest
+  } = policy;
+  return {
+    ...rest,
+    ...(supplier === "openai_codex" && parsedCodex ? { codex: parsedCodex } : {}),
+    ...(supplier === "anthropic_claude" && parsedClaude ? { claude: parsedClaude } : {}),
+    ...(supplier === "kimi" && parsedKimi ? { kimi: parsedKimi } : {}),
+    ...(supplier === "xai" && parsedXai ? { xai: parsedXai } : {}),
+    ...(supplier === "google_antigravity" && parsedAntigravity ? { antigravity: parsedAntigravity } : {}),
+  };
+};
+
 const codexDefaults: Codex = {
   allow_valid_access_after_refresh_failure: false,
   identity_fingerprint_mode: "off",
@@ -198,7 +217,9 @@ export function RuntimePolicyDialog({
             variant="outline"
             size="sm"
             className="w-fit"
-            onClick={() => { if (confirmDiscardChanges()) onOpenRuntimeConfig(); }}
+            onClick={() => {
+              if (confirmDiscardChanges()) onOpenRuntimeConfig();
+            }}
           >
             {t("accountPool.policy.openRuntimeConfig")}
           </Button>
@@ -259,7 +280,8 @@ function PolicyForm({
   const [aliases, setAliases] = useState(policy.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", "));
   const [base, setBase] = useState(value);
   const [baseline, setBaseline] = useState(initial);
-  const initialAliases = (input: FormPolicy) => input.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", ");
+  const initialAliases = (input: FormPolicy) =>
+    input.model_aliases.map((item) => `${item.alias}=${item.target}`).join(", ");
   const edited = JSON.stringify(policy) !== JSON.stringify(baseline) || aliases !== initialAliases(baseline);
   if (!edited && !busy && base !== value) {
     setBase(value);
@@ -482,25 +504,7 @@ function PolicyForm({
     };
     setBusy(true);
     try {
-      const {
-        codex: parsedCodex,
-        claude: parsedClaude,
-        kimi: parsedKimi,
-        xai: parsedXai,
-        antigravity: parsedAntigravity,
-        ...rest
-      } = parsed;
-      const nextPolicy: AccountPolicy = {
-        ...rest,
-        ...(environment.supplier === "openai_codex" && parsedCodex ? { codex: parsedCodex } : {}),
-        ...(environment.supplier === "anthropic_claude" && parsedClaude ? { claude: parsedClaude } : {}),
-        ...(environment.supplier === "kimi" && parsedKimi ? { kimi: parsedKimi } : {}),
-        ...(environment.supplier === "xai" && parsedXai ? { xai: parsedXai } : {}),
-        ...(environment.supplier === "google_antigravity" && parsedAntigravity
-          ? { antigravity: parsedAntigravity }
-          : {}),
-      };
-      const saved = await save(nextPolicy, base.version);
+      const saved = await save(policyForSupplier(parsed, environment.supplier), base.version);
       setBaseline(policy);
       setAliases(initialAliases(policy));
       setBase({ ...saved });
@@ -528,13 +532,7 @@ function PolicyForm({
         className="sticky top-0 z-sticky -mx-6 flex flex-wrap gap-1.5 border-b border-border bg-popover px-6 py-2"
       >
         {Object.entries(POLICY_SECTION_LABELS).map(([section, label]) => (
-          <Button
-            key={section}
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => jumpToSection(section)}
-          >
+          <Button key={section} type="button" variant="outline" size="sm" onClick={() => jumpToSection(section)}>
             {t(label)}
           </Button>
         ))}
@@ -670,21 +668,28 @@ function PolicyForm({
         {sectionHeading("transport")}
         <div className="grid gap-3 sm:grid-cols-2">
           {toggleField(
-            t("accountPool.policy.inheritProtocols"), t("accountPool.policy.inheritProtocolsDescription"),
+            t("accountPool.policy.inheritProtocols"),
+            t("accountPool.policy.inheritProtocolsDescription"),
             policy.transport.supported_protocols == null,
             (next) => updateTransport("supported_protocols", next ? null : ["chat", "responses", "messages", "images"]),
           )}
-          {policy.transport.supported_protocols != null && multiField({
-            label: t("accountPool.policy.supported_protocols"),
-            description: t("accountPool.policy.supportedProtocolsDescription"),
-            selected: policy.transport.supported_protocols,
-            control: {
-              entries: ["chat", "responses", "messages", "images"].map((protocol) => ({ value: protocol, label: t(`accountPool.policy.protocols.${protocol}`) })),
-              change: (next) => updateTransport("supported_protocols", next as NonNullable<Transport["supported_protocols"]>),
-            },
-          })}
+          {policy.transport.supported_protocols != null &&
+            multiField({
+              label: t("accountPool.policy.supported_protocols"),
+              description: t("accountPool.policy.supportedProtocolsDescription"),
+              selected: policy.transport.supported_protocols,
+              control: {
+                entries: ["chat", "responses", "messages", "images"].map((protocol) => ({
+                  value: protocol,
+                  label: t(`accountPool.policy.protocols.${protocol}`),
+                })),
+                change: (next) =>
+                  updateTransport("supported_protocols", next as NonNullable<Transport["supported_protocols"]>),
+              },
+            })}
           {toggleField(
-            t("accountPool.policy.passthrough_enabled"), t("accountPool.policy.passthroughDescription"),
+            t("accountPool.policy.passthrough_enabled"),
+            t("accountPool.policy.passthroughDescription"),
             policy.transport.passthrough_enabled ?? false,
             (next) => updateTransport("passthrough_enabled", next),
           )}

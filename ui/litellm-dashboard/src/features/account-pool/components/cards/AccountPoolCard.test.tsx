@@ -228,13 +228,19 @@ describe("AccountPoolCard", () => {
   it("links the inherited policy badge to the policy center", () => {
     renderCard();
 
-    expect(screen.getByRole("link", { name: "继承全局" })).toHaveAttribute("href", expect.stringMatching(/^\/ui\/policy-center\/?$/));
+    expect(screen.getByRole("link", { name: "继承全局" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/ui\/policy-center\/?$/),
+    );
   });
 
   it("shows the independent policy version in the card badge", () => {
     renderCard({}, undefined, { card_id: "env-claude-1", version: 4, policy: {} } as PolicyView);
 
-    expect(screen.getByRole("link", { name: "独立配置 v4" })).toHaveAttribute("href", expect.stringMatching(/^\/ui\/policy-center\/?$/));
+    expect(screen.getByRole("link", { name: "独立配置 v4" })).toHaveAttribute(
+      "href",
+      expect.stringMatching(/^\/ui\/policy-center\/?$/),
+    );
   });
 
   it("shows the per-card token cost from LiteLLM request statistics", () => {
@@ -250,12 +256,7 @@ describe("AccountPoolCard", () => {
   });
 
   it("does not show an environment spend as token cost when request cost is unknown", () => {
-    renderCard(
-      { spend_usd: 12.34 },
-      undefined,
-      undefined,
-      createCostStats(0, 0),
-    );
+    renderCard({ spend_usd: 12.34 }, undefined, undefined, createCostStats(0, 0));
 
     expect(screen.getByTestId("account-pool-card-env-claude-1")).toHaveTextContent("已用 暂无可信金额");
     expect(screen.queryByText("已用 $12.34")).not.toBeInTheDocument();
@@ -263,24 +264,35 @@ describe("AccountPoolCard", () => {
   });
 });
 
-
 it("keeps credential warnings visible and displays backoff alongside the next schedule", async () => {
   await i18n.changeLanguage("zh-CN");
-  renderCard({supplier:"openai_codex", credential_refresh:{last_result:"failed",schedule_reason:"backoff",next_refresh_at:"2090-01-01T00:00:00Z",running:false,save_pending:false}});
-  expect(screen.getByRole("button",{name:"刷新凭据"})).toBeVisible();
+  renderCard({
+    supplier: "openai_codex",
+    credential_refresh: {
+      last_result: "failed",
+      schedule_reason: "backoff",
+      next_refresh_at: "2090-01-01T00:00:00Z",
+      running: false,
+      save_pending: false,
+    },
+  });
+  expect(screen.getByRole("button", { name: "刷新凭据" })).toBeVisible();
   expect(screen.getByText("刷新失败")).toBeVisible();
   expect(screen.getByText(/退避中/)).toBeInTheDocument();
 });
 
-
 it("keeps egress, request data and small recovery/log buttons visible without expanding details", async () => {
   await i18n.changeLanguage("zh-CN");
-  renderCard({supplier: "openai_codex", proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891"}, undefined, undefined,
-    {...createCostStats(1, 1), total_requests: 1200, input_tokens: 1500000});
+  renderCard(
+    { supplier: "openai_codex", proxy_mode: "profile", proxy_profile_id: "clash-gateway-7891" },
+    undefined,
+    undefined,
+    { ...createCostStats(1, 1), total_requests: 1200, input_tokens: 1500000 },
+  );
   expect(screen.getByText("端口 7891 · 当前节点未知")).toBeVisible();
   expect(screen.getByText("1.2K")).toBeVisible();
-  expect(screen.getByRole("button", {name: /额度重置/})).toBeVisible();
-  expect(screen.getByRole("button", {name: /卡片日志/})).toBeVisible();
+  expect(screen.getByRole("button", { name: /额度重置/ })).toBeVisible();
+  expect(screen.getByRole("button", { name: /卡片日志/ })).toBeVisible();
 });
 
 it("groups all Codex recovery and log actions in one row and keeps their handlers", async () => {
@@ -313,10 +325,40 @@ it("keeps card logs in the action row for non-Codex cards without Codex recovery
   expect(actions.onViewLogs).toHaveBeenCalledExactlyOnceWith(environment);
 });
 
-
 it("shows an uncertain refresh as paused without claiming the access token was rejected", async () => {
   await i18n.changeLanguage("zh-CN");
-  renderCard({supplier:"openai_codex", credential_refresh:{last_result:"unknown_outcome",schedule_reason:"refresh_outcome_unknown",running:false,save_pending:false}});
+  renderCard({
+    supplier: "openai_codex",
+    credential_refresh: {
+      last_result: "unknown_outcome",
+      schedule_reason: "refresh_outcome_unknown",
+      running: false,
+      save_pending: false,
+    },
+  });
   expect(screen.getByText("刷新结果未知，已暂停重试；有效访问令牌仍可验证使用")).toBeVisible();
   expect(screen.queryByText("上游拒绝，需重新授权")).not.toBeInTheDocument();
+});
+
+it.each([false, true])("keeps the Codex policy summary when identity confusion is %s", async (enabled) => {
+  await i18n.changeLanguage("zh-CN");
+  const policy = {
+    card_id: "env-claude-1",
+    version: 1,
+    policy: {
+      codex: {
+        identity_fingerprint_mode: "off",
+        identity_confuse: enabled,
+        cli_only: false,
+        allow_app_server: false,
+        disable_codex_cloaking: false,
+      },
+    },
+  } as PolicyView;
+  renderCard({ supplier: "openai_codex" }, undefined, policy);
+  fireEvent.click(screen.getByText(i18n.t("accountPool.credential.details")));
+  expect(screen.getByText(i18n.t("accountPool.policy.providerSummary"))).toBeVisible();
+  expect(
+    screen.getByText(i18n.t(enabled ? "accountPool.policy.identity_confuse" : "accountPool.policy.options.disabled")),
+  ).toBeVisible();
 });

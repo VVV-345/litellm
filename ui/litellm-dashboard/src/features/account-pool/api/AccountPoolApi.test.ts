@@ -4,6 +4,7 @@ import { ApiError } from "@/lib/http/client";
 
 import {
   createAccountPoolEnvironment,
+  discoverAccountPoolModelCatalog,
   bindAccountPoolProxyGatewayFront,
   configureAccountPoolISPSubscription,
   deleteAccountPoolEnvironment,
@@ -38,6 +39,17 @@ describe("createAccountPoolEnvironment", () => {
     getMock.mockReset();
     postMock.mockResolvedValue({});
     putMock.mockResolvedValue({ config_path: "/opt/litellm/mihomo/config.yaml" });
+  });
+
+  it("discovers models without marking unrelated dashboard queries stale", async () => {
+    postMock.mockResolvedValue(["model-a"]);
+    const { signal } = new AbortController();
+    await expect(discoverAccountPoolModelCatalog("token-123", "card/id", signal)).resolves.toEqual(["model-a"]);
+    expect(postMock).toHaveBeenCalledExactlyOnceWith("/account_pool/environments/card%2Fid/model-catalog", {
+      accessToken: "token-123",
+      signal,
+      invalidateOnSuccess: false,
+    });
   });
 
   it("sends the selected channel and supplier with no extra fields", async () => {

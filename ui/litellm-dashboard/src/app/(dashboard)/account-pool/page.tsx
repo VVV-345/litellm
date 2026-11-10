@@ -61,6 +61,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
+import { ApiError } from "@/lib/http/client";
 import { migratedHref } from "@/utils/migratedPages";
 
 import { AccountPoolCard } from "@/features/account-pool/components/cards/AccountPoolCard";
@@ -127,7 +128,9 @@ export default function AccountPoolPage() {
   const searchParams = useSearchParams();
   const legacyTab = searchParams?.get("tab");
   const legacyTabs: Readonly<Record<string, string>> = {
-    oauth: "providers", quotas: "dashboard", "oauth-automation": "onboarding",
+    oauth: "providers",
+    quotas: "dashboard",
+    "oauth-automation": "onboarding",
   };
   const requestedTab = legacyTab ? legacyTabs[legacyTab] ?? legacyTab : "dashboard";
   const [testEnvironmentId, setTestEnvironmentId] = useState<string | null>(null);
@@ -136,7 +139,9 @@ export default function AccountPoolPage() {
   const [verifyAccessEnvironment, setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
-  const [automationSelection, setAutomationSelection] = useState<{ environmentId?: string; visit: number } | null>(null);
+  const [automationSelection, setAutomationSelection] = useState<{ environmentId?: string; visit: number } | null>(
+    null,
+  );
   const [deleteEnvironment, setDeleteEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [configEnvironment, setConfigEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [tabSelection, setTabSelection] = useState<{ query: string; value: string } | null>(null);
@@ -324,7 +329,10 @@ export default function AccountPoolPage() {
   );
   const isTabVisited = (tab: string) => tab === activeTab || visitedTabs.has(tab);
 
-  if (!canManage) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
+  const accessDenied =
+    environmentsQuery.error instanceof ApiError &&
+    (environmentsQuery.error.status === 401 || environmentsQuery.error.status === 403);
+  if (!canManage || accessDenied) return <AdminOnlyNotice pageTitle={t("accountPool.title")} />;
 
   const renderContent = () => {
     if (environmentsQuery.isLoading) {
@@ -586,18 +594,24 @@ export default function AccountPoolPage() {
                 defaultOpen
                 items={[
                   {
-                    value: "cpa", label: "CPA 文件导入",
+                    value: "cpa",
+                    label: "CPA 文件导入",
                     content: <AccountPoolOnboardingPanel accessToken={accessToken} fileFormat="cpa" />,
                   },
                   {
-                    value: "sub2api", label: "Sub2API 文件导入",
+                    value: "sub2api",
+                    label: "Sub2API 文件导入",
                     content: <AccountPoolOnboardingPanel accessToken={accessToken} fileFormat="sub2api" />,
                   },
                   {
-                    value: "authorize", label: "2FA / OAuth 授权",
-                    content: <AccountPoolAutomationPanel
-                      accessToken={accessToken} initialEnvironmentId={automationSelection?.environmentId}
-                    />,
+                    value: "authorize",
+                    label: "2FA / OAuth 授权",
+                    content: (
+                      <AccountPoolAutomationPanel
+                        accessToken={accessToken}
+                        initialEnvironmentId={automationSelection?.environmentId}
+                      />
+                    ),
                   },
                 ]}
               />

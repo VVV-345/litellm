@@ -58,18 +58,29 @@ export const listAccountPoolProviderFamilies = (accessToken: string): Promise<Ac
 export const listAccountPoolEnvironments = (accessToken: string): Promise<AccountPoolEnvironment[]> =>
   apiClient.get<AccountPoolEnvironment[]>("/account_pool/environments", { accessToken });
 
-export const discoverAccountPoolModelCatalog = (accessToken: string, environmentId: string): Promise<string[]> =>
-  apiClient.post<string[]>(`/account_pool/environments/${encodeURIComponent(environmentId)}/model-catalog`, { accessToken });
+export const discoverAccountPoolModelCatalog = (
+  accessToken: string,
+  environmentId: string,
+  signal?: AbortSignal,
+): Promise<string[]> =>
+  apiClient.post<string[]>(`/account_pool/environments/${encodeURIComponent(environmentId)}/model-catalog`, {
+    accessToken,
+    signal,
+    invalidateOnSuccess: false,
+  });
 
 export const submitAccountPoolOAuthCallback = (
   accessToken: string,
   environmentId: string,
   callback: components["schemas"]["AccountPoolOAuthCallback"],
 ): Promise<AccountPoolEnvironment> =>
-  apiClient.post<AccountPoolEnvironment>(`/account_pool/environments/${encodeURIComponent(environmentId)}/oauth-callback`, {
-    accessToken,
-    body: callback,
-  });
+  apiClient.post<AccountPoolEnvironment>(
+    `/account_pool/environments/${encodeURIComponent(environmentId)}/oauth-callback`,
+    {
+      accessToken,
+      body: callback,
+    },
+  );
 
 export const getAccountPoolEnvironment = (
   accessToken: string,
@@ -85,11 +96,12 @@ export const createAccountPoolEnvironment = (
   operationId?: string,
 ): Promise<AccountPoolAuthorization> =>
   runIdempotentMutation(
-    (idempotencyKey) => apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
-      accessToken,
-      body: request,
-      headers: { "Idempotency-Key": idempotencyKey },
-    }),
+    (idempotencyKey) =>
+      apiClient.post<AccountPoolAuthorization>("/account_pool/environments", {
+        accessToken,
+        body: request,
+        headers: { "Idempotency-Key": idempotencyKey },
+      }),
     operationId,
   );
 

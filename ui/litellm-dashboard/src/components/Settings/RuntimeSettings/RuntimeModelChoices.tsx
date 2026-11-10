@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -15,13 +15,31 @@ const changesBetween = (before: string[], after: string[]) => ({
 });
 
 export function useRuntimeModelCatalog(accessToken: string | null, environment: AccountPoolEnvironment, open: boolean) {
+  const queryClient = useQueryClient();
   const isCodex = environment.channel === "cliproxyapi" && environment.supplier === "openai_codex";
   const lifecycleReady = ["ready", "cooling_down", "disabled", "error"].includes(environment.status);
   const supportsDiscovery = isCodex && lifecycleReady && !environment.configuration_pending;
   const [lastChanges, setLastChanges] = useState<ReturnType<typeof changesBetween>>();
   const options = {
     queryKey: accountPoolQueryKeys.modelCatalog(accessToken, environment.id, environment.version),
-    queryFn: () => discoverAccountPoolModelCatalog(accessToken!, environment.id),
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const models = await discoverAccountPoolModelCatalog(accessToken!, environment.id, signal);
+      const environmentsKey = accountPoolQueryKeys.environments(accessToken);
+      const environmentsState = queryClient.getQueryState(environmentsKey);
+      if (!signal.aborted && environmentsState?.status === "success") {
+        queryClient.setQueryData<AccountPoolEnvironment[]>(
+          environmentsKey,
+          (cards) =>
+            cards?.map((card) =>
+              card.id === environment.id && card.version === environment.version
+                ? { ...card, available_models: models }
+                : card,
+            ),
+          { updatedAt: environmentsState.dataUpdatedAt },
+        );
+      }
+      return models;
+    },
     enabled: open && accessToken !== null && supportsDiscovery,
     staleTime: Infinity,
     retry: false as const,
@@ -58,11 +76,13 @@ export function RuntimeModelChoices({
   if (error) {
     message = t("accountPool.config.modelCatalogFailed");
   } else if (changes) {
-    message = changes.added.length || changes.removed.length
-      ? t("accountPool.config.modelCatalogChanges", {
-        added: changes.added.join(", ") || "—", removed: changes.removed.join(", ") || "—",
-      })
-      : t("accountPool.config.modelCatalogUnchanged");
+    message =
+      changes.added.length || changes.removed.length
+        ? t("accountPool.config.modelCatalogChanges", {
+            added: changes.added.join(", ") || "—",
+            removed: changes.removed.join(", ") || "—",
+          })
+        : t("accountPool.config.modelCatalogUnchanged");
   }
   return (
     <div className="grid gap-2">
@@ -70,7 +90,13 @@ export function RuntimeModelChoices({
         <Label>{t("accountPool.config.enabledModels")}</Label>
         {supportsDiscovery && (
           <div className="flex flex-wrap gap-2">
-            <Button type="button" size="sm" variant="outline" disabled={disabled || loading} onClick={() => void discover()}>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={disabled || loading}
+              onClick={() => void discover()}
+            >
               {t(loading ? "accountPool.config.discoveringModels" : "accountPool.config.discoverModels")}
             </Button>
             <Button
@@ -96,12 +122,16 @@ export function RuntimeModelChoices({
             <Checkbox
               checked={selected.includes(model)}
               disabled={disabled}
-              onCheckedChange={(next) => onChange(next === true ? [...selected, model] : selected.filter((id) => id !== model))}
+              onCheckedChange={(next) =>
+                onChange(next === true ? [...selected, model] : selected.filter((id) => id !== model))
+              }
             />
             <span className="truncate">{model}</span>
           </label>
         ))}
-        {models.length === 0 && <p className="text-sm text-muted-foreground">{t("accountPool.config.noAvailableModels")}</p>}
+        {models.length === 0 && (
+          <p className="text-sm text-muted-foreground">{t("accountPool.config.noAvailableModels")}</p>
+        )}
       </div>
     </div>
   );

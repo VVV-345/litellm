@@ -1,6 +1,11 @@
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { ConfigInfoMessage } from "./ConfigInfoMessage";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 describe("ConfigInfoMessage", () => {
   it("should render the info message when show is true", () => {

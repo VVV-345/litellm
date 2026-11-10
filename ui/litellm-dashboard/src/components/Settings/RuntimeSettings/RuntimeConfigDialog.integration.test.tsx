@@ -2,6 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
+import { DATA_CHANGED_EVENT } from "@/lib/cacheEvents";
+import { listAccountPoolEnvironments } from "@/features/account-pool/api/AccountPoolApi";
+import { ApiError } from "@/lib/http/client";
 import { RuntimeConfigDialog } from "./RuntimeConfigDialog";
 import type { AccountPoolEnvironment } from "@/features/account-pool/utils/AccountPoolTypes";
 import { accountPoolQueryKeys } from "@/features/account-pool/hooks/accountPoolQueryKeys";
@@ -137,6 +140,10 @@ it("discovers Codex models without saving or changing the draft, then enables al
   });
   vi.stubGlobal("fetch", fetch);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const unrelated = { ...card, id: "other-card" };
+  client.setQueryData(accountPoolQueryKeys.environments("token"), [card, unrelated]);
+  client.setQueryData(accountPoolQueryKeys.environments("other-user"), [card]);
+  const dispatchEvent = vi.spyOn(window, "dispatchEvent");
   const { unmount } = render(
     <QueryClientProvider client={client}>
       <RuntimeConfigDialog
@@ -151,6 +158,12 @@ it("discovers Codex models without saving or changing the draft, then enables al
   );
   const restored = await screen.findByRole("checkbox", { name: "model-b" });
   expect(restored).not.toBeChecked();
+  expect(dispatchEvent.mock.calls.some(([event]) => event.type === DATA_CHANGED_EVENT)).toBe(false);
+  expect(client.getQueryData(accountPoolQueryKeys.environments("token"))).toEqual([
+    { ...card, available_models: ["model-a", "model-b", "model-removed"] },
+    unrelated,
+  ]);
+  expect(client.getQueryData(accountPoolQueryKeys.environments("other-user"))).toEqual([card]);
   fireEvent.click(restored);
   expect(restored).toBeChecked();
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "unsaved name" } });
@@ -173,3 +186,66 @@ it("discovers Codex models without saving or changing the draft, then enables al
   unmount();
   client.clear();
 });
+
+it.each([401, 403])(
+  "does not clear an HTTP %s environment denial when a model catalog request finishes later",
+  async (status) => {
+    const card = {
+      ...environment,
+      channel: "cliproxyapi",
+      supplier: "openai_codex",
+      proxy_mode: "default_gateway",
+      proxy_profile_id: null,
+      available_models: ["model-a"],
+      enabled_models: ["model-a"],
+    } satisfies AccountPoolEnvironment;
+    const pending = Promise.withResolvers<Response>();
+    const environments = [Response.json({ detail: "permission denied" }, { status }), Response.json([card])];
+    const fetch = vi.fn<typeof globalThis.fetch>(async (input) => {
+      if (String(input).endsWith("/model-catalog")) return pending.promise;
+      if (String(input).endsWith("/environments")) return environments.shift()!;
+      return Response.json([]);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const environmentsKey = accountPoolQueryKeys.environments("token");
+    client.setQueryData(environmentsKey, [card]);
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <RuntimeConfigDialog
+          accessToken="token"
+          environment={card}
+          open
+          onOpenChange={vi.fn()}
+          onRefresh={vi.fn()}
+          onSaved={vi.fn()}
+        />
+      </QueryClientProvider>,
+    );
+    await waitFor(() =>
+      expect(fetch.mock.calls.some(([input]) => String(input).endsWith("/model-catalog"))).toBe(true),
+    );
+    await expect(
+      client.fetchQuery({
+        queryKey: environmentsKey,
+        queryFn: () => listAccountPoolEnvironments("token"),
+      }),
+    ).rejects.toBeInstanceOf(ApiError);
+    expect(client.getQueryState(environmentsKey)?.status).toBe("error");
+    await act(async () => pending.resolve(Response.json(["model-a", "model-b"])));
+    await screen.findByRole("checkbox", { name: "model-b" });
+    expect(client.getQueryState(environmentsKey)?.error).toMatchObject({ status });
+    expect(client.getQueryState(environmentsKey)?.status).toBe("error");
+    expect(client.getQueryData(environmentsKey)).toEqual([card]);
+    await expect(
+      client.fetchQuery({
+        queryKey: environmentsKey,
+        queryFn: () => listAccountPoolEnvironments("token"),
+      }),
+    ).resolves.toEqual([card]);
+    expect(client.getQueryState(environmentsKey)?.status).toBe("success");
+    expect(client.getQueryState(environmentsKey)?.error).toBeNull();
+    unmount();
+    client.clear();
+  },
+);

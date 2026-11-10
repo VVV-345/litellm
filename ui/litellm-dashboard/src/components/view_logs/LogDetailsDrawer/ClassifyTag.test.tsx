@@ -1,6 +1,11 @@
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { ClassifyTag } from "./ClassifyTag";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 describe("ClassifyTag", () => {
   it("renders for an auto-router classifier row", () => {

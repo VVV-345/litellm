@@ -1,13 +1,18 @@
+import i18n from "@/i18n";
 /**
  * Core tests for Tools section
  */
 
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import { parseToolsFromLog } from "./utils";
 import { ToolsSection } from "./ToolsSection";
 import { LogEntry } from "../columns";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const logWithTools = (toolNames: string[], calledName?: string): LogEntry => ({
   request_id: "render-1",

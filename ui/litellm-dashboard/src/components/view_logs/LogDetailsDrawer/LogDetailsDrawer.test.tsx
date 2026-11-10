@@ -1,10 +1,15 @@
+import i18n from "@/i18n";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LogDetailsDrawer } from "./LogDetailsDrawer";
 import { sessionSpendLogsCall } from "../../networking";
 import { LogEntry } from "../columns";
 import { AutoRouterModelGroupsProvider } from "@/components/shared/table_cells";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 vi.mock("../../networking", () => ({
   sessionSpendLogsCall: vi.fn(),
@@ -46,34 +51,36 @@ const makeLog = (overrides: Partial<LogEntry>): LogEntry => ({
   ...overrides,
 });
 
-const sessionLogs = [
-  makeLog({
+const sessionLogInputs: Partial<LogEntry>[] = [
+  {
     request_id: "llm-early",
     model: "llm-early",
     startTime: "2026-07-08T10:00:00.000Z",
     endTime: "2026-07-08T10:00:02.000Z",
-  }),
-  makeLog({
+  },
+  {
     request_id: "mcp-early",
     model: "tool-early",
     call_type: "call_mcp_tool",
     startTime: "2026-07-08T10:00:01.000Z",
     endTime: "2026-07-08T10:00:06.000Z",
-  }),
-  makeLog({
+  },
+  {
     request_id: "llm-late",
     model: "llm-late",
     startTime: "2026-07-08T10:00:02.000Z",
     endTime: "2026-07-08T10:00:05.000Z",
-  }),
-  makeLog({
+  },
+  {
     request_id: "mcp-late",
     model: "tool-late",
     call_type: "call_mcp_tool",
     startTime: "2026-07-08T10:00:03.000Z",
     endTime: "2026-07-08T10:00:03.500Z",
-  }),
+  },
 ];
+
+const sessionLogs = sessionLogInputs.map(makeLog);
 
 const renderSessionDrawer = () => {
   vi.mocked(sessionSpendLogsCall).mockResolvedValue({ data: sessionLogs, total: 4, total_pages: 1 });

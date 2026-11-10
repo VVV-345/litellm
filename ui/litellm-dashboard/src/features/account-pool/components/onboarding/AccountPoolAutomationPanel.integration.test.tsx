@@ -288,10 +288,12 @@ it("offers verification-only retry for saved credentials, never a new-login retr
   );
 });
 
-
 it("confirms and removes a finished job without acting on its card", async () => {
-  let jobs = [{ ...job, stage: "completed" as const }, { ...job, id: "active-job", stage: "running" as const }];
-  get.mockImplementation(async (path: string) => path.endsWith("/oauth-automation") ? { ...view, jobs } : []);
+  let jobs = [
+    { ...job, stage: "completed" as const },
+    { ...job, id: "active-job", stage: "running" as const },
+  ];
+  get.mockImplementation(async (path: string) => (path.endsWith("/oauth-automation") ? { ...view, jobs } : []));
   del.mockImplementation(async () => {
     jobs = jobs.filter((row) => row.id !== job.id);
     return { ...view, jobs };
@@ -303,9 +305,11 @@ it("confirms and removes a finished job without acting on its card", async () =>
   await user.click(buttons[0]);
   expect(del).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "确认删除记录" }));
-  await waitFor(() => expect(del).toHaveBeenCalledWith("/account_pool/oauth-automation/jobs/job-001", {
-    accessToken: "test-admin",
-  }));
+  await waitFor(() =>
+    expect(del).toHaveBeenCalledWith("/account_pool/oauth-automation/jobs/job-001", {
+      accessToken: "test-admin",
+    }),
+  );
   await waitFor(() => expect(screen.queryByRole("article", { name: "任务 job-001" })).not.toBeInTheDocument());
   expect(post).not.toHaveBeenCalled();
 });
@@ -314,7 +318,8 @@ it("creates a named Codex card with the selected proxy and enqueues the original
   const credentials = "fixture@example.test----test-password----GEZDGNBVGY3TQOJQ";
   get.mockImplementation(async (path: string) => {
     if (path.endsWith("/oauth-automation")) return view;
-    if (path.endsWith("/proxy-profiles")) return [{ id: "proxy-001", name: "测试代理", type: "http", url: "http://local" }];
+    if (path.endsWith("/proxy-profiles"))
+      return [{ id: "proxy-001", name: "测试代理", type: "http", url: "http://local" }];
     if (path.endsWith("/settings")) return { values: {} };
     return [];
   });
@@ -330,9 +335,36 @@ it("creates a named Codex card with the selected proxy and enqueues the original
   await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
   expect(post.mock.calls[0][0]).toBe("/account_pool/environments");
   expect(post.mock.calls[0][1].body).toMatchObject({
-    name: "Codex-套餐待识别-fixture@example.test", supplier: "openai_codex", proxy_profile_id: "proxy-001",
+    name: "Codex-套餐待识别-fixture@example.test",
+    supplier: "openai_codex",
+    proxy_profile_id: "proxy-001",
   });
   expect(post.mock.calls[1][0]).toBe("/account_pool/oauth-automation/jobs");
   expect(post.mock.calls[1][1].body).toMatchObject({ environment_id: "new-card", credentials });
   expect(screen.getByLabelText("单账号资料")).toHaveValue("");
+});
+
+it.each([
+  ["2026-11-04T12:00:30Z", "2026-11-04T12:10:00Z", 30],
+  [null, "2026-11-04T12:10:00Z", 600],
+  ["2026-11-04T11:59:59Z", "2026-11-04T12:10:00Z", 0],
+  [null, null, null],
+])("displays the remaining authorization deadline %s / %s as %s", async (humanDeadline, deadline, seconds) => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-11-04T12:00:00Z"));
+  try {
+    const running = { ...job, stage: "running", human_expires_at: humanDeadline, expires_at: deadline };
+    get.mockImplementation(async (path: string) =>
+      path.endsWith("/oauth-automation") ? { ...view, jobs: [running] } : [],
+    );
+    mount();
+    await screen.findByText("自动登录 / 2FA");
+    if (seconds === null) {
+      expect(screen.queryByText(/^剩余 \d+ 秒$/)).not.toBeInTheDocument();
+    } else {
+      expect(screen.getByText(`剩余 ${seconds} 秒`)).toBeVisible();
+    }
+  } finally {
+    vi.useRealTimers();
+  }
 });

@@ -1,7 +1,12 @@
+import i18n from "@/i18n";
 import React from "react";
 import { render, screen } from "@testing-library/react";
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, it, expect } from "vitest";
 import { PrettyMessagesView } from "./PrettyMessagesView";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 describe("PrettyMessagesView", () => {
   it("should render the component for standard chat completions", () => {

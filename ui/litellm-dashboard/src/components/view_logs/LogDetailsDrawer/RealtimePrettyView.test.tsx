@@ -1,8 +1,13 @@
+import i18n from "@/i18n";
 import React from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { RealtimePrettyView, isRealtimeResponse } from "./RealtimePrettyView";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const sampleRealtimeResponse = {
   usage: {

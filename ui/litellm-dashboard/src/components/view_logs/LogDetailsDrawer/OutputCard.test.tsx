@@ -1,9 +1,14 @@
+import i18n from "@/i18n";
 import React from "react";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { OutputCard } from "./OutputCard";
 import { ParsedMessage } from "./prettyMessagesTypes";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 describe("OutputCard", () => {
   const mockWriteText = vi.fn().mockResolvedValue(undefined);

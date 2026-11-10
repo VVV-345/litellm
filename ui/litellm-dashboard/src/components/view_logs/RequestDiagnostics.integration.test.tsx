@@ -22,7 +22,8 @@ it("links request attempts to the saved body and loads the body only when expand
     result: { input_tokens: 5, output_tokens: 2 },
   };
   vi.mocked(apiClient.get).mockImplementation(async (path) => {
-    if (path === "/logs/timing/request-one") return [{ attempt: 1, phase: "upstream_headers", duration_ms: 1234, status: 200 }];
+    if (path === "/logs/timing/request-one")
+      return [{ attempt: 1, phase: "upstream_headers", duration_ms: 1234, status: 200 }];
     if (path === "/logs/operations") return { items: [{ event_id: "event-one" }] };
     if (path === "/logs/operations/event-one")
       return {
@@ -57,5 +58,7 @@ it("links request attempts to the saved body and loads the body only when expand
   await userEvent.setup().click(await screen.findByRole("button", { name: "查看完整日志" }));
   expect(await screen.findByText("saved reply")).toBeInTheDocument();
   expect(screen.getByText("hello")).toBeInTheDocument();
-  await waitFor(() => expect(apiClient.get).toHaveBeenCalledWith("/logs/full/event-one", { accessToken: "test" }));
+  await waitFor(() =>
+    expect(apiClient.get).toHaveBeenCalledWith("/logs/full/event-one", { accessToken: "test", cache: "no-store" }),
+  );
 });

@@ -1,7 +1,12 @@
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SectionHeader } from "./SectionHeader";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 describe("SectionHeader", () => {
   it("renders the input label with token, cost and turn metrics", () => {

@@ -1,8 +1,13 @@
+import i18n from "@/i18n";
 import { render, screen } from "@testing-library/react";
 import { ThemeProvider } from "next-themes";
 import { darkStyles, defaultStyles } from "react-json-view-lite";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { JsonViewer } from "./JsonViewer";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const renderWithTheme = (theme: "light" | "dark", data: unknown) =>
   render(
