@@ -1,5 +1,7 @@
 # 项目结构表
 
+推荐打开根目录的 [litellm.code-workspace](../../litellm.code-workspace)，按模块选择入口，不必在完整仓库的文件列表中反复滚动。源码保留原路径；根目录原有验收与迁移文档集中在[历史归档](archive/README.md)
+
 本项目统一使用 LiteLLM 对外入口，号池负责实际账号的选择和约束。LiteLLM 与号池 Manager 保持两个进程，分别管理请求和容器生命周期
 
 | 目录或文件 | 职责 | 何时修改 |
@@ -18,7 +20,8 @@
 | `account-pool/account_pool/credential_ownership.py` | 凭证独占绑定 | 调整卡片与凭证关系 |
 | `account-pool/account_pool/management_repository.py` | 日常日志、筛选和统计 | 调整日志查询 |
 | `ui/litellm-dashboard/` | 管理网页 | 修改界面 |
-| `ui/litellm-dashboard/src/app/(dashboard)/account-pool/` | 号池卡片、设置、认证文件和日志页面 | 修改号池界面 |
+| `ui/litellm-dashboard/src/app/(dashboard)/account-pool/` | 号池页面入口及编排 | 修改路由及页面装配 |
+| `ui/litellm-dashboard/src/features/account-pool/` | 号池卡片、认证、代理、上号等功能模块及测试 | 修改号池交互及复用逻辑 |
 | `ui/litellm-dashboard/src/lib/http/schema.d.ts` | 根据 OpenAPI 生成的前端类型 | 后端接口变化后生成，不能手改 |
 | `schema.prisma`、`litellm/proxy/schema.prisma`、`migrations/` | LiteLLM 数据库结构及迁移 | 修改虚拟密钥、模型、用量等数据结构 |
 | `account-pool/account_pool/repository.py` | 号池独立数据库初始化与连接 | 修改号池数据存储 |

@@ -1,0 +1,25 @@
+{
+  "folders": [
+    { "name": "01 号池后端与浏览器", "path": "account-pool" },
+    { "name": "02 管理界面", "path": "ui/litellm-dashboard" },
+    { "name": "03 网关集成", "path": "litellm/proxy/management_endpoints" },
+    { "name": "04 网关集成测试", "path": "tests/test_litellm/proxy/management_endpoints" },
+    { "name": "05 部署发布", "path": "deploy" },
+    { "name": "06 项目手册", "path": "docs/handbook" },
+    { "name": "90 完整仓库", "path": "." }
+  ],
+  "settings": {
+    "explorer.autoReveal": false,
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.ruff_cache": true,
+      "**/.next": true,
+      "**/.venv": true,
+      "**/.local": true,
+      "**/.tmp-manifest": true,
+      "**/.build-artifacts": true
+    }
+  }
+}

@@ -9,6 +9,7 @@
 | 任务 | 手册 |
 | --- | --- |
 | 开发环境、修改范围和验证方法 | [开发与验证](development.md) |
+| 按模块查看代码，减少目录滚动 | [代码目录表与分组工作区](project-map.md) |
 | 安装、四组件镜像、逐卡升级、同版本续跑和失败恢复 | [部署升级与回滚](deployment.md) |
 | 两库、配置、镜像、认证卷分别如何保护 | [数据与备份边界](data-and-backups.md) |
 | 已报错但不清楚属于哪一层 | [跨模块故障排查](troubleshooting.md) |
@@ -45,3 +46,5 @@
 既有[维护历史与目录图](../../account-pool/MAINTENANCE.md)、[凭据独占说明](../../account-pool/CREDENTIAL_OWNERSHIP.md)、[上号说明](../../account-pool/ONBOARDING.md)、[上游维护流程](../../account-pool/docs/upstream-updates.md)和[共享反馈工作流](../FEEDBACK_WORKFLOW.md)保留原地址，避免破坏现有引用。带日期的测试数量与线上状态都是历史记录，不作为当前版本的保证
 
 新增使用和维护说明集中放在这里；代码目录的 README 只提供导航。行为变更应同步修改所属章节和测试，不在多处维护同一操作流程
+
+原根目录的使用说明、服务器验收及功能迁移记录已集中到[历史归档](archive/README.md)，只作为对应日期的证据，不作为当前功能说明
