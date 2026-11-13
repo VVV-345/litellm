@@ -6,7 +6,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Final, Literal, Optional, cast
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 import litellm
 from litellm._logging import verbose_logger
@@ -1125,6 +1125,24 @@ def responses(
 
         local_vars.update(kwargs)
         # Map reasoning_effort (from litellm_params/proxy config) to reasoning when not set
+        from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra, normalize_gpt6_reasoning
+
+        if custom_llm_provider == "openai" and is_gpt_6_astra(model):
+            reasoning_params: Final = TypeAdapter(dict[str, object]).validate_python(local_vars)
+            raw_effort: Final = reasoning_params.get("reasoning_effort")
+            normalized_reasoning: Final = normalize_gpt6_reasoning(
+                model, effort=raw_effort,
+                thinking=reasoning_params.get("thinking"), reasoning=reasoning,
+            )
+            local_vars.pop("reasoning_effort", None)
+            local_vars.pop("thinking", None)
+            normalized_effort: Final = normalized_reasoning.get("effort")
+            if (isinstance(normalized_effort, str) and tuple(normalized_reasoning) == ("effort",)
+                and reasoning is None and not isinstance(raw_effort, dict)):
+                local_vars["reasoning_effort"] = normalized_effort
+            elif normalized_reasoning:
+                reasoning = TypeAdapter(Reasoning).validate_python(normalized_reasoning)
+            local_vars["reasoning"] = reasoning
         if reasoning is None and "reasoning_effort" in local_vars:
             _mapped = LiteLLMResponsesTransformationHandler()._map_reasoning_effort(local_vars.pop("reasoning_effort"))
             if _mapped is not None:

@@ -3981,6 +3981,23 @@ def pre_process_non_default_params(
         additional_endpoint_specific_params=["messages"],
     )
 
+    from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra, normalize_gpt6_reasoning
+
+    if custom_llm_provider == "openai" and is_gpt_6_astra(model):
+        reasoning_params: Final = TypeAdapter(dict[str, object]).validate_python(non_default_params)
+        reasoning = normalize_gpt6_reasoning(
+            model, effort=reasoning_params.get("reasoning_effort"), thinking=reasoning_params.get("thinking"),
+        )
+        if reasoning.get("summary") is not None or reasoning.get("generate_summary") is not None:
+            raise litellm.BadRequestError(
+                message="Use the Responses API for reasoning summaries", model=model, llm_provider="openai",
+            )
+        for field in ("thinking", "reasoning_effort"):
+            if field in non_default_params:
+                del non_default_params[field]
+        if "effort" in reasoning:
+            non_default_params["reasoning_effort"] = reasoning["effort"]
+
     if "response_format" in non_default_params:
         if provider_config is not None:
             non_default_params["response_format"] = provider_config.get_json_schema_from_pydantic_object(

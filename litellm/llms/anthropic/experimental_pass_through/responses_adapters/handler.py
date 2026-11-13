@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Coroutine, Mapping
 from typing import Any, Final, TypeAlias
 
 import litellm
+from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra
 from litellm.types.llms.anthropic import (
     AllAnthropicMessageValues,
     AllAnthropicToolsValues,
@@ -91,7 +92,19 @@ def _build_responses_kwargs(
     # Normalize reasoning effort based on model capabilities
     # (e.g. "max" → "xhigh"/"high", "minimal" → "low" if unsupported)
     reasoning: Final = responses_kwargs.get("reasoning")
-    if isinstance(reasoning, dict):
+    if forwarded_kwargs.get("custom_llm_provider") in (None, "openai") and is_gpt_6_astra(model):
+        from litellm.llms.anthropic.experimental_pass_through.utils import normalize_reasoning_effort_value
+
+        responses_kwargs.pop("reasoning", None)
+        if thinking is not None:
+            responses_kwargs["thinking"] = thinking
+        if output_config is not None and "effort" in output_config:
+            output_effort: Final = output_config["effort"]
+            responses_kwargs["reasoning"] = {
+                "effort": normalize_reasoning_effort_value(output_effort, model, "openai")
+                if output_effort == "max" else output_effort,
+            }
+    elif isinstance(reasoning, dict):
         effort: Final[object] = reasoning.get("effort")
         if isinstance(effort, str):
             from litellm.llms.anthropic.experimental_pass_through.utils import (

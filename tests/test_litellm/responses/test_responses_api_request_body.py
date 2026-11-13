@@ -16,6 +16,88 @@ import litellm
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [
+    {},
+    {"thinking": {"type": "enabled", "budget_tokens": 32768}},
+    {"reasoning_effort": "high", "thinking": {"type": "enabled", "budget_tokens": 32768}},
+    {"reasoning": {"effort": "high", "summary": "detailed"}, "thinking": {"type": "adaptive"}},
+])
+async def test_gpt6_astra_responses_reasoning_reaches_wire(params):
+    captured = []
+
+    def upstream(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json=_minimal_responses_api_payload("resp_reasoning", "gpt-6-astra"))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        result = await litellm.aresponses(
+            model="openai/gpt-6-astra", input="hello", api_key="test", api_base="https://fixture.invalid/v1",
+            client=client, **params,
+        )
+    assert result.status == "completed"
+    assert len(captured) == 1
+    if not params:
+        assert "reasoning" not in captured[0]
+        return
+    assert captured[0]["reasoning"]["effort"] == "high"
+    assert "thinking" not in captured[0]
+    assert "reasoning_effort" not in captured[0]
+    if "reasoning" in params:
+        assert captured[0]["reasoning"]["summary"] == "detailed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params", [
+    {"reasoning": {"effort": "low"}, "reasoning_effort": "high"},
+    {"reasoning": {"effort": "high"}, "thinking": {"type": "disabled"}},
+    {"reasoning": {"effort": "invalid"}},
+    {"reasoning_effort": {"generate_summary": "concise"}, "reasoning": {"generate_summary": "detailed"}},
+    {"thinking": {"type": "enabled", "display": "omitted", "summary": "detailed"}},
+])
+async def test_gpt6_astra_responses_conflicts_do_not_reach_upstream(params):
+    def upstream(request):
+        pytest.fail("invalid reasoning must not reach upstream")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        with pytest.raises(litellm.BadRequestError, match="Invalid or conflicting"):
+            await litellm.aresponses(
+                model="openai/gpt-6-astra", input="hello", api_key="test", api_base="https://fixture.invalid/v1",
+                client=client, **params,
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("params,summary", [
+    ({"reasoning_effort": "high"}, "detailed"),
+    ({"thinking": {"type": "enabled", "budget_tokens": 32768, "display": "omitted"}}, None),
+    ({"thinking": {"type": "enabled", "budget_tokens": 32768, "display": "summarized"}}, "auto"),
+])
+async def test_gpt6_responses_preserves_summary_intent(monkeypatch, params, summary):
+    monkeypatch.setenv("LITELLM_REASONING_AUTO_SUMMARY", "true")
+    captured = []
+
+    def upstream(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json=_minimal_responses_api_payload("resp_summary", "gpt-6-astra"))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        await litellm.aresponses(model="openai/gpt-6-astra", input="hello", api_key="test",
+                                api_base="https://fixture.invalid/v1", client=client, **params)
+    assert len(captured) == 1
+    assert captured[0]["reasoning"]["effort"] == "high"
+    assert captured[0]["reasoning"].get("summary") == summary
+
+
 def _expected_dir() -> Path:
     """Path to expected_responses_api_request folder (sibling of test_litellm/responses)."""
     return Path(__file__).resolve().parent.parent / "expected_responses_api_request"

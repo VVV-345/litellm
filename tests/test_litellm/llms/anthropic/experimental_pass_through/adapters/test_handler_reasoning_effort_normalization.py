@@ -15,7 +15,7 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
 MESSAGES = [{"role": "user", "content": "hello"}]
 
 
-def _reasoning_effort_sent(model: str, provider: str, reasoning_effort: object) -> object:
+def _reasoning_effort_sent(model: str, provider: str, reasoning_effort: object, thinking=None) -> object:
     completion_kwargs, _ = LiteLLMMessagesToCompletionTransformationHandler._prepare_completion_kwargs(
         max_tokens=1024,
         messages=MESSAGES,
@@ -25,7 +25,7 @@ def _reasoning_effort_sent(model: str, provider: str, reasoning_effort: object) 
         stream=False,
         system=None,
         temperature=None,
-        thinking=None,
+        thinking=thinking,
         tool_choice=None,
         tools=None,
         top_k=None,
@@ -34,6 +34,62 @@ def _reasoning_effort_sent(model: str, provider: str, reasoning_effort: object) 
         extra_kwargs={"custom_llm_provider": provider, "reasoning_effort": reasoning_effort},
     )
     return completion_kwargs.get("reasoning_effort")
+
+
+def test_gpt6_astra_messages_preserves_explicit_effort():
+    assert _reasoning_effort_sent("gpt-6-astra", "openai", "xhigh") == "xhigh"
+
+
+def test_gpt6_astra_messages_rejects_conflicting_thinking():
+    from litellm import BadRequestError
+
+    with pytest.raises(BadRequestError):
+        _reasoning_effort_sent("gpt-6-astra", "openai", "high", {"type": "disabled"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("display,summary", [("omitted", None), ("summarized", "auto")])
+@pytest.mark.parametrize("explicit", [None, "high", "max"])
+@pytest.mark.parametrize("kind", ["enabled", "adaptive"])
+async def test_gpt6_messages_wire_preserves_thinking_intent(monkeypatch, display, summary, explicit, kind):
+    import json
+
+    import httpx
+    import litellm
+    from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+
+    monkeypatch.setenv("LITELLM_REASONING_AUTO_SUMMARY", "true")
+    captured = []
+
+    def upstream(request):
+        captured.append((request.url.path, json.loads(request.content)))
+        return httpx.Response(200, json={
+            "id": "resp_messages", "object": "response", "created_at": 1, "status": "completed",
+            "model": "gpt-6-astra", "output": [{"type": "message", "id": "msg", "status": "completed",
+                "role": "assistant", "content": [{"type": "output_text", "text": "OK", "annotations": []}]}],
+            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        result = await litellm.anthropic.messages.acreate(
+            model="openai/gpt-6-astra", messages=MESSAGES, max_tokens=512, api_key="test",
+            api_base="https://fixture.invalid/v1", client=client,
+            thinking={"type": kind, "budget_tokens": 32768, "display": display},
+            **({"output_config": {"effort": "max"}} if explicit == "max" else {"reasoning_effort": explicit}),
+        )
+    assert result["content"][-1]["text"] == "OK"
+    assert len(captured) == 1
+    path, body = captured[0]
+    assert path == "/v1/responses"
+    assert body["model"] == "gpt-6-astra"
+    assert body["reasoning"]["effort"] == (
+        "high" if explicit == "max" else explicit or ("high" if kind == "enabled" else "medium")
+    )
+    assert body["reasoning"].get("summary") == summary
+    assert "thinking" not in body
 
 
 class TestTheNormalizedTierIsTheTierSent:

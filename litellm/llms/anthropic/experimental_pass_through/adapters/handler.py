@@ -6,11 +6,13 @@ from typing import (
     cast,
 )
 
+from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
 import litellm
 from litellm._logging import verbose_logger
 from litellm.litellm_core_utils.asyncify import run_async_function
+from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra, normalize_gpt6_reasoning
 from litellm.llms.anthropic.experimental_pass_through.adapters.transformation import (
     AnthropicAdapter,
 )
@@ -347,7 +349,10 @@ class LiteLLMMessagesToCompletionTransformationHandler:
         if custom_llm_provider != "openai":
             return
 
-        if not isinstance(thinking, dict) or thinking.get("type") != "enabled":
+        if not isinstance(thinking, dict) or (
+            thinking.get("type") != "enabled"
+            and not (is_gpt_6_astra(completion_kwargs.get("model", "")) and thinking.get("type") == "adaptive")
+        ):
             return
 
         model: Final = completion_kwargs.get("model")
@@ -539,7 +544,25 @@ class LiteLLMMessagesToCompletionTransformationHandler:
         # (e.g. "max" → "xhigh"/"high", "minimal" → "low" if unsupported)
         # Must run BEFORE _route_openai_thinking, which prepends "responses/"
         # to the model name and would break get_model_info() lookups.
-        LiteLLMMessagesToCompletionTransformationHandler._normalize_reasoning_effort(completion_kwargs)
+        if custom_llm_provider in (None, "openai") and is_gpt_6_astra(model):
+            from litellm.llms.anthropic.experimental_pass_through.utils import normalize_reasoning_effort_value
+
+            raw_output: Final = extra_kwargs.get("output_config")
+            output_fields: Final = TypeAdapter(dict[str, object]).validate_python(raw_output) if raw_output is not None else {}
+            output_effort: Final = output_fields.get("effort")
+            normalized_reasoning: Final = normalize_gpt6_reasoning(
+                model, effort=extra_kwargs.get("reasoning_effort"), thinking=thinking,
+                reasoning={"effort": normalize_reasoning_effort_value(output_effort, model, custom_llm_provider)
+                           if isinstance(output_effort, str) and output_effort == "max"
+                           else output_effort} if "effort" in output_fields else None,
+            )
+            completion_kwargs.pop("thinking", None)
+            if normalized_reasoning:
+                completion_kwargs["reasoning_effort"] = (
+                    normalized_reasoning["effort"] if tuple(normalized_reasoning) == ("effort",) else normalized_reasoning
+                )
+        else:
+            LiteLLMMessagesToCompletionTransformationHandler._normalize_reasoning_effort(completion_kwargs)
 
         LiteLLMMessagesToCompletionTransformationHandler._route_openai_thinking_to_responses_api_if_needed(
             completion_kwargs,

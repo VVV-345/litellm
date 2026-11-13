@@ -26,6 +26,7 @@ from litellm.litellm_core_utils.prompt_templates.image_handling import (
     async_convert_url_to_base64,
     convert_url_to_base64,
 )
+from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra
 from litellm.llms.base_llm.base_model_iterator import BaseModelResponseIterator
 from litellm.llms.base_llm.base_utils import BaseLLMModelInfo
 from litellm.llms.base_llm.chat.transformation import BaseConfig, BaseLLMException
@@ -178,7 +179,7 @@ class OpenAIGPTConfig(BaseLLMModelInfo, BaseConfig):
             model_specific_params.append(
                 "user"
             )  # user is not a param supported by all openai-compatible endpoints - e.g. azure ai
-        return base_params + model_specific_params
+        return base_params + model_specific_params + (["reasoning_effort"] if is_gpt_6_astra(model) else [])
 
     def _map_openai_params(
         self,

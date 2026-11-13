@@ -4,6 +4,8 @@
 
 LiteLLM 保留用户鉴权、原生计价和日志集成，号池网关限制卡片/模型范围并取得 Manager 租约。推理正文由网关转发到 CPA 或兼容上游，不经过 Manager；控制面健康不等于数据面正常
 
+OpenAI 的 `gpt-6-astra` 请求在 Chat、Responses 和 Messages 入口统一校验 `reasoning_effort`、`thinking` 与原生 `reasoning`，冲突或非法值返回 400，不全局丢弃参数。Chat 只传递推理强度，摘要请求需使用 Responses；Messages 的摘要显示意图由 Responses 转换保留。这里解决入口适配，不保证上游账号或模型支持全部推理档位
+
 ## 关键入口
 
 [GatewayService](../../../account-pool/account_pool/gateway_service.py)、[租约仓库及 lock_version](../../../account-pool/account_pool/gateway_repository.py)、[控制协议](../../../account-pool/account_pool/gateway_contracts.py)、[LiteLLM 网关](../../../litellm/proxy/management_endpoints/account_pool_gateway.py)、[转发](../../../litellm/proxy/management_endpoints/account_pool_gateway_forwarder.py)、[重试](../../../litellm/proxy/management_endpoints/account_pool_retry.py)、[流式处理](../../../litellm/proxy/management_endpoints/account_pool_stream.py)
