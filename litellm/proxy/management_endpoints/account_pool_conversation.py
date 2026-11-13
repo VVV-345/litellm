@@ -71,6 +71,7 @@ _DEPLOYMENTS: Final = TypeAdapter(tuple[Mapping[str, object], ...])
 _FIELDS: Final = frozenset(("input", "tools", "functions", "background", "conversation", "store", "truncation", "instructions", "extra_body"))
 _MAX_BYTES: Final = 256 * 1024
 _TTL: Final = 3600
+_MAX_FALLBACKS: Final = 5
 _Result = TypeVar("_Result")
 
 
@@ -511,7 +512,13 @@ class Conversation:
         *,
         remaining: int = 10,
         migrated: bool = False,
+        fallback_remaining: int | None = None,
     ) -> _Result:
+        configured_fallbacks: Final = payload.get("max_fallbacks", router.max_fallbacks)
+        fallback_limit: Final = (
+            min(_MAX_FALLBACKS, configured_fallbacks) if isinstance(configured_fallbacks, int) else _MAX_FALLBACKS
+        )
+        fallback_budget: Final = fallback_limit - int(migrated) if fallback_remaining is None else fallback_remaining
         raw_attempts: Final = exception_header(error, "x-account-pool-attempt")
         used: Final = (
             min(10, max(1, int(raw_attempts))) if raw_attempts and raw_attempts.isdecimal()
@@ -549,9 +556,13 @@ class Conversation:
             except Exception as next_error:
                 if exception_previous_response_missing(next_error):
                     raise
-                return await self.recover(router, payload, next_error, invoke, remaining=budget)
+                return await self.recover(
+                    router, payload, next_error, invoke, remaining=budget, fallback_remaining=fallback_budget,
+                )
             finally:
                 pool_identity.reset(token_once)
+        if fallback_budget <= 0:
+            raise error
         rebuilt: Final = self.rebuild(router, payload, error, migrated=migrated)
         if rebuilt is None:
             raise error
@@ -559,7 +570,10 @@ class Conversation:
         try:
             return await invoke(rebuilt)
         except Exception as next_error:
-            return await self.recover(router, rebuilt, next_error, invoke, remaining=budget, migrated=True)
+            return await self.recover(
+                router, rebuilt, next_error, invoke, remaining=budget, migrated=True,
+                fallback_remaining=fallback_budget - 1,
+            )
         finally:
             pool_identity.reset(token)
 

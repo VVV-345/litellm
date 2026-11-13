@@ -1608,3 +1608,74 @@ async def test_old_id_rebuilt_stream_never_replays_after_output(pool, monkeypatc
     with pytest.raises(ServiceUnavailableError):
         await anext(stream)
     assert attempts == [str(first), str(first)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["strict-quota", "strict-old-id", "degraded-quota", "degraded-old-id", "preempt"])
+@pytest.mark.parametrize("limit,router_limit,allowed", [(None, 5, 5), (1, 5, 1), (5, 5, 5), (9, 9, 5), (None, 1, 1)])
+@pytest.mark.parametrize("success_at", [5, 6])
+async def test_conversation_switch_limit_is_five(monkeypatch, mode, limit, router_limit, allowed, success_at):
+    import httpx
+
+    from litellm.exceptions import BadRequestError, ServiceUnavailableError
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-five-switches-" * 3)
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "0" if mode.startswith("strict") else "1")
+    cards = tuple(str(uuid4()) for _ in range(7))
+    router = Router(
+        model_list=[{
+            "model_name": "shared",
+            "model_info": {"id": card, "account_pool_environment_id": card},
+            "litellm_params": {"model": "openai/test-model", "api_key": "test", "order": index},
+        } for index, card in enumerate(cards)], num_retries=0, max_fallbacks=router_limit,
+        optional_pre_call_checks=["encrypted_content_affinity", "responses_api_deployment_check"],
+    )
+    before = snapshots.values
+    snapshots.replace({card: RoutingSnapshot(quota_switch_project=True) for card in cards})
+    token = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    attempts = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        if kwargs["input"] == "Remember":
+            return response(card)
+        attempts.append(cards.index(card))
+        if mode.endswith("old-id") and kwargs.get("previous_response_id"):
+            raise BadRequestError(message="old id", model="shared", llm_provider="openai",
+                response=httpx.Response(400, json={"error": {"code": "previous_response_not_found"}},
+                                        request=httpx.Request("POST", "http://local/v1/responses")))
+        if card != cards[success_at]:
+            raise ServiceUnavailableError(message="quota exhausted", model="shared", llm_provider="openai",
+                response=httpx.Response(503, headers={"x-account-pool-failure": "quota_exhausted"},
+                                        request=httpx.Request("POST", "http://local/v1/responses")))
+        return response(card)
+
+    try:
+        seed = await router._aresponses_with_streaming_fallbacks(
+            original_function=provider, model="shared", input="Remember",
+        )
+        if mode == "preempt":
+            snapshots.replace({
+                card: RoutingSnapshot(quota_switch_project=True,
+                                      quota=RoutingQuota(remaining_percent=0) if index == 0 else RoutingQuota())
+                for index, card in enumerate(cards)
+            })
+        options = {"max_fallbacks": limit} if limit is not None else {}
+        if success_at > allowed:
+            with pytest.raises(ServiceUnavailableError):
+                await router._aresponses_with_streaming_fallbacks(
+                    original_function=provider, model="shared", input="Continue", previous_response_id=seed.id, **options,
+                )
+        else:
+            result = await router._aresponses_with_streaming_fallbacks(
+                original_function=provider, model="shared", input="Continue", previous_response_id=seed.id, **options,
+            )
+            assert result.status == "completed"
+            assert ResponsesAPIRequestUtils.get_model_id_from_response_id(result.id) == cards[success_at]
+        assert attempts == ([0] if mode.endswith("old-id") else []) + list(
+            range(1 if mode == "preempt" else 0, min(success_at, allowed) + 1)
+        )
+    finally:
+        pool_identity.reset(token)
+        snapshots.replace(before)
+        router.discard()
