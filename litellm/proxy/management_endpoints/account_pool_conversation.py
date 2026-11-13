@@ -521,7 +521,7 @@ class Conversation:
         failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
         if migrated and isinstance(excluded_before, (tuple, list)) and failed in excluded_before:
             raise error
-        budget: Final = remaining - used
+        budget: Final = min(remaining, self.identity.attempt_limit) - used
         if budget <= 0 or time.time() >= self.identity.retry_deadline:
             raise error
         if (
@@ -546,6 +546,10 @@ class Conversation:
             token_once: Final = pool_identity.set(self.identity.model_copy(update={"attempt_limit": 1}))
             try:
                 return await invoke(self._rebuilt(payload, self.history, excluded))
+            except Exception as next_error:
+                if exception_previous_response_missing(next_error):
+                    raise
+                return await self.recover(router, payload, next_error, invoke, remaining=budget)
             finally:
                 pool_identity.reset(token_once)
         rebuilt: Final = self.rebuild(router, payload, error, migrated=migrated)

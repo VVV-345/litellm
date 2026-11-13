@@ -1446,3 +1446,165 @@ async def test_does_not_send_incomplete_or_unrecognized_search_history_to_backup
             ],
         )
     assert seen == [str(first)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relaxed", [False, True])
+@pytest.mark.parametrize("limit", [2, 3, 10])
+async def test_old_id_then_quota_switches_and_preserves_next_turn(pool, monkeypatch, relaxed, limit):
+    import httpx
+
+    from litellm.exceptions import BadRequestError, ServiceUnavailableError
+
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1" if relaxed else "0")
+    router, (first, second) = pool
+    seed = response(first, "Remembered A")
+    completed = response(second, "Recovered B")
+    attempts = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        attempts.append((card, kwargs.get("previous_response_id"), copy.deepcopy(kwargs["input"])))
+        if kwargs["input"] == "Remember A":
+            return seed
+        if kwargs.get("previous_response_id") == seed.id:
+            raise BadRequestError(
+                message="Previous response unavailable", model="shared", llm_provider="openai",
+                response=httpx.Response(400, json={"error": {"code": "previous_response_not_found"}},
+                                        request=httpx.Request("POST", "http://local/v1/responses")),
+            )
+        if card == str(first):
+            raise ServiceUnavailableError(
+                message="quota exhausted", model="shared", llm_provider="openai",
+                response=httpx.Response(503, headers={"x-account-pool-failure": "quota_exhausted"},
+                                        request=httpx.Request("POST", "http://local/v1/responses")),
+            )
+        return completed
+
+    await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Remember A",
+    )
+    attempts.clear()
+    token = pool_identity.set(pool_identity.get().model_copy(update={"attempt_limit": limit}))
+    try:
+        result = await router._aresponses_with_streaming_fallbacks(
+            original_function=provider, model="shared", input="Repeat A", previous_response_id=seed.id,
+        )
+    except ServiceUnavailableError:
+        if limit != 2:
+            raise
+        assert [card for card, _, _ in attempts] == [str(first), str(first)]
+        return
+    finally:
+        pool_identity.reset(token)
+    assert limit != 2, "recovery exceeded the original attempt budget"
+    assert result.id == completed.id
+    assert [card for card, _, _ in attempts] == [str(first), str(first), str(second)]
+    expected = [
+        {"role": "user", "content": "Remember A"},
+        {"type": "message", "role": "assistant", "content": "Remembered A"},
+        {"role": "user", "content": "Repeat A"},
+    ]
+    assert attempts[-1][1:] == (None, expected)
+    await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Next", previous_response_id=result.id,
+    )
+    assert attempts[-1][:2] == (str(second), completed.id)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relaxed", [False, True])
+@pytest.mark.parametrize("case", ["disabled", "max_zero", "excluded", "invalid", "no_candidate"])
+async def test_old_id_recovery_keeps_original_failover_boundaries(pool, monkeypatch, relaxed, case):
+    import httpx
+
+    from litellm.exceptions import BadRequestError, ServiceUnavailableError
+
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1" if relaxed else "0")
+    router, (first, second) = pool
+    seed = response(first)
+    attempts = []
+
+    async def provider(**kwargs):
+        card = chosen(kwargs)
+        if kwargs["input"] == "Remember":
+            return seed
+        attempts.append(card)
+        if kwargs.get("previous_response_id"):
+            raise BadRequestError(message="old id", model="shared", llm_provider="openai",
+                response=httpx.Response(400, json={"error": {"code": "previous_response_not_found"}},
+                                        request=httpx.Request("POST", "http://local")))
+        if case == "invalid":
+            raise BadRequestError(message="invalid input", model="shared", llm_provider="openai")
+        raise ServiceUnavailableError(message="quota exhausted", model="shared", llm_provider="openai",
+            response=httpx.Response(503, headers={"x-account-pool-failure": "quota_exhausted"},
+                                    request=httpx.Request("POST", "http://local")))
+
+    await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input="Remember")
+    options = ({"disable_fallbacks": True} if case == "disabled" else {"max_fallbacks": 0}
+               if case == "max_zero" else {"_excluded_deployment_ids": [str(second)]} if case == "excluded" else {})
+    with pytest.raises(BadRequestError if case == "invalid" else ServiceUnavailableError):
+        await router._aresponses_with_streaming_fallbacks(
+            original_function=provider, model="shared", input="Next", previous_response_id=seed.id, **options,
+        )
+    assert attempts == [str(first), str(first)] + ([str(second)] if case == "no_candidate" else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relaxed", [False, True])
+@pytest.mark.parametrize("event_type", ["text", "reasoning", "tool"])
+async def test_old_id_rebuilt_stream_never_replays_after_output(pool, monkeypatch, relaxed, event_type):
+    import httpx
+
+    from litellm.exceptions import BadRequestError, ServiceUnavailableError
+    from litellm.responses.streaming_iterator import BaseResponsesAPIStreamingIterator
+    from litellm.types.llms.openai import (
+        FunctionCallArgumentsDeltaEvent, OutputTextDeltaEvent, ReasoningSummaryTextDeltaEvent,
+    )
+
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1" if relaxed else "0")
+    router, (first, second) = pool
+    seed = response(first)
+    attempts = []
+    events = {
+        "text": OutputTextDeltaEvent(type="response.output_text.delta", delta="partial", item_id="msg",
+                                     output_index=0, content_index=0),
+        "reasoning": ReasoningSummaryTextDeltaEvent(type="response.reasoning_summary_text.delta", delta="partial",
+                                                    item_id="reason", output_index=0, summary_index=0),
+        "tool": FunctionCallArgumentsDeltaEvent(type="response.function_call_arguments.delta", delta="partial",
+                                                 item_id="call", output_index=0),
+    }
+
+    class Stream(BaseResponsesAPIStreamingIterator):
+        def __init__(self):
+            self.emitted = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self.emitted:
+                self.emitted = True
+                return events[event_type]
+            raise ServiceUnavailableError(message="quota exhausted", model="shared", llm_provider="openai",
+                response=httpx.Response(503, headers={"x-account-pool-failure": "quota_exhausted"},
+                                        request=httpx.Request("POST", "http://local")))
+
+    async def provider(**kwargs):
+        if kwargs["input"] == "Remember":
+            return seed
+        attempts.append(chosen(kwargs))
+        if kwargs.get("previous_response_id"):
+            raise BadRequestError(message="old id", model="shared", llm_provider="openai",
+                response=httpx.Response(400, json={"error": {"code": "previous_response_not_found"}},
+                                        request=httpx.Request("POST", "http://local")))
+        return Stream()
+
+    await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input="Remember")
+    stream = await router._aresponses_with_streaming_fallbacks(
+        original_function=provider, model="shared", input="Next", previous_response_id=seed.id, stream=True,
+    )
+    assert (await anext(stream)).delta == "partial"
+    with pytest.raises(ServiceUnavailableError):
+        await anext(stream)
+    assert attempts == [str(first), str(first)]
