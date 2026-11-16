@@ -8,6 +8,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Final, Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -51,7 +52,12 @@ class QuotaSnapshot(BaseModel):
         return RoutingQuota(
             remaining_percent=min((window.remaining_percent for window in self.windows), default=None),
             observed_at=self.observed_at,
-            windows=tuple(RoutingQuotaWindow(window_minutes=w.window_minutes, remaining_percent=w.remaining_percent, resets_at=w.resets_at) for w in self.windows),
+            windows=tuple(
+                RoutingQuotaWindow(
+                    window_minutes=w.window_minutes, remaining_percent=w.remaining_percent, resets_at=w.resets_at
+                )
+                for w in self.windows
+            ),
         )
 
 
@@ -100,6 +106,11 @@ class GatewayEnvironment(BaseModel):
 _GATEWAY_ENVIRONMENTS: Final = TypeAdapter(tuple[GatewayEnvironment, ...])
 
 
+class AllowedOpenAIParams(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    allowed_openai_params: tuple[str, ...]
+
+
 @dataclass(frozen=True, slots=True)
 class ManagedDeployment:
     id: str
@@ -136,9 +147,16 @@ class ManagedDeployment:
             "max_parallel_requests": self.max_parallel_requests,
             "num_retries": 0,
             "max_retries": 0,
-            **({"allowed_openai_params": list(_GLM_REASONING_PARAMS)} if self.glm_standard_api else {}),
-            **({"keepalive_seconds": self.sse_heartbeat_interval_seconds, "allow_client_keepalive_override": False}
-               if self.sse_heartbeat_interval_seconds is not None else {}),
+            **(
+                AllowedOpenAIParams(allowed_openai_params=_GLM_REASONING_PARAMS).model_dump(mode="json")
+                if self.glm_standard_api
+                else MappingProxyType({})
+            ),
+            **(
+                {"keepalive_seconds": self.sse_heartbeat_interval_seconds, "allow_client_keepalive_override": False}
+                if self.sse_heartbeat_interval_seconds is not None
+                else {}
+            ),
         }
 
     @property
@@ -244,15 +262,27 @@ class LiteLLMDeploymentStore:
             if heartbeat.account_pool_sse_heartbeat is not None
             else {key: value for key, value in preserved.litellm_params.items() if key in heartbeat_keys}
         )
-        previous_glm: Final = (preserved.model_info or {}).get("account_pool_glm_standard_api") is True
-        native_allowed: Final = TypeAdapter(tuple[str, ...]).validate_python(
-            (preserved.model_info or {}).get("account_pool_glm_native_allowed_params") or ()
-            if previous_glm else preserved.litellm_params.get("allowed_openai_params") or ()
-        ) if previous_glm or deployment.glm_standard_api else ()
-        allowed_override: Final = {
-            "allowed_openai_params": list(dict.fromkeys((*native_allowed, *_GLM_REASONING_PARAMS)))
-            if deployment.glm_standard_api else list(native_allowed)
-        } if previous_glm or deployment.glm_standard_api else {}
+        previous_glm: Final = (preserved.model_info or MappingProxyType({})).get(
+            "account_pool_glm_standard_api"
+        ) is True
+        native_allowed: Final = (
+            TypeAdapter(tuple[str, ...]).validate_python(
+                (preserved.model_info or MappingProxyType({})).get("account_pool_glm_native_allowed_params") or ()
+                if previous_glm
+                else preserved.litellm_params.get("allowed_openai_params") or ()
+            )
+            if previous_glm or deployment.glm_standard_api
+            else ()
+        )
+        allowed_override: Final = (
+            AllowedOpenAIParams(
+                allowed_openai_params=tuple(dict.fromkeys((*native_allowed, *_GLM_REASONING_PARAMS)))
+                if deployment.glm_standard_api
+                else native_allowed
+            ).model_dump(mode="json")
+            if previous_glm or deployment.glm_standard_api
+            else MappingProxyType({})
+        )
         inherited_params: Final = {
             **{key: value for key, value in preserved.litellm_params.items() if key not in heartbeat_keys},
             **native_keepalive,
@@ -269,8 +299,17 @@ class LiteLLMDeploymentStore:
             model_info={
                 **(preserved.model_info or {}),
                 **deployment.model_info,
-                **({"account_pool_glm_native_allowed_params": list(native_allowed) if deployment.glm_standard_api else None}
-                   if previous_glm or deployment.glm_standard_api else {}),
+                **(
+                    MappingProxyType(
+                        {
+                            "account_pool_glm_native_allowed_params": native_allowed
+                            if deployment.glm_standard_api
+                            else None
+                        }
+                    )
+                    if previous_glm or deployment.glm_standard_api
+                    else MappingProxyType({})
+                ),
                 "account_pool_native_keepalive": (
                     native_keepalive if deployment.sse_heartbeat_interval_seconds is not None else None
                 ),
@@ -412,9 +451,7 @@ class ReconcilerHealth:
         self.last_error = str(error)[:500]
 
     def status(self, interval_seconds: float, now: datetime) -> ReconcilerStatus:
-        age: Final = (
-            None if self.last_success_at is None else max(0.0, (now - self.last_success_at).total_seconds())
-        )
+        age: Final = None if self.last_success_at is None else max(0.0, (now - self.last_success_at).total_seconds())
         return ReconcilerStatus(
             last_success_at=self.last_success_at,
             last_failure_at=self.last_failure_at,
@@ -466,8 +503,11 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         api_key="account-pool-internal",
         max_parallel_requests=environment.concurrency_limit or None,
         custom_llm_provider=environment.custom_llm_provider,
-        supported_endpoints=(tuple(dict.fromkeys((*environment.supported_endpoints, "/v1/messages")))
-                             if environment.passthrough_enabled else environment.supported_endpoints),
+        supported_endpoints=(
+            tuple(dict.fromkeys((*environment.supported_endpoints, "/v1/messages")))
+            if environment.passthrough_enabled
+            else environment.supported_endpoints
+        ),
         blocked=not environment.routable,
         routing_weight=environment.routing_weight,
         routing_order=environment.routing_order,

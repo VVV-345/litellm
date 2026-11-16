@@ -3986,12 +3986,15 @@ def pre_process_non_default_params(
     if custom_llm_provider == "openai" and is_openai_reasoning_model(model):
         reasoning_params: Final = TypeAdapter(dict[str, object]).validate_python(non_default_params)
         reasoning = normalize_openai_reasoning(
-            model, effort=reasoning_params.get("reasoning_effort"), thinking=reasoning_params.get("thinking"),
+            model,
+            effort=reasoning_params.get("reasoning_effort"),
+            thinking=reasoning_params.get("thinking"),
         )
         if reasoning.keys() - {"effort"}:
             raise litellm.BadRequestError(
                 message="Use the Responses API for reasoning summaries, mode or context",
-                model=model, llm_provider="openai",
+                model=model,
+                llm_provider="openai",
             )
         for field in ("thinking", "reasoning_effort"):
             if field in non_default_params:
@@ -4721,16 +4724,22 @@ def get_optional_params(
             optional_params = delete_nested_value(optional_params, path)
 
     if custom_llm_provider == "openai" and "thinking" in allowed_openai_params and "thinking" in optional_params:
-        extra_body: Final = optional_params.get("extra_body") or {}
+        extra_body: Final = optional_params.get("extra_body") or MappingProxyType({})
         if "thinking" in extra_body and extra_body["thinking"] != optional_params["thinking"]:
             raise UnsupportedParamsError(
-                status_code=400, model=model, llm_provider=custom_llm_provider,
+                status_code=400,
+                model=model,
+                llm_provider=custom_llm_provider,
                 message="conflicting thinking values in request and extra_body",
             )
-        return {
-            **{key: value for key, value in optional_params.items() if key != "thinking"},
-            "extra_body": {**extra_body, "thinking": optional_params["thinking"]},
-        }
+        sdk_body: Final = MappingProxyType({**extra_body, "thinking": optional_params["thinking"]})
+        sdk_params: Final = MappingProxyType(
+            {
+                **MappingProxyType({key: value for key, value in optional_params.items() if key != "thinking"}),
+                "extra_body": sdk_body.copy(),
+            }
+        )
+        return sdk_params.copy()
     return optional_params
 
 
