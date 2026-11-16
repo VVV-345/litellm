@@ -534,8 +534,14 @@ async def pre_db_read_auth_checks(
     await check_if_request_size_is_safe(request=request)
 
     # Check 2. Request body is safe
+    # This admin route sends base_url only to the Manager, which validates the upstream destination.
+    safety_body: Final = (
+        {key: value for key, value in request_data.items() if key != "base_url"}
+        if getattr(request.state, "account_pool_model_discovery", False) is True
+        else request_data
+    )
     is_request_body_safe(
-        request_body=request_data,
+        request_body=safety_body,
         general_settings=general_settings,
         llm_router=llm_router,
         model=request_data.get("model", ""),  # [TODO] use model passed in url as well (azure openai routes)

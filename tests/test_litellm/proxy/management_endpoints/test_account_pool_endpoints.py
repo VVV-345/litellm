@@ -16,7 +16,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from litellm.proxy._types import LitellmUserRoles, UserAPIKeyAuth
+from litellm.proxy._types import LitellmUserRoles, ProxyException, UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.management_endpoints.account_pool_endpoints import (
     AccountPoolManagerClient,
@@ -364,6 +364,81 @@ def test_model_preview_routes_only_admin_valid_requests_without_echoing_keys() -
         assert result.status_code == 200 and result.json() == ["glm-fixture"]
     assert len(requests) == 1 and requests[0].url.path == "/api/openai-compatible/models"
     assert requests[0].method == "POST" and b'"api_key":"fixture-preview"' in requests[0].content
+
+
+@pytest.mark.parametrize(
+    ("base_url", "model"),
+    (
+        ("https://opencode.ai/inference/go/openai/v1", "kimi-k3"),
+        ("https://api.z.ai/api/paas/v4", "glm-5.2"),
+        ("https://openai-compatible.example/v1", "custom-model"),
+    ),
+    ids=("opencode-go", "glm", "openai-compatible"),
+)
+def test_model_preview_uses_real_gateway_auth(monkeypatch: pytest.MonkeyPatch, base_url: str, model: str) -> None:
+    from litellm.proxy import proxy_server
+
+    admin_key: Final = "sk-fixture-model-preview-admin"
+    payload: Final = {"base_url": base_url, "credential": {"api_key": "fixture-preview"}}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST" and request.url.path == "/api/openai-compatible/models"
+        assert json.loads(request.content)["base_url"] == base_url
+        assert json.loads(request.content)["credential"]["api_key"] == "fixture-preview"
+        assert request.headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+        return httpx.Response(200, json=[model])
+
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    monkeypatch.setattr(proxy_server, "master_key", admin_key)
+    monkeypatch.setattr(proxy_server, "general_settings", {})
+    app: Final = FastAPI(exception_handlers={ProxyException: proxy_server.openai_exception_handler})
+    app.include_router(create_account_pool_router(factory))
+    with TestClient(app) as client:
+        response: Final = client.post(
+            "/account_pool/openai-compatible/models", json=payload, headers={"Authorization": f"Bearer {admin_key}"},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == [model]
+
+
+def test_model_preview_address_exception_does_not_relax_other_gateway_checks(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi import Depends
+
+    from litellm.proxy import proxy_server
+
+    admin_key: Final = "sk-fixture-model-preview-admin"
+    auth: Final = {"Authorization": f"Bearer {admin_key}"}
+    preview: Final = "/account_pool/openai-compatible/models"
+    payload: Final = {"base_url": "https://example.com/v1", "credential": {"api_key": "fixture-preview"}}
+
+    def factory() -> AccountPoolManagerClient:
+        pytest.fail("Rejected request reached the Manager")
+
+    monkeypatch.setattr(proxy_server, "master_key", admin_key)
+    monkeypatch.setattr(proxy_server, "general_settings", {})
+    app: Final = FastAPI(exception_handlers={ProxyException: proxy_server.openai_exception_handler})
+    app.include_router(create_account_pool_router(factory))
+
+    @app.post("/v1/chat/completions", dependencies=[Depends(user_api_key_auth)])
+    async def unexpected_inference() -> None:
+        pytest.fail("Caller-supplied base_url reached the inference endpoint")
+
+    with TestClient(app) as client:
+        unauthenticated: Final = client.post(preview, json=payload)
+        assert unauthenticated.status_code == 401
+        assert "base_url" not in unauthenticated.text
+        other_field: Final = client.post(preview, json={**payload, "api_base": payload["base_url"]}, headers=auth)
+        assert other_field.status_code == 401
+        assert "api_base is not allowed" in other_field.text
+        for path in ("/v1/chat/completions", "/account_pool/openai-compatible"):
+            outside_preview: Final = client.post(path, json=payload, headers=auth)
+            assert outside_preview.status_code == 401
+            assert "base_url is not allowed" in outside_preview.text
 
 
 @pytest.mark.parametrize("replace", [None, "true"])

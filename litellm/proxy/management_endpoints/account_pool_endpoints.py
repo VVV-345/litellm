@@ -64,6 +64,7 @@ class _ModelDiscoveryRoute(APIRoute):
         handler: Final = super().get_route_handler()
 
         async def validated(request: Request) -> Response:
+            request.state.account_pool_model_discovery = True
             try:
                 return await handler(request)
             except RequestValidationError:
