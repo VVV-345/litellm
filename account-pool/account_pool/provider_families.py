@@ -99,7 +99,7 @@ GLM_PROVIDER_FAMILY: Final = ProviderFamily(
     supplier=SupplierKind.OPENAI_COMPATIBLE,
     authentication="API Key",
     available=True,
-    description="智谱国内站与 Z.AI 国际站的标准 API Key 接入",
+    description="智谱国内站与 Z.AI 国际站的标准 API 和 Coding Plan 接入",
 )
 
 OPENCODE_PROVIDER_FAMILY: Final = ProviderFamily(
@@ -111,17 +111,25 @@ OPENCODE_PROVIDER_FAMILY: Final = ProviderFamily(
     description="OpenCode Console / Zen 与 OpenCode Go 的 API Key 接入",
 )
 
-_GLM_STANDARD_BASES: Final = frozenset(("https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4"))
-_OPENCODE_STANDARD_BASES: Final = frozenset(
-    ("https://opencode.ai/inference/openai/v1", "https://opencode.ai/inference/go/openai/v1")
+_GLM_BASES: Final = frozenset(
+    (
+        "https://open.bigmodel.cn/api/paas/v4",
+        "https://api.z.ai/api/paas/v4",
+        "https://open.bigmodel.cn/api/coding/paas/v4",
+        "https://api.z.ai/api/coding/paas/v4",
+    )
+)
+OPENCODE_GO_CATALOG_BASE: Final = "https://opencode.ai/inference/go/v1"
+OPENCODE_GO_BASES: Final = frozenset(
+    (OPENCODE_GO_CATALOG_BASE, "https://opencode.ai/inference/go/openai/v1", "https://opencode.ai/zen/go/v1")
 )
 
 
 def provider_family_kind(record: EnvironmentRecord) -> str:
     config: Final = record.openai_compatible
     base_url: Final = str(config.base_url).rstrip("/") if config is not None else ""
-    if base_url in _GLM_STANDARD_BASES:
+    if base_url in _GLM_BASES:
         return GLM_PROVIDER_FAMILY.kind
-    if base_url in _OPENCODE_STANDARD_BASES:
+    if base_url == "https://opencode.ai/inference/openai/v1" or base_url in OPENCODE_GO_BASES:
         return OPENCODE_PROVIDER_FAMILY.kind
     return record.supplier.value

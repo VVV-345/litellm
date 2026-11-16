@@ -34,6 +34,7 @@ from account_pool.domain import (
     configured_proxy_url,
     utc_now,
 )
+from account_pool.provider_families import OPENCODE_GO_BASES, OPENCODE_GO_CATALOG_BASE
 from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
 
 
@@ -46,7 +47,21 @@ class _Model(BaseModel):
 class _ModelList(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    data: tuple[_Model, ...] = ()
+    data: tuple[_Model, ...]
+
+
+class ModelListDiscoveryError(RuntimeError):
+    pass
+
+
+def _model_list_error(error: httpx.HTTPError | TimeoutError | ValueError) -> str:
+    if isinstance(error, httpx.HTTPStatusError):
+        return f"model_list_http_{error.response.status_code}"
+    if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        return "model_list_timeout"
+    if isinstance(error, httpx.HTTPError):
+        return "model_list_network"
+    return "model_list_format"
 
 
 _SUPPLIER: Final = SupplierDefinition(
@@ -319,10 +334,12 @@ class OpenAICompatibleChannel:
             if proxy_url is None
             else httpx.AsyncClient(proxy=proxy_url, timeout=20, trust_env=False, follow_redirects=False)
         )
+        source: Final = destination.rstrip("/")
+        catalog: Final = OPENCODE_GO_CATALOG_BASE if source in OPENCODE_GO_BASES else source
         try:
             async with asyncio.timeout(20 if bounded else None), client.stream(
                 "GET",
-                f"{destination.rstrip('/')}/models",
+                f"{catalog}/models",
                 headers={
                     **headers,
                     **({"Host": host_header} if host_header is not None else {}),
@@ -334,10 +351,12 @@ class OpenAICompatibleChannel:
                 body: Final = BytesIO()
                 async for chunk in response.aiter_bytes():
                     if bounded and body.tell() + len(chunk) > _MAX_MODEL_LIST_BYTES:
-                        return None
+                        raise ModelListDiscoveryError("model_list_format")
                     body.write(chunk)
                 return tuple(model.id for model in _ModelList.model_validate_json(body.getvalue()).data)
-        except (httpx.HTTPError, TimeoutError, ValueError):
+        except (httpx.HTTPError, TimeoutError, ValueError) as error:
+            if bounded:
+                raise ModelListDiscoveryError(_model_list_error(error)) from None
             return None
         finally:
             if client is not self._client:
@@ -350,4 +369,4 @@ class OpenAICompatibleChannel:
         return record.openai_compatible
 
 
-__all__ = ("OpenAICompatibleChannel",)
+__all__ = ("ModelListDiscoveryError", "OpenAICompatibleChannel")

@@ -44,14 +44,21 @@ async def private_resolver(_: str, __: int) -> tuple[str, ...]:
 
 
 @pytest.mark.parametrize(
-    "base",
+    ("base", "catalog_path"),
     (
-        "https://open.bigmodel.cn/api/paas/v4",
-        "https://opencode.ai/inference/openai/v1",
-        "https://opencode.ai/inference/go/openai/v1",
+        ("https://custom.example/v1", "/v1/models"),
+        ("https://open.bigmodel.cn/api/paas/v4", "/api/paas/v4/models"),
+        ("https://open.bigmodel.cn/api/coding/paas/v4", "/api/coding/paas/v4/models"),
+        ("https://api.z.ai/api/coding/paas/v4", "/api/coding/paas/v4/models"),
+        ("https://opencode.ai/inference/openai/v1", "/inference/openai/v1/models"),
+        ("https://opencode.ai/inference/go/openai/v1", "/inference/go/v1/models"),
+        ("https://opencode.ai/zen/go/v1", "/inference/go/v1/models"),
+        ("https://opencode.ai.example.com/zen/go/v1", "/zen/go/v1/models"),
     ),
 )
-def test_manager_model_preview_and_provider_presets_use_existing_configuration(tmp_path: Path, base: str) -> None:
+def test_manager_model_preview_and_provider_presets_use_existing_configuration(
+    tmp_path: Path, base: str, catalog_path: str,
+) -> None:
     console: Final = "https://opencode.ai/inference/openai/v1"
     go: Final = "https://opencode.ai/inference/go/openai/v1"
     secret: Final = EnvironmentSecretDeriver("s" * 32)
@@ -68,6 +75,7 @@ def test_manager_model_preview_and_provider_presets_use_existing_configuration(t
         for url in (
             "https://open.bigmodel.cn/api/paas/v4",
             "https://api.z.ai/api/paas/v4/",
+            *((base,) if "/api/coding/paas/v4" in base else ()),
             console,
             f"{go}/",
             "https://custom.example/v1",
@@ -102,19 +110,72 @@ def test_manager_model_preview_and_provider_presets_use_existing_configuration(t
         assert not requests
         preview: Final = client.post(path, json=payload)
         assert preview.status_code == 200 and preview.json() == ["fixture-model"]
-        assert [(request.method, str(request.url)) for request in requests] == [("GET", f"{base}/models")]
+        assert len(requests) == 1
+        assert requests[0].method == "GET"
+        assert requests[0].url.host == httpx.URL(base).host
+        assert requests[0].url.path == catalog_path
         assert requests[0].headers["Authorization"] == "Bearer preview-key"
         assert requests[0].headers["X-Fixture"] == "yes"
         catalog: Final = client.get("/api/provider-families")
         assert catalog.status_code == 200
     entries: Final = {family["kind"]: family for family in catalog.json()}
-    assert entries["glm"]["card_count"] == 2
+    assert entries["glm"]["card_count"] == (3 if "/api/coding/paas/v4" in base else 2)
     assert entries["glm"]["supplier"] == SupplierKind.OPENAI_COMPATIBLE
     assert entries["opencode"]["card_count"] == 2
     assert entries["opencode"]["supplier"] == SupplierKind.OPENAI_COMPATIBLE
     assert entries["openai_compatible"]["card_count"] == 1
     assert tuple(repository.records.values()) == records
 
+
+@pytest.mark.parametrize(
+    ("upstream_status", "reason"),
+    (
+        (401, "model_list_http_401"),
+        (403, "model_list_http_403"),
+        (404, "model_list_http_404"),
+        (302, "model_list_http_302"),
+        (200, "model_list_format"),
+        (0, "model_list_timeout"),
+        (-1, "model_list_network"),
+    ),
+)
+def test_manager_preview_distinguishes_failures_without_leaking_secrets(
+    tmp_path: Path, upstream_status: int, reason: str,
+) -> None:
+    def upstream(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "api.example.com"
+        if upstream_status == 0:
+            raise httpx.ConnectTimeout("private-fixture")
+        if upstream_status == -1:
+            raise httpx.ProxyError("private-fixture")
+        return httpx.Response(
+            upstream_status,
+            content=b'{"error":"private-fixture"}',
+            headers=(("Location", "https://no-redirect.example.com"),),
+        )
+
+    secret: Final = EnvironmentSecretDeriver("s" * 32)
+    channel: Final = OpenAICompatibleChannel(
+        secret, httpx.AsyncClient(transport=httpx.MockTransport(upstream)), public_resolver,
+    )
+    registry: Final = replace(
+        ChannelRegistry.default(), implementations=MappingProxyType({ChannelKind.OPENAI_COMPATIBLE: channel}),
+    )
+    service: Final = EnvironmentService(
+        _settings(tmp_path), MemoryRepository(_record(status=EnvironmentStatus.READY)),
+        FakeRuntime(), FakeCLIProxy(), EmptyProfiles(), secret, channels=registry,
+    )
+    app: Final = FastAPI()
+    app.include_router(create_router(service, "fixture-manager"))
+    with TestClient(app) as client:
+        preview: Final = client.post(
+            "/api/openai-compatible/models",
+            content=b'{"base_url":"https://api.example.com/v1","credential":{"api_key":"preview-key"}}',
+            headers=(("Authorization", "Bearer fixture-manager"), ("Content-Type", "application/json")),
+        )
+    assert preview.status_code == 502
+    assert "private-fixture" not in preview.text and "preview-key" not in preview.text
+    assert preview.json()["detail"] == reason
 
 @pytest.mark.asyncio
 async def test_preview_models_uses_credentials_and_headers_without_creating_a_card() -> None:

@@ -4,11 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
 import { apiClient } from "@/components/networking";
+import { ApiError } from "@/lib/http/client";
 import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 
 vi.mock("@/components/networking", () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 beforeEach(async () => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   await i18n.changeLanguage("zh-CN");
   vi.mocked(apiClient.get).mockResolvedValue([]);
   vi.mocked(apiClient.post).mockResolvedValue({ id: "glm-card" });
@@ -17,6 +18,8 @@ beforeEach(async () => {
 it.each([
   ["GLM（智谱国内站）", "https://open.bigmodel.cn/api/paas/v4", "glm", "接入站点"],
   ["GLM（Z.AI 国际站）", "https://api.z.ai/api/paas/v4", "glm", "接入站点"],
+  ["GLM Coding Plan（智谱国内站）", "https://open.bigmodel.cn/api/coding/paas/v4", "glm", "接入站点"],
+  ["GLM Coding Plan（Z.AI 国际站）", "https://api.z.ai/api/coding/paas/v4", "glm", "接入站点"],
   ["OpenCode Console / Zen", "https://opencode.ai/inference/openai/v1", "opencode", "接入方案"],
   ["OpenCode Go", "https://opencode.ai/inference/go/openai/v1", "opencode", "接入方案"],
 ] as const)("%s fetches from the selected resource without creating or automatically selecting a model", async (label, base, mode, presetLabel) => {
@@ -29,8 +32,10 @@ it.each([
   await user.click(screen.getByRole("combobox", { name: presetLabel }));
   await user.click(await screen.findByRole("option", { name: label }));
   expect(screen.getByLabelText("服务地址")).toHaveValue(base);
+  const logoLabel = mode === "glm" ? "GLM logo" : "OpenCode logo";
+  expect(screen.getAllByRole("img", { name: logoLabel }).length).toBeGreaterThan(0);
   expect(screen.getByLabelText("服务地址")).toHaveAttribute("readonly");
-  expect(screen.getByText(/仅支持标准 API Key|公共目录/)).toBeInTheDocument();
+  expect(screen.getByText(/仅支持标准 API Key|公共目录|请选择与套餐匹配的 API Key/)).toBeInTheDocument();
   expect(apiClient.post).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
@@ -63,7 +68,7 @@ it.each([
 it("lets generic compatibility fetch with its selected proxy and headers, preserving manual entry on failure", async () => {
   const user = userEvent.setup();
   vi.mocked(apiClient.get).mockResolvedValue([{ id: "fixture-proxy", name: "测试代理" }]);
-  vi.mocked(apiClient.post).mockRejectedValueOnce(new Error("fixture-upstream-rejection"));
+  vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError("model_list_http_401", 502, {}));
   render(<AccountPoolOpenAICompatibleForm mode="compatible" accessToken="fixture-admin" onClose={vi.fn()} onCreated={vi.fn()} />);
   expect(screen.queryByText("接入站点")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("服务地址"), { target: { value: "https://fixture.example" } });
@@ -81,7 +86,10 @@ it("lets generic compatibility fetch with its selected proxy and headers, preser
     target: { value: "fixture-value" },
   });
   await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent("可手动填写模型");
+  expect(await screen.findByRole("alert")).toHaveTextContent("HTTP 401");
+  expect(screen.getByRole("alert")).toHaveTextContent("可手动填写模型");
+  expect(screen.getByRole("alert")).not.toHaveTextContent("fixture-secret");
+  expect(screen.getByRole("img", { name: "openai logo" })).toBeInTheDocument();
   expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
     "/account_pool/openai-compatible/models",
     expect.objectContaining({ body: {

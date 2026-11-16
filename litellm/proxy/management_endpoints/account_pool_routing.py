@@ -6,7 +6,7 @@ import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Final, Literal
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 from starlette.datastructures import Headers
 
@@ -290,13 +290,16 @@ def is_glm_standard_api(account: Candidate) -> bool:
     return account.supplier == "openai_compatible" and is_glm_standard_api_base(account.api_base)
 
 
-def is_glm_standard_api_base(api_base: str) -> bool:
-    base: Final = urlsplit(api_base)
+def _is_glm_api_base(base: SplitResult, path: str) -> bool:
     return (
         base.scheme == "https" and base.hostname in ("open.bigmodel.cn", "api.z.ai")
-        and base.port in (None, 443) and base.path.rstrip("/") == "/api/paas/v4"
+        and base.port in (None, 443) and base.path.rstrip("/") == path
         and not (base.username or base.password or base.query or base.fragment)
     )
+
+
+def is_glm_standard_api_base(api_base: str) -> bool:
+    return _is_glm_api_base(urlsplit(api_base), "/api/paas/v4")
 
 
 def upstream_url(account: Candidate, path: str) -> str:
@@ -305,9 +308,12 @@ def upstream_url(account: Candidate, path: str) -> str:
         if base.scheme not in ("http", "https") or base.username or base.password or base.query or base.fragment:
             raise ValueError("Unexpected OpenAI-compatible target")
         normalized: Final = account.api_base.rstrip("/")
-        suffix: Final = (
-            path.removeprefix("/v1") if is_glm_standard_api(account) or base.path.rstrip("/").endswith("/v1") else path
+        has_version: Final = (
+            base.path.rstrip("/").endswith("/v1")
+            or _is_glm_api_base(base, "/api/paas/v4")
+            or _is_glm_api_base(base, "/api/coding/paas/v4")
         )
+        suffix: Final = path.removeprefix("/v1") if has_version else path
         return f"{normalized}{suffix}"
     if base.scheme != "http" or base.hostname != f"cliproxy-{account.id.hex}" or base.port != 8317:
         raise ValueError("Unexpected account pool target")

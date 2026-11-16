@@ -11,6 +11,15 @@ vi.mock("@/components/molecules/models/ProviderLogo", () => ({
 
 describe("AccountPoolSupplierLogo", () => {
   it.each([
+    ["glm", "GLM logo", /zai/],
+    ["opencode", "OpenCode logo", /opencode-light/],
+  ] as const)("renders a real bundled image for %s", (supplier, label, file) => {
+    render(<AccountPoolSupplierLogo supplier={supplier} />);
+    expect(screen.getAllByRole("img", { name: label }).some((image) => file.test(image.getAttribute("src") ?? ""))).toBe(true);
+  });
+
+  it.each([
+    ["openai_compatible", "openai"],
     ["openai_codex", "openai"],
     ["anthropic_claude", "anthropic"],
     ["google_antigravity", "gemini"],

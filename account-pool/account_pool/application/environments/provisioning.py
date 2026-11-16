@@ -31,7 +31,7 @@ from account_pool.application.environments.contracts import (
     UploadAuthFileOperation,
 )
 from account_pool.application.environments.contracts import constant_async as _constant_async
-from account_pool.channels.openai_compatible import OpenAICompatibleChannel
+from account_pool.channels.openai_compatible import ModelListDiscoveryError, OpenAICompatibleChannel
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.credential_import import normalize_auth_file
@@ -547,6 +547,8 @@ class EnvironmentProvisioning:
                 request.headers,
                 proxy_result.value[2] or None,
             )
+        except ModelListDiscoveryError as error:
+            return Failure(FailureCode.UPSTREAM, str(error))
         except ValueError:
             return Failure(FailureCode.INVALID, "上游地址无法解析或不允许访问")
         if models is None:

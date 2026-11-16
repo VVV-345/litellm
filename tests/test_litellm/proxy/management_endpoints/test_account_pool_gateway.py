@@ -7,6 +7,7 @@ import json
 from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from datetime import datetime, timedelta, timezone
+from types import MappingProxyType
 from typing import Final, Literal
 from uuid import UUID, uuid4
 
@@ -38,7 +39,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     RoutingPolicy,
     TransportPolicy,
 )
-from litellm.proxy.management_endpoints.account_pool_routing import Rejected, plan_rank, routes
+from litellm.proxy.management_endpoints.account_pool_routing import Rejected, plan_rank, routes, upstream_url
 from litellm.proxy.management_endpoints.account_pool_websocket import (
     UpstreamWebSocket,
     WebSocketDialRequest,
@@ -4324,6 +4325,22 @@ def test_websocket_old_response_id_replays_only_complete_unstarted_turn(previous
         assert len(sent) == 2
     assert len(dialer.requests) == 1
 
+
+@pytest.mark.parametrize(
+    ("base", "expected"),
+    (
+        ("https://open.bigmodel.cn/api/coding/paas/v4", "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"),
+        ("https://api.z.ai/api/coding/paas/v4/", "https://api.z.ai/api/coding/paas/v4/chat/completions"),
+        ("https://api.z.ai.example.com/api/coding/paas/v4", "https://api.z.ai.example.com/api/coding/paas/v4/v1/chat/completions"),
+    ),
+)
+def test_glm_coding_plan_keeps_exact_upstream_chat_route(base: str, expected: str) -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(200))
+    with client:
+        candidate: Final = control.resolution.candidates[0].model_copy(
+            update=MappingProxyType({"channel": "openai_compatible", "supplier": "openai_compatible", "api_base": base}),
+        )
+        assert upstream_url(candidate, "/v1/chat/completions") == expected
 
 @pytest.mark.parametrize("base", ("https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4/"))
 @pytest.mark.parametrize("stream", (False, True))

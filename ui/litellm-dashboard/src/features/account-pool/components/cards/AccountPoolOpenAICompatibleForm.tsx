@@ -1,5 +1,6 @@
 /** 号池标准 API Key 接入：连接、模型发现和保存分别由用户触发。 */
-import { ChevronDown, Download, Link2, ListFilter, Plus, Trash2 } from "lucide-react";
+import type { TFunction } from "i18next";
+import { ChevronDown, Download, ListFilter, Plus, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -15,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ApiError, extractProxyErrorMessage } from "@/lib/http/client";
 import { toast } from "@/lib/toast";
 
 import {
@@ -23,6 +25,7 @@ import {
   listAccountPoolProxyProfiles,
 } from "../../api/AccountPoolApi";
 import type { AccountPoolProxyProfile } from "../../utils/AccountPoolTypes";
+import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
 
 const PRESETS = {
   glm: {
@@ -31,6 +34,8 @@ const PRESETS = {
     options: [
       { value: "https://open.bigmodel.cn/api/paas/v4", label: "presetGlmCn" },
       { value: "https://api.z.ai/api/paas/v4", label: "presetGlmGlobal" },
+      { value: "https://open.bigmodel.cn/api/coding/paas/v4", label: "presetGlmCodingCn" },
+      { value: "https://api.z.ai/api/coding/paas/v4", label: "presetGlmCodingGlobal" },
     ],
   },
   opencode: {
@@ -61,8 +66,24 @@ interface HeaderRow {
 }
 
 type Discovery =
-  | { accessToken: string; state: "loading" | "error" }
+  | { accessToken: string; state: "loading" }
+  | { accessToken: string; state: "error"; message: string }
   | { accessToken: string; state: "ready"; models: string[] };
+
+const discoveryFailure = (error: unknown, t: TFunction) => {
+  if (!(error instanceof ApiError) || error.status !== 502) return "";
+  const reason = extractProxyErrorMessage(error);
+  const status = /^model_list_http_([1-5][0-9]{2})$/.exec(reason)?.[1];
+  if (status === "401" || status === "403") {
+    return t("accountPool.providers.openaiCompatible.fetchRejected", { status });
+  }
+  if (status === "404") return t("accountPool.providers.openaiCompatible.fetchNotFound");
+  if (status) return t("accountPool.providers.openaiCompatible.fetchHttpError", { status });
+  if (reason === "model_list_timeout") return t("accountPool.providers.openaiCompatible.fetchTimedOut");
+  if (reason === "model_list_network") return t("accountPool.providers.openaiCompatible.fetchNetworkError");
+  if (reason === "model_list_format") return t("accountPool.providers.openaiCompatible.fetchInvalidResponse");
+  return "";
+};
 
 const discoveryView = (result: Discovery | null, accessToken: string | null) => {
   const source = result?.accessToken === accessToken ? result : null;
@@ -70,7 +91,7 @@ const discoveryView = (result: Discovery | null, accessToken: string | null) => 
   return {
     models,
     fetching: source?.state === "loading",
-    failed: source?.state === "error",
+    failure: source?.state === "error" ? source.message : null,
     empty: source?.state === "ready" && models.length === 0,
   };
 };
@@ -150,8 +171,10 @@ export const AccountPoolOpenAICompatibleForm = ({
       const models = await discoverOpenAICompatibleAccountPoolModels(accessToken, connection(), controller.signal);
       if (controller.signal.aborted) return;
       setDiscovery({ accessToken, state: "ready", models });
-    } catch {
-      if (!controller.signal.aborted) setDiscovery({ accessToken, state: "error" });
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        setDiscovery({ accessToken, state: "error", message: discoveryFailure(error, t) });
+      }
     }
   };
 
@@ -216,7 +239,7 @@ export const AccountPoolOpenAICompatibleForm = ({
       <div className="grid items-start gap-4 md:grid-cols-2">
         <section className="grid min-w-0 gap-4 rounded-xl border bg-muted/15 p-4">
           <h3 className="flex items-center gap-2 text-sm font-semibold">
-            <Link2 className="size-4 text-primary" />
+            <AccountPoolSupplierLogo supplier={mode === "compatible" ? "openai_compatible" : mode} className="size-5" />
             {t("accountPool.providers.openaiCompatible.connection")}
           </h3>
           <div className="grid gap-2">
@@ -327,8 +350,9 @@ export const AccountPoolOpenAICompatibleForm = ({
             </Button>
           </div>
           <p className="text-xs text-muted-foreground">{t("accountPool.providers.openaiCompatible.fetchModelsHint")}</p>
-          {source.failed && (
+          {source.failure !== null && (
             <p role="alert" className="text-sm text-destructive">
+              {source.failure ? source.failure + " " : ""}
               {t("accountPool.providers.openaiCompatible.fetchFailed")}
             </p>
           )}

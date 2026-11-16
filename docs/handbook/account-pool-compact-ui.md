@@ -31,9 +31,9 @@
 测试跟随对应组件；重点覆盖标签与折叠、草稿保持、跨页入口、保存请求、旧链接兼容、多文件轮换、整包展开和重启重试。UI 测试按文件运行，不执行整个 Vitest 测试库。本地预览使用独立构建目录和演示数据，不连接生产服务；演示保存不代表生产已变更。
 
 
-## GLM 标准 API Key 与兼容接入（2026-11-16）
+## GLM API Key 与兼容接入（2026-11-16）
 
-入口：号池 → 提供商与 OAuth → GLM（智谱 / Z.AI）→ 新建。选择国内站或国际站后自动填写各自的标准 API 地址。通用「OpenAI 兼容」仍有独立入口，输入域名时默认用 `/v1`，填写了接口路径则保留该路径。两种接入复用现有卡片、Key、代理和模型测试，不增加路由类型、分组或数据库表，不修改已有卡片。
+入口：号池 → 提供商与 OAuth → GLM（智谱 / Z.AI）→ 新建。选择国内或国际站的标准 API 或 Coding Plan 后，自动填写所选方案的地址。通用「OpenAI 兼容」仍有独立入口，输入域名时默认用 `/v1`，填写了接口路径则保留该路径。两种接入复用现有卡片、Key、代理和模型测试，不增加路由类型、分组或数据库表，不修改已有卡片。
 
 创建表单的「从资源侧获取」使用当前地址、API Key、出站代理和高级连接设置中的请求头，向对应上游发出 `GET <Base URL>/models`。按 [New API 的资源侧查询](https://github.com/QuantumNous/new-api/blob/main/controller/channel_upstream_update.go) 的交互，只返回候选，用户选择后才填入表单；它不是模型调用测试，不自动保存卡片。上游不返回列表时可手填。GLM 只保存选中的或手填的模型，未填写额外模型时使用明确指定的测试模型。
 
@@ -41,7 +41,7 @@
 
 GLM 标准 Chat 会将 `max_completion_tokens` 等值转换成官方 `max_tokens`；同时传入且值冲突时返回明确 400，不选取其一或丢弃限制。其他通用 OpenAI 兼容卡片保持原行为
 
-国内站地址 `https://open.bigmodel.cn/api/paas/v4`，国际站地址 `https://api.z.ai/api/paas/v4`。来源：[智谱标准 API](https://docs.bigmodel.cn/cn/api/introduction)、[Z.AI 标准 API](https://docs.z.ai/guides/overview/quick-start)。仅使用对应站点的标准 API Key，不使用 Coding Plan Key、Coding 端点、浏览器登录或 OAuth
+国内站地址 `https://open.bigmodel.cn/api/paas/v4`，国际站地址 `https://api.z.ai/api/paas/v4`。来源：[智谱标准 API](https://docs.bigmodel.cn/cn/api/introduction)、[Z.AI 标准 API](https://docs.z.ai/guides/overview/quick-start)。标准 API 使用对应站点的标准 Key。Coding Plan 单独使用同站点的 /api/coding/paas/v4，只用于编程场景，以套餐权限为准。两者不混用 Key 或额度，不使用浏览器登录或 OAuth。见 [官方端点说明](https://zcode.z.ai/cn/docs/configuration/)
 
 模型 ID 留空等待用户填写，不预置账号有权使用的模型，不自动导入或启用发现结果。现有创建流程将明确填写的自定义模型（为空时用测试模型）保存为目录；后台可能请求 `/models`，失败时仍保留手填目录。创建成功只表示配置和加密凭据已保存，不证明 Key 有效或模型可调用，必须继续运行卡片的 Chat 模型测试
 
@@ -67,4 +67,4 @@ Responses 不做 Chat 桥接，仍向所选标准 Base 的 `/responses` 发送 R
 
 在号池的「提供商与 OAuth」中选择「OpenCode」，点击「新建」。选择 [Console / Zen](https://opencode.ai/docs/console/api/inference/) 或 [OpenCode Go](https://opencode.ai/docs/console/go/) 后，预填该方案的 OpenAI 兼容地址，复用现有卡片、代理和模型测试。只使用 OpenCode API Key，不使用浏览器授权
 
-「从资源侧获取」查询所选方案的 `/models`，也可手填模型。发现的模型不会自动启用。公共目录不保证当前 Key 有权调用或所选模型支持相应协议，仅限 OpenCode 客户端的免费模型不可用
+「从资源侧获取」中，Console / Zen 查询其兼容 API 的 `/models`，Go 查询官方 `/inference/go/v1/models`。Go 的兼容旧地址 `/zen/go/v1` 也用同一目录，原推理地址不变。仍可手填模型。发现的模型不会自动启用。公共目录不保证当前 Key 有权调用或所选模型支持相应协议，仅限 OpenCode 客户端的免费模型不可用
