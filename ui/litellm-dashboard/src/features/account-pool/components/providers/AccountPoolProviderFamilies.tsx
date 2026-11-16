@@ -36,7 +36,9 @@ const SUPPORTED_SUPPLIERS: readonly AccountPoolSupplier[] = [
 ] as const;
 
 const supplierFromFamily = (family: AccountPoolProviderFamily): AccountPoolCreationSupplier | null => {
-  if (family.kind === "glm" && family.supplier === "openai_compatible") return "glm";
+  if (family.supplier === "openai_compatible" && (family.kind === "glm" || family.kind === "opencode")) {
+    return family.kind;
+  }
   return family.supplier && SUPPORTED_SUPPLIERS.includes(family.supplier as AccountPoolSupplier)
     ? (family.supplier as AccountPoolSupplier)
     : null;

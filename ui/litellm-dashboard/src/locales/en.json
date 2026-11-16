@@ -6835,6 +6835,7 @@
     },
     "supplier": {
       "glm": "GLM (Zhipu / Z.AI)",
+      "opencode": "OpenCode",
       "label": "Supplier",
       "openai_compatible": "OpenAI-compatible",
       "openai_codex": "OpenAI Codex",
@@ -7002,6 +7003,10 @@
         "presetGlmCn": "GLM (Zhipu China)",
         "presetGlmGlobal": "GLM (Z.AI international)",
         "glmStandardHint": "Standard API Keys only; no Coding Plan keys or OAuth. Test each model and protocol against the upstream API.",
+        "openCodePlan": "API plan",
+        "presetOpenCodeConsole": "OpenCode Console / Zen",
+        "presetOpenCodeGo": "OpenCode Go",
+        "openCodeHint": "Use an OpenCode API Key for the selected plan. The public catalog does not guarantee access; test the model on the card. Client-only free models are not supported.",
         "name": "Card name",
         "baseUrl": "Base URL",
         "baseUrlHint": "A bare host uses /v1. If you include an API path, it is kept as entered.",

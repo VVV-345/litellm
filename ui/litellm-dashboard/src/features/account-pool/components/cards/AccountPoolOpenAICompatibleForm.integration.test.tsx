@@ -1,4 +1,4 @@
-/** 验证 GLM 标准 Key 预设复用兼容创建表单；仅替换网络边界。 */
+/** 验证标准 API Key 预设复用兼容创建表单；仅替换网络边界。 */
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
@@ -15,20 +15,22 @@ beforeEach(async () => {
 });
 
 it.each([
-  ["GLM（智谱国内站）", "https://open.bigmodel.cn/api/paas/v4"],
-  ["GLM（Z.AI 国际站）", "https://api.z.ai/api/paas/v4"],
-])("%s fetches from the selected resource without creating or automatically selecting a model", async (label, base) => {
+  ["GLM（智谱国内站）", "https://open.bigmodel.cn/api/paas/v4", "glm", "接入站点"],
+  ["GLM（Z.AI 国际站）", "https://api.z.ai/api/paas/v4", "glm", "接入站点"],
+  ["OpenCode Console / Zen", "https://opencode.ai/inference/openai/v1", "opencode", "接入方案"],
+  ["OpenCode Go", "https://opencode.ai/inference/go/openai/v1", "opencode", "接入方案"],
+] as const)("%s fetches from the selected resource without creating or automatically selecting a model", async (label, base, mode, presetLabel) => {
   const user = userEvent.setup();
   const onCreated = vi.fn();
   vi.mocked(apiClient.post).mockResolvedValueOnce(["glm-fixture-a", "glm-fixture-b"]);
-  render(<AccountPoolOpenAICompatibleForm mode="glm" accessToken="fixture-admin" onClose={vi.fn()} onCreated={onCreated} />);
-  fireEvent.change(screen.getByLabelText("卡片名称"), { target: { value: "GLM test" } });
+  render(<AccountPoolOpenAICompatibleForm mode={mode} accessToken="fixture-admin" onClose={vi.fn()} onCreated={onCreated} />);
+  fireEvent.change(screen.getByLabelText("卡片名称"), { target: { value: "Preset test" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "fixture-standard-key" } });
-  await user.click(screen.getByRole("combobox", { name: "接入站点" }));
+  await user.click(screen.getByRole("combobox", { name: presetLabel }));
   await user.click(await screen.findByRole("option", { name: label }));
   expect(screen.getByLabelText("服务地址")).toHaveValue(base);
   expect(screen.getByLabelText("服务地址")).toHaveAttribute("readonly");
-  expect(screen.getByText(/仅支持标准 API Key/)).toBeInTheDocument();
+  expect(screen.getByText(/仅支持标准 API Key|公共目录/)).toBeInTheDocument();
   expect(apiClient.post).not.toHaveBeenCalled();
   await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
   await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(

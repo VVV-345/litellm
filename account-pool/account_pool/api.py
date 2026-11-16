@@ -66,7 +66,7 @@ from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
-from account_pool.provider_families import GLM_PROVIDER_FAMILY, PROVIDER_FAMILIES
+from account_pool.provider_families import GLM_PROVIDER_FAMILY, OPENCODE_PROVIDER_FAMILY, PROVIDER_FAMILIES
 from account_pool.proxy_catalog import ISPProxyProfileView, ISPSubscriptionView, ProxyConfigurationProfileView
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
@@ -576,7 +576,7 @@ def create_router(
                 description=family.description,
                 card_count=kinds.count(family.kind),
             )
-            for family in (*PROVIDER_FAMILIES, GLM_PROVIDER_FAMILY)
+            for family in (*PROVIDER_FAMILIES, GLM_PROVIDER_FAMILY, OPENCODE_PROVIDER_FAMILY)
         )
 
     @router.get("/api/environments", dependencies=[Depends(require_manager)])

@@ -24,8 +24,24 @@ import {
 } from "../../api/AccountPoolApi";
 import type { AccountPoolProxyProfile } from "../../utils/AccountPoolTypes";
 
-const GLM_CN = "https://open.bigmodel.cn/api/paas/v4";
-const GLM_GLOBAL = "https://api.z.ai/api/paas/v4";
+const PRESETS = {
+  glm: {
+    label: "glmSite",
+    hint: "glmStandardHint",
+    options: [
+      { value: "https://open.bigmodel.cn/api/paas/v4", label: "presetGlmCn" },
+      { value: "https://api.z.ai/api/paas/v4", label: "presetGlmGlobal" },
+    ],
+  },
+  opencode: {
+    label: "openCodePlan",
+    hint: "openCodeHint",
+    options: [
+      { value: "https://opencode.ai/inference/openai/v1", label: "presetOpenCodeConsole" },
+      { value: "https://opencode.ai/inference/go/openai/v1", label: "presetOpenCodeGo" },
+    ],
+  },
+} as const;
 const modelIDs = (value: string) => [
   ...new Set(
     value
@@ -65,14 +81,15 @@ export const AccountPoolOpenAICompatibleForm = ({
   onClose,
   onCreated,
 }: {
-  mode?: "compatible" | "glm";
+  mode?: "compatible" | keyof typeof PRESETS;
   accessToken: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) => {
   const { t } = useTranslation();
+  const preset = mode === "compatible" ? null : PRESETS[mode];
   const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState(mode === "glm" ? GLM_CN : "");
+  const [baseUrl, setBaseUrl] = useState<string>(preset?.options[0].value ?? "");
   const [apiKey, setApiKey] = useState("");
   const [proxyId, setProxyId] = useState("default");
   const [prefix, setPrefix] = useState("");
@@ -159,7 +176,7 @@ export const AccountPoolOpenAICompatibleForm = ({
         test_model: testModel.trim(),
         api_keys: [credential],
         headers: configuredHeaders,
-        custom_models: mode === "glm" && !configuredModels.length ? [testModel.trim()] : configuredModels,
+        custom_models: preset && !configuredModels.length ? [testModel.trim()] : configuredModels,
       },
     } satisfies Parameters<typeof createOpenAICompatibleAccountPoolEnvironment>[1];
     setSaving(true);
@@ -175,10 +192,10 @@ export const AccountPoolOpenAICompatibleForm = ({
     }
   };
 
-  const sites = [
-    { value: GLM_CN, label: t("accountPool.providers.openaiCompatible.presetGlmCn") },
-    { value: GLM_GLOBAL, label: t("accountPool.providers.openaiCompatible.presetGlmGlobal") },
-  ];
+  const sites = preset?.options.map(({ value, label }) => ({
+    value,
+    label: t(`accountPool.providers.openaiCompatible.${label}`),
+  }));
   const proxies = [
     { value: "default", label: t("accountPool.providers.openaiCompatible.defaultProxy") },
     ...proxyProfiles.map(({ id, name }) => ({ value: id, label: name })),
@@ -211,9 +228,11 @@ export const AccountPoolOpenAICompatibleForm = ({
               onChange={(event) => setName(event.target.value)}
             />
           </div>
-          {mode === "glm" && (
+          {preset && sites && (
             <div className="grid gap-2">
-              <Label htmlFor="account-pool-glm-site">{t("accountPool.providers.openaiCompatible.glmSite")}</Label>
+              <Label htmlFor="account-pool-compatible-preset">
+                {t(`accountPool.providers.openaiCompatible.${preset.label}`)}
+              </Label>
               <Select
                 value={baseUrl}
                 items={sites}
@@ -221,7 +240,7 @@ export const AccountPoolOpenAICompatibleForm = ({
                   if (value) updateBase(value);
                 }}
               >
-                <SelectTrigger id="account-pool-glm-site" className="w-full">
+                <SelectTrigger id="account-pool-compatible-preset" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -233,7 +252,7 @@ export const AccountPoolOpenAICompatibleForm = ({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                {t("accountPool.providers.openaiCompatible.glmStandardHint")}
+                {t(`accountPool.providers.openaiCompatible.${preset.hint}`)}
               </p>
             </div>
           )}
@@ -242,7 +261,7 @@ export const AccountPoolOpenAICompatibleForm = ({
             <Input
               id="account-pool-openai-base-url"
               value={baseUrl}
-              readOnly={mode === "glm"}
+              readOnly={preset !== null}
               placeholder="https://api.example.com"
               onChange={(event) => updateBase(event.target.value)}
             />

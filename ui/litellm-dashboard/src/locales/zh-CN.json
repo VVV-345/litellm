@@ -6835,6 +6835,7 @@
     },
     "supplier": {
       "glm": "GLM（智谱 / Z.AI）",
+      "opencode": "OpenCode",
       "label": "供应商",
       "openai_compatible": "OpenAI 兼容",
       "openai_codex": "OpenAI Codex",
@@ -7002,6 +7003,10 @@
         "presetGlmCn": "GLM（智谱国内站）",
         "presetGlmGlobal": "GLM（Z.AI 国际站）",
         "glmStandardHint": "仅支持标准 API Key，不支持 Coding Plan Key 或 OAuth。模型和协议的实际可用性以上游测试为准。",
+        "openCodePlan": "接入方案",
+        "presetOpenCodeConsole": "OpenCode Console / Zen",
+        "presetOpenCodeGo": "OpenCode Go",
+        "openCodeHint": "填写所选方案的 OpenCode API Key。公共目录不代表账号有调用权限，请用卡片测试模型；仅限 OpenCode 客户端的免费模型不可用。",
         "name": "卡片名称",
         "baseUrl": "服务地址",
         "baseUrlHint": "只填域名时默认使用 /v1；如果填了接口路径，则沿用所填路径。",

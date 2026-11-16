@@ -62,3 +62,9 @@ GLM 标准 Chat 会将 `max_completion_tokens` 等值转换成官方 `max_tokens
 Responses 不做 Chat 桥接，仍向所选标准 Base 的 `/responses` 发送 Responses 结构；Messages 无 `thinking` 时沿用现有 Messages -> Responses 桥接（函数工具、`max_tokens` 等转换），并不因此获得标准 GLM 上游支持。有显式原生 Messages 透传配置的旧部署不受新转换保护影响，仍由所配置上游决定支持情况。本预设没有自动打开该透传或改到其他专用端点
 
 此处的模拟 404 只验证错误不会伪装成成功，不是“GLM 实际返回 404”的证据。当前标准端点的 Responses / Messages 原生能力均未完成真实上游确认；请不要把 Chat 回归通过解读为三个入口都可用
+
+## OpenCode API Key 接入
+
+在号池的「提供商与 OAuth」中选择「OpenCode」，点击「新建」。选择 [Console / Zen](https://opencode.ai/docs/console/api/inference/) 或 [OpenCode Go](https://opencode.ai/docs/console/go/) 后，预填该方案的 OpenAI 兼容地址，复用现有卡片、代理和模型测试。只使用 OpenCode API Key，不使用浏览器授权
+
+「从资源侧获取」查询所选方案的 `/models`，也可手填模型。发现的模型不会自动启用。公共目录不保证当前 Key 有权调用或所选模型支持相应协议，仅限 OpenCode 客户端的免费模型不可用

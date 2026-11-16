@@ -44,7 +44,31 @@ describe("AccountPoolProviderFamilies", () => {
         description: "GLM 标准 API",
         card_count: 1,
       },
+      {
+        kind: "opencode",
+        display_name: "OpenCode",
+        supplier: "openai_compatible",
+        authentication: "API Key",
+        available: true,
+        description: "OpenCode Console / Zen 与 OpenCode Go",
+        card_count: 2,
+      },
     ]);
+  });
+
+  it("opens the separate OpenCode API Key preset, not OAuth or the generic form", async () => {
+    const onCreate = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AccountPoolProviderFamilies accessToken="token" onCreate={onCreate} onAutomation={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("tab", { name: /OpenCode.*2/ }));
+    expect(screen.getByRole("heading", { name: "OpenCode", level: 3 })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "浏览器自动化授权" })).not.toBeInTheDocument();
+    await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
+    expect(onCreate).toHaveBeenCalledExactlyOnceWith("opencode");
   });
 
   it("shows instance counts and only enables creation for an available family", async () => {

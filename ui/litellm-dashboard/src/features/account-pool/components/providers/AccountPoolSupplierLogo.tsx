@@ -7,6 +7,7 @@ import type { AccountPoolCreationSupplier } from "../../utils/AccountPoolTypes";
 const providerBySupplier: Readonly<Record<AccountPoolCreationSupplier, string>> = {
   openai_compatible: "openai",
   glm: "zai",
+  opencode: "opencode",
   openai_codex: "openai",
   anthropic_claude: "anthropic",
   google_antigravity: "gemini",

@@ -38,8 +38,12 @@ const DIRECT_CREDENTIAL_SUPPLIERS: ReadonlySet<AccountPoolCreationSupplier> = ne
   "gemini_interactions",
   "openai_compatible",
   "glm",
+  "opencode",
   "vertex",
 ]);
+
+const isCompatiblePreset = (supplier: AccountPoolCreationSupplier): supplier is "glm" | "opencode" =>
+  supplier === "glm" || supplier === "opencode";
 
 interface AccountPoolCreateDialogProps {
   accessToken: string | null;
@@ -74,7 +78,8 @@ export const AccountPoolCreateDialog = ({
   const [location, setLocation] = useState("us-central1");
   const [vertexFile, setVertexFile] = useState<File | null>(null);
   const supplier = initialSupplier;
-  const compatibleForm = supplier === "openai_compatible" || supplier === "glm";
+  const compatiblePreset = isCompatiblePreset(supplier);
+  const compatibleForm = supplier === "openai_compatible" || compatiblePreset;
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(initialAuthorization);
   const [saving, setSaving] = useState(false);
   const requiresOAuthProxy =
@@ -109,7 +114,7 @@ export const AccountPoolCreateDialog = ({
   }, [open, authorizationComplete, onOpenChange, t]);
 
   const handleCreate = async () => {
-    if (supplier === "glm") return;
+    if (compatiblePreset) return;
     const trimmedName = name.trim();
     if (!accessToken || !trimmedName) {
       toast.error(t("accountPool.create.environmentNameRequired"));
@@ -302,7 +307,7 @@ export const AccountPoolCreateDialog = ({
       return (
         <AccountPoolOpenAICompatibleForm
           key={supplier}
-          mode={supplier === "glm" ? "glm" : "compatible"}
+          mode={compatiblePreset ? supplier : "compatible"}
           accessToken={accessToken}
           onClose={() => onOpenChange(false)}
           onCreated={onCreated}

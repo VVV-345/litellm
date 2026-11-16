@@ -88,6 +88,14 @@ describe("AccountPoolCreateDialog", () => {
     proxyProfilesMock.mockResolvedValue([{ id: "proxy-us", name: "Proxy US", protocol: "http" }]);
   });
 
+  it("shows the OpenCode API Key form without starting an OAuth session", async () => {
+    renderDialog({ initialSupplier: "opencode" });
+    expect(await screen.findByRole("combobox", { name: "接入方案" })).toBeVisible();
+    expect(screen.getByLabelText("API Key")).toHaveAttribute("type", "password");
+    expect(screen.getByRole("button", { name: "从资源侧获取" })).toBeDisabled();
+    expect(createMock).not.toHaveBeenCalled();
+  });
+
   it.each(["ready", "cooling_down", "disabled"] as const)(
     "closes after the current authorization reaches %s",
     (status) => {

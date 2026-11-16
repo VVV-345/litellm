@@ -102,11 +102,26 @@ GLM_PROVIDER_FAMILY: Final = ProviderFamily(
     description="智谱国内站与 Z.AI 国际站的标准 API Key 接入",
 )
 
+OPENCODE_PROVIDER_FAMILY: Final = ProviderFamily(
+    kind="opencode",
+    display_name="OpenCode",
+    supplier=SupplierKind.OPENAI_COMPATIBLE,
+    authentication="API Key",
+    available=True,
+    description="OpenCode Console / Zen 与 OpenCode Go 的 API Key 接入",
+)
+
 _GLM_STANDARD_BASES: Final = frozenset(("https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4"))
+_OPENCODE_STANDARD_BASES: Final = frozenset(
+    ("https://opencode.ai/inference/openai/v1", "https://opencode.ai/inference/go/openai/v1")
+)
 
 
 def provider_family_kind(record: EnvironmentRecord) -> str:
     config: Final = record.openai_compatible
-    if config is not None and str(config.base_url).rstrip("/") in _GLM_STANDARD_BASES:
+    base_url: Final = str(config.base_url).rstrip("/") if config is not None else ""
+    if base_url in _GLM_STANDARD_BASES:
         return GLM_PROVIDER_FAMILY.kind
+    if base_url in _OPENCODE_STANDARD_BASES:
+        return OPENCODE_PROVIDER_FAMILY.kind
     return record.supplier.value

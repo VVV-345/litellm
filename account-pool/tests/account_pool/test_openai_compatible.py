@@ -43,8 +43,17 @@ async def private_resolver(_: str, __: int) -> tuple[str, ...]:
     return ("10.0.0.8",)
 
 
-def test_manager_model_preview_and_separate_glm_provider_use_existing_configuration(tmp_path: Path) -> None:
-    base: Final = "https://open.bigmodel.cn/api/paas/v4"
+@pytest.mark.parametrize(
+    "base",
+    (
+        "https://open.bigmodel.cn/api/paas/v4",
+        "https://opencode.ai/inference/openai/v1",
+        "https://opencode.ai/inference/go/openai/v1",
+    ),
+)
+def test_manager_model_preview_and_provider_presets_use_existing_configuration(tmp_path: Path, base: str) -> None:
+    console: Final = "https://opencode.ai/inference/openai/v1"
+    go: Final = "https://opencode.ai/inference/go/openai/v1"
     secret: Final = EnvironmentSecretDeriver("s" * 32)
     settings: Final = _settings(tmp_path)
     records: Final = tuple(
@@ -56,7 +65,13 @@ def test_manager_model_preview_and_separate_glm_provider_use_existing_configurat
                 credentials=(OpenAICompatibleCredential(api_key_ciphertext="saved-fixture"),),
             ),
         })
-        for url in (base, "https://api.z.ai/api/paas/v4/", "https://custom.example/v1")
+        for url in (
+            "https://open.bigmodel.cn/api/paas/v4",
+            "https://api.z.ai/api/paas/v4/",
+            console,
+            f"{go}/",
+            "https://custom.example/v1",
+        )
     )
     repository: Final = MemoryRepository(records[0])
     repository.records.update({record.id: record for record in records[1:]})
@@ -95,6 +110,8 @@ def test_manager_model_preview_and_separate_glm_provider_use_existing_configurat
     entries: Final = {family["kind"]: family for family in catalog.json()}
     assert entries["glm"]["card_count"] == 2
     assert entries["glm"]["supplier"] == SupplierKind.OPENAI_COMPATIBLE
+    assert entries["opencode"]["card_count"] == 2
+    assert entries["opencode"]["supplier"] == SupplierKind.OPENAI_COMPATIBLE
     assert entries["openai_compatible"]["card_count"] == 1
     assert tuple(repository.records.values()) == records
 
