@@ -4720,6 +4720,17 @@ def get_optional_params(
         for path in nested_paths:
             optional_params = delete_nested_value(optional_params, path)
 
+    if custom_llm_provider == "openai" and "thinking" in allowed_openai_params and "thinking" in optional_params:
+        extra_body: Final = optional_params.get("extra_body") or {}
+        if "thinking" in extra_body and extra_body["thinking"] != optional_params["thinking"]:
+            raise UnsupportedParamsError(
+                status_code=400, model=model, llm_provider=custom_llm_provider,
+                message="conflicting thinking values in request and extra_body",
+            )
+        return {
+            **{key: value for key, value in optional_params.items() if key != "thinking"},
+            "extra_body": {**extra_body, "thinking": optional_params["thinking"]},
+        }
     return optional_params
 
 

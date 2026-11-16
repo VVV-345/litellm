@@ -351,3 +351,52 @@ async def test_heartbeat_inherit_restores_native_params_after_multiple_overrides
             "litellm_params": saved["litellm_params"], "model_info": saved["model_info"],
         })
         assert await store.upsert(replace(inherited, sse_heartbeat_interval_seconds=interval)) is False
+
+
+@pytest.mark.parametrize("base", ["https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4/"])
+def test_glm_reasoning_is_allowed_only_on_standard_managed_deployments(base: str) -> None:
+    environment: Final = _environment(routable=True, models=("vendor-alias",)).model_copy(update={"api_base": base})
+    deployment: Final = desired_deployments((environment,))[0]
+    assert deployment.litellm_params["allowed_openai_params"] == ["reasoning_effort", "thinking"]
+    assert deployment.model_info["account_pool_glm_standard_api"] is True
+    assert "drop_params" not in deployment.litellm_params
+
+
+@pytest.mark.parametrize("base", ["https://api.example.com/v1", "https://api.z.ai/api/coding/paas/v4", "https://open.bigmodel.cn/api/coding/paas/v4", "https://api.z.ai.attacker.test/api/paas/v4", "http://api.z.ai/api/paas/v4", "https://api.z.ai/api/paas/v4?path=coding"])
+def test_glm_reasoning_does_not_change_generic_or_coding_deployments(base: str) -> None:
+    environment: Final = _environment(routable=True, models=("glm-5.3",)).model_copy(update={"api_base": base})
+    deployment: Final = desired_deployments((environment,))[0]
+    assert "allowed_openai_params" not in deployment.litellm_params
+    assert deployment.model_info.get("account_pool_glm_standard_api") is not True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("native_allowed", [[], ["seed"], ["thinking", "seed"]])
+async def test_glm_allowlist_transition_preserves_native_settings_and_is_idempotent(native_allowed):
+    from unittest.mock import AsyncMock
+
+    from litellm.models.model import LiteLLM_ProxyModelTable
+    from litellm.proxy.management_endpoints.account_pool_reconciler import LiteLLMDeploymentStore
+    from litellm.repositories.model_repository import ModelRepository
+
+    generic: Final = desired_deployments((_environment(routable=True, models=("glm-5.3",)),))[0]
+    row: Final = LiteLLM_ProxyModelTable(
+        model_id=generic.id, model_name=generic.model_name, blocked=False, model_info=generic.model_info,
+        litellm_params={**generic.litellm_params, "allowed_openai_params": native_allowed, "timeout": 91},
+    )
+    repository: Final = AsyncMock(spec=ModelRepository)
+    repository.find_by_id.return_value = row
+    store: Final = LiteLLMDeploymentStore(None, repository)
+    for active in (True, False, True, False):
+        desired: Final = replace(generic, glm_standard_api=active)
+        assert await store.upsert(desired) is True
+        saved = repository.update_model.call_args.kwargs
+        expected: Final = list(dict.fromkeys([*native_allowed, "reasoning_effort", "thinking"])) if active else native_allowed
+        assert saved["litellm_params"]["allowed_openai_params"] == expected
+        assert saved["litellm_params"]["timeout"] == 91
+        assert "drop_params" not in saved["litellm_params"]
+        assert saved["model_info"]["account_pool_glm_standard_api"] is active
+        repository.find_by_id.return_value = row.model_copy(update={
+            "litellm_params": saved["litellm_params"], "model_info": saved["model_info"],
+        })
+        assert await store.upsert(desired) is False

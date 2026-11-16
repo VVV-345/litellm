@@ -22,10 +22,11 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingSnapshot,
     snapshots,
 )
-from litellm.proxy.management_endpoints.account_pool_routing import plan_priority
+from litellm.proxy.management_endpoints.account_pool_routing import is_glm_standard_api_base, plan_priority
 from litellm.repositories.model_repository import ModelRepository
 
 _MANAGED_BY: Final = "account_pool"
+_GLM_REASONING_PARAMS: Final = ("reasoning_effort", "thinking")
 _CREATED_BY: Final = "account-pool-reconciler"
 _DEFAULT_MANAGER_URL: Final = "http://account-pool:8091"
 _DEFAULT_INTERVAL_SECONDS: Final = 30.0
@@ -115,6 +116,7 @@ class ManagedDeployment:
     native_routing_migrated: bool = False
     supported_endpoints: tuple[str, ...] = ()
     sse_heartbeat_interval_seconds: float | None = None
+    glm_standard_api: bool = False
 
     @property
     def routing_defaults(self) -> dict[str, object]:
@@ -134,6 +136,7 @@ class ManagedDeployment:
             "max_parallel_requests": self.max_parallel_requests,
             "num_retries": 0,
             "max_retries": 0,
+            **({"allowed_openai_params": list(_GLM_REASONING_PARAMS)} if self.glm_standard_api else {}),
             **({"keepalive_seconds": self.sse_heartbeat_interval_seconds, "allow_client_keepalive_override": False}
                if self.sse_heartbeat_interval_seconds is not None else {}),
         }
@@ -145,6 +148,7 @@ class ManagedDeployment:
             "managed_by": _MANAGED_BY,
             "account_pool_environment_id": self.environment_id,
             "account_pool_model": self.model_name,
+            "account_pool_glm_standard_api": self.glm_standard_api,
             "account_pool_native_routing": self.native_routing_migrated,
             "supported_endpoints": self.supported_endpoints,
             "account_pool_sse_heartbeat": self.sse_heartbeat_interval_seconds,
@@ -240,6 +244,15 @@ class LiteLLMDeploymentStore:
             if heartbeat.account_pool_sse_heartbeat is not None
             else {key: value for key, value in preserved.litellm_params.items() if key in heartbeat_keys}
         )
+        previous_glm: Final = (preserved.model_info or {}).get("account_pool_glm_standard_api") is True
+        native_allowed: Final = TypeAdapter(tuple[str, ...]).validate_python(
+            (preserved.model_info or {}).get("account_pool_glm_native_allowed_params") or ()
+            if previous_glm else preserved.litellm_params.get("allowed_openai_params") or ()
+        ) if previous_glm or deployment.glm_standard_api else ()
+        allowed_override: Final = {
+            "allowed_openai_params": list(dict.fromkeys((*native_allowed, *_GLM_REASONING_PARAMS)))
+            if deployment.glm_standard_api else list(native_allowed)
+        } if previous_glm or deployment.glm_standard_api else {}
         inherited_params: Final = {
             **{key: value for key, value in preserved.litellm_params.items() if key not in heartbeat_keys},
             **native_keepalive,
@@ -251,10 +264,13 @@ class LiteLLMDeploymentStore:
                 **deployment.routing_defaults,
                 **inherited_params,
                 **deployment.litellm_params,
+                **allowed_override,
             },
             model_info={
                 **(preserved.model_info or {}),
                 **deployment.model_info,
+                **({"account_pool_glm_native_allowed_params": list(native_allowed) if deployment.glm_standard_api else None}
+                   if previous_glm or deployment.glm_standard_api else {}),
                 "account_pool_native_keepalive": (
                     native_keepalive if deployment.sse_heartbeat_interval_seconds is not None else None
                 ),
@@ -457,6 +473,7 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         routing_order=environment.routing_order,
         native_routing_migrated=environment.routing_weight is not None and environment.routing_order is not None,
         sse_heartbeat_interval_seconds=environment.sse_heartbeat_interval_seconds,
+        glm_standard_api=is_glm_standard_api_base(environment.api_base),
     )
 
 
@@ -506,6 +523,7 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         native_routing_migrated=info.get("account_pool_native_routing") is True,
         supported_endpoints=TypeAdapter(tuple[str, ...]).validate_python(info.get("supported_endpoints", ())),
         sse_heartbeat_interval_seconds=heartbeat.account_pool_sse_heartbeat,
+        glm_standard_api=info.get("account_pool_glm_standard_api") is True,
     )
 
 

@@ -1385,3 +1385,51 @@ async def test_anthropic_messages_leaves_non_provider_failures_unmapped():
         )
 
     assert "Traceback" not in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_glm_messages_rejects_lossy_thinking_conversion_before_network():
+    from litellm.llms.anthropic.experimental_pass_through.messages import handler
+
+    upstream = AsyncHTTPHandler()
+    upstream.client = httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda request: httpx.Response(404, json={"error": {"message": "fixture endpoint unsupported"}})
+    ))
+    with pytest.raises(litellm.UnsupportedParamsError, match="GLM.*thinking") as excinfo:
+        await handler.anthropic_messages(
+            model="openai/glm-5.3", custom_llm_provider="openai", api_key="fixture-standard-key", client=upstream,
+            max_tokens=2048, messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "enabled", "budget_tokens": 1024},
+            model_info={"managed_by": "account_pool", "account_pool_glm_standard_api": True},
+        )
+    assert excinfo.value.status_code == 400
+    await upstream.client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_glm_explicit_native_messages_keeps_original_thinking():
+    from litellm.llms.anthropic.experimental_pass_through.messages import handler
+
+    seen = []
+    def upstream(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "id": "msg_fixture", "type": "message", "role": "assistant", "model": "glm-5.3",
+            "content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn", "stop_sequence": None,
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        })
+
+    transport = AsyncHTTPHandler()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        transport.client = client
+        result = await handler.anthropic_messages(
+            model="openai/glm-5.3", custom_llm_provider="openai", api_key="fixture-standard-key", client=transport,
+            api_base="https://fixture-messages.test/v1",
+            max_tokens=2048, messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "enabled", "budget_tokens": 1024},
+            model_info={"managed_by": "account_pool", "account_pool_glm_standard_api": True,
+                        "supported_endpoints": ["/v1/messages"]},
+        )
+    assert result["content"] == [{"type": "text", "text": "ok"}]
+    assert len(seen) == 1
+    assert seen[0]["thinking"] == {"type": "enabled", "budget_tokens": 1024}

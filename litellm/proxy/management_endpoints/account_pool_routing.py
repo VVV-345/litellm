@@ -287,11 +287,15 @@ def route_with_reason(resolution: Resolution, route: Route, eligible_count: int,
 
 
 def is_glm_standard_api(account: Candidate) -> bool:
-    base: Final = urlsplit(account.api_base)
+    return account.supplier == "openai_compatible" and is_glm_standard_api_base(account.api_base)
+
+
+def is_glm_standard_api_base(api_base: str) -> bool:
+    base: Final = urlsplit(api_base)
     return (
-        account.supplier == "openai_compatible" and base.scheme == "https"
-        and base.hostname in ("open.bigmodel.cn", "api.z.ai") and base.port in (None, 443)
-        and base.path.rstrip("/") == "/api/paas/v4"
+        base.scheme == "https" and base.hostname in ("open.bigmodel.cn", "api.z.ai")
+        and base.port in (None, 443) and base.path.rstrip("/") == "/api/paas/v4"
+        and not (base.username or base.password or base.query or base.fragment)
     )
 
 

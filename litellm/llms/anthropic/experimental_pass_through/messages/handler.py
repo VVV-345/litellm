@@ -569,6 +569,15 @@ def anthropic_messages_handler(
         )
 
         anthropic_messages_provider_config = OpenAILikeAnthropicMessagesConfig()
+    deployment_info: Final = kwargs.get("model_info")
+    if (anthropic_messages_provider_config is None and thinking is not None
+            and isinstance(deployment_info, dict)
+            and deployment_info.get("managed_by") == "account_pool"
+            and deployment_info.get("account_pool_glm_standard_api") is True):
+        raise litellm.UnsupportedParamsError(
+            status_code=400, model=model, llm_provider=custom_llm_provider or "openai",
+            message="GLM standard API cannot losslessly convert Messages thinking; use Chat thinking and reasoning_effort",
+        )
     if anthropic_messages_provider_config is None:
         # Route to Responses API for OpenAI / Azure, chat/completions for everything else.
         if _should_route_to_responses_api(custom_llm_provider, original_model, model):

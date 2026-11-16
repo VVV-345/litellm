@@ -41,14 +41,20 @@ GLM 标准 Chat 会将 `max_completion_tokens` 等值转换成官方 `max_tokens
 
 模型 ID 留空等待用户填写，不预置账号有权使用的模型，不自动导入或启用发现结果。现有创建流程将明确填写的自定义模型（为空时用测试模型）保存为目录；后台可能请求 `/models`，失败时仍保留手填目录。创建成功只表示配置和加密凭据已保存，不证明 Key 有效或模型可调用，必须继续运行卡片的 Chat 模型测试
 
-本地回归使用同一张测试卡、同一 `glm-5.3` 和固定假 Key，验证真实 Router 与本地 HTTP 网关；仅 GLM HTTP 上游使用测试替身，没有访问 GLM 上游或消耗 GLM 额度
+本地回归使用同一张测试卡、同一 `glm-5.3` 和固定假 Key，调用真实 Router 与本地 HTTP 网关；鉴权身份、Manager 数据和 GLM HTTP 上游为测试替身，没有访问 GLM 上游或消耗 GLM 额度
 
 | 入口 | 工具调用 | 推理参数 | 验收边界 |
 | --- | --- | --- | --- |
-| Chat | 原生 Chat 结构透传，工具字段及流式工具事件回归通过 | 原始号池转发保留 `thinking`、`reasoning_effort`；虚拟 Key 的通用 OpenAI 适配当前明确拒绝这两个参数 | 普通 Chat、流式和卡片 Chat 模型测试本地通过；不能宣称虚拟 Key 推理参数可用 |
+| Chat | 原生 Chat 结构透传，工具字段及流式工具事件回归通过 | 标准 GLM 受管部署允许 `reasoning_effort`、`thinking`，后者使用 OpenAI SDK 的 `extra_body` 原值进入 JSON 请求体，不丢弃 `clear_thinking` 等嵌套字段 | 普通 Chat、流式和卡片 Chat 模型测试本地通过；推理字段本地传输回归通过，实际模型可接受的取值仍由上游校验 |
 | Responses | 本预设未获支持验证，无 Chat 协议转换 | 同样未获支持验证；请求原样转发，不能静默丢弃 | 模拟上游拒绝必须返回失败，不冒充成功；真实上游未验收 |
-| Messages | 网关转换：虚拟 Key 经 LiteLLM 转为 Responses，工具结构随之转换；直接卡片 Key 则原样转发 Messages | 虚拟 Key 将 `thinking.budget_tokens=1024` 转成 `reasoning.effort=low`，不是原生支持，也不保留精确预算 | 本预设不承诺支持；模拟上游拒绝必须返回失败，真实上游未验收 |
+| Messages | 网关转换：虚拟 Key 经 LiteLLM 转为 Responses，工具结构随之转换；直接卡片 Key 则原样转发 Messages | 不再把精确 `thinking.budget_tokens` 悄悄近似为推理强度；此标准 GLM 部署在无法无损转换 `thinking` 时明确返回 400，建议改用 Chat | 本预设不承诺支持；模拟上游拒绝必须返回失败，真实上游未验收 |
 
-[Z.AI Chat 参数文档](https://docs.z.ai/api-reference/llm/chat-completion)描述了工具及模型相关的思考参数，但文档支持不等于本项目全链路实测。此次不扩大修改原生 OpenAI 参数适配，也不设置 `drop_params`。后续如需三协议完整适配，应单独设计并以获准的标准测试 Key 验证
+[Z.AI Chat 参数文档](https://docs.z.ai/api-reference/llm/chat-completion)描述了工具及模型相关的思考参数，但文档支持不等于本项目全链路实测。仅标准 GLM 地址的受管部署自动放行两个推理字段，不按模型名称猜测，不设置 `drop_params`；普通兼容卡片、Coding 地址不自动放行。切换回通用地址时撤销本次自动放行并恢复原有白名单，保留原来的其他参数。后续如需三协议完整适配，应单独设计并以获准的标准测试 Key 验证
 
 真实上游未验收：此次没有获准使用的 GLM 标准测试 Key，实际打到 GLM 上游的调用为 0。没有 Docker 构建、生产部署或配置修改
+
+本轮复用既有 `allowed_openai_params` 和 [OpenAI Python SDK 的 extra_body 扩展参数接口](https://github.com/openai/openai-python#undocumented-request-params)，不引入 GLM 专用路由、SDK 或数据库表。参照 [Z.AI 的 OpenAI SDK 接入说明](https://docs.z.ai/guides/develop/openai/python)使用标准 Chat 端点。没有把其他项目的 Coding Plan / Anthropic 专用地址混入标准预设
+
+Responses 不做 Chat 桥接，仍向所选标准 Base 的 `/responses` 发送 Responses 结构；Messages 无 `thinking` 时沿用现有 Messages -> Responses 桥接（函数工具、`max_tokens` 等转换），并不因此获得标准 GLM 上游支持。有显式原生 Messages 透传配置的旧部署不受新转换保护影响，仍由所配置上游决定支持情况。本预设没有自动打开该透传或改到其他专用端点
+
+此处的模拟 404 只验证错误不会伪装成成功，不是“GLM 实际返回 404”的证据。当前标准端点的 Responses / Messages 原生能力均未完成真实上游确认；请不要把 Chat 回归通过解读为三个入口都可用

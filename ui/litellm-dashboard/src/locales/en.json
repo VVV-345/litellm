@@ -6998,7 +6998,7 @@
         "presetGeneric": "Generic OpenAI compatible",
         "presetGlmCn": "GLM (Zhipu China)",
         "presetGlmGlobal": "GLM (Z.AI international)",
-        "glmStandardHint": "Standard API Keys only; no Coding Plan keys, dedicated endpoints, or OAuth. Enter model IDs manually; no automatic import. Test Chat first. Virtual-key reasoning parameters are currently unsupported. Responses is unverified; virtual-key Messages is converted to Responses and is also unverified. Creating a card does not prove a successful model call.",
+        "glmStandardHint": "Standard API Keys only; no Coding Plan keys, dedicated endpoints, or OAuth. Enter model IDs manually; no automatic import. Chat forwards reasoning_effort and thinking without dropping them; upstream support depends on the model. Responses is unverified. Virtual-key Messages converts to Responses; thinking is explicitly rejected when conversion would be lossy. Real GLM upstream calls remain unverified.",
         "name": "Card name",
         "baseUrl": "Base URL",
         "prefix": "Model prefix",

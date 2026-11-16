@@ -5765,3 +5765,40 @@ class TestHuggingFaceConfigFetch:
         assert _get_max_position_embeddings("some-org/some-model") == 512
         request_timeout = hf_config_route.calls.last.request.extensions["timeout"]
         assert request_timeout["read"] == HF_CONFIG_FETCH_TIMEOUT_SECONDS
+
+
+@pytest.mark.parametrize("drop_params", [False, True])
+def test_allowed_glm_thinking_uses_sdk_extra_body_without_losing_fields(drop_params):
+    from litellm.utils import get_optional_params
+
+    thinking = {"type": "enabled", "clear_thinking": False}
+    result = get_optional_params(
+        model="glm-5.3", custom_llm_provider="openai", drop_params=drop_params,
+        allowed_openai_params=["thinking", "reasoning_effort"],
+        thinking=thinking, reasoning_effort="max", extra_body={"user_id": "fixture-user"},
+    )
+    assert "thinking" not in result
+    assert result["reasoning_effort"] == "max"
+    assert result["extra_body"] == {"user_id": "fixture-user", "thinking": thinking}
+
+
+def test_glm_reasoning_is_not_injected_or_globally_enabled():
+    from litellm.utils import get_optional_params
+    result = get_optional_params(
+        model="glm-5.3", custom_llm_provider="openai",
+        allowed_openai_params=["thinking", "reasoning_effort"],
+    )
+    assert "thinking" not in result.get("extra_body", {})
+    assert "reasoning_effort" not in result
+    with pytest.raises(litellm.UnsupportedParamsError):
+        get_optional_params(model="glm-5.3", custom_llm_provider="openai", reasoning_effort="high", drop_params=False)
+
+
+def test_glm_duplicate_thinking_must_not_silently_overwrite():
+    from litellm.utils import get_optional_params
+
+    with pytest.raises(litellm.UnsupportedParamsError, match="conflicting thinking"):
+        get_optional_params(
+            model="glm-5.3", custom_llm_provider="openai", allowed_openai_params=["thinking"],
+            thinking={"type": "enabled"}, extra_body={"thinking": {"type": "disabled"}},
+        )
