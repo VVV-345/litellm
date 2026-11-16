@@ -793,29 +793,25 @@ async def _buffer_first_chunk_honoring_disconnect(
         # message, so Starlette's later listen_for_disconnect would never see it.
         # Take the cancellation path whenever a disconnect was observed, even if
         # the first chunk landed in the same scheduler turn.
-        disconnect_observed: Final = disconnect_task.done()
+        if not disconnect_task.done() and chunk_task.done() and not chunk_task.cancelled():
+            return chunk_task.result()
+        verbose_proxy_logger.info("create_response: client disconnected before first chunk, upstream LLM request cancelled")
+        raise _ClientDisconnectedBeforeFirstChunk()
+    except BaseException:
+        chunk_task.cancel()
+        with anyio.CancelScope(shield=True):
+            with contextlib.suppress(BaseException):
+                await chunk_task
+            try:
+                await generator.aclose()
+            except BaseException as exc:  # noqa: BLE001  # cleanup must preserve the original cancellation or failure
+                verbose_proxy_logger.debug("create_response: error closing generator: %s", exc)
+        raise
     finally:
         disconnect_task.cancel()
-        try:
-            await disconnect_task
-        except BaseException:  # noqa: BLE001
-            pass
-
-    if not disconnect_observed and chunk_task.done() and not chunk_task.cancelled():
-        return chunk_task.result()
-
-    chunk_task.cancel()
-    with anyio.CancelScope(shield=True):
-        try:
-            await chunk_task
-        except BaseException:  # noqa: BLE001
-            pass
-        try:
-            await generator.aclose()
-        except BaseException as exc:  # noqa: BLE001
-            verbose_proxy_logger.debug("create_response: error closing generator on disconnect: %s", exc)
-    verbose_proxy_logger.info("create_response: client disconnected before first chunk, upstream LLM request cancelled")
-    raise _ClientDisconnectedBeforeFirstChunk()
+        with anyio.CancelScope(shield=True):
+            with contextlib.suppress(BaseException):
+                await disconnect_task
 
 
 def sse_error_payload(exc: BaseException) -> tuple[int, Mapping[str, object]]:
@@ -1120,7 +1116,14 @@ async def open_sse_before_first_byte(
         return await produce_response
 
     produce_task: Final = asyncio.ensure_future(produce_response)
-    await asyncio.wait((produce_task,), timeout=interval)
+    try:
+        await asyncio.wait((produce_task,), timeout=interval)
+    except BaseException:
+        produce_task.cancel()
+        with anyio.CancelScope(shield=True):
+            with contextlib.suppress(BaseException):
+                await _aclose_late_response(await produce_task)
+        raise
     if produce_task.done():
         # Fast path: the upstream answered inside one interval, so nothing was
         # written early and this is byte-identical to not being wrapped at all.

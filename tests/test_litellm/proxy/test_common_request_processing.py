@@ -7143,16 +7143,22 @@ async def test_ttft_keepalive_is_a_no_op_when_the_upstream_answers_in_time():
 @pytest.mark.parametrize("interval", [None, 0, "", "abc", float("inf"), float("nan"), -1])
 async def test_ttft_keepalive_unconfigured_leaves_the_call_completely_untouched(interval):
     produced = _sse_response(['data: {"x": 1}\n\n'])
-    started_at = asyncio.get_running_loop().time()
+    entered = asyncio.Event()
+    release = asyncio.Event()
 
     async def slow_upstream():
-        await asyncio.sleep(0.15)
+        entered.set()
+        await release.wait()
         return produced
 
-    response = await open_sse_before_first_byte(slow_upstream(), ping_interval_seconds=interval)
-
+    task = asyncio.create_task(open_sse_before_first_byte(slow_upstream(), ping_interval_seconds=interval))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        assert not task.done()
+    finally:
+        release.set()
+    response = await task
     assert response is produced
-    assert asyncio.get_running_loop().time() - started_at >= 0.15
 
 
 @pytest.mark.asyncio
@@ -7243,6 +7249,100 @@ async def test_ttft_keepalive_cancels_the_in_flight_call_when_the_client_gives_u
     await asyncio.sleep(0)
 
     assert upstream_cancelled.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["first_chunk", "first_keepalive"])
+@pytest.mark.parametrize("cancel_scope", [False, True])
+async def test_parent_cancellation_closes_pending_stream_work(stage, cancel_scope):
+    import anyio
+
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+    children = []
+
+    async def upstream():
+        children.append(asyncio.current_task())
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+            yield "data: [DONE]\n\n"
+        finally:
+            await asyncio.sleep(0)
+            closed.set()
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    async def produce():
+        await anext(stream)
+        return Response()
+
+    stream = upstream()
+    request = Request({"type": "http", "method": "POST", "path": "/v1/chat/completions", "headers": []}, receive)
+    scopes = []
+
+    async def run():
+        with anyio.CancelScope() as scope:
+            scopes.append(scope)
+            return await (
+                create_response(stream, "text/event-stream", {}, request=request)
+                if stage == "first_chunk" else open_sse_before_first_byte(produce(), 10)
+            )
+
+    parent = asyncio.create_task(run())
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        if cancel_scope:
+            scopes[0].cancel()
+            await parent
+        else:
+            parent.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await parent
+        assert closed.is_set()
+        assert all(child.done() for child in children)
+    finally:
+        for child in children:
+            child.cancel()
+        await asyncio.gather(*children, return_exceptions=True)
+        await stream.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["first_chunk", "first_keepalive"])
+async def test_parent_cancellation_closes_stream_when_first_result_arrives_together(stage):
+    closed = asyncio.Event()
+
+    async def upstream():
+        try:
+            if stage == "first_chunk":
+                parent.cancel()
+            yield "data: first\n\n"
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    async def produce():
+        await anext(stream)
+        parent.cancel()
+        return StreamingResponse(stream)
+
+    stream = upstream()
+    request = Request({"type": "http", "method": "POST", "path": "/v1/chat/completions", "headers": []}, receive)
+    parent = asyncio.create_task(
+        create_response(stream, "text/event-stream", {}, request=request)
+        if stage == "first_chunk" else open_sse_before_first_byte(produce(), 10)
+    )
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await parent
+        assert closed.is_set()
+    finally:
+        await stream.aclose()
 
 
 @pytest.mark.parametrize(

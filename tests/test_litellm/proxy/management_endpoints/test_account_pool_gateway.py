@@ -3899,6 +3899,72 @@ async def test_account_pool_stream_uses_existing_keepalive_setting() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("cause", ["internal", "disconnect_before_headers", "disconnect_during_stream"])
+async def test_cancellation_source_is_recorded_without_retry_or_failover(cause: str) -> None:
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+    messages = []
+    inbound = asyncio.Queue()
+
+    class Upstream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n'
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            closed.set()
+
+    async def upstream(_):
+        if cause != "disconnect_during_stream":
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                closed.set()
+        return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=Upstream())
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == "http.response.body":
+            entered.set()
+
+    _, control = setup_gateway(lambda _: httpx.Response(200), max_attempts=1)
+    request = Request({"type": "http", "method": "POST", "path": "/v1/chat/completions",
+                       "headers": [], "query_string": b"", "asgi": {"spec_version": "2.0"}}, inbound.get)
+    selected = routes(control.resolution, "model-a", request.url.path, Headers())
+    assert not isinstance(selected, Rejected)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        task = asyncio.create_task(forward(request, {"model": "model-a", "stream": True}, _KEY, None,
+                                           control.resolution, selected, control, client, send))
+        try:
+            await asyncio.wait_for(entered.wait(), 2)
+            if cause != "internal":
+                inbound.put_nowait({"type": "http.disconnect"})
+            if cause != "disconnect_during_stream":
+                if cause == "disconnect_before_headers":
+                    assert await request.is_disconnected()
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                await asyncio.wait_for(task, 2)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+    assert closed.is_set()
+    assert len(control.acquisitions) == len(control.finished) == 1
+    result = control.finished[0]
+    assert result.http_status == 499
+    assert result.upstream_code == ("internal_cancelled" if cause == "internal" else "downstream_disconnected")
+    assert result.message == ("Request cancelled internally" if cause == "internal" else "Downstream disconnected")
+    assert not result.retryable and not result.switched_account
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("interval,global_interval,has_ping", [(0, 0.03, False), (0.03, 0, True), (0.3, 0.03, False)])
 async def test_account_pool_heartbeat_override_is_scoped(interval, global_interval, has_ping):
     import litellm

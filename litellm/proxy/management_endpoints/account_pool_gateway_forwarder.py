@@ -15,6 +15,7 @@ from types import MappingProxyType
 from typing import Final, Protocol, TypedDict, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
+import anyio
 import httpx
 from openai.types.responses.response_create_params import ResponseInputParam
 from pydantic import JsonValue, TypeAdapter, ValidationError
@@ -224,10 +225,11 @@ class Attempt:
             endpoint=endpoint,
             http_status=499,
             stage="response",
-            message="Downstream disconnected",
+            message="Request did not complete",
             detail=detail,
         )
         self.started = False
+        self.downstream_disconnected = False
         self._send: Final = send
         self.request_id: Final = lease.request_id
         self.account_id: Final = lease.account_id
@@ -235,6 +237,9 @@ class Attempt:
         self.attempt_number: Final = lease.attempt
         self.signature_retry_count = 0
         self.signature_failure_reason: str | None = None
+
+    def mark_downstream_disconnected(self) -> None:
+        self.downstream_disconnected = True
 
     async def send(self, message: Message) -> None:
         try:
@@ -1068,7 +1073,14 @@ async def execute(
             finally:
                 await response.aclose()
     except asyncio.CancelledError:
-        attempt.outcome(499, "Downstream disconnected", stage="response", upstream_code="downstream_disconnected")
+        with anyio.CancelScope(shield=True):
+            cancelled_downstream: Final = (
+                attempt.downstream_disconnected or await request.is_disconnected()
+            )
+            attempt.outcome(
+                499, "Downstream disconnected" if cancelled_downstream else "Request cancelled internally",
+                stage="response", upstream_code="downstream_disconnected" if cancelled_downstream else "internal_cancelled",
+            )
         raise
     except (httpx.HTTPError, TimeoutError, ValueError, ClientDisconnect, OSError) as error:
         disconnected: Final = isinstance(error, ClientDisconnect)
@@ -1563,6 +1575,12 @@ async def stream_response(
                 cost_usd=cost_usd,
             )
 
+    async def receive() -> Message:
+        message: Final = await request.receive()
+        if message["type"] == "http.disconnect":
+            attempt.mark_downstream_disconnected()
+        return message
+
     await StreamingResponse(
         wrap_passthrough_sse_bytes_with_keepalive_pings(
             chunks(), heartbeat_interval(heartbeat), {"content-type": "text/event-stream"}
@@ -1575,4 +1593,6 @@ async def stream_response(
             "Cache-Control": "no-store",
             "X-Accel-Buffering": "no",
         },
-    )(request.scope, request.receive, attempt.emit)
+    )(request.scope, receive, attempt.emit)
+    if attempt.downstream_disconnected and not state.terminal:
+        attempt.outcome(499, "Downstream disconnected", stage="response", upstream_code="downstream_disconnected")
