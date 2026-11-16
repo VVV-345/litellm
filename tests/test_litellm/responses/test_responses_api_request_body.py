@@ -16,40 +16,69 @@ import litellm
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
 
+@pytest.mark.parametrize("model", [
+    "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-auto-review",
+])
 @pytest.mark.asyncio
 @pytest.mark.parametrize("params", [
     {},
+    {"reasoning_effort": "max"},
+    {"reasoning_effort": "xhigh"},
+    {"reasoning_effort": "low"},
+    {"reasoning_effort": "medium"},
     {"thinking": {"type": "enabled", "budget_tokens": 32768}},
     {"reasoning_effort": "high", "thinking": {"type": "enabled", "budget_tokens": 32768}},
     {"reasoning": {"effort": "high", "summary": "detailed"}, "thinking": {"type": "adaptive"}},
 ])
-async def test_gpt6_astra_responses_reasoning_reaches_wire(params):
+@pytest.mark.parametrize("stream", [False, True])
+async def test_reasoning_family_responses_reasoning_reaches_wire(model, params, stream):
     captured = []
 
     def upstream(request):
         captured.append(json.loads(request.content))
-        return httpx.Response(200, json=_minimal_responses_api_payload("resp_reasoning", "gpt-6-astra"))
+        payload = _minimal_responses_api_payload("resp_reasoning", model)
+        if json.loads(request.content).get("stream"):
+            events = [
+                {"type": "response.created", "response": {**payload, "status": "in_progress", "output": []}},
+                {"type": "response.output_text.delta", "item_id": "msg_1", "output_index": 0,
+                 "content_index": 0, "delta": "Done."},
+                {"type": "response.completed", "response": payload},
+            ]
+            return httpx.Response(200, text="".join(
+                "data: " + json.dumps({**x, "sequence_number": i}) + "\n\n" for i, x in enumerate(events)
+            ), headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json=payload)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
         client = AsyncHTTPHandler()
         await client.client.aclose()
         client.client = http_client
         result = await litellm.aresponses(
-            model="openai/gpt-6-astra", input="hello", api_key="test", api_base="https://fixture.invalid/v1",
-            client=client, **params,
+            model="openai/" + model, input="hello", api_key="test", api_base="https://fixture.invalid/v1",
+            client=client, stream=stream, **params,
         )
-    assert result.status == "completed"
+        if stream:
+            events = [event async for event in result]
+            assert "".join(event.delta for event in events if event.type == "response.output_text.delta") == "Done."
+            assert events[-1].type == "response.completed"
+        else:
+            assert result.status == "completed"
     assert len(captured) == 1
     if not params:
         assert "reasoning" not in captured[0]
         return
-    assert captured[0]["reasoning"]["effort"] == "high"
+    assert captured[0]["reasoning"]["effort"] == params.get("reasoning_effort", "high")
     assert "thinking" not in captured[0]
     assert "reasoning_effort" not in captured[0]
     if "reasoning" in params:
         assert captured[0]["reasoning"]["summary"] == "detailed"
 
 
+@pytest.mark.parametrize("model", [
+    "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-auto-review",
+])
 @pytest.mark.asyncio
 @pytest.mark.parametrize("params", [
     {"reasoning": {"effort": "low"}, "reasoning_effort": "high"},
@@ -58,7 +87,7 @@ async def test_gpt6_astra_responses_reasoning_reaches_wire(params):
     {"reasoning_effort": {"generate_summary": "concise"}, "reasoning": {"generate_summary": "detailed"}},
     {"thinking": {"type": "enabled", "display": "omitted", "summary": "detailed"}},
 ])
-async def test_gpt6_astra_responses_conflicts_do_not_reach_upstream(params):
+async def test_reasoning_family_responses_conflicts_do_not_reach_upstream(model, params):
     def upstream(request):
         pytest.fail("invalid reasoning must not reach upstream")
 
@@ -68,30 +97,34 @@ async def test_gpt6_astra_responses_conflicts_do_not_reach_upstream(params):
         client.client = http_client
         with pytest.raises(litellm.BadRequestError, match="Invalid or conflicting"):
             await litellm.aresponses(
-                model="openai/gpt-6-astra", input="hello", api_key="test", api_base="https://fixture.invalid/v1",
+                model="openai/" + model, input="hello", api_key="test", api_base="https://fixture.invalid/v1",
                 client=client, **params,
             )
 
 
+@pytest.mark.parametrize("model", [
+    "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-auto-review",
+])
 @pytest.mark.asyncio
 @pytest.mark.parametrize("params,summary", [
     ({"reasoning_effort": "high"}, "detailed"),
     ({"thinking": {"type": "enabled", "budget_tokens": 32768, "display": "omitted"}}, None),
     ({"thinking": {"type": "enabled", "budget_tokens": 32768, "display": "summarized"}}, "auto"),
 ])
-async def test_gpt6_responses_preserves_summary_intent(monkeypatch, params, summary):
+async def test_reasoning_family_responses_preserves_summary_intent(monkeypatch, model, params, summary):
     monkeypatch.setenv("LITELLM_REASONING_AUTO_SUMMARY", "true")
     captured = []
 
     def upstream(request):
         captured.append(json.loads(request.content))
-        return httpx.Response(200, json=_minimal_responses_api_payload("resp_summary", "gpt-6-astra"))
+        return httpx.Response(200, json=_minimal_responses_api_payload("resp_summary", model))
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
         client = AsyncHTTPHandler()
         await client.client.aclose()
         client.client = http_client
-        await litellm.aresponses(model="openai/gpt-6-astra", input="hello", api_key="test",
+        await litellm.aresponses(model="openai/" + model, input="hello", api_key="test",
                                 api_base="https://fixture.invalid/v1", client=client, **params)
     assert len(captured) == 1
     assert captured[0]["reasoning"]["effort"] == "high"
@@ -862,3 +895,80 @@ async def test_a_native_responses_provider_places_every_point_itself():
 
     assert user_only == [0, 2, 4, 6]
     assert with_unmatchable_system == user_only
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-5.6-luna"])
+@pytest.mark.parametrize("entry", ["responses", "messages"])
+async def test_reasoning_family_native_fields_survive_both_entries(model, entry):
+    captured = []
+    requested = {"effort": "max", "summary": "detailed", "mode": "pro", "context": "all_turns"}
+
+    def upstream(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            **_minimal_responses_api_payload("resp_fields", model), "reasoning": requested,
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        kwargs = dict(model="openai/" + model, reasoning=requested, client=client,
+                      api_key="test", api_base="https://fixture.invalid/v1")
+        if entry == "responses":
+            await litellm.aresponses(input="hello", **kwargs)
+        else:
+            await litellm.anthropic.messages.acreate(messages=[{"role": "user", "content": "hello"}],
+                                                    max_tokens=128, **kwargs)
+    assert len(captured) == 1
+    assert captured[0]["reasoning"] == requested
+    assert "thinking" not in captured[0]
+    assert "reasoning_effort" not in captured[0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["responses", "messages"])
+@pytest.mark.parametrize("model,params", [
+    ("gpt-6-astra", {"reasoning": {"effort": "none"}}),
+    ("gpt-6.1-sol", {"thinking": {"type": "disabled"}}),
+    ("gpt-6-luna", {"reasoning_effort": "ultra"}),
+    ("gpt-6-luna", {"reasoning_effort": "minimal"}),
+    ("gpt-5.6-luna", {"reasoning_effort": "high", "thinking": {"type": "disabled"}}),
+    ("gpt-6-luna", {"reasoning": {"effort": "high", "mode": "pro"},
+                    "reasoning_effort": {"effort": "high", "mode": "standard"}}),
+])
+async def test_reasoning_family_invalid_fields_rejected_before_send(model, entry, params):
+    def upstream(request):
+        pytest.fail("invalid reasoning reached upstream")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        kwargs = dict(model="openai/" + model, client=client, api_key="test",
+                      api_base="https://fixture.invalid/v1", **params)
+        request = (
+            litellm.aresponses(input="hello", **kwargs) if entry == "responses"
+            else litellm.anthropic.messages.acreate(messages=[{"role": "user", "content": "hello"}],
+                                                   max_tokens=128, **kwargs)
+        )
+        with pytest.raises(litellm.BadRequestError, match="Invalid or conflicting"):
+            await request
+
+
+@pytest.mark.asyncio
+async def test_reasoning_family_messages_output_config_conflicts_with_native_reasoning():
+    def upstream(request):
+        pytest.fail("conflicting effort reached upstream")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
+        client = AsyncHTTPHandler()
+        await client.client.aclose()
+        client.client = http_client
+        with pytest.raises(litellm.BadRequestError, match="Invalid or conflicting"):
+            await litellm.anthropic.messages.acreate(
+                model="openai/gpt-6-luna", messages=[{"role": "user", "content": "hello"}], max_tokens=128,
+                api_key="test", api_base="https://fixture.invalid/v1", client=client,
+                reasoning={"effort": "high"}, output_config={"effort": "max"},
+            )

@@ -1125,12 +1125,15 @@ def responses(
 
         local_vars.update(kwargs)
         # Map reasoning_effort (from litellm_params/proxy config) to reasoning when not set
-        from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra, normalize_gpt6_reasoning
+        from litellm.litellm_core_utils.reasoning_effort_utils import (
+            is_openai_reasoning_model,
+            normalize_openai_reasoning,
+        )
 
-        if custom_llm_provider == "openai" and is_gpt_6_astra(model):
+        if custom_llm_provider == "openai" and is_openai_reasoning_model(model):
             reasoning_params: Final = TypeAdapter(dict[str, object]).validate_python(local_vars)
             raw_effort: Final = reasoning_params.get("reasoning_effort")
-            normalized_reasoning: Final = normalize_gpt6_reasoning(
+            normalized_reasoning: Final = normalize_openai_reasoning(
                 model, effort=raw_effort,
                 thinking=reasoning_params.get("thinking"), reasoning=reasoning,
             )
@@ -1141,7 +1144,7 @@ def responses(
                 and reasoning is None and not isinstance(raw_effort, dict)):
                 local_vars["reasoning_effort"] = normalized_effort
             elif normalized_reasoning:
-                reasoning = TypeAdapter(Reasoning).validate_python(normalized_reasoning)
+                reasoning = cast(Reasoning, normalized_reasoning)  # cast-ok: validated; SDK lacks max/mode/context
             local_vars["reasoning"] = reasoning
         if reasoning is None and "reasoning_effort" in local_vars:
             _mapped = LiteLLMResponsesTransformationHandler()._map_reasoning_effort(local_vars.pop("reasoning_effort"))

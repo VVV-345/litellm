@@ -4,7 +4,9 @@
 
 LiteLLM 保留用户鉴权、原生计价和日志集成，号池网关限制卡片/模型范围并取得 Manager 租约。推理正文由网关转发到 CPA 或兼容上游，不经过 Manager；控制面健康不等于数据面正常
 
-OpenAI 的 `gpt-6-astra` 请求在 Chat、Responses 和 Messages 入口统一校验 `reasoning_effort`、`thinking` 与原生 `reasoning`，冲突或非法值返回 400，不全局丢弃参数。Chat 只传递推理强度，摘要请求需使用 Responses；Messages 的摘要显示意图由 Responses 转换保留。这里解决入口适配，不保证上游账号或模型支持全部推理档位
+OpenAI 的 `gpt-6-astra/luna/sol`、`gpt-6.1-sol/terra`、`gpt-5.6-sol/terra/luna` 和 `codex-auto-review` 共用 Chat、Responses 和 Messages 的推理参数适配。`reasoning_effort`、`thinking`、原生 `reasoning` 及 Messages 的 `output_config.effort` 在对应入口合并校验，冲突或非法值返回 400，不全局丢弃参数，也不把 `max` 静默降为 `high`。Chat 只传递推理强度；摘要、`mode` 和 `context` 使用 Responses，Messages 通过 Responses 保留摘要显示意图
+
+`thinking.budget_tokens` 按现有阈值转换为推理强度，最低档映射为这些模型支持的 `low`。Astra 与 6.1 Sol 不接受关闭推理，其余明确支持 `none` 的型号可关闭；`ultra` 不是这里的 API 推理档位。别名 `codex-auto-review` 的具体可用档位仍由上游校验。不根据名称前缀放开未知型号，不替上游账号开放尚未支持的模型。流式和非流式采用同一套参数规则；本地回归检查实际序列化请求，不代表生产账号额度、权限或网络已通过验收
 
 ## 关键入口
 

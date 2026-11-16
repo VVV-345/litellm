@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Coroutine, Mapping
 from typing import Any, Final, TypeAlias
 
 import litellm
-from litellm.litellm_core_utils.reasoning_effort_utils import is_gpt_6_astra
+from litellm.litellm_core_utils.reasoning_effort_utils import is_openai_reasoning_model, normalize_openai_reasoning
 from litellm.types.llms.anthropic import (
     AllAnthropicMessageValues,
     AllAnthropicToolsValues,
@@ -92,18 +92,20 @@ def _build_responses_kwargs(
     # Normalize reasoning effort based on model capabilities
     # (e.g. "max" → "xhigh"/"high", "minimal" → "low" if unsupported)
     reasoning: Final = responses_kwargs.get("reasoning")
-    if forwarded_kwargs.get("custom_llm_provider") in (None, "openai") and is_gpt_6_astra(model):
-        from litellm.llms.anthropic.experimental_pass_through.utils import normalize_reasoning_effort_value
-
+    normalize_openai: Final = (
+        forwarded_kwargs.get("custom_llm_provider") in (None, "openai") and is_openai_reasoning_model(model)
+    )
+    if normalize_openai:
+        normalized_reasoning: Final = normalize_openai_reasoning(
+            model, effort=forwarded_kwargs.get("reasoning_effort"), thinking=thinking,
+            reasoning=forwarded_kwargs.get("reasoning"),
+            output_effort=output_config.get("effort") if output_config is not None else None,
+        )
         responses_kwargs.pop("reasoning", None)
-        if thinking is not None:
-            responses_kwargs["thinking"] = thinking
-        if output_config is not None and "effort" in output_config:
-            output_effort: Final = output_config["effort"]
-            responses_kwargs["reasoning"] = {
-                "effort": normalize_reasoning_effort_value(output_effort, model, "openai")
-                if output_effort == "max" else output_effort,
-            }
+        if tuple(normalized_reasoning) == ("effort",):
+            responses_kwargs["reasoning_effort"] = normalized_reasoning["effort"]
+        elif normalized_reasoning:
+            responses_kwargs["reasoning"] = normalized_reasoning
     elif isinstance(reasoning, dict):
         effort: Final[object] = reasoning.get("effort")
         if isinstance(effort, str):
@@ -124,7 +126,10 @@ def _build_responses_kwargs(
         responses_kwargs["stream"] = True
 
     # Forward litellm-specific kwargs (api_key, api_base, logging obj, etc.)
-    excluded: Final = {"anthropic_messages"}
+    excluded: Final = frozenset(
+        ("anthropic_messages", "thinking", "reasoning", "reasoning_effort")
+        if normalize_openai else ("anthropic_messages",)
+    )
     for key, value in forwarded_kwargs.items():
         if key == "litellm_logging_obj" and value is not None:
             from litellm.litellm_core_utils.litellm_logging import (

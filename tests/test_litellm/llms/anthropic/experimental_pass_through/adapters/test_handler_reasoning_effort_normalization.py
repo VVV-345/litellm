@@ -47,11 +47,18 @@ def test_gpt6_astra_messages_rejects_conflicting_thinking():
         _reasoning_effort_sent("gpt-6-astra", "openai", "high", {"type": "disabled"})
 
 
+@pytest.mark.parametrize("model", [
+    "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-auto-review",
+])
 @pytest.mark.asyncio
 @pytest.mark.parametrize("display,summary", [("omitted", None), ("summarized", "auto")])
-@pytest.mark.parametrize("explicit", [None, "high", "max"])
+@pytest.mark.parametrize("explicit", [None, "high", "max", "xhigh", "low", "medium"])
 @pytest.mark.parametrize("kind", ["enabled", "adaptive"])
-async def test_gpt6_messages_wire_preserves_thinking_intent(monkeypatch, display, summary, explicit, kind):
+@pytest.mark.parametrize("stream", [False, True])
+async def test_reasoning_family_messages_wire_preserves_thinking_intent(
+    monkeypatch, model, display, summary, explicit, kind, stream,
+):
     import json
 
     import httpx
@@ -63,30 +70,48 @@ async def test_gpt6_messages_wire_preserves_thinking_intent(monkeypatch, display
 
     def upstream(request):
         captured.append((request.url.path, json.loads(request.content)))
-        return httpx.Response(200, json={
+        payload = {
             "id": "resp_messages", "object": "response", "created_at": 1, "status": "completed",
-            "model": "gpt-6-astra", "output": [{"type": "message", "id": "msg", "status": "completed",
+            "model": model, "output": [{"type": "message", "id": "msg", "status": "completed",
                 "role": "assistant", "content": [{"type": "output_text", "text": "OK", "annotations": []}]}],
             "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
-        })
+        }
+        if json.loads(request.content).get("stream"):
+            events = [
+                {"type": "response.created", "response": {**payload, "status": "in_progress", "output": []}},
+                {"type": "response.output_text.delta", "item_id": "msg", "output_index": 0,
+                 "content_index": 0, "delta": "OK"},
+                {"type": "response.completed", "response": payload},
+            ]
+            return httpx.Response(200, text="".join(
+                "data: " + json.dumps({**x, "sequence_number": i}) + "\n\n" for i, x in enumerate(events)
+            ), headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json=payload)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http_client:
         client = AsyncHTTPHandler()
         await client.client.aclose()
         client.client = http_client
         result = await litellm.anthropic.messages.acreate(
-            model="openai/gpt-6-astra", messages=MESSAGES, max_tokens=512, api_key="test",
-            api_base="https://fixture.invalid/v1", client=client,
-            thinking={"type": kind, "budget_tokens": 32768, "display": display},
+            model="openai/" + model, messages=MESSAGES, max_tokens=512, api_key="test",
+            api_base="https://fixture.invalid/v1", client=client, stream=stream,
+            thinking={"type": kind, "display": display,
+                      **({"budget_tokens": 32768} if explicit in (None, "high") else {})},
             **({"output_config": {"effort": "max"}} if explicit == "max" else {"reasoning_effort": explicit}),
         )
-    assert result["content"][-1]["text"] == "OK"
+        if stream:
+            raw_events = b"".join([event async for event in result]).decode()
+            events = [json.loads(line[6:]) for line in raw_events.splitlines() if line.startswith("data: ")]
+            assert "".join(event.get("delta", {}).get("text", "") for event in events) == "OK"
+            assert sum(event["type"] == "message_stop" for event in events) == 1
+        else:
+            assert result["content"][-1]["text"] == "OK"
     assert len(captured) == 1
     path, body = captured[0]
     assert path == "/v1/responses"
-    assert body["model"] == "gpt-6-astra"
+    assert body["model"] == model
     assert body["reasoning"]["effort"] == (
-        "high" if explicit == "max" else explicit or ("high" if kind == "enabled" else "medium")
+        "max" if explicit == "max" else explicit or ("high" if kind == "enabled" else "medium")
     )
     assert body["reasoning"].get("summary") == summary
     assert "thinking" not in body

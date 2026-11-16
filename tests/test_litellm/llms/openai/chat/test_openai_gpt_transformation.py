@@ -31,11 +31,11 @@ def test_gpt6_astra_reasoning_effort_reaches_chat_parameters():
     ({"effort": "high"}, {"type": "adaptive"}, "high"),
     (None, {"type": "disabled"}, "none"),
 ])
-def test_gpt6_astra_thinking_is_normalized_once(effort, thinking, expected):
+def test_gpt6_luna_thinking_is_normalized_once(effort, thinking, expected):
     from litellm.utils import get_optional_params
 
     result = get_optional_params(
-        model="gpt-6-astra", custom_llm_provider="openai", reasoning_effort=effort, thinking=thinking,
+        model="gpt-6-luna", custom_llm_provider="openai", reasoning_effort=effort, thinking=thinking,
     )
     assert result["reasoning_effort"] == expected
     assert "thinking" not in result
@@ -58,7 +58,7 @@ def test_gpt6_astra_invalid_reasoning_is_a_client_error(effort, thinking):
     assert failure.value.status_code == 400
 
 
-@pytest.mark.parametrize("model", ["gpt-4o", "gpt-6-unknown", "gpt-6-astra-unverified"])
+@pytest.mark.parametrize("model", ["gpt-4o", "gpt-6-unknown", "gpt-6-astra-unverified", "gpt-6-chat-thinking"])
 def test_gpt6_support_does_not_allow_reasoning_on_other_models(model):
     from litellm.utils import get_optional_params
 
@@ -74,9 +74,22 @@ def test_gpt6_chat_summary_is_not_silently_discarded():
                             reasoning_effort={"effort": "high", "summary": "detailed"})
 
 
+@pytest.mark.parametrize("model", [
+    "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-6.1-sol", "gpt-6.1-terra",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "codex-auto-review",
+])
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stream", [False, True])
-async def test_gpt6_astra_chat_wire_preserves_effort_without_thinking(stream):
+@pytest.mark.parametrize("params,expected", [
+    ({"reasoning_effort": "high"}, "high"),
+    ({"thinking": {"type": "enabled", "budget_tokens": 32768}}, "high"),
+    ({"reasoning_effort": "high", "thinking": {"type": "enabled", "budget_tokens": 32768}}, "high"),
+    ({"reasoning_effort": "max"}, "max"),
+    ({"reasoning_effort": "xhigh"}, "xhigh"),
+    ({"reasoning_effort": "low"}, "low"),
+    ({"reasoning_effort": "medium"}, "medium"),
+])
+async def test_reasoning_family_chat_wire_preserves_effort_without_thinking(model, stream, params, expected):
     import json
 
     import httpx
@@ -88,19 +101,19 @@ async def test_gpt6_astra_chat_wire_preserves_effort_without_thinking(stream):
         captured.append(json.loads(request.content))
         if stream:
             chunk = {"id": "chat-test", "object": "chat.completion.chunk", "created": 1,
-                     "model": "gpt-6-astra", "choices": [{"index": 0, "delta": {"content": "OK"},
+                     "model": model, "choices": [{"index": 0, "delta": {"content": "OK"},
                      "finish_reason": "stop"}]}
             return httpx.Response(200, text="data: " + json.dumps(chunk) + "\n\ndata: [DONE]\n\n",
                                   headers={"content-type": "text/event-stream"})
         return httpx.Response(200, json={"id": "chat-test", "object": "chat.completion", "created": 1,
-            "model": "gpt-6-astra", "choices": [{"index": 0, "message": {"role": "assistant", "content": "OK"},
+            "model": model, "choices": [{"index": 0, "message": {"role": "assistant", "content": "OK"},
             "finish_reason": "stop"}]})
 
     async with AsyncOpenAI(api_key="test", base_url="https://fixture.invalid/v1", max_retries=0,
                            http_client=httpx.AsyncClient(transport=httpx.MockTransport(upstream))) as client:
         result = await litellm.acompletion(
-            model="openai/gpt-6-astra", messages=[{"role": "user", "content": "hello"}], stream=stream,
-            reasoning_effort="high", thinking={"type": "enabled", "budget_tokens": 32768}, client=client,
+            model="openai/" + model, messages=[{"role": "user", "content": "hello"}], stream=stream,
+            client=client, **params,
         )
         if stream:
             text = "".join([chunk.choices[0].delta.content or "" async for chunk in result])
@@ -108,7 +121,7 @@ async def test_gpt6_astra_chat_wire_preserves_effort_without_thinking(stream):
         else:
             assert result.choices[0].message.content == "OK"
     assert len(captured) == 1
-    assert captured[0]["reasoning_effort"] == "high"
+    assert captured[0]["reasoning_effort"] == expected
     assert "thinking" not in captured[0]
 
 
@@ -1084,3 +1097,32 @@ class TestOpenAIPromptCacheBreakpointChatPath:
         assert request["messages"][1]["content"] == [{"type": "text", "text": "hi", "prompt_cache_breakpoint": self.EXPLICIT}]
         assert request["extra_body"] == {"prompt_cache_options": self.EXPLICIT}
         assert "prompt_cache_options" not in request
+
+
+@pytest.mark.parametrize("model", ["gpt-6-astra", "gpt-6.1-sol"])
+@pytest.mark.parametrize("params", [
+    {"reasoning_effort": "none"}, {"reasoning_effort": "minimal"},
+    {"thinking": {"type": "disabled"}},
+])
+def test_reasoning_family_chat_rejects_unsupported_tiers(model, params):
+    with pytest.raises(litellm.BadRequestError, match="Invalid or conflicting"):
+        litellm.get_optional_params(model=model, custom_llm_provider="openai", **params)
+
+
+@pytest.mark.parametrize("prefix", ["", "openai/", "responses/", "openai/responses/"])
+@pytest.mark.parametrize("params,expected", [
+    ({"reasoning_effort": {"effort": "max"}}, "max"),
+    ({"thinking": {"type": "enabled", "budget_tokens": 500}}, "low"),
+    ({"thinking": {"type": "disabled"}}, "none"),
+])
+def test_reasoning_family_chat_prefixes_and_valid_tiers(prefix, params, expected):
+    result = litellm.get_optional_params(model=prefix + "gpt-6-luna", custom_llm_provider="openai", **params)
+    assert result["reasoning_effort"] == expected
+    assert "thinking" not in result
+
+
+@pytest.mark.parametrize("field,value", [("summary", "detailed"), ("mode", "pro"), ("context", "all_turns")])
+def test_reasoning_family_chat_does_not_silently_drop_responses_fields(field, value):
+    with pytest.raises(litellm.BadRequestError, match="Responses"):
+        litellm.get_optional_params(model="gpt-6-luna", custom_llm_provider="openai",
+                                   reasoning_effort={"effort": "high", field: value})
