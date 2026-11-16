@@ -36,6 +36,18 @@ export const AccountPoolOpenAICompatibleForm = ({
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [preset, setPreset] = useState("generic");
+  const presetOptions = [
+    { value: "generic", label: t("accountPool.providers.openaiCompatible.presetGeneric") },
+    { value: "https://open.bigmodel.cn/api/paas/v4", label: t("accountPool.providers.openaiCompatible.presetGlmCn") },
+    { value: "https://api.z.ai/api/paas/v4", label: t("accountPool.providers.openaiCompatible.presetGlmGlobal") },
+  ];
+  const glmStandard = ["https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4"].includes(baseUrl.replace(/\/+$/, ""));
+  const selectPreset = (value: string | null) => {
+    if (!value) return;
+    setPreset(value);
+    setBaseUrl(value === "generic" ? "" : value);
+  };
   const [prefix, setPrefix] = useState("");
   const [priority, setPriority] = useState(0);
   const [testModel, setTestModel] = useState("");
@@ -106,6 +118,16 @@ export const AccountPoolOpenAICompatibleForm = ({
 
   return (
     <div className="grid gap-4">
+      <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
+        <Label htmlFor="account-pool-compatible-preset">{t("accountPool.providers.openaiCompatible.preset")}</Label>
+        <Select value={preset} items={presetOptions} disabled={saving} onValueChange={selectPreset}>
+          <SelectTrigger id="account-pool-compatible-preset"><SelectValue /></SelectTrigger>
+          <SelectContent>{presetOptions.map((option) => (
+            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+          ))}</SelectContent>
+        </Select>
+        {glmStandard && <p className="text-xs leading-5 text-muted-foreground">{t("accountPool.providers.openaiCompatible.glmStandardHint")}</p>}
+      </div>
       <div className="grid gap-2">
         <Label htmlFor="account-pool-openai-name">{t("accountPool.providers.openaiCompatible.name")}</Label>
         <Input id="account-pool-openai-name" value={name} onChange={(event) => setName(event.target.value)} />
@@ -114,6 +136,7 @@ export const AccountPoolOpenAICompatibleForm = ({
         <Label htmlFor="account-pool-openai-base-url">{t("accountPool.providers.openaiCompatible.baseUrl")}</Label>
         <Input
           id="account-pool-openai-base-url"
+          readOnly={preset !== "generic"}
           value={baseUrl}
           onChange={(event) => setBaseUrl(event.target.value)}
           placeholder="https://api.example.com/v1"
@@ -129,8 +152,8 @@ export const AccountPoolOpenAICompatibleForm = ({
           <Input type="number" value={priority} onChange={(event) => setPriority(Number(event.target.value) || 0)} />
         </div>
         <div className="grid gap-2">
-          <Label>{t("accountPool.providers.openaiCompatible.testModel")}</Label>
-          <Input value={testModel} onChange={(event) => setTestModel(event.target.value)} />
+          <Label htmlFor="account-pool-openai-test-model">{t("accountPool.providers.openaiCompatible.testModel")}</Label>
+          <Input id="account-pool-openai-test-model" value={testModel} onChange={(event) => setTestModel(event.target.value)} />
         </div>
       </div>
       <div className="grid gap-3">
@@ -242,8 +265,9 @@ export const AccountPoolOpenAICompatibleForm = ({
         ))}
       </div>
       <div className="grid gap-2">
-        <Label>{t("accountPool.providers.openaiCompatible.customModels")}</Label>
+        <Label htmlFor="account-pool-openai-custom-models">{t("accountPool.providers.openaiCompatible.customModels")}</Label>
         <Input
+          id="account-pool-openai-custom-models"
           value={customModels}
           onChange={(event) => setCustomModels(event.target.value)}
           placeholder="model-a, model-b"

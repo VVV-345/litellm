@@ -29,3 +29,26 @@
 `AccountPoolWorkspace` 复用原生 Tabs 和 `DeferredTabPanel`，未访问的重型内容不挂载，已访问表单用 React Activity 保留状态。`useAccountPoolQuotaInterval` 共用原有 API、查询键与缓存，仪表盘是唯一的额度刷新设置入口，完整额度详情仍可折叠查看。
 
 测试跟随对应组件；重点覆盖标签与折叠、草稿保持、跨页入口、保存请求、旧链接兼容、多文件轮换、整包展开和重启重试。UI 测试按文件运行，不执行整个 Vitest 测试库。本地预览使用独立构建目录和演示数据，不连接生产服务；演示保存不代表生产已变更。
+
+
+## GLM 标准 API Key 预设（2026-11-16）
+
+入口：号池 -> 提供商与 OAuth -> OpenAI 兼容 -> 创建 -> 接入预设。选择「GLM（智谱国内站）」或「GLM（Z.AI 国际站）」只填写服务地址，名称、Key、代理、自定义请求头和手填模型仍走同一表单与创建接口。不增加 supplier、路由类型或数据库表，不迁移或更新已有卡片
+
+GLM 标准 Chat 会将 `max_completion_tokens` 等值转换成官方 `max_tokens`；同时传入且值冲突时返回明确 400，不选取其一或丢弃限制。其他通用 OpenAI 兼容卡片保持原行为
+
+国内站地址 `https://open.bigmodel.cn/api/paas/v4`，国际站地址 `https://api.z.ai/api/paas/v4`。来源：[智谱标准 API](https://docs.bigmodel.cn/cn/api/introduction)、[Z.AI 标准 API](https://docs.z.ai/guides/overview/quick-start)。仅使用对应站点的标准 API Key，不使用 Coding Plan Key、Coding 端点、浏览器登录或 OAuth
+
+模型 ID 留空等待用户填写，不预置账号有权使用的模型，不自动导入或启用发现结果。现有创建流程将明确填写的自定义模型（为空时用测试模型）保存为目录；后台可能请求 `/models`，失败时仍保留手填目录。创建成功只表示配置和加密凭据已保存，不证明 Key 有效或模型可调用，必须继续运行卡片的 Chat 模型测试
+
+本地回归使用同一张测试卡、同一 `glm-5.3` 和固定假 Key，验证真实 Router 与本地 HTTP 网关；仅 GLM HTTP 上游使用测试替身，没有访问 GLM 上游或消耗 GLM 额度
+
+| 入口 | 工具调用 | 推理参数 | 验收边界 |
+| --- | --- | --- | --- |
+| Chat | 原生 Chat 结构透传，工具字段及流式工具事件回归通过 | 原始号池转发保留 `thinking`、`reasoning_effort`；虚拟 Key 的通用 OpenAI 适配当前明确拒绝这两个参数 | 普通 Chat、流式和卡片 Chat 模型测试本地通过；不能宣称虚拟 Key 推理参数可用 |
+| Responses | 本预设未获支持验证，无 Chat 协议转换 | 同样未获支持验证；请求原样转发，不能静默丢弃 | 模拟上游拒绝必须返回失败，不冒充成功；真实上游未验收 |
+| Messages | 网关转换：虚拟 Key 经 LiteLLM 转为 Responses，工具结构随之转换；直接卡片 Key 则原样转发 Messages | 虚拟 Key 将 `thinking.budget_tokens=1024` 转成 `reasoning.effort=low`，不是原生支持，也不保留精确预算 | 本预设不承诺支持；模拟上游拒绝必须返回失败，真实上游未验收 |
+
+[Z.AI Chat 参数文档](https://docs.z.ai/api-reference/llm/chat-completion)描述了工具及模型相关的思考参数，但文档支持不等于本项目全链路实测。此次不扩大修改原生 OpenAI 参数适配，也不设置 `drop_params`。后续如需三协议完整适配，应单独设计并以获准的标准测试 Key 验证
+
+真实上游未验收：此次没有获准使用的 GLM 标准测试 Key，实际打到 GLM 上游的调用为 0。没有 Docker 构建、生产部署或配置修改

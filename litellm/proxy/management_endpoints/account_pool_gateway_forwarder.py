@@ -61,7 +61,11 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
     retry_after,
     same_card_replay_safe,
 )
-from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
+from litellm.proxy.management_endpoints.account_pool_routing import (
+    Route,
+    is_glm_standard_api,
+    upstream_url,
+)
 from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
 from litellm.proxy.management_endpoints.account_pool_signature import (
     SignatureLineage,
@@ -768,7 +772,23 @@ async def execute(
         if route.account.model_prefix and route.model.startswith(route.account.model_prefix)
         else route.model
     )
-    body: Final = {**payload, "model": upstream_model}  # mutable-ok: JSON encoding requires a concrete object
+    glm_limit: Final = (
+        is_glm_standard_api(route.account) and request.url.path == "/v1/chat/completions"
+        and "max_completion_tokens" in payload
+    )
+    if glm_limit and "max_tokens" in payload and payload["max_tokens"] != payload["max_completion_tokens"]:
+        message: Final = "GLM max_tokens and max_completion_tokens must agree when both are supplied"
+        attempt.outcome(400, message, upstream_code="conflicting_token_limits")
+        await JSONResponse(
+            {"error": {"message": message, "type": "invalid_request_error", "code": "conflicting_token_limits"}},
+            status_code=400,
+        )(request.scope, request.receive, attempt.emit)
+        return True
+    body: Final = {  # mutable-ok: JSON encoding requires a concrete object
+        **{name: value for name, value in payload.items() if not glm_limit or name != "max_completion_tokens"},
+        **({"max_tokens": payload["max_completion_tokens"]} if glm_limit else {}),
+        "model": upstream_model,
+    }
     credential_session: Final = session_identifier(request.headers, payload)
     credential_identity: Final = (
         uuid5(NAMESPACE_URL, f"{attempt.key_id}:{credential_session}") if credential_session else attempt.request_id

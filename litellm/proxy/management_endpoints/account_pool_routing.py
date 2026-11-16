@@ -286,13 +286,24 @@ def route_with_reason(resolution: Resolution, route: Route, eligible_count: int,
     return Route(route.account, route.model, reason)
 
 
+def is_glm_standard_api(account: Candidate) -> bool:
+    base: Final = urlsplit(account.api_base)
+    return (
+        account.supplier == "openai_compatible" and base.scheme == "https"
+        and base.hostname in ("open.bigmodel.cn", "api.z.ai") and base.port in (None, 443)
+        and base.path.rstrip("/") == "/api/paas/v4"
+    )
+
+
 def upstream_url(account: Candidate, path: str) -> str:
     base: Final = urlsplit(account.api_base)
     if account.supplier == "openai_compatible":
         if base.scheme not in ("http", "https") or base.username or base.password or base.query or base.fragment:
             raise ValueError("Unexpected OpenAI-compatible target")
         normalized: Final = account.api_base.rstrip("/")
-        suffix: Final = path.removeprefix("/v1") if base.path.rstrip("/").endswith("/v1") else path
+        suffix: Final = (
+            path.removeprefix("/v1") if is_glm_standard_api(account) or base.path.rstrip("/").endswith("/v1") else path
+        )
         return f"{normalized}{suffix}"
     if base.scheme != "http" or base.hostname != f"cliproxy-{account.id.hex}" or base.port != 8317:
         raise ValueError("Unexpected account pool target")

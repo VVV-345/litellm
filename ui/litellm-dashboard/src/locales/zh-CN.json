@@ -6994,6 +6994,11 @@
       "create": "新建",
       "loadFailed": "供应商家族加载失败",
       "openaiCompatible": {
+        "preset": "接入预设",
+        "presetGeneric": "通用 OpenAI 兼容",
+        "presetGlmCn": "GLM（智谱国内站）",
+        "presetGlmGlobal": "GLM（Z.AI 国际站）",
+        "glmStandardHint": "仅支持标准 API Key，不支持 Coding Plan Key、专属端点或 OAuth。模型 ID 请手动填写，不会自动导入。请先用 Chat 模式测试；虚拟 Key 的推理参数当前不支持。Responses 尚未获支持验证；虚拟 Key 的 Messages 会转换为 Responses，同样未验收。创建成功不代表模型调用成功。",
         "name": "卡片名称",
         "baseUrl": "服务地址",
         "prefix": "模型前缀",

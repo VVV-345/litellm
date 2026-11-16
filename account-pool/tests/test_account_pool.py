@@ -4979,3 +4979,61 @@ async def test_configuration_keeps_access_only_probe_available_without_making_ca
     assert durable.status is EnvironmentStatus.COOLING_DOWN
     assert durable.enabled_models == ("gpt-5",)
     assert not durable.access_token_fallback.active
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base", ("https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4"))
+async def test_glm_standard_create_reuses_encrypted_credentials_and_manual_models(tmp_path, base):
+    from account_pool.channels.openai_compatible import OpenAICompatibleChannel
+    from account_pool.domain import OpenAICompatibleCreateRequest
+    from account_pool.secrets import StateCipher
+
+    async def resolver(host, port):
+        return ("93.184.216.34",)
+
+    def upstream(request):
+        assert str(request.url) == base + "/models"
+        return httpx.Response(404, json={"error": "model discovery unavailable"})
+
+    secrets = EnvironmentSecretDeriver("s" * 32)
+    repository = RecordingRepository(_record(status=EnvironmentStatus.READY))
+    original = await repository.list()
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as client:
+        channel = OpenAICompatibleChannel(secrets, client=client, resolver=resolver)
+        channels = ChannelRegistry(
+            definitions=ChannelRegistry.default().definitions,
+            implementations=MappingProxyType({ChannelKind.OPENAI_COMPATIBLE: channel}),
+        )
+        service = EnvironmentService(
+            settings=_settings(tmp_path),
+            repository=repository,
+            runtime=FakeRuntime(),
+            cli_proxy=FakeCLIProxy(),
+            proxy_profiles=EmptyProfiles(),
+            secrets=secrets,
+            channels=channels,
+        )
+        result = await service.create_openai_compatible(
+            CreateEnvironmentRequest(
+                name="GLM standard",
+                channel=ChannelKind.OPENAI_COMPATIBLE,
+                supplier=SupplierKind.OPENAI_COMPATIBLE,
+                provider_family="openai_compatible",
+                openai_compatible=OpenAICompatibleCreateRequest(
+                    base_url=base, test_model="glm-5.3", api_keys=({"api_key": "fixture-standard-key"},)
+                ),
+            )
+        )
+    assert isinstance(result, Success), result
+    assert result.value.enabled_models == ("glm-5.3",)
+    saved = await repository.get(result.value.id)
+    assert saved is not None and saved.openai_compatible is not None
+    assert saved.channel is ChannelKind.OPENAI_COMPATIBLE
+    assert saved.oauth_state is None and saved.oauth_authorization_url is None
+    assert saved.openai_compatible.custom_models == ("glm-5.3",)
+    assert "fixture-standard-key" not in "".join(repository.saved_payloads)
+    assert (
+        StateCipher(secrets).open(saved.id, saved.openai_compatible.credentials[0].api_key_ciphertext)
+        == "fixture-standard-key"
+    )
+    assert await repository.get(original[0].id) == original[0]

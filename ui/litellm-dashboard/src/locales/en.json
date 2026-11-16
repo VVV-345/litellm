@@ -6994,6 +6994,11 @@
       "create": "Create",
       "loadFailed": "Unable to load provider families",
       "openaiCompatible": {
+        "preset": "Connection preset",
+        "presetGeneric": "Generic OpenAI compatible",
+        "presetGlmCn": "GLM (Zhipu China)",
+        "presetGlmGlobal": "GLM (Z.AI international)",
+        "glmStandardHint": "Standard API Keys only; no Coding Plan keys, dedicated endpoints, or OAuth. Enter model IDs manually; no automatic import. Test Chat first. Virtual-key reasoning parameters are currently unsupported. Responses is unverified; virtual-key Messages is converted to Responses and is also unverified. Creating a card does not prove a successful model call.",
         "name": "Card name",
         "baseUrl": "Base URL",
         "prefix": "Model prefix",

@@ -1984,6 +1984,7 @@ def test_openai_compatible_route_uses_prefixed_model_custom_headers_and_weighted
         assert request.headers.get_list("authorization") in (["Bearer first-key"], ["Bearer second-key"])
         assert request.headers["accept-encoding"] == "identity"
         assert json.loads(request.content)["model"] == "chat-model"
+        assert json.loads(request.content)["max_completion_tokens"] == 256
         return httpx.Response(200, json={"model": "chat-model", "choices": []})
 
     client, control = setup_gateway(upstream)
@@ -2011,7 +2012,7 @@ def test_openai_compatible_route_uses_prefixed_model_custom_headers_and_weighted
     with client:
         response: Final = client.post(
             "/v1/chat/completions",
-            json={"model": "vendor/chat-model", "messages": []},
+            json={"model": "vendor/chat-model", "messages": [], "max_completion_tokens": 256},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert response.status_code == 200
@@ -4322,3 +4323,182 @@ def test_websocket_old_response_id_replays_only_complete_unstarted_turn(previous
     else:
         assert len(sent) == 2
     assert len(dialer.requests) == 1
+
+
+@pytest.mark.parametrize("base", ("https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4/"))
+@pytest.mark.parametrize("stream", (False, True))
+def test_glm_standard_chat_preserves_tools_reasoning_and_stream(base, stream, monkeypatch):
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.validate_url", lambda url: (url, None)
+    )
+    seen = []
+
+    def upstream(request):
+        seen.append(request)
+        assert str(request.url) == base.rstrip("/") + "/chat/completions"
+        body = json.loads(request.content)
+        assert body["model"] == "glm-5.3"
+        assert body["max_tokens"] == 256
+        assert "max_completion_tokens" not in body
+        assert body["thinking"] == {"type": "enabled"}
+        assert body["reasoning_effort"] == "high"
+        assert body["tools"][0]["function"]["name"] == "weather"
+        assert body["tool_choice"] == "auto"
+        assert request.headers["authorization"] == "Bearer fixture-standard-key"
+        if stream:
+            events = [
+                {
+                    "id": "chat-glm",
+                    "model": "glm-5.3",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {
+                                "tool_calls": [
+                                    {
+                                        "index": 0,
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {"name": "weather", "arguments": "{}"},
+                                    }
+                                ]
+                            },
+                            "finish_reason": None,
+                        }
+                    ],
+                },
+                {"id": "chat-glm", "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]},
+            ]
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content="".join("data: " + json.dumps(e) + "\n\n" for e in events) + "data: [DONE]\n\n",
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "chat-glm",
+                "model": "glm-5.3",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": None,
+                            "reasoning_content": "use tool",
+                            "tool_calls": [
+                                {"id": "call_1", "type": "function", "function": {"name": "weather", "arguments": "{}"}}
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            },
+        )
+
+    client, control = setup_gateway(upstream)
+    candidate = control.resolution.candidates[0].model_copy(
+        update={
+            "channel": "openai_compatible",
+            "supplier": "openai_compatible",
+            "api_base": base,
+            "api_key": "fixture-standard-key",
+            "enabled_models": ("glm-5.3",),
+            "credentials": (),
+        }
+    )
+    control.resolution = control.resolution.model_copy(update={"candidates": (candidate,)})
+    with client:
+        conflict = client.post("/v1/chat/completions", headers={"Authorization": f"Bearer {_KEY}"},
+            json={"model": "glm-5.3", "messages": [], "max_tokens": 128, "max_completion_tokens": 256})
+        assert conflict.status_code == 400
+        assert conflict.json()["error"].get("code") == "conflicting_token_limits", conflict.text
+        assert seen == []
+        response = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_KEY}"},
+            json={
+                "model": "glm-5.3",
+                "messages": [{"role": "user", "content": "weather?"}],
+                "stream": stream,
+                "max_completion_tokens": 256,
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": "high",
+                "tools": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "weather",
+                            "description": "weather",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+                "tool_choice": "auto",
+            },
+        )
+    assert response.status_code == 200, response.text
+    assert len(seen) == 1
+    if stream:
+        assert response.text.count("[DONE]") == 1
+        assert '"name":"weather"' in response.text.replace(" ", "")
+    else:
+        assert response.json()["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "weather"
+        assert response.json()["choices"][0]["message"]["reasoning_content"] == "use tool"
+
+
+@pytest.mark.parametrize(
+    "endpoint,fields",
+    [
+        (
+            "responses",
+            {
+                "input": "weather?",
+                "reasoning": {"effort": "high"},
+                "tools": [{"type": "function", "name": "weather", "parameters": {"type": "object", "properties": {}}}],
+            },
+        ),
+        (
+            "messages",
+            {
+                "messages": [{"role": "user", "content": "weather?"}],
+                "max_tokens": 1024,
+                "thinking": {"type": "enabled", "budget_tokens": 512},
+                "tools": [{"name": "weather", "input_schema": {"type": "object", "properties": {}}}],
+            },
+        ),
+    ],
+)
+def test_glm_unverified_protocol_is_not_silently_converted_or_reported_success(endpoint, fields, monkeypatch):
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.validate_url", lambda url: (url, None)
+    )
+    seen = []
+
+    def upstream(request):
+        seen.append(request)
+        assert str(request.url) == f"https://api.z.ai/api/paas/v4/{endpoint}"
+        assert json.loads(request.content) == {"model": "glm-5.3", **fields}
+        return httpx.Response(
+            404, json={"error": {"message": "Endpoint not supported", "code": "unsupported_endpoint"}}
+        )
+
+    client, control = setup_gateway(upstream)
+    candidate = control.resolution.candidates[0].model_copy(
+        update={
+            "channel": "openai_compatible",
+            "supplier": "openai_compatible",
+            "api_base": "https://api.z.ai/api/paas/v4",
+            "api_key": "fixture-standard-key",
+            "enabled_models": ("glm-5.3",),
+            "credentials": (),
+        }
+    )
+    control.resolution = control.resolution.model_copy(update={"candidates": (candidate,)})
+    with client:
+        response = client.post(
+            f"/v1/{endpoint}", headers={"Authorization": f"Bearer {_KEY}"}, json={"model": "glm-5.3", **fields}
+        )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "unsupported_endpoint"
+    assert len(seen) == 1

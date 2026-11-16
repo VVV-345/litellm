@@ -1244,3 +1244,230 @@ async def test_pool_responses_stream_skips_outer_replay_wrapper():
     assert response is stream
     wrapped.assert_not_awaited()
     router.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_glm_standard_virtual_identity_and_card_model_test_share_real_router(monkeypatch, stream):
+    import asyncio
+    import json
+    import socket
+    import threading
+    import time
+
+    import uvicorn
+
+    from litellm import Router
+    from litellm.proxy._types import UserAPIKeyAuth
+    from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
+    from litellm.proxy.management_endpoints.account_pool_gateway import AccountPoolGatewayMiddleware
+    from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
+    from tests.test_litellm.proxy.management_endpoints.test_account_pool_gateway import setup_gateway
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "x" * 32)
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.validate_url", lambda url: (url, None)
+    )
+    _, original = setup_gateway(lambda _: httpx.Response(200))
+    control = InternalControl(original.resolution)
+    card = control.resolution.card_id
+    compatible = control.resolution.candidates[0].model_copy(
+        update={
+            "channel": "openai_compatible",
+            "supplier": "openai_compatible",
+            "api_base": "https://api.z.ai/api/paas/v4",
+            "api_key": "fixture-standard-key",
+            "enabled_models": ("glm-5.3",),
+            "credentials": (),
+        }
+    )
+    control.resolution = control.resolution.model_copy(update={"candidates": (compatible,)})
+    seen = []
+    unsupported = []
+
+    def upstream(request):
+        if request.url.path in ("/api/paas/v4/responses", "/api/paas/v4/messages"):
+            unsupported.append((request.url.path, json.loads(request.content)))
+            return httpx.Response(
+                404, json={"error": {"message": "Endpoint not supported", "code": "unsupported_endpoint"}}
+            )
+        assert str(request.url) == "https://api.z.ai/api/paas/v4/chat/completions"
+        body = json.loads(request.content)
+        seen.append(body)
+        assert body["model"] == "glm-5.3"
+        if body.get("stream"):
+            events = [
+                {
+                    "id": "chat-glm",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "glm-5.3",
+                    "choices": [
+                        {"index": 0, "delta": {"role": "assistant", "content": "Hello"}, "finish_reason": None}
+                    ],
+                },
+                {
+                    "id": "chat-glm",
+                    "object": "chat.completion.chunk",
+                    "created": 1,
+                    "model": "glm-5.3",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                },
+            ]
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content="".join("data: " + json.dumps(e) + "\n\n" for e in events) + "data: [DONE]\n\n",
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "chat-glm",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "glm-5.3",
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": "Hello"}, "finish_reason": "stop"}
+                ],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    app = FastAPI()
+    app.add_middleware(
+        AccountPoolGatewayMiddleware,
+        control_factory=lambda _: control,
+        client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(upstream)),
+    )
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    monkeypatch.setenv("ACCOUNT_POOL_INTERNAL_URL", f"http://127.0.0.1:{port}")
+    router = Router(
+        model_list=[
+            {
+                "model_name": "glm-5.3",
+                "litellm_params": {
+                    "model": "openai/glm-5.3",
+                    "api_key": "placeholder",
+                    "api_base": "https://must-not-connect.invalid",
+                },
+                "model_info": {
+                    "id": "glm-deployment",
+                    "account_pool_environment_id": str(card),
+                    "managed_by": "account_pool",
+                    "account_pool_model": "glm-5.3",
+                },
+            }
+        ],
+        num_retries=0,
+        disable_cooldowns=True,
+    )
+
+    async def manager(method, path, body):
+        if path == "/api/settings":
+            return httpx.Response(200, json={"values": {}})
+        assert path == f"/api/environments/{card}"
+        return httpx.Response(200, json={"enabled": True, "enabled_models": ["glm-5.3"]})
+
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(api_key="fixture-admin")
+    app.include_router(create_model_test_router(manager, lambda _: None, lambda: router), prefix="/account_pool")
+    server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
+    thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+    thread.start()
+    deadline = time.monotonic() + 10
+    try:
+        while not server.started and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert server.started
+        reset = pool_identity.set(
+            PoolIdentity(key_hash="fixture-virtual-key", request_id=uuid4(), card_id=card, protocol="chat")
+        )
+        try:
+            from litellm.exceptions import UnsupportedParamsError
+
+            with pytest.raises(UnsupportedParamsError, match="reasoning_effort"):
+                await router.acompletion(
+                    model="glm-5.3",
+                    messages=[{"role": "user", "content": "Hello"}],
+                    reasoning_effort="high",
+                    thinking={"type": "enabled"},
+                )
+            assert seen == []
+            result = await router.acompletion(
+                model="glm-5.3",
+                messages=[{"role": "user", "content": "Hello"}],
+                stream=stream,
+                tools=[
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "weather",
+                            "description": "weather",
+                            "parameters": {"type": "object", "properties": {}},
+                        },
+                    }
+                ],
+            )
+            if stream:
+                chunks = [chunk async for chunk in result]
+                assert chunks[-1].choices[0].finish_reason == "stop"
+            else:
+                assert result.choices[0].message.content == "Hello"
+        finally:
+            pool_identity.reset(reset)
+        assert seen[0]["tools"][0]["function"]["name"] == "weather"
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), trust_env=False) as client:
+            result = await client.post(
+                f"http://127.0.0.1:{port}/account_pool/environments/{card}/test",
+                json={"model": "glm-5.3", "mode": "chat", "stream": stream},
+            )
+        assert result.status_code == 200 and result.json()["success"] is True, result.text
+        assert len(seen) == 2
+        assert seen[1].get("max_tokens") == 256, seen[1]
+        from litellm.exceptions import NotFoundError
+
+        for protocol in ("responses", "messages"):
+            reset = pool_identity.set(
+                PoolIdentity(key_hash="fixture-virtual-key", request_id=uuid4(), card_id=card, protocol=protocol)
+            )
+            try:
+                with pytest.raises(NotFoundError):
+                    if protocol == "responses":
+                        await router.aresponses(
+                            model="glm-5.3",
+                            input="weather?",
+                            reasoning={"effort": "high"},
+                            tools=[
+                                {
+                                    "type": "function",
+                                    "name": "weather",
+                                    "parameters": {"type": "object", "properties": {}},
+                                }
+                            ],
+                        )
+                    else:
+                        await router.aanthropic_messages(
+                            model="glm-5.3",
+                            messages=[{"role": "user", "content": "weather?"}],
+                            max_tokens=2048,
+                            thinking={"type": "enabled", "budget_tokens": 1024},
+                            tools=[{"name": "weather", "input_schema": {"type": "object", "properties": {}}}],
+                        )
+            finally:
+                pool_identity.reset(reset)
+        assert unsupported[0][0] == "/api/paas/v4/responses"
+        assert unsupported[0][1]["reasoning"] == {"effort": "high"}
+        assert unsupported[0][1]["tools"][0]["name"] == "weather"
+        assert unsupported[-1][0] == "/api/paas/v4/responses"
+        assert unsupported[-1][1]["reasoning"] == {"effort": "low"}
+        assert unsupported[-1][1]["max_output_tokens"] == 2048
+        assert unsupported[-1][1]["tools"][0]["name"] == "weather"
+        assert len(seen) == 2
+    finally:
+        from litellm.llms.custom_httpx.async_client_cleanup import close_litellm_async_clients
+        await close_litellm_async_clients()
+        router.discard()
+        server.should_exit = True
+        await asyncio.to_thread(thread.join, 10)
+        sock.close()
