@@ -1926,6 +1926,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/openai-compatible/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Discover Openai Compatible Models */
+        post: operations["discover_openai_compatible_models_account_pool_openai_compatible_models_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/plugin-store": {
         parameters: {
             query?: never;
@@ -25394,6 +25411,23 @@ export interface components {
              */
             weight: number;
         };
+        /** AccountPoolOpenAICompatibleModelDiscovery */
+        AccountPoolOpenAICompatibleModelDiscovery: {
+            /**
+             * Base Url
+             * Format: uri
+             */
+            base_url: string;
+            credential: components["schemas"]["AccountPoolOpenAICompatibleKey"];
+            /**
+             * Headers
+             * @default []
+             */
+            headers: [
+                string,
+                string
+            ][];
+        };
         /** AccountPoolPluginInstallRequest */
         AccountPoolPluginInstallRequest: {
             /** Source */
@@ -30992,6 +31026,10 @@ export interface components {
             output_tokens?: number | null;
             /** Proxy Endpoint */
             proxy_endpoint?: string | null;
+            /** Reasoning Budget Tokens */
+            reasoning_budget_tokens?: number | null;
+            /** Reasoning Effort */
+            reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
              * Request Id
              * Format: uuid
@@ -48878,6 +48916,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    discover_openai_compatible_models_account_pool_openai_compatible_models_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPoolOpenAICompatibleModelDiscovery"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string[];
                 };
             };
             /** @description Validation Error */

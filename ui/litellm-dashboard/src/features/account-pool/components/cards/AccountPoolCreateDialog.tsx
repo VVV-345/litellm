@@ -29,21 +29,22 @@ import { AccountPoolAuthorizationPanel } from "../credentials/AccountPoolAuthori
 import { AccountPoolOpenAICompatibleForm } from "./AccountPoolOpenAICompatibleForm";
 import type {
   AccountPoolAuthorization,
+  AccountPoolCreationSupplier,
   AccountPoolEnvironment,
-  AccountPoolSupplier,
 } from "../../utils/AccountPoolTypes";
 
-const DIRECT_CREDENTIAL_SUPPLIERS: ReadonlySet<AccountPoolSupplier> = new Set([
+const DIRECT_CREDENTIAL_SUPPLIERS: ReadonlySet<AccountPoolCreationSupplier> = new Set([
   "gemini",
   "gemini_interactions",
   "openai_compatible",
+  "glm",
   "vertex",
 ]);
 
 interface AccountPoolCreateDialogProps {
   accessToken: string | null;
   initialAuthorization?: AccountPoolAuthorization | null;
-  initialSupplier?: AccountPoolSupplier;
+  initialSupplier?: AccountPoolCreationSupplier;
   environments?: readonly AccountPoolEnvironment[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -73,6 +74,7 @@ export const AccountPoolCreateDialog = ({
   const [location, setLocation] = useState("us-central1");
   const [vertexFile, setVertexFile] = useState<File | null>(null);
   const supplier = initialSupplier;
+  const compatibleForm = supplier === "openai_compatible" || supplier === "glm";
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(initialAuthorization);
   const [saving, setSaving] = useState(false);
   const requiresOAuthProxy =
@@ -107,6 +109,7 @@ export const AccountPoolCreateDialog = ({
   }, [open, authorizationComplete, onOpenChange, t]);
 
   const handleCreate = async () => {
+    if (supplier === "glm") return;
     const trimmedName = name.trim();
     if (!accessToken || !trimmedName) {
       toast.error(t("accountPool.create.environmentNameRequired"));
@@ -295,9 +298,11 @@ export const AccountPoolCreateDialog = ({
         </AccountPoolAuthorizationPanel>
       );
     }
-    if (supplier === "openai_compatible") {
+    if (compatibleForm) {
       return (
         <AccountPoolOpenAICompatibleForm
+          key={supplier}
+          mode={supplier === "glm" ? "glm" : "compatible"}
           accessToken={accessToken}
           onClose={() => onOpenChange(false)}
           onCreated={onCreated}
@@ -518,7 +523,9 @@ export const AccountPoolCreateDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent className={`max-h-[calc(100dvh-2rem)] overflow-y-auto ${
+        compatibleForm ? "sm:max-w-3xl md:max-w-4xl" : "sm:max-w-xl"
+      }`}>
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
           <DialogDescription>{dialogDescription}</DialogDescription>

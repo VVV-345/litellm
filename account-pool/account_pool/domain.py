@@ -401,6 +401,24 @@ class OpenAICompatibleCreateRequest(BaseModel):
         return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
+class OpenAICompatibleModelDiscoveryRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    base_url: AnyHttpUrl
+    credential: OpenAICompatibleKeyRequest
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100, repr=False)
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+        return OpenAICompatibleCreateRequest.normalize_base_url(value)
+
+    @field_validator("headers")
+    @classmethod
+    def validate_headers(cls, values: tuple[tuple[str, str], ...]) -> tuple[tuple[str, str], ...]:
+        return OpenAICompatibleCreateRequest.validate_headers(values)
+
+
 class OpenAICompatibleCredential(BaseModel):
     model_config = ConfigDict(frozen=True, repr=False)
 

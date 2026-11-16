@@ -14,6 +14,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     RoutingReason,
     SupplierKind,
 )
+from litellm.types.llms.openai import REASONING_EFFORT
 
 AcquireRejectionReason: TypeAlias = Literal[
     "concurrency", "configuration", "cooldown", "model_cooldown", "session", "token_budget"
@@ -173,6 +174,10 @@ class FinishRequest(BaseModel):
     endpoint: str = Field(max_length=256)
     method: Literal["GET", "POST"] = "POST"
     detail: str | None = Field(default=None, max_length=2000)
+    reasoning_effort: REASONING_EFFORT | None = Field(default=None, exclude_if=lambda value: value is None)
+    reasoning_budget_tokens: int | None = Field(
+        default=None, strict=True, gt=0, le=2_147_483_647, exclude_if=lambda value: value is None
+    )
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cache_read_input_tokens: int | None = Field(default=None, ge=0)

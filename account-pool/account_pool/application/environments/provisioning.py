@@ -31,6 +31,7 @@ from account_pool.application.environments.contracts import (
     UploadAuthFileOperation,
 )
 from account_pool.application.environments.contracts import constant_async as _constant_async
+from account_pool.channels.openai_compatible import OpenAICompatibleChannel
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.credential_import import normalize_auth_file
@@ -50,6 +51,7 @@ from account_pool.domain import (
     OpenAICompatibleConfiguration,
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
+    OpenAICompatibleModelDiscoveryRequest,
     Provider,
     ProxyMode,
     QuotaSnapshot,
@@ -521,6 +523,35 @@ class EnvironmentProvisioning:
         if last_error is not None:
             raise RuntimeError(_safe_error(last_error)) from last_error
         raise RuntimeError("credential was saved but no models became available")
+
+    async def discover_openai_compatible_models(
+        self, request: OpenAICompatibleModelDiscoveryRequest
+    ) -> Result[tuple[str, ...]]:
+        try:
+            channel: Final = self._channels.channel(ChannelKind.OPENAI_COMPATIBLE)
+        except UnsupportedChannelError:
+            return Failure(FailureCode.INVALID, "OpenAI-compatible channel is unavailable")
+        if not isinstance(channel, OpenAICompatibleChannel):
+            return Failure(FailureCode.INVALID, "OpenAI-compatible channel is unavailable")
+        proxy_result: Final = (
+            await self._selected_proxy(request.credential.proxy_profile_id)
+            if request.credential.proxy_profile_id is not None
+            else await self._default_proxy(await self._account_pool_settings())
+        )
+        if isinstance(proxy_result, Failure):
+            return proxy_result
+        try:
+            models: Final = await channel.discover_models_from_source(
+                str(request.base_url).rstrip("/"),
+                request.credential.api_key,
+                request.headers,
+                proxy_result.value[2] or None,
+            )
+        except ValueError:
+            return Failure(FailureCode.INVALID, "上游地址无法解析或不允许访问")
+        if models is None:
+            return Failure(FailureCode.UPSTREAM, "上游模型列表请求失败，请检查地址、Key、代理及 /models 接口")
+        return Success(models)
 
     async def create_openai_compatible(self, request: CreateEnvironmentRequest) -> Result[EnvironmentView]:
         if request.provider_family != "openai_compatible" or request.openai_compatible is None:

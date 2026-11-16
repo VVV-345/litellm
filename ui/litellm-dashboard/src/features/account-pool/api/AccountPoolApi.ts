@@ -134,6 +134,20 @@ export const createOpenAICompatibleAccountPoolEnvironment = (
     }),
   );
 
+export const discoverOpenAICompatibleAccountPoolModels = (
+  accessToken: string,
+  request: components["schemas"]["AccountPoolOpenAICompatibleModelDiscovery"],
+  signal?: AbortSignal,
+): Promise<string[]> => {
+  const options = {
+    accessToken,
+    body: request,
+    signal,
+    invalidateOnSuccess: false,
+  };
+  return apiClient.post<string[]>("/account_pool/openai-compatible/models", options);
+};
+
 interface AccountPoolDirectCredentialCreateRequest {
   name: string;
   supplier: "gemini" | "gemini_interactions" | "xai";

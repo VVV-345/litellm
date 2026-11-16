@@ -301,6 +301,8 @@ class GatewayService:
             operation=MODEL_REQUEST_OPERATION,
             stage=request.stage,
             model=lease.model,
+            reasoning_effort=request.reasoning_effort,
+            reasoning_budget_tokens=request.reasoning_budget_tokens,
             endpoint=request.endpoint,
             method=request.method,
             error_category=category,

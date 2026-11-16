@@ -27,9 +27,11 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import Fi
 from litellm.proxy.management_endpoints.account_pool_routing import Route
 from litellm.proxy.management_endpoints.account_pool_session import session_identifier
 from litellm.proxy.management_endpoints.account_pool_stream import cache_usage_tokens, usage_tokens
+from litellm.types.llms.openai import REASONING_EFFORT
 
 _VALUE: Final[TypeAdapter[JsonValue]] = TypeAdapter(JsonValue)
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
+_REASONING_EFFORT: Final = TypeAdapter(REASONING_EFFORT)
 _SECRET_FIELDS: Final = frozenset(
     (
         "authorization",
@@ -133,6 +135,26 @@ def session_title(payload: JsonValue) -> str | None:
     return " ".join(text.split())[:120] or None
 
 
+def _requested_reasoning(payload: Mapping[str, JsonValue]) -> tuple[REASONING_EFFORT | None, int | None]:
+    reasoning: Final = payload.get("reasoning")
+    output_config: Final = payload.get("output_config")
+    thinking: Final = payload.get("thinking")
+    candidates: Final = (
+        reasoning.get("effort") if isinstance(reasoning, dict) else None,
+        output_config.get("effort") if isinstance(output_config, dict) else None,
+        payload.get("reasoning_effort"),
+    )
+    budget: Final = thinking.get("budget_tokens") if isinstance(thinking, dict) else None
+    tokens: Final = budget if type(budget) is int and 0 < budget <= 2_147_483_647 else None
+    for value in candidates:
+        if isinstance(value, str):
+            try:
+                return _REASONING_EFFORT.validate_python(value), tokens
+            except ValueError:
+                continue
+    return None, tokens
+
+
 class RequestLog:
     def __init__(
         self,
@@ -158,6 +180,7 @@ class RequestLog:
         self.session_id: Final = conversation_id(headers, str(lease.key_id), payload)
         self.proxy_endpoint: Final = route.account.proxy_endpoint
         self.requested_model: Final = str(payload.get("model", lease.model))
+        self.reasoning: Final = _requested_reasoning(payload)
         self.secrets: Final = tuple(
             value
             for value in (
@@ -320,6 +343,8 @@ class RequestLog:
                 "cost_usd": result.cost_usd,
                 "session_id": self.session_id,
                 "proxy_endpoint": self.proxy_endpoint,
+                "reasoning_effort": self.reasoning[0],
+                "reasoning_budget_tokens": self.reasoning[1],
                 "input_tokens": self.input_tokens if self.input_tokens is not None else result.input_tokens,
                 "output_tokens": self.output_tokens if self.output_tokens is not None else result.output_tokens,
                 "cache_read_input_tokens": self.cache_read

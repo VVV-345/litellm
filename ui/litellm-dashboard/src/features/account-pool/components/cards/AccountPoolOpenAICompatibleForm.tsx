@@ -1,111 +1,170 @@
-/** 本文件创建 OpenAI 兼容号池卡片及单 API Key 凭据，明文只在提交请求期间存在于浏览器内存。 */
-
-import { Plus, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+/** 号池标准 API Key 接入：连接、模型发现和保存分别由用户触发。 */
+import { ChevronDown, Download, Link2, ListFilter, Plus, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/lib/toast";
 
-import { createOpenAICompatibleAccountPoolEnvironment, listAccountPoolProxyProfiles } from "../../api/AccountPoolApi";
+import {
+  createOpenAICompatibleAccountPoolEnvironment,
+  discoverOpenAICompatibleAccountPoolModels,
+  listAccountPoolProxyProfiles,
+} from "../../api/AccountPoolApi";
 import type { AccountPoolProxyProfile } from "../../utils/AccountPoolTypes";
 
-interface KeyRow {
-  api_key: string;
-  proxy_profile_id: string;
-  weight: number;
-}
+const GLM_CN = "https://open.bigmodel.cn/api/paas/v4";
+const GLM_GLOBAL = "https://api.z.ai/api/paas/v4";
+const modelIDs = (value: string) => [
+  ...new Set(
+    value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  ),
+];
+const standardBase = (value: string) => {
+  const base = value.trim().replace(/\/+$/, "");
+  return /^https?:\/\/[^/?#]+$/i.test(base) ? `${base}/v1` : base;
+};
 
 interface HeaderRow {
   name: string;
   value: string;
 }
 
+type Discovery =
+  | { accessToken: string; state: "loading" | "error" }
+  | { accessToken: string; state: "ready"; models: string[] };
+
+const discoveryView = (result: Discovery | null, accessToken: string | null) => {
+  const source = result?.accessToken === accessToken ? result : null;
+  const models = source?.state === "ready" ? source.models : [];
+  return {
+    models,
+    fetching: source?.state === "loading",
+    failed: source?.state === "error",
+    empty: source?.state === "ready" && models.length === 0,
+  };
+};
+
 export const AccountPoolOpenAICompatibleForm = ({
+  mode = "compatible",
   accessToken,
   onClose,
   onCreated,
 }: {
+  mode?: "compatible" | "glm";
   accessToken: string | null;
   onClose: () => void;
   onCreated: () => void;
 }) => {
   const { t } = useTranslation();
   const [name, setName] = useState("");
-  const [baseUrl, setBaseUrl] = useState("");
-  const [preset, setPreset] = useState("generic");
-  const presetOptions = [
-    { value: "generic", label: t("accountPool.providers.openaiCompatible.presetGeneric") },
-    { value: "https://open.bigmodel.cn/api/paas/v4", label: t("accountPool.providers.openaiCompatible.presetGlmCn") },
-    { value: "https://api.z.ai/api/paas/v4", label: t("accountPool.providers.openaiCompatible.presetGlmGlobal") },
-  ];
-  const glmStandard = ["https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4"].includes(baseUrl.replace(/\/+$/, ""));
-  const selectPreset = (value: string | null) => {
-    if (!value) return;
-    setPreset(value);
-    setBaseUrl(value === "generic" ? "" : value);
-  };
+  const [baseUrl, setBaseUrl] = useState(mode === "glm" ? GLM_CN : "");
+  const [apiKey, setApiKey] = useState("");
+  const [proxyId, setProxyId] = useState("default");
   const [prefix, setPrefix] = useState("");
   const [priority, setPriority] = useState(0);
+  const [weight, setWeight] = useState(1);
   const [testModel, setTestModel] = useState("");
   const [customModels, setCustomModels] = useState("");
-  const [keys, setKeys] = useState<KeyRow[]>([{ api_key: "", proxy_profile_id: "", weight: 1 }]);
   const [headers, setHeaders] = useState<HeaderRow[]>([]);
   const [proxyProfiles, setProxyProfiles] = useState<AccountPoolProxyProfile[]>([]);
   const [saving, setSaving] = useState(false);
+  const [discovery, setDiscovery] = useState<Discovery | null>(null);
+  const discoveryRequest = useRef<AbortController | null>(null);
+  const hasConnection = Boolean(baseUrl.trim() && apiKey.trim());
 
   useEffect(() => {
     if (!accessToken) return;
+    let active = true;
     void listAccountPoolProxyProfiles(accessToken)
-      .then(setProxyProfiles)
-      .catch(() => setProxyProfiles([]));
+      .then((profiles) => {
+        if (active) setProxyProfiles(profiles);
+      })
+      .catch(() => {
+        if (active) setProxyProfiles([]);
+      });
+    return () => {
+      active = false;
+      discoveryRequest.current?.abort();
+    };
   }, [accessToken]);
 
-  const updateKey = (index: number, key: keyof KeyRow, value: string | number) => {
-    setKeys((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)));
+  const clearSource = () => {
+    discoveryRequest.current?.abort();
+    setDiscovery(null);
+  };
+  const updateBase = (value: string) => {
+    clearSource();
+    setBaseUrl(value);
+  };
+  const updateHeaders = (next: HeaderRow[]) => {
+    clearSource();
+    setHeaders(next);
+  };
+  const connection = () => ({
+    base_url: standardBase(baseUrl),
+    credential: { api_key: apiKey.trim(), proxy_profile_id: proxyId === "default" ? undefined : proxyId, weight },
+    headers: headers
+      .filter((header) => header.name.trim() && header.value)
+      .map((header): [string, string] => [header.name.trim(), header.value]),
+  });
+
+  const discoverModels = async () => {
+    if (!accessToken || !hasConnection) return;
+    clearSource();
+    const controller = new AbortController();
+    discoveryRequest.current = controller;
+    setDiscovery({ accessToken, state: "loading" });
+    try {
+      const models = await discoverOpenAICompatibleAccountPoolModels(accessToken, connection(), controller.signal);
+      if (controller.signal.aborted) return;
+      setDiscovery({ accessToken, state: "ready", models });
+    } catch {
+      if (!controller.signal.aborted) setDiscovery({ accessToken, state: "error" });
+    }
   };
 
   const submit = async () => {
-    if (
-      !accessToken ||
-      !name.trim() ||
-      !baseUrl.trim() ||
-      !testModel.trim() ||
-      keys.some((item) => !item.api_key.trim())
-    ) {
+    const hasCardDetails = Boolean(name.trim() && testModel.trim());
+    if (!accessToken || !hasConnection || !hasCardDetails) {
       toast.error(t("accountPool.providers.openaiCompatible.required"));
       return;
     }
+    const { base_url, credential, headers: configuredHeaders } = connection();
+    const configuredModels = modelIDs(customModels);
+    const request = {
+      name: name.trim(),
+      provider: "openai",
+      channel: "openai_compatible",
+      supplier: "openai_compatible",
+      provider_family: "openai_compatible",
+      openai_compatible: {
+        base_url,
+        prefix: prefix.trim(),
+        priority,
+        test_model: testModel.trim(),
+        api_keys: [credential],
+        headers: configuredHeaders,
+        custom_models: mode === "glm" && !configuredModels.length ? [testModel.trim()] : configuredModels,
+      },
+    } satisfies Parameters<typeof createOpenAICompatibleAccountPoolEnvironment>[1];
     setSaving(true);
     try {
-      await createOpenAICompatibleAccountPoolEnvironment(accessToken, {
-        name: name.trim(),
-        provider: "openai",
-        channel: "openai_compatible",
-        supplier: "openai_compatible",
-        provider_family: "openai_compatible",
-        openai_compatible: {
-          base_url: baseUrl.trim(),
-          prefix: prefix.trim(),
-          priority,
-          test_model: testModel.trim(),
-          api_keys: keys.map((item) => ({
-            api_key: item.api_key,
-            proxy_profile_id: item.proxy_profile_id.trim() || undefined,
-            weight: item.weight,
-          })),
-          headers: headers
-            .filter((header) => header.name.trim() && header.value)
-            .map((header) => [header.name.trim(), header.value] as [string, string]),
-          custom_models: customModels
-            .split(",")
-            .map((item) => item.trim())
-            .filter(Boolean),
-        },
-      });
+      await createOpenAICompatibleAccountPoolEnvironment(accessToken, request);
       toast.success(t("accountPool.providers.openaiCompatible.created"));
       onCreated();
       onClose();
@@ -116,163 +175,268 @@ export const AccountPoolOpenAICompatibleForm = ({
     }
   };
 
+  const sites = [
+    { value: GLM_CN, label: t("accountPool.providers.openaiCompatible.presetGlmCn") },
+    { value: GLM_GLOBAL, label: t("accountPool.providers.openaiCompatible.presetGlmGlobal") },
+  ];
+  const proxies = [
+    { value: "default", label: t("accountPool.providers.openaiCompatible.defaultProxy") },
+    ...proxyProfiles.map(({ id, name }) => ({ value: id, label: name })),
+  ];
+  const source = discoveryView(discovery, accessToken);
+  const selected = modelIDs(customModels);
+  const candidates = source.models.filter((model) => !selected.includes(model));
+  const testOptions = [...new Set([...selected, ...source.models])];
+  const canFetch = Boolean(accessToken && hasConnection && !source.fetching);
+  const selectModel = (model: string | null) => {
+    if (!model) return;
+    setCustomModels([...selected, model].join(", "));
+    if (!testModel.trim()) setTestModel(model);
+  };
+
   return (
     <div className="grid gap-4">
-      <div className="grid gap-2 rounded-lg border bg-muted/20 p-3">
-        <Label htmlFor="account-pool-compatible-preset">{t("accountPool.providers.openaiCompatible.preset")}</Label>
-        <Select value={preset} items={presetOptions} disabled={saving} onValueChange={selectPreset}>
-          <SelectTrigger id="account-pool-compatible-preset"><SelectValue /></SelectTrigger>
-          <SelectContent>{presetOptions.map((option) => (
-            <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-          ))}</SelectContent>
-        </Select>
-        {glmStandard && <p className="text-xs leading-5 text-muted-foreground">{t("accountPool.providers.openaiCompatible.glmStandardHint")}</p>}
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="account-pool-openai-name">{t("accountPool.providers.openaiCompatible.name")}</Label>
-        <Input id="account-pool-openai-name" value={name} onChange={(event) => setName(event.target.value)} />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="account-pool-openai-base-url">{t("accountPool.providers.openaiCompatible.baseUrl")}</Label>
-        <Input
-          id="account-pool-openai-base-url"
-          readOnly={preset !== "generic"}
-          value={baseUrl}
-          onChange={(event) => setBaseUrl(event.target.value)}
-          placeholder="https://api.example.com/v1"
-        />
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="grid gap-2">
-          <Label>{t("accountPool.providers.openaiCompatible.prefix")}</Label>
-          <Input value={prefix} onChange={(event) => setPrefix(event.target.value)} />
-        </div>
-        <div className="grid gap-2">
-          <Label>{t("accountPool.providers.openaiCompatible.priority")}</Label>
-          <Input type="number" value={priority} onChange={(event) => setPriority(Number(event.target.value) || 0)} />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="account-pool-openai-test-model">{t("accountPool.providers.openaiCompatible.testModel")}</Label>
-          <Input id="account-pool-openai-test-model" value={testModel} onChange={(event) => setTestModel(event.target.value)} />
-        </div>
-      </div>
-      <div className="grid gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <Label>{t("accountPool.providers.openaiCompatible.apiKeys")}</Label>
-          <span className="text-xs text-muted-foreground">{t("accountPool.credentials.exclusiveHint")}</span>
-        </div>
-        {keys.map((item, index) => (
-          <div
-            key={`key-${index}`}
-            className="grid gap-2 rounded-md border p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_6rem_auto]"
-          >
+      <div className="grid items-start gap-4 md:grid-cols-2">
+        <section className="grid min-w-0 gap-4 rounded-xl border bg-muted/15 p-4">
+          <h3 className="flex items-center gap-2 text-sm font-semibold">
+            <Link2 className="size-4 text-primary" />
+            {t("accountPool.providers.openaiCompatible.connection")}
+          </h3>
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-openai-name">{t("accountPool.providers.openaiCompatible.name")}</Label>
             <Input
-              aria-label={t("accountPool.providers.openaiCompatible.apiKey", { index: index + 1 })}
-              type="password"
-              value={item.api_key}
-              onChange={(event) => updateKey(index, "api_key", event.target.value)}
-              placeholder="sk-..."
+              id="account-pool-openai-name"
+              value={name}
+              maxLength={80}
+              onChange={(event) => setName(event.target.value)}
             />
+          </div>
+          {mode === "glm" && (
+            <div className="grid gap-2">
+              <Label htmlFor="account-pool-glm-site">{t("accountPool.providers.openaiCompatible.glmSite")}</Label>
+              <Select
+                value={baseUrl}
+                items={sites}
+                onValueChange={(value) => {
+                  if (value) updateBase(value);
+                }}
+              >
+                <SelectTrigger id="account-pool-glm-site" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {sites.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t("accountPool.providers.openaiCompatible.glmStandardHint")}
+              </p>
+            </div>
+          )}
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-openai-base-url">{t("accountPool.providers.openaiCompatible.baseUrl")}</Label>
+            <Input
+              id="account-pool-openai-base-url"
+              value={baseUrl}
+              readOnly={mode === "glm"}
+              placeholder="https://api.example.com"
+              onChange={(event) => updateBase(event.target.value)}
+            />
+            {mode === "compatible" && (
+              <p className="text-xs text-muted-foreground">{t("accountPool.providers.openaiCompatible.baseUrlHint")}</p>
+            )}
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-openai-key">{t("accountPool.providers.openaiCompatible.apiKeys")}</Label>
+            <Input
+              id="account-pool-openai-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(event) => {
+                clearSource();
+                setApiKey(event.target.value);
+              }}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-openai-proxy">
+              {t("accountPool.providers.openaiCompatible.proxyProfileId")}
+            </Label>
             <Select
-              items={[
-                { value: "default", label: t("accountPool.providers.openaiCompatible.defaultProxy") },
-                ...proxyProfiles.map((profile) => ({ value: profile.id, label: profile.name })),
-              ]}
-              value={item.proxy_profile_id || "default"}
-              onValueChange={(value) => updateKey(index, "proxy_profile_id", value === "default" ? "" : value ?? "")}
+              items={proxies}
+              value={proxyId}
+              onValueChange={(value) => {
+                clearSource();
+                setProxyId(value ?? "default");
+              }}
             >
-              <SelectTrigger aria-label={t("accountPool.providers.openaiCompatible.proxyProfileId")}>
-                <SelectValue placeholder={t("accountPool.providers.openaiCompatible.defaultProxy")} />
+              <SelectTrigger id="account-pool-openai-proxy" className="w-full">
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="default">{t("accountPool.providers.openaiCompatible.defaultProxy")}</SelectItem>
-                {proxyProfiles.map((profile) => (
-                  <SelectItem key={profile.id} value={profile.id}>
-                    {profile.name}
+                {proxies.map(({ value, label }) => (
+                  <SelectItem key={value} value={value}>
+                    {label}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              aria-label={t("accountPool.providers.openaiCompatible.weight")}
-              type="number"
-              min={1}
-              value={item.weight}
-              onChange={(event) => updateKey(index, "weight", Math.max(1, Number(event.target.value) || 1))}
-            />
+          </div>
+        </section>
+        <section className="grid min-w-0 gap-4 rounded-xl border bg-muted/15 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <ListFilter className="size-4 text-primary" />
+              {t("accountPool.providers.openaiCompatible.models")}
+            </h3>
             <Button
               type="button"
-              variant="ghost"
-              size="icon-sm"
-              disabled={keys.length === 1}
-              onClick={() => setKeys((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-              aria-label={t("accountPool.providers.openaiCompatible.removeKey")}
+              size="sm"
+              variant="outline"
+              disabled={saving || !canFetch}
+              onClick={() => void discoverModels()}
             >
-              <Trash2 />
+              <Download className="size-4" />
+              {t(
+                `accountPool.providers.openaiCompatible.${source.fetching ? "fetchingModels" : "fetchModels"}`,
+              )}
             </Button>
           </div>
-        ))}
+          <p className="text-xs text-muted-foreground">{t("accountPool.providers.openaiCompatible.fetchModelsHint")}</p>
+          {source.failed && (
+            <p role="alert" className="text-sm text-destructive">
+              {t("accountPool.providers.openaiCompatible.fetchFailed")}
+            </p>
+          )}
+          {source.empty && (
+            <p role="status" className="text-sm text-muted-foreground">
+              {t("accountPool.providers.openaiCompatible.noModels")}
+            </p>
+          )}
+          {candidates.length > 0 && (
+            <Combobox items={candidates} value={null} onValueChange={selectModel}>
+              <ComboboxInput
+                aria-label={t("accountPool.providers.openaiCompatible.addSourceModel")}
+                placeholder={t("accountPool.providers.openaiCompatible.addSourceModel")}
+              />
+              <ComboboxContent>
+                <ComboboxEmpty>{t("accountPool.providers.openaiCompatible.noMatchingModels")}</ComboboxEmpty>
+                <ComboboxList>
+                  {(model: string) => (
+                    <ComboboxItem key={model} value={model}>
+                      {model}
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+          )}
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-openai-custom-models">
+              {t("accountPool.providers.openaiCompatible.customModels")}
+            </Label>
+            <Input
+              id="account-pool-openai-custom-models"
+              value={customModels}
+              placeholder="model-a, model-b"
+              onChange={(event) => setCustomModels(event.target.value)}
+            />
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="account-pool-openai-test-model">
+              {t("accountPool.providers.openaiCompatible.testModel")}
+            </Label>
+            <Input
+              id="account-pool-openai-test-model"
+              value={testModel}
+              list="account-pool-openai-test-options"
+              onChange={(event) => setTestModel(event.target.value)}
+            />
+            <datalist id="account-pool-openai-test-options">
+              {testOptions.map((name) => (
+                <option key={name} value={name} />
+              ))}
+            </datalist>
+          </div>
+        </section>
       </div>
-      <div className="grid gap-3">
-        <div className="flex items-center justify-between gap-3">
-          <Label>{t("accountPool.providers.openaiCompatible.headers")}</Label>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => setHeaders((current) => [...current, { name: "", value: "" }])}
-          >
-            <Plus />
-            {t("accountPool.providers.openaiCompatible.addHeader")}
-          </Button>
+      <details className="group rounded-xl border">
+        <summary className="flex cursor-pointer items-center justify-between gap-2 p-3 text-sm font-medium">
+          {t("accountPool.providers.openaiCompatible.advanced")}
+          <ChevronDown className="size-4 text-muted-foreground group-open:rotate-180" />
+        </summary>
+        <div className="grid gap-3 border-t p-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Label className="grid gap-2">
+              {t("accountPool.providers.openaiCompatible.prefix")}
+              <Input value={prefix} onChange={(event) => setPrefix(event.target.value)} />
+            </Label>
+            <Label className="grid gap-2">
+              {t("accountPool.providers.openaiCompatible.priority")}
+              <Input
+                type="number"
+                value={priority}
+                onChange={(event) => setPriority(Number(event.target.value) || 0)}
+              />
+            </Label>
+            <Label className="grid gap-2">
+              {t("accountPool.providers.openaiCompatible.weight")}
+              <Input
+                type="number"
+                min={1}
+                value={weight}
+                onChange={(event) => setWeight(Math.max(1, Number(event.target.value) || 1))}
+              />
+            </Label>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-sm font-medium">{t("accountPool.providers.openaiCompatible.headers")}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={() => setHeaders([...headers, { name: "", value: "" }])}
+            >
+              <Plus />
+              {t("accountPool.providers.openaiCompatible.addHeader")}
+            </Button>
+          </div>
+          {headers.map((header, index) => (
+            <div key={index} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+              <Input
+                aria-label={t("accountPool.providers.openaiCompatible.headerName", { index: index + 1 })}
+                value={header.name}
+                placeholder="X-Provider-Feature"
+                onChange={(event) =>
+                  updateHeaders(headers.map((item, i) => (i === index ? { ...item, name: event.target.value } : item)))
+                }
+              />
+              <Input
+                aria-label={t("accountPool.providers.openaiCompatible.headerValue", { index: index + 1 })}
+                type="password"
+                value={header.value}
+                onChange={(event) =>
+                  updateHeaders(headers.map((item, i) => (i === index ? { ...item, value: event.target.value } : item)))
+                }
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => updateHeaders(headers.filter((_, i) => i !== index))}
+                aria-label={t("accountPool.providers.openaiCompatible.removeHeader")}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
         </div>
-        {headers.map((header, index) => (
-          <div key={`header-${index}`} className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-            <Input
-              aria-label={t("accountPool.providers.openaiCompatible.headerName", { index: index + 1 })}
-              value={header.name}
-              onChange={(event) =>
-                setHeaders((current) =>
-                  current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, name: event.target.value } : item,
-                  ),
-                )
-              }
-              placeholder="X-Provider-Feature"
-            />
-            <Input
-              aria-label={t("accountPool.providers.openaiCompatible.headerValue", { index: index + 1 })}
-              type="password"
-              value={header.value}
-              onChange={(event) =>
-                setHeaders((current) =>
-                  current.map((item, itemIndex) =>
-                    itemIndex === index ? { ...item, value: event.target.value } : item,
-                  ),
-                )
-              }
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setHeaders((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-              aria-label={t("accountPool.providers.openaiCompatible.removeHeader")}
-            >
-              <Trash2 />
-            </Button>
-          </div>
-        ))}
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="account-pool-openai-custom-models">{t("accountPool.providers.openaiCompatible.customModels")}</Label>
-        <Input
-          id="account-pool-openai-custom-models"
-          value={customModels}
-          onChange={(event) => setCustomModels(event.target.value)}
-          placeholder="model-a, model-b"
-        />
-      </div>
+      </details>
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
           {t("accountPool.cancel")}

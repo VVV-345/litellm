@@ -6,8 +6,10 @@ import asyncio
 import ipaddress
 import json
 import socket
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
+from io import BytesIO
 from pathlib import Path
+from types import MappingProxyType
 from typing import Final
 from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID
@@ -59,6 +61,8 @@ _SUPPLIER: Final = SupplierDefinition(
     quota_parser=parse_empty_quota,
 )
 _HEADERS: Final = TypeAdapter(tuple[tuple[str, str], ...])
+_MAX_MODEL_LIST_BYTES: Final = 2 * 1024 * 1024
+_MAX_PREVIEW_MODELS: Final = 500
 _AZURE_WIRE_SERVER: Final = ipaddress.ip_address("168.63.129.16")
 HostResolver = Callable[[str, int], Awaitable[Sequence[str]]]
 
@@ -271,29 +275,70 @@ class OpenAICompatibleChannel:
         self,
         record: EnvironmentRecord,
         credential: OpenAICompatibleCredential,
-        headers: dict[str, str],
+        headers: Mapping[str, str],
         destination: str,
         host_header: str | None,
     ) -> tuple[str, ...]:
         api_key: Final = self._cipher.open(record.id, credential.api_key_ciphertext)
+        models: Final = await self._request_models(
+            api_key,
+            credential.proxy_url or configured_proxy_url(record) or None,
+            headers,
+            destination,
+            host_header,
+        )
+        return models or ()
+
+    async def discover_models_from_source(
+        self, base_url: str, api_key: str, headers: tuple[tuple[str, str], ...], proxy_url: str | None
+    ) -> tuple[str, ...] | None:
+        destination, host_header = await _validate_destination(base_url, self._resolver)
+        models: Final = await self._request_models(
+            api_key, proxy_url, MappingProxyType(dict(headers)), destination, host_header, bounded=True
+        )
+        if models is None:
+            return None
+        valid: Final = (
+            model for value in models if (model := value.strip()) and len(model) <= 256
+            and not any(character in model for character in (",", "\r", "\n"))
+        )
+        return tuple(dict.fromkeys(valid))[:_MAX_PREVIEW_MODELS]
+
+    async def _request_models(
+        self,
+        api_key: str,
+        proxy_url: str | None,
+        headers: Mapping[str, str],
+        destination: str,
+        host_header: str | None,
+        *,
+        bounded: bool = False,
+    ) -> tuple[str, ...] | None:
         client: Final = (
             self._client
-            if (proxy_url := credential.proxy_url or configured_proxy_url(record) or None) is None
+            if proxy_url is None
             else httpx.AsyncClient(proxy=proxy_url, timeout=20, trust_env=False, follow_redirects=False)
         )
         try:
-            response: Final = await client.get(
+            async with asyncio.timeout(20 if bounded else None), client.stream(
+                "GET",
                 f"{destination.rstrip('/')}/models",
                 headers={
                     **headers,
                     **({"Host": host_header} if host_header is not None else {}),
                     "Authorization": f"Bearer {api_key}",
                 },
-            )
-            response.raise_for_status()
-            return tuple(model.id for model in _ModelList.model_validate(response.json()).data)
-        except (httpx.HTTPError, ValueError):
-            return ()
+                follow_redirects=False,
+            ) as response:
+                response.raise_for_status()
+                body: Final = BytesIO()
+                async for chunk in response.aiter_bytes():
+                    if bounded and body.tell() + len(chunk) > _MAX_MODEL_LIST_BYTES:
+                        return None
+                    body.write(chunk)
+                return tuple(model.id for model in _ModelList.model_validate_json(body.getvalue()).data)
+        except (httpx.HTTPError, TimeoutError, ValueError):
+            return None
         finally:
             if client is not self._client:
                 await client.aclose()

@@ -35,6 +35,15 @@ describe("AccountPoolProviderFamilies", () => {
         description: "OpenAI 兼容直连",
         card_count: 3,
       },
+      {
+        kind: "glm",
+        display_name: "GLM（智谱 / Z.AI）",
+        supplier: "openai_compatible",
+        authentication: "API Key",
+        available: true,
+        description: "GLM 标准 API",
+        card_count: 1,
+      },
     ]);
   });
 
@@ -59,6 +68,11 @@ describe("AccountPoolProviderFamilies", () => {
     expect(screen.getByRole("heading", { name: "OpenAI 兼容", level: 3 })).toBeVisible();
     await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
     expect(onCreate).toHaveBeenCalledWith("openai_compatible");
+
+    await user.click(screen.getByRole("tab", { name: /GLM.*1/ }));
+    expect(screen.getByRole("heading", { name: "GLM（智谱 / Z.AI）", level: 3 })).toBeVisible();
+    await user.click(within(screen.getByRole("tabpanel")).getByRole("button", { name: /新建|Create/i }));
+    expect(onCreate).toHaveBeenLastCalledWith("glm");
   });
 
   it("opens the existing browser automation flow only for Codex", async () => {

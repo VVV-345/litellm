@@ -60,6 +60,7 @@ type DetailField =
   | "upstream_request_id"
   | "trace_id"
   | "model"
+  | "reasoning_effort"
   | "endpoint"
   | "method"
   | "http_status"
@@ -75,12 +76,16 @@ type DetailField =
 const detailFieldValue = (
   event: LogEvent,
   field: DetailField,
-  unavailable: string,
-  routeReason: (reason: NonNullable<LogEvent["routing_reason"]>) => string,
+  labels: {
+    unavailable: string;
+    routeReason: (reason: NonNullable<LogEvent["routing_reason"]>) => string;
+    reasoning: (event: LogEvent) => string;
+  },
 ) => {
-  if (field === "routing_reason") return event.routing_reason ? routeReason(event.routing_reason) : unavailable;
-  if (field === "cost_usd") return formatCost(event.cost_usd) ?? unavailable;
-  return event[field] ?? unavailable;
+  if (field === "reasoning_effort") return labels.reasoning(event);
+  if (field === "routing_reason") return event.routing_reason ? labels.routeReason(event.routing_reason) : labels.unavailable;
+  if (field === "cost_usd") return formatCost(event.cost_usd) ?? labels.unavailable;
+  return event[field] ?? labels.unavailable;
 };
 
 export function OperationLogsPanel({
@@ -97,6 +102,13 @@ export function OperationLogsPanel({
     event.upstream_code === "upstream_tls_handshake_failed"
       ? t("accountPool.logs.upstreamTlsHandshakeFailed")
       : event.message;
+  const reasoningLabel = (event: LogEvent) => {
+    const budget = event.reasoning_budget_tokens;
+    const parts = [event.reasoning_effort, budget == null ? null : t("accountPool.logs.reasoningTokenBudget", {
+      budget: new Intl.NumberFormat(i18n.language).format(budget),
+    })];
+    return parts.filter(Boolean).join(" · ") || t("accountPool.logs.reasoningUnspecified");
+  };
   const [draft, setDraft] = useState<LogFilters>({ card_id: initialCardId });
   const [filters, setFilters] = useState<LogFilters>({ card_id: initialCardId });
   const [from, setFrom] = useState("");
@@ -690,6 +702,7 @@ export function OperationLogsPanel({
                       "upstream_request_id",
                       "trace_id",
                       "model",
+                      "reasoning_effort",
                       "endpoint",
                       "method",
                       "http_status",
@@ -706,9 +719,11 @@ export function OperationLogsPanel({
                     <div className="min-w-0 space-y-1 rounded-lg border bg-muted/10 p-3" key={field}>
                       <dt className="text-xs text-muted-foreground">{t(`accountPool.logs.${field}`)}</dt>
                       <dd className="break-all font-mono text-xs">
-                        {detailFieldValue(detail.data.event, field, t("accountPool.management.unavailable"), (reason) =>
-                          t(`accountPool.logs.routingReasons.${reason}`),
-                        )}
+                        {detailFieldValue(detail.data.event, field, {
+                          unavailable: t("accountPool.management.unavailable"),
+                          routeReason: (reason) => t(`accountPool.logs.routingReasons.${reason}`),
+                          reasoning: reasoningLabel,
+                        })}
                       </dd>
                     </div>
                   ))}

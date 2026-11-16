@@ -2,10 +2,11 @@
 
 import { ProviderLogo } from "@/components/molecules/models/ProviderLogo";
 
-import type { AccountPoolSupplier } from "../../utils/AccountPoolTypes";
+import type { AccountPoolCreationSupplier } from "../../utils/AccountPoolTypes";
 
-const providerBySupplier: Readonly<Record<AccountPoolSupplier, string>> = {
+const providerBySupplier: Readonly<Record<AccountPoolCreationSupplier, string>> = {
   openai_compatible: "openai",
+  glm: "zai",
   openai_codex: "openai",
   anthropic_claude: "anthropic",
   google_antigravity: "gemini",
@@ -22,4 +23,4 @@ export const AccountPoolSupplierLogo = ({
 }: {
   supplier: string;
   className?: string;
-}) => <ProviderLogo provider={providerBySupplier[supplier as AccountPoolSupplier] ?? supplier} className={className} />;
+}) => <ProviderLogo provider={providerBySupplier[supplier as AccountPoolCreationSupplier] ?? supplier} className={className} />;

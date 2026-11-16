@@ -57,6 +57,7 @@ from account_pool.domain import (
     OAuthCallback,
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
+    OpenAICompatibleModelDiscoveryRequest,
     ProxyMode,
     ProxyProfile,
     SettingsProfileBaselines,
@@ -76,6 +77,7 @@ from account_pool.ports import (
     EnvironmentRuntime,
     ProxyProfileRepository,
 )
+from account_pool.provider_families import provider_family_kind
 from account_pool.providers.usage.contracts import ProviderQuotaError
 from account_pool.proxy_catalog import ProxyConfigurationProfileView
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView, ProxyGatewayService
@@ -241,6 +243,9 @@ class EnvironmentService:
 
     async def _spend_by_environment(self) -> dict[UUID, float]:
         return {} if self._error_logs is None else await self._error_logs.spend_by_environment()
+
+    async def list_environment_provider_families(self) -> tuple[str, ...]:
+        return tuple(provider_family_kind(record) for record in await self._repository.list())
 
     async def list_environments(self) -> tuple[EnvironmentView, ...]:
         records: Final = await self._repository.list()
@@ -674,6 +679,9 @@ class EnvironmentService:
         self, channel: EnvironmentChannel, record: EnvironmentRecord
     ) -> EnvironmentRecord:
         return await self._provisioning_operations.wait_for_direct_credential(channel, record)
+
+    async def discover_openai_compatible_models(self, request: OpenAICompatibleModelDiscoveryRequest) -> Result[tuple[str, ...]]:
+        return await self._provisioning_operations.discover_openai_compatible_models(request)
 
     async def create_openai_compatible(self, request: CreateEnvironmentRequest) -> Result[EnvironmentView]:
         return await self._provisioning_operations.create_openai_compatible(request)

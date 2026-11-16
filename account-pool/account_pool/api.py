@@ -43,6 +43,7 @@ from account_pool.domain import (
     OAuthCallback,
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
+    OpenAICompatibleModelDiscoveryRequest,
     UpdateEnvironmentRequest,
     utc_now,
 )
@@ -65,7 +66,7 @@ from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginManifest, PluginRecord, PluginService
 from account_pool.policies import AccountPolicy, PolicyRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
-from account_pool.provider_families import PROVIDER_FAMILIES
+from account_pool.provider_families import GLM_PROVIDER_FAMILY, PROVIDER_FAMILIES
 from account_pool.proxy_catalog import ISPProxyProfileView, ISPSubscriptionView, ProxyConfigurationProfileView
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_gateways import GatewayConfigurationView, GatewayDelayView, GatewayView
@@ -115,6 +116,19 @@ class OAuthCallbackRoute(APIRoute):
             except RequestValidationError:
                 # 校验错误不得回显一次性授权码或完整回调地址。
                 raise HTTPException(422, "Invalid OAuth callback") from None
+
+        return validated
+
+
+class _ModelDiscoveryRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                raise HTTPException(422, "Invalid model discovery request") from None
 
         return validated
 
@@ -551,11 +565,7 @@ def create_router(
 
     @router.get("/api/provider-families", dependencies=[Depends(require_manager)])
     async def list_provider_families() -> tuple[ProviderFamilyView, ...]:
-        records: Final = await service.list_environments()
-        counts: Final = {
-            family.kind: sum(1 for record in records if record.supplier.value == family.kind)
-            for family in PROVIDER_FAMILIES
-        }
+        kinds: Final = await service.list_environment_provider_families()
         return tuple(
             ProviderFamilyView(
                 kind=family.kind,
@@ -564,9 +574,9 @@ def create_router(
                 authentication=family.authentication,
                 available=family.available,
                 description=family.description,
-                card_count=counts.get(family.kind, 0),
+                card_count=kinds.count(family.kind),
             )
-            for family in PROVIDER_FAMILIES
+            for family in (*PROVIDER_FAMILIES, GLM_PROVIDER_FAMILY)
         )
 
     @router.get("/api/environments", dependencies=[Depends(require_manager)])
@@ -823,6 +833,14 @@ def create_router(
             request if operation_id is None else request.model_copy(update={"operation_id": operation_id})
         )
         return _unwrap(await service.create_environment(effective))
+
+    discovery_router: Final = APIRouter(route_class=_ModelDiscoveryRoute, dependencies=(Depends(require_manager),))
+
+    @discovery_router.post("/api/openai-compatible/models")
+    async def discover_openai_compatible_models(request: OpenAICompatibleModelDiscoveryRequest) -> tuple[str, ...]:
+        return _unwrap(await service.discover_openai_compatible_models(request))
+
+    router.include_router(discovery_router)
 
     @router.post("/api/openai-compatible", dependencies=[Depends(require_manager)])
     async def create_openai_compatible(

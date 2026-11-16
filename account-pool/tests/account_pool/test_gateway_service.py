@@ -645,6 +645,8 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
             switched_account=True,
             next_account_id=card.id,
             cost_usd=0.00042,
+            reasoning_effort="high",
+            reasoning_budget_tokens=2048,
             cache_read_input_tokens=80,
             cache_creation_input_tokens=0,
         )
@@ -658,6 +660,7 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
     assert logs.events[0].routing_reason == "retry_failover" and logs.events[0].cost_usd == 0.00042
     assert logs.events[0].cache_read_input_tokens == 80
     assert logs.events[0].cache_creation_input_tokens == 0
+    assert logs.events[0].reasoning_effort == "high" and logs.events[0].reasoning_budget_tokens == 2048
     assert "private" not in logs.events[0].message
     await policies.save(card.id, PolicyUpdate(version=1, policy=AccountPolicy()))
     with pytest.raises(HTTPException):

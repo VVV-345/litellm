@@ -59,6 +59,19 @@ class _OAuthCallbackRoute(APIRoute):
         return validated
 
 
+class _ModelDiscoveryRoute(APIRoute):
+    def get_route_handler(self) -> Callable[[Request], Awaitable[Response]]:
+        handler: Final = super().get_route_handler()
+
+        async def validated(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError:
+                raise HTTPException(422, "Invalid model discovery request") from None
+
+        return validated
+
+
 class _BrowserWebSocket(Protocol):
     async def send(self, message: str | bytes) -> None: ...
 
@@ -191,6 +204,14 @@ class AccountPoolOpenAICompatibleConfig(BaseModel):
     api_keys: tuple[AccountPoolOpenAICompatibleKey, ...] = Field(min_length=1, max_length=1)
     headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100)
     custom_models: tuple[str, ...] = Field(default=(), max_length=500)
+
+
+class AccountPoolOpenAICompatibleModelDiscovery(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    base_url: HttpUrl
+    credential: AccountPoolOpenAICompatibleKey
+    headers: tuple[tuple[str, str], ...] = Field(default=(), max_length=100, repr=False)
 
 
 class AccountPoolDirectAPIKey(BaseModel):
@@ -1048,6 +1069,21 @@ def create_account_pool_router(
             idempotency_key,
         )
         return _validate_response(response, _AUTHORIZATION)
+
+    discovery_router: Final = APIRouter(route_class=_ModelDiscoveryRoute)
+
+    @discovery_router.post("/openai-compatible/models", response_model=tuple[str, ...])
+    async def discover_openai_compatible_models(
+        request: AccountPoolOpenAICompatibleModelDiscovery,
+        user_api_key_dict: Annotated[UserAPIKeyAuth, Depends(user_api_key_auth)],
+    ) -> tuple[str, ...]:
+        _require_proxy_admin(user_api_key_dict)
+        response: Final = await _manager_request(
+            client_factory, "POST", "/api/openai-compatible/models", request.model_dump_json().encode("utf-8"),
+        )
+        return _validate_response(response, TypeAdapter(tuple[str, ...]))
+
+    router.include_router(discovery_router)
 
     @router.post("/openai-compatible", response_model=AccountPoolEnvironment)
     async def create_openai_compatible(

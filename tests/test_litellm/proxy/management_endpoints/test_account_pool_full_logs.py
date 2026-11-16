@@ -61,6 +61,34 @@ def test_disabled_full_logging_never_creates_content_storage(store: FullLogStore
     assert "private" not in control.finished[0].model_dump_json()
 
 
+@pytest.mark.parametrize(
+    "endpoint,params,effort,budget",
+    [
+        ("/v1/chat/completions", {"reasoning_effort": "xhigh"}, "xhigh", None),
+        ("/v1/responses", {"reasoning": {"effort": "low"}}, "low", None),
+        ("/v1/messages", {"output_config": {"effort": "max"}}, "max", None),
+        ("/v1/messages", {"thinking": {"type": "enabled", "budget_tokens": 2048}}, None, 2048),
+        ("/v1/chat/completions", {}, None, None),
+        ("/v1/chat/completions", {"reasoning_effort": "private input", "thinking": {"budget_tokens": True}}, None, None),
+    ],
+)
+def test_summary_logs_capture_only_explicit_reasoning_without_full_logging(
+    store: FullLogStore, endpoint: str, params: dict[str, JsonValue], effort: str | None, budget: int | None
+) -> None:
+    client, control = setup_gateway(lambda _: httpx.Response(200, json={"id": "ok"}))
+    with client:
+        result: Final = client.post(
+            endpoint,
+            json={"model": "model-a", "input": "private input", **params},
+            headers={"Authorization": f"Bearer {_KEY}"},
+        )
+    assert result.status_code == 200
+    assert not store.path.exists()
+    event: Final = control.finished[0]
+    assert (event.reasoning_effort, event.reasoning_budget_tokens) == (effort, budget)
+    assert "private input" not in event.model_dump_json()
+
+
 @pytest.mark.parametrize("skip,complete", [(True, False), (True, True), (False, False)])
 def test_failed_full_log_switch_preserves_daily_usage(store: FullLogStore, skip: bool, complete: bool) -> None:
     stream = 'data: {"usage":{"prompt_tokens":10,"completion_tokens":4}}\n\n'
@@ -75,12 +103,14 @@ def test_failed_full_log_switch_preserves_daily_usage(store: FullLogStore, skip:
     with client:
         client.post(
             "/v1/chat/completions",
-            json={"model": "model-a", "stream": True, "messages": [{"role": "user", "content": "private"}]},
+            json={"model": "model-a", "stream": True, "reasoning_effort": "high",
+                  "messages": [{"role": "user", "content": "private"}]},
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert len(control.finished) == 1
     assert control.finished[0].input_tokens == 10
     assert control.finished[0].output_tokens == 4
+    assert control.finished[0].reasoning_effort == "high"
     assert store.storage().row_count == int(complete or not skip)
 
 

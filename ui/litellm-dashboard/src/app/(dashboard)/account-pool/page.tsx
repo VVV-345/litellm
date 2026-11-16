@@ -79,7 +79,7 @@ import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolP
 import type {
   AccountPoolAuthorization,
   AccountPoolEnvironment,
-  AccountPoolSupplier,
+  AccountPoolCreationSupplier,
 } from "@/features/account-pool/utils/AccountPoolTypes";
 import { summarizeAccountPoolEnvironments } from "@/features/account-pool/utils/accountPoolSelectors";
 import { AccountPoolWorkspace } from "@/features/account-pool/components/shared/AccountPoolWorkspace";
@@ -161,7 +161,7 @@ export default function AccountPoolPage() {
     setAuthorization(null);
     openAutomation(environmentId);
   };
-  const [createSupplier, setCreateSupplier] = useState<AccountPoolSupplier>("openai_codex");
+  const [createSupplier, setCreateSupplier] = useState<AccountPoolCreationSupplier>("openai_codex");
   const [refreshingQuotas, setRefreshingQuotas] = useState(false);
   const canManage = canManageAccountPool(userRole, isViewOnly);
   useEffect(() => {
@@ -252,7 +252,7 @@ export default function AccountPoolPage() {
       .finally(() => setRefreshingQuotas(false));
   };
 
-  const openCreateDialog = (supplier: AccountPoolSupplier = "openai_codex") => {
+  const openCreateDialog = (supplier: AccountPoolCreationSupplier = "openai_codex") => {
     setAuthorization(null);
     setCreateSupplier(supplier);
     setCreateOpen(true);

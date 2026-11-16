@@ -72,6 +72,7 @@ export type AccountPoolClashNode = {
 export type AccountPoolStatus = AccountPoolEnvironment["status"];
 
 export type AccountPoolSupplier = AccountPoolEnvironment["supplier"] | "openai_compatible";
+export type AccountPoolCreationSupplier = AccountPoolSupplier | "glm";
 export type AccountPoolCreateRequest = components["schemas"]["AccountPoolCreateRequest"];
 
 export const toUpdateRequest = (

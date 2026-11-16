@@ -13,13 +13,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { listAccountPoolProviderFamilies, type AccountPoolProviderFamily } from "../../api/AccountPoolApi";
-import type { AccountPoolSupplier } from "../../utils/AccountPoolTypes";
+import type { AccountPoolCreationSupplier, AccountPoolSupplier } from "../../utils/AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "./AccountPoolSupplierLogo";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 
 interface AccountPoolProviderFamiliesProps {
   accessToken: string | null;
-  onCreate: (supplier: AccountPoolSupplier) => void;
+  onCreate: (supplier: AccountPoolCreationSupplier) => void;
   onAutomation?: () => void;
 }
 
@@ -35,10 +35,12 @@ const SUPPORTED_SUPPLIERS: readonly AccountPoolSupplier[] = [
   "vertex",
 ] as const;
 
-const supplierFromFamily = (family: AccountPoolProviderFamily): AccountPoolSupplier | null =>
-  family.supplier && SUPPORTED_SUPPLIERS.includes(family.supplier as AccountPoolSupplier)
+const supplierFromFamily = (family: AccountPoolProviderFamily): AccountPoolCreationSupplier | null => {
+  if (family.kind === "glm" && family.supplier === "openai_compatible") return "glm";
+  return family.supplier && SUPPORTED_SUPPLIERS.includes(family.supplier as AccountPoolSupplier)
     ? (family.supplier as AccountPoolSupplier)
     : null;
+};
 
 export const AccountPoolProviderFamilies = ({
   accessToken,

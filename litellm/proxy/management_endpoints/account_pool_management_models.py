@@ -20,6 +20,8 @@ from pydantic import (
     model_validator,
 )
 
+from litellm.types.llms.openai import REASONING_EFFORT
+
 ChannelKind = Literal["openai_compatible", "cliproxyapi"]
 SupplierKind = Literal[
     "openai_compatible",
@@ -896,6 +898,8 @@ class ErrorLogRecord(BaseModel):
     operation: str = Field(max_length=160)
     stage: LogStage
     model: str | None = Field(default=None, max_length=256)
+    reasoning_effort: REASONING_EFFORT | None = None
+    reasoning_budget_tokens: int | None = Field(default=None, strict=True, gt=0, le=2_147_483_647)
     endpoint: str | None = Field(default=None, max_length=256)
     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] | None = None
     error_category: ErrorCategory | None = None

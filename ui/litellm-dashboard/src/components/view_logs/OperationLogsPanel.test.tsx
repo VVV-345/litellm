@@ -146,6 +146,26 @@ describe("OperationLogsPanel", () => {
   });
 
   it.each([
+    [{ reasoning_effort: "xhigh" }, "xhigh"],
+    [{ reasoning_budget_tokens: 2048 }, "2,048 Token"],
+    [{}, "未指定"],
+  ])("shows explicit reasoning or an unset value in the log details (%s)", async (params, expected) => {
+    await i18n.changeLanguage("zh-CN");
+    const user = userEvent.setup();
+    getLog.mockResolvedValue({ event: { ...log, ...params }, attempts: [log], has_more: false });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <OperationLogsPanel accessToken="token" environments={[]} />
+      </QueryClientProvider>,
+    );
+    await user.click(await screen.findByRole("button", { name: "Request completed" }));
+    const dialog = screen.getByRole("dialog");
+    await user.click(await within(dialog).findByText("请求与关联信息"));
+    const field = await within(dialog).findByText("思考强度");
+    expect(field.nextElementSibling).toHaveTextContent(expected);
+  });
+
+  it.each([
     ["zh-CN", "与上游的 TLS 握手失败，未收到上游响应"],
     ["en", "TLS handshake with the upstream failed. No upstream response was received"],
   ])("localizes the upstream TLS handshake failure in %s without changing HTTP status", async (language, message) => {

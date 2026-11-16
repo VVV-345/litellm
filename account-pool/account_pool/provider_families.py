@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from account_pool.domain import SupplierKind
+from account_pool.domain import EnvironmentRecord, SupplierKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +25,7 @@ PROVIDER_FAMILIES: Final[tuple[ProviderFamily, ...]] = (
         supplier=SupplierKind.OPENAI_COMPATIBLE,
         authentication="Base URL + API Key",
         available=True,
-        description="支持多 API Key、模型前缀和自定义模型的直连上游",
+        description="使用服务地址、API Key 和上游模型列表接入",
     ),
     ProviderFamily(
         kind="openai_codex",
@@ -92,3 +92,21 @@ PROVIDER_FAMILIES: Final[tuple[ProviderFamily, ...]] = (
         description="CLIProxyAPI Gemini Interactions API Key",
     ),
 )
+
+GLM_PROVIDER_FAMILY: Final = ProviderFamily(
+    kind="glm",
+    display_name="GLM（智谱 / Z.AI）",
+    supplier=SupplierKind.OPENAI_COMPATIBLE,
+    authentication="API Key",
+    available=True,
+    description="智谱国内站与 Z.AI 国际站的标准 API Key 接入",
+)
+
+_GLM_STANDARD_BASES: Final = frozenset(("https://open.bigmodel.cn/api/paas/v4", "https://api.z.ai/api/paas/v4"))
+
+
+def provider_family_kind(record: EnvironmentRecord) -> str:
+    config: Final = record.openai_compatible
+    if config is not None and str(config.base_url).rstrip("/") in _GLM_STANDARD_BASES:
+        return GLM_PROVIDER_FAMILY.kind
+    return record.supplier.value

@@ -30,6 +30,7 @@ RoutingReason: TypeAlias = Literal[
 ]
 
 AcquireRejectionReason: TypeAlias = Literal["concurrency", "configuration", "cooldown", "session", "token_budget"]
+ReasoningEffort: TypeAlias = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 class ResolveRequest(BaseModel):
@@ -189,6 +190,8 @@ class FinishRequest(BaseModel):
     endpoint: str = Field(max_length=256)
     method: Literal["GET", "POST"] = "POST"
     detail: str | None = Field(default=None, max_length=2000)
+    reasoning_effort: ReasoningEffort | None = None
+    reasoning_budget_tokens: int | None = Field(default=None, strict=True, gt=0, le=2_147_483_647)
     input_tokens: int | None = Field(default=None, ge=0)
     output_tokens: int | None = Field(default=None, ge=0)
     cache_read_input_tokens: int | None = Field(default=None, ge=0)

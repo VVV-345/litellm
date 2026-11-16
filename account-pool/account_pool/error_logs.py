@@ -12,7 +12,7 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, utc_now
-from account_pool.gateway_contracts import RoutingReason
+from account_pool.gateway_contracts import ReasoningEffort, RoutingReason
 from account_pool.providers.usage.contracts import ProviderQuotaError
 from account_pool.settings import AccountPoolSettingsRepository
 from account_pool.shared.error_safety import safe_error
@@ -68,6 +68,10 @@ class ErrorLogRecord(BaseModel):
     operation: str = Field(max_length=160)
     stage: LogStage
     model: str | None = Field(default=None, max_length=256)
+    reasoning_effort: ReasoningEffort | None = Field(default=None, exclude_if=lambda value: value is None)
+    reasoning_budget_tokens: int | None = Field(
+        default=None, strict=True, gt=0, le=2_147_483_647, exclude_if=lambda value: value is None
+    )
     endpoint: str | None = Field(default=None, max_length=256)
     method: Literal["GET", "POST", "PUT", "DELETE", "PATCH"] | None = None
     error_category: ErrorCategory | None = None

@@ -17362,6 +17362,20 @@
               "title": "Configuration Pending",
               "type": "boolean"
             },
+            "configured_models": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Configured Models"
+            },
             "cooldown_until": {
               "anyOf": [
                 {

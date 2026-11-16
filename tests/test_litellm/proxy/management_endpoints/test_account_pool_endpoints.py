@@ -340,6 +340,32 @@ def _manager_factory() -> AccountPoolManagerClient:
     )
 
 
+def test_model_preview_routes_only_admin_valid_requests_without_echoing_keys() -> None:
+    requests: Final[list[httpx.Request]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=["glm-fixture"])
+
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    path: Final = "/account_pool/openai-compatible/models"
+    payload: Final = {"base_url": "https://api.z.ai/api/paas/v4", "credential": {"api_key": "fixture-preview"}}
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.post(path, json=payload).status_code == 403
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        invalid: Final = client.post(path, json={**payload, "credential": {"api_key": ["fixture-preview"]}})
+        assert invalid.status_code == 422 and "fixture-preview" not in invalid.text
+        assert not requests
+        result: Final = client.post(path, json=payload)
+        assert result.status_code == 200 and result.json() == ["glm-fixture"]
+    assert len(requests) == 1 and requests[0].url.path == "/api/openai-compatible/models"
+    assert requests[0].method == "POST" and b'"api_key":"fixture-preview"' in requests[0].content
+
+
 @pytest.mark.parametrize("replace", [None, "true"])
 def test_auth_file_upload_forwards_explicit_replacement_and_preserves_conflict(replace: str | None) -> None:
     def factory() -> AccountPoolManagerClient:
