@@ -1421,7 +1421,7 @@ async def test_glm_standard_virtual_identity_and_card_model_test_share_real_rout
             )
         assert result.status_code == 200 and result.json()["success"] is True, result.text
         assert len(seen) == 2
-        assert seen[1].get("max_tokens") == 256, seen[1]
+        assert seen[1].get("max_tokens") == 512, seen[1]
         from litellm.exceptions import BadRequestError, NotFoundError, UnsupportedParamsError
 
         reset = pool_identity.set(
