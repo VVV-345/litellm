@@ -2,7 +2,7 @@
 
 ## 入口
 
-- **仪表盘**：统计范围 1 / 7 / 14 / 30 / 90 天，K/M/B 与完整数字切换；额度刷新间隔和立即刷新放在同一工具栏。卡片按供应商标签显示，默认选 Codex；没有匹配的 Codex 时使用第一个可见供应商。保留搜索、状态筛选、排序与分页。
+- **仪表盘**：统计范围 1 / 7 / 14 / 30 / 90 天，K/M/B 与完整数字切换；额度刷新间隔和立即刷新放在同一工具栏。卡片按供应商标签显示，GLM（智谱 / Z.AI）与 OpenCode 使用各自的 provider family 单独分组，与通用「OpenAI 兼容」不再混在一个标签里；旧接口没有返回 `provider_family` 时回退到 `supplier`。默认选 Codex；没有匹配的 Codex 时使用第一个可见供应商。保留搜索、状态筛选、排序与分页。
 - **提供商与 OAuth**：AI 提供商目录、OAuth 登录、批量操作共用一个入口。提供商只显示当前标签的认证方式和新建操作；OAuth 用紧凑账号行，不重复仪表盘完整卡片。Codex 目录、待授权卡片和新建后的授权引导均提供“浏览器自动化授权”，进入同一个授权自动化工作区；从具体卡片进入会预选该卡，不重复创建卡片，不自动提交资料或开启自动化。其他供应商保留原授权方式。
 - **自动化上号**：同一入口下区分 CPA 文件、Sub2API 文件、2FA / OAuth 授权。旧 `tab=oauth-automation` 直接打开授权标签；手动 OAuth 与邮箱库存保留在授权页内。
 - **代理层**：网关出口、ISP 代理、订阅与配置分开；默认显示数量摘要，点击标签展开对应内容。
@@ -35,7 +35,7 @@
 
 入口：号池 → 提供商与 OAuth → GLM（智谱 / Z.AI）→ 新建。选择国内或国际站的标准 API 或 Coding Plan 后，自动填写所选方案的地址。通用「OpenAI 兼容」仍有独立入口，输入域名时默认用 `/v1`，填写了接口路径则保留该路径。两种接入复用现有卡片、Key、代理和模型测试，不增加路由类型、分组或数据库表，不修改已有卡片。
 
-创建表单的「从资源侧获取」使用当前地址、API Key、出站代理和高级连接设置中的请求头，向对应上游发出 `GET <Base URL>/models`。按 [New API 的资源侧查询](https://github.com/QuantumNous/new-api/blob/main/controller/channel_upstream_update.go) 的交互，只返回候选，用户选择后才填入表单；它不是模型调用测试，不自动保存卡片。上游不返回列表时可手填。GLM 只保存选中的或手填的模型，未填写额外模型时使用明确指定的测试模型。
+创建表单的「从资源侧获取」使用当前地址、API Key、出站代理和高级连接设置中的请求头，向对应上游发出 `GET <Base URL>/models`。按 [New API 的资源侧查询](https://github.com/QuantumNous/new-api/blob/main/controller/channel_upstream_update.go) 的交互，只返回候选，用户勾选后才填入表单；候选是常驻的勾选列表，支持搜索、全选和清空，可以连续勾选多个模型，勾选与取消都不会关闭列表，已选模型以标签展示且与逗号分隔的模型输入双向同步。它不是模型调用测试，不自动保存卡片。上游不返回列表时可手填。表单不再单独填写测试模型：第一个已选（或手填）模型即测试模型，`test_model` 与 `custom_models` 都由这次选择得出。
 
 日志 → 号池日志 → 日志详情 → 请求与关联信息 → 思考强度。日常摘要仅记录进入号池网关的 HTTP 请求中明确提供的 `reasoning_effort`、`reasoning.effort`、`output_config.effort` 或 `thinking.budget_tokens`。流式请求也记录这些参数；不需要开启完整日志，不保存思考内容。旧日志或未指定的请求显示「未指定」，不推断模型默认值。
 
@@ -68,3 +68,12 @@ Responses 不做 Chat 桥接，仍向所选标准 Base 的 `/responses` 发送 R
 在号池的「提供商与 OAuth」中选择「OpenCode」，点击「新建」。选择 [Console / Zen](https://opencode.ai/docs/console/api/inference/) 或 [OpenCode Go](https://opencode.ai/docs/console/go/) 后，预填该方案的 OpenAI 兼容地址，复用现有卡片、代理和模型测试。只使用 OpenCode API Key，不使用浏览器授权
 
 「从资源侧获取」中，Console / Zen 查询其兼容 API 的 `/models`，Go 查询官方 `/inference/go/v1/models`。Go 的兼容旧地址 `/zen/go/v1` 也用同一目录，原推理地址不变。仍可手填模型。发现的模型不会自动启用。公共目录不保证当前 Key 有权调用或所选模型支持相应协议，仅限 OpenCode 客户端的免费模型不可用
+
+## 卡片模型测试的判定与诊断（2026-11-17）
+
+Chat 测试把 `finish_reason` 为 `stop` 或 `length`、且响应里存在可见文本或推理文本的情况视为「返回了文本响应」。原来的实现只接受 `stop` 加非空 `content`，GLM 一类思考模型在 256 token 预算内把额度用在推理上时，会得到 200 响应却被判为 `incomplete_response`。现在测试预算提高到 512 token；只有空响应、`content_filter` 之类非文本终止原因、流式缺少终止事件时才算不完整，失败消息会带上 `finish_reason` 便于定位
+
+连接失败同样给出可操作信息：消息里附上脱敏后的上游摘要（URL 整体替换为 `[url]`，`Bearer`、`sk-` 前缀和 `key=` / `token=` 之类赋值一律脱敏，最长 400 字符）。上游的具体 400 原因（例如不支持的参数或请求头）会直接出现在卡片的测试结果里，不再只有「检查请求日志」
+
+`max_completion_tokens` 到标准 GLM `max_tokens` 的转换仍只作用于 `/api/paas/v4` 标准地址；Coding Plan 地址不走这条转换，也不自动放行推理字段。如果 Coding 端点拒绝该参数，会以带上游摘要的 400 失败，是否扩大转换范围需要单独决定，因为那会同时改变推理字段白名单
+

@@ -103,7 +103,8 @@ def test_selected_card_only_and_no_retry(mode, result):
 
 @pytest.mark.parametrize("mode,result", [
     ("chat", {"choices": []}),
-    ("chat", {"choices": [{"message": {"content": "hi"}, "finish_reason": "length"}]}),
+    ("chat", {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}),
+    ("chat", {"choices": [{"message": {"content": "hi"}, "finish_reason": "content_filter"}]}),
     ("responses", {"status": "incomplete", "output": []}),
     ("responses", {"status": "completed", "output": []}),
 ])
@@ -111,8 +112,29 @@ def test_http200_is_not_success_without_complete_text(mode, result):
     response = client_for(RouterDouble(result)).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model", "mode": mode})
     assert response.json()["success"] is False
 
+
+@pytest.mark.parametrize("mode,result", [
+    ("chat", {"choices": [{"message": {"content": "Hello"}, "finish_reason": "length"}]}),
+    ("chat", {"choices": [{"message": {"content": "", "reasoning_content": "thinking"}, "finish_reason": "stop"}]}),
+    ("chat", {"choices": [{"message": {"content": "", "reasoning_content": "thinking"}, "finish_reason": "length"}]}),
+])
+def test_truncated_or_reasoning_only_chat_response_counts_as_complete_text(mode, result):
+    response = client_for(RouterDouble(result)).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model", "mode": mode})
+    assert response.json()["success"] is True
+    assert response.json()["message"] == "Model returned a complete response"
+
+
+def test_incomplete_response_message_names_the_upstream_reason():
+    result = {"choices": [{"message": {"content": ""}, "finish_reason": "length"}]}
+    response = client_for(RouterDouble(result)).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model"})
+    body = response.json()
+    assert body["success"] is False
+    assert body["error_code"] == "incomplete_response"
+    assert "finish_reason=length" in body["message"]
+
 @pytest.mark.parametrize("mode,events,success", [
     ("chat", [{"choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]}, {"choices": [{"delta": {}, "finish_reason": "stop"}]}], True),
+    ("chat", [{"choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]}, {"choices": [{"delta": {}, "finish_reason": "length"}]}], True),
     ("chat", [{"choices": [{"delta": {"content": "Hello"}, "finish_reason": None}]}], False),
     ("responses", [{"type": "response.completed", "response": {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "Hello"}]}]}}], True),
     ("responses", [{"type": "response.output_text.delta", "delta": "Hello"}, {"type": "response.failed"}], False),
@@ -133,7 +155,20 @@ def test_rejects_unauthorized_or_disabled_model(admin, model, status):
 def test_error_does_not_expose_credentials():
     response = client_for(RouterDouble(RuntimeError("Bearer sk-secret https://private/?token=abc"))).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model"})
     assert response.json()["success"] is False
-    assert "sk-secret" not in response.text and "private" not in response.text
+    assert "sk-secret" not in response.text and "private" not in response.text and "token=abc" not in response.text
+
+
+def test_connection_error_detail_is_reported_after_redaction():
+    error = RuntimeError(
+        "Error code: 400 - {'error': {'message': 'unsupported parameter max_completion_tokens', "
+        "'code': 'invalid_request_error'}} https://api.example.test/v1?api_key=sk-live-secret123456"
+    )
+    response = client_for(RouterDouble(error)).post(f"/account_pool/environments/{CARD}/test", json={"model": "test-model"})
+    body = response.json()
+    assert body["success"] is False
+    assert body["error_code"] == "connection_test_failed"
+    assert "unsupported parameter max_completion_tokens" in body["message"]
+    assert "api.example.test" not in body["message"] and "sk-live-secret" not in body["message"]
 
 
 @pytest.mark.parametrize("mode", ["chat", "responses"])

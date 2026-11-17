@@ -1,4 +1,4 @@
-/** 本文件集中声明号池页面使用的 API 类型和表单载荷，避免组件重复定义协议。 */
+/** 本文件集中声明号池页面使用的 API 类型和表单载荷，并给出供应商家族判定，避免组件重复定义协议。 */
 
 import type { components } from "@/lib/http/schema";
 
@@ -13,6 +13,7 @@ export type AccountPoolEnvironment = Omit<
   version: number;
   configuration_pending: boolean;
   model_cooldowns?: GeneratedAccountPoolEnvironment["model_cooldowns"];
+  provider_family?: string;
   spend_usd?: number;
 };
 export type AccountPoolAuthorization = Omit<GeneratedAccountPoolAuthorization, "environment"> & {
@@ -72,8 +73,12 @@ export type AccountPoolClashNode = {
 export type AccountPoolStatus = AccountPoolEnvironment["status"];
 
 export type AccountPoolSupplier = AccountPoolEnvironment["supplier"] | "openai_compatible";
-export type AccountPoolCreationSupplier = AccountPoolSupplier | "glm" | "opencode";
+export type AccountPoolFamilyKind = AccountPoolSupplier | "glm" | "opencode";
+export type AccountPoolCreationSupplier = AccountPoolFamilyKind;
 export type AccountPoolCreateRequest = components["schemas"]["AccountPoolCreateRequest"];
+
+export const accountPoolFamilyKind = (environment: AccountPoolEnvironment): AccountPoolFamilyKind =>
+  (environment.provider_family || environment.supplier) as AccountPoolFamilyKind;
 
 export const toUpdateRequest = (
   environment: AccountPoolEnvironment,

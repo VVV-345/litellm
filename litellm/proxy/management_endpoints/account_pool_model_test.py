@@ -1,9 +1,10 @@
-"""管理员卡片连接测试，固定部署并验证完整响应，不返回凭据或上游原始错误。"""
+"""管理员卡片连接测试，固定部署并验证完整响应，只返回脱敏后的上游诊断。"""
 from __future__ import annotations
 
 import asyncio
 import json
 import random
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from datetime import datetime, timezone
@@ -78,6 +79,18 @@ class _Deployment(BaseModel):
 
 class _Message(BaseModel):
     content: str | None = None
+    reasoning_content: str | None = None
+
+    @property
+    def text(self) -> str:
+        return next(
+            (
+                value.strip()
+                for value in (self.content, self.reasoning_content)
+                if value is not None and value.strip()
+            ),
+            "",
+        )
 
 
 class _Choice(BaseModel):
@@ -126,44 +139,97 @@ async def synchronize_router() -> None:
     await reconcile_configured_account_pool()
 
 
-def _complete(response: _Completion, mode: Literal["chat", "responses"]) -> bool:
+_TEST_MAX_TOKENS: Final = 512
+_TERMINAL_FINISH_REASONS: Final = frozenset(("stop", "length"))
+_MAX_MESSAGE_CHARS: Final = 400
+_REDACTIONS: Final = (
+    (re.compile(r"\bhttps?://[^\s\"'<>]+"), "[url]"),
+    (re.compile(r"(?i)\b(bearer)\s+[^\s\"',}]+"), r"\1 [redacted]"),
+    (re.compile(r"\bsk-[A-Za-z0-9._-]{6,}"), "sk-[redacted]"),
+    (
+        re.compile(r"(?i)\b(api[_-]?key|key|token|secret|password)\b\s*[=:]\s*[^\s,;\"'}]+"),
+        r"\1=[redacted]",
+    ),
+)
+
+
+def _redact(text: str) -> str:
+    redacted = text  # rebind-ok: sequential redaction over a bounded upstream excerpt
+    for pattern, replacement in _REDACTIONS:
+        redacted = pattern.sub(replacement, redacted)
+    return redacted[:_MAX_MESSAGE_CHARS]
+
+
+def _failure_message(error: Exception, timeout: bool) -> str:
+    if timeout:
+        return "Connection test timed out"
+    detail: Final = _redact(str(error)).strip()
+    return (
+        f"Connection test failed: {detail}"
+        if detail
+        else "Connection test failed; inspect this account's request logs"
+    )
+
+
+def _incomplete_reason(response: _Completion, mode: Literal["chat", "responses"]) -> str | None:
     if response.error is not None:
-        return False
+        return "upstream error"
     if mode == "chat":
-        return any(
-            choice.finish_reason == "stop" and choice.message is not None and bool(choice.message.content)
+        if not response.choices:
+            return "no choices"
+        if any(
+            choice.finish_reason in _TERMINAL_FINISH_REASONS
+            and choice.message is not None
+            and bool(choice.message.text)
             for choice in response.choices
-        )
-    return response.status == "completed" and any(
+        ):
+            return None
+        reasons: Final = ",".join(sorted({str(choice.finish_reason) for choice in response.choices}))
+        return f"finish_reason={reasons}"
+    if response.status != "completed":
+        return f"status={response.status or 'unknown'}"
+    if not any(
         text.text.strip()
         for item in response.output
         if item.type == "message"
         for text in item.content
         if text.type == "output_text"
-    )
+    ):
+        return "no output text"
+    return None
 
 
-async def _completed(result: object, request: AccountPoolModelTestRequest) -> bool:
+async def _completed(result: object, request: AccountPoolModelTestRequest) -> str | None:
+    """完整响应返回 None，否则返回可安全展示的失败原因。"""
     if not request.stream:
-        return _complete(_Completion.model_validate(result, from_attributes=True), request.mode)
+        return _incomplete_reason(_Completion.model_validate(result, from_attributes=True), request.mode)
     if not isinstance(result, AsyncIterator):
-        return False
+        return "response is not streamable"
     has_text = False  # rebind-ok: bounded streaming validation state
-    completed = False  # rebind-ok: terminal event is required even after text
+    terminal: str | None = None
     try:
         async for chunk in result:
             event: Final = _Event.model_validate(chunk, from_attributes=True)
-            if event.error is not None or event.type in ("error", "response.failed", "response.incomplete"):
-                return False
+            if event.error is not None:
+                return "stream error"
+            if event.type in ("error", "response.failed", "response.incomplete"):
+                return event.type
             if request.mode == "responses":
                 if event.type == "response.completed" and event.response is not None:
-                    completed = _complete(event.response, request.mode)
+                    reason: Final = _incomplete_reason(event.response, request.mode)
+                    if reason is not None:
+                        return reason
+                    terminal = "completed"
                 continue
-            has_text = has_text or any(choice.delta and choice.delta.content for choice in event.choices)
-            if any(choice.finish_reason not in (None, "stop") for choice in event.choices):
-                return False
-            completed = completed or any(choice.finish_reason == "stop" for choice in event.choices)
-        return bool(completed and (request.mode == "responses" or has_text))
+            has_text = has_text or any(choice.delta is not None and bool(choice.delta.text) for choice in event.choices)
+            for choice in event.choices:
+                if choice.finish_reason in _TERMINAL_FINISH_REASONS:
+                    terminal = choice.finish_reason
+                elif choice.finish_reason is not None:
+                    return f"finish_reason={choice.finish_reason}"
+        if terminal is None:
+            return "stream ended without a terminal event"
+        return None if request.mode == "responses" or has_text else "stream ended without text"
     finally:
         await aclose_if_supported(result)
         if isinstance(result, BaseResponsesAPIStreamingIterator):
@@ -257,19 +323,21 @@ def create_model_test_router(
                 result: Final = (
                     await llm_router.acompletion(
                         **parameters, messages=[{"role": "user", "content": greeting}],
-                        max_completion_tokens=256,
+                        max_completion_tokens=_TEST_MAX_TOKENS,
                     )
                     if request.mode == "chat"
                     else await llm_router.aresponses(
-                        **parameters, input=greeting, max_output_tokens=256, store=False,
+                        **parameters, input=greeting, max_output_tokens=_TEST_MAX_TOKENS, store=False,
                     )
                 )
-                success: Final = await _completed(result, request)
+                reason: Final = await _completed(result, request)
             return AccountPoolModelTestResult(
-                **request.model_dump(), card_id=card_id, success=success,
+                **request.model_dump(), card_id=card_id, success=reason is None,
                 elapsed_ms=round((time.perf_counter() - started) * 1000),
-                message="Model returned a complete response" if success else "Model did not return a complete text response",
-                error_code=None if success else "incomplete_response",
+                message="Model returned a complete response"
+                if reason is None
+                else f"Model did not return a complete text response: {reason}",
+                error_code=None if reason is None else "incomplete_response",
             )
         except Exception as error:
             timeout: Final = isinstance(error, (TimeoutError, httpx.TimeoutException)) or getattr(error, "status_code", None) == 408
@@ -277,7 +345,7 @@ def create_model_test_router(
             return AccountPoolModelTestResult(
                 **request.model_dump(), card_id=card_id, success=False,
                 elapsed_ms=round((time.perf_counter() - started) * 1000),
-                message="Connection test timed out" if timeout else "Connection test failed; inspect this account's request logs",
+                message=_failure_message(error, timeout),
                 error_code="timeout" if timeout else f"http_{status}" if isinstance(status, int) else "connection_test_failed",
             )
         finally:

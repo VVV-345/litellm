@@ -1,7 +1,8 @@
 /** 本文件计算号池仪表盘的聚合指标与供应商分组，数据只来自已加载的卡片和请求统计。 */
 
 import type { ErrorStats } from "../api/AccountPoolManagementApi";
-import type { AccountPoolEnvironment, AccountPoolStatus, AccountPoolSupplier } from "./AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolFamilyKind, AccountPoolStatus } from "./AccountPoolTypes";
+import { accountPoolFamilyKind } from "./AccountPoolTypes";
 
 export interface AccountPoolDashboardFilters {
   search: string;
@@ -31,8 +32,8 @@ interface AccountPoolDashboardSummary {
   successRate: number | null;
 }
 
-interface AccountPoolSupplierGroup {
-  supplier: AccountPoolSupplier;
+interface AccountPoolFamilyGroup {
+  family: AccountPoolFamilyKind;
   environments: AccountPoolEnvironment[];
 }
 
@@ -79,15 +80,16 @@ export const summarizeAccountPoolDashboard = (
 
 export const groupAccountPoolEnvironments = (
   environments: readonly AccountPoolEnvironment[],
-): AccountPoolSupplierGroup[] => {
-  const groups = new Map<AccountPoolSupplier, AccountPoolEnvironment[]>();
+): AccountPoolFamilyGroup[] => {
+  const groups = new Map<AccountPoolFamilyKind, AccountPoolEnvironment[]>();
   environments.forEach((environment) => {
-    const group = groups.get(environment.supplier) ?? [];
-    groups.set(environment.supplier, [...group, environment]);
+    const family = accountPoolFamilyKind(environment);
+    const group = groups.get(family) ?? [];
+    groups.set(family, [...group, environment]);
   });
   return [...groups.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
-    .map(([supplier, groupedEnvironments]) => ({ supplier, environments: groupedEnvironments }));
+    .map(([family, groupedEnvironments]) => ({ family, environments: groupedEnvironments }));
 };
 
 export const accountPoolVisibleModels = (environment: AccountPoolEnvironment): readonly string[] =>

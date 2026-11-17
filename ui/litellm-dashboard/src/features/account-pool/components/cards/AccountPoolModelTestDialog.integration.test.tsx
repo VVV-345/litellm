@@ -54,6 +54,33 @@ describe("card connection test", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("incomplete_response");
     expect(screen.queryByText("测试成功")).not.toBeInTheDocument();
   });
+  it("follows the card's current model list while the dialog stays open", async () => {
+    const complete = { success: true, elapsed_ms: 12, message: "Model returned a complete response", error_code: null };
+    vi.mocked(apiClient.post).mockResolvedValue(complete);
+    const { rerender } = render(
+      <AccountPoolModelTestDialog
+        accessToken="admin"
+        environment={{ id: "card-a", name: "Card A", enabled_models: ["model-a"] }}
+        onClose={vi.fn()}
+      />,
+    );
+    rerender(
+      <AccountPoolModelTestDialog
+        accessToken="admin"
+        environment={{ id: "card-a", name: "Card A", enabled_models: ["model-b"] }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("combobox", { name: "模型" })).toHaveTextContent("model-b");
+    const start = screen.getByRole("button", { name: "开始测试" });
+    expect(start).toBeEnabled();
+    fireEvent.click(start);
+    expect(await screen.findByRole("status")).toHaveTextContent("测试成功");
+    expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
+      "/account_pool/environments/card-a/test",
+      expect.objectContaining({ body: { model: "model-b", mode: "chat", stream: false } }),
+    );
+  });
 });
 
 

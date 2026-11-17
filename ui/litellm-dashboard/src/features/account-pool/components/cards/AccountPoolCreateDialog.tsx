@@ -529,7 +529,7 @@ export const AccountPoolCreateDialog = ({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className={`max-h-[calc(100dvh-2rem)] overflow-y-auto ${
-        compatibleForm ? "sm:max-w-3xl md:max-w-4xl" : "sm:max-w-xl"
+        compatibleForm ? "sm:max-w-5xl" : "sm:max-w-xl"
       }`}>
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>

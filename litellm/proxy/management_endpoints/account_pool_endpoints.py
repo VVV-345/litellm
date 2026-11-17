@@ -330,6 +330,7 @@ class AccountPoolEnvironment(BaseModel):
         "gemini_interactions",
         "vertex",
     ] = "openai_codex"
+    provider_family: str = ""
     authorization_flow: Literal["browser_oauth", "device_code", "direct_credential"] = "browser_oauth"
     configuration_pending: bool = False
     status: Literal[

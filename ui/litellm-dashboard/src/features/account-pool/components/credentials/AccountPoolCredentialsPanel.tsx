@@ -21,6 +21,7 @@ import { extractProxyErrorMessage } from "@/lib/http/client";
 
 import { formatDateTime } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
+import { accountPoolFamilyKind } from "../../utils/AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
 import { useAccountPoolCredentials } from "../../hooks/useAccountPoolCredentials";
 import { AccountPoolRefreshIntervalSelect } from "../shared/AccountPoolRefreshIntervalSelect";
@@ -437,7 +438,7 @@ export const AccountPoolCredentialsPanel = ({
                             replaceCredential === null && !uploadTargets.some((target) => target.id === environment.id)
                           }
                         >
-                          {environment.name} · {t(`accountPool.supplier.${environment.supplier}`)}
+                          {environment.name} · {t(`accountPool.supplier.${accountPoolFamilyKind(environment)}`)}
                           {credentials.some((credential) => credential.card_id === environment.id)
                             ? ` · ${t("accountPool.credentials.bound")}`
                             : ""}

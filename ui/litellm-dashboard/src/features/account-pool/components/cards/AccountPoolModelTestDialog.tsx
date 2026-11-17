@@ -28,18 +28,19 @@ export function AccountPoolModelTestDialog({ accessToken, environment, onClose }
   const { t } = useTranslation();
   const models = accountPoolUsableModels(environment);
   const [model, setModel] = useState(models[0] ?? "");
+  const selectedModel = models.includes(model) ? model : (models[0] ?? "");
   const [mode, setMode] = useState<"chat" | "responses">("chat");
   const [stream, setStream] = useState(false);
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<AccountPoolModelTestResult | null>(null);
   const [failed, setFailed] = useState(false);
   const run = async () => {
-    if (pending || !models.includes(model)) return;
+    if (pending || !selectedModel) return;
     setPending(true);
     setResult(null);
     setFailed(false);
     try {
-      setResult(await testAccountPoolModel(accessToken, environment.id, { model, mode, stream }));
+      setResult(await testAccountPoolModel(accessToken, environment.id, { model: selectedModel, mode, stream }));
     } catch {
       setFailed(true);
     } finally {
@@ -57,7 +58,7 @@ export function AccountPoolModelTestDialog({ accessToken, environment, onClose }
           <div className="grid gap-2">
             <Label htmlFor="card-test-model">{t("accountPool.modelTest.model")}</Label>
             <Select
-              value={models.includes(model) ? model : null}
+              value={selectedModel || null}
               onValueChange={(value) => {
                 if (value) setModel(value);
               }}
@@ -117,7 +118,7 @@ export function AccountPoolModelTestDialog({ accessToken, environment, onClose }
           <Button variant="outline" onClick={onClose} disabled={pending}>
             {t("accountPool.cancel")}
           </Button>
-          <Button onClick={() => void run()} disabled={pending || !models.includes(model)}>
+          <Button onClick={() => void run()} disabled={pending || !selectedModel}>
             {t(pending ? "accountPool.modelTest.running" : "accountPool.modelTest.run")}
           </Button>
         </DialogFooter>

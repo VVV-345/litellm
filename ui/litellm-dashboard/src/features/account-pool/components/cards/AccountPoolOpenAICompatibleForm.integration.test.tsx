@@ -15,6 +15,12 @@ beforeEach(async () => {
   vi.mocked(apiClient.post).mockResolvedValue({ id: "glm-card" });
 });
 
+const fillConnection = (baseUrl: string) => {
+  fireEvent.change(screen.getByLabelText("卡片名称"), { target: { value: "Fixture card" } });
+  if (baseUrl) fireEvent.change(screen.getByLabelText("服务地址"), { target: { value: baseUrl } });
+  fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "fixture-secret" } });
+};
+
 it.each([
   ["GLM（智谱国内站）", "https://open.bigmodel.cn/api/paas/v4", "glm", "接入站点"],
   ["GLM（Z.AI 国际站）", "https://api.z.ai/api/paas/v4", "glm", "接入站点"],
@@ -22,60 +28,181 @@ it.each([
   ["GLM Coding Plan（Z.AI 国际站）", "https://api.z.ai/api/coding/paas/v4", "glm", "接入站点"],
   ["OpenCode Console / Zen", "https://opencode.ai/inference/openai/v1", "opencode", "接入方案"],
   ["OpenCode Go", "https://opencode.ai/inference/go/openai/v1", "opencode", "接入方案"],
-] as const)("%s fetches from the selected resource without creating or automatically selecting a model", async (label, base, mode, presetLabel) => {
+] as const)(
+  "%s fetches from the selected resource without creating or automatically selecting a model",
+  async (label, base, mode, presetLabel) => {
+    const user = userEvent.setup();
+    const onCreated = vi.fn();
+    vi.mocked(apiClient.post).mockResolvedValueOnce(["glm-fixture-a", "glm-fixture-b"]);
+    render(
+      <AccountPoolOpenAICompatibleForm
+        mode={mode}
+        accessToken="fixture-admin"
+        onClose={vi.fn()}
+        onCreated={onCreated}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("卡片名称"), { target: { value: "Preset test" } });
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "fixture-standard-key" } });
+    await user.click(screen.getByRole("combobox", { name: presetLabel }));
+    await user.click(await screen.findByRole("option", { name: label }));
+    expect(screen.getByLabelText("服务地址")).toHaveValue(base);
+    const logoLabel = mode === "glm" ? "GLM logo" : "OpenCode logo";
+    expect(screen.getAllByRole("img", { name: logoLabel }).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText("服务地址")).toHaveAttribute("readonly");
+    expect(screen.getByText(/仅支持标准 API Key|公共目录|请选择与套餐匹配的 API Key/)).toBeInTheDocument();
+    expect(apiClient.post).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+    await waitFor(() =>
+      expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
+        "/account_pool/openai-compatible/models",
+        expect.objectContaining({
+          body: {
+            base_url: base,
+            credential: { api_key: "fixture-standard-key", weight: 1, proxy_profile_id: undefined },
+            headers: [],
+          },
+        }),
+      ),
+    );
+    expect(screen.queryByLabelText("测试模型")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("");
+    await user.click(await screen.findByRole("checkbox", { name: "glm-fixture-b" }));
+    expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("glm-fixture-b");
+    expect(screen.getByText(/第一个模型 glm-fixture-b 即测试模型/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: i18n.t("accountPool.providers.create") }));
+    await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
+    const expectedConfig = {
+      base_url: base,
+      test_model: "glm-fixture-b",
+      custom_models: ["glm-fixture-b"],
+      api_keys: [{ api_key: "fixture-standard-key", weight: 1, proxy_profile_id: undefined }],
+    };
+    const expectedRequest = {
+      provider: "openai",
+      channel: "openai_compatible",
+      supplier: "openai_compatible",
+      provider_family: "openai_compatible",
+      openai_compatible: expect.objectContaining(expectedConfig),
+    };
+    expect(apiClient.post).toHaveBeenCalledWith(
+      "/account_pool/openai-compatible",
+      expect.objectContaining({
+        body: expect.objectContaining(expectedRequest),
+      }),
+    );
+  },
+);
+
+it("submits several models ticked in one fetch and uses the first as the test model", async () => {
   const user = userEvent.setup();
   const onCreated = vi.fn();
-  vi.mocked(apiClient.post).mockResolvedValueOnce(["glm-fixture-a", "glm-fixture-b"]);
-  render(<AccountPoolOpenAICompatibleForm mode={mode} accessToken="fixture-admin" onClose={vi.fn()} onCreated={onCreated} />);
-  fireEvent.change(screen.getByLabelText("卡片名称"), { target: { value: "Preset test" } });
-  fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "fixture-standard-key" } });
-  await user.click(screen.getByRole("combobox", { name: presetLabel }));
-  await user.click(await screen.findByRole("option", { name: label }));
-  expect(screen.getByLabelText("服务地址")).toHaveValue(base);
-  const logoLabel = mode === "glm" ? "GLM logo" : "OpenCode logo";
-  expect(screen.getAllByRole("img", { name: logoLabel }).length).toBeGreaterThan(0);
-  expect(screen.getByLabelText("服务地址")).toHaveAttribute("readonly");
-  expect(screen.getByText(/仅支持标准 API Key|公共目录|请选择与套餐匹配的 API Key/)).toBeInTheDocument();
-  expect(apiClient.post).not.toHaveBeenCalled();
+  vi.mocked(apiClient.post).mockResolvedValueOnce(["fixture-alpha", "fixture-beta", "fixture-gamma"]);
+  render(
+    <AccountPoolOpenAICompatibleForm
+      mode="compatible"
+      accessToken="fixture-admin"
+      onClose={vi.fn()}
+      onCreated={onCreated}
+    />,
+  );
+  fillConnection("https://fixture.example");
   await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
-  await waitFor(() => expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
-    "/account_pool/openai-compatible/models",
-    expect.objectContaining({
-      body: { base_url: base, credential: { api_key: "fixture-standard-key", weight: 1, proxy_profile_id: undefined }, headers: [] },
-    }),
-  ));
-  expect(screen.getByLabelText("测试模型")).toHaveValue("");
-  expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("");
-  await user.click(await screen.findByRole("combobox", { name: "添加上游模型" }));
-  await user.click(await screen.findByRole("option", { name: "glm-fixture-b" }));
-  expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("glm-fixture-b");
-  expect(screen.getByLabelText("测试模型")).toHaveValue("glm-fixture-b");
+  await user.click(await screen.findByRole("checkbox", { name: "fixture-alpha" }));
+  await user.click(screen.getByRole("checkbox", { name: "fixture-gamma" }));
+
+  expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("fixture-alpha, fixture-gamma");
+  expect(screen.getByRole("button", { name: "移除模型 fixture-alpha" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("测试模型")).not.toBeInTheDocument();
+  expect(screen.getByText(/第一个模型 fixture-alpha 即测试模型/)).toBeInTheDocument();
+
   await user.click(screen.getByRole("button", { name: i18n.t("accountPool.providers.create") }));
   await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
-  const expectedConfig = {
-    base_url: base, test_model: "glm-fixture-b", custom_models: ["glm-fixture-b"],
-    api_keys: [{ api_key: "fixture-standard-key", weight: 1, proxy_profile_id: undefined }],
-  };
-  const expectedRequest = {
-    provider: "openai", channel: "openai_compatible", supplier: "openai_compatible",
-    provider_family: "openai_compatible", openai_compatible: expect.objectContaining(expectedConfig),
-  };
-  expect(apiClient.post).toHaveBeenCalledWith("/account_pool/openai-compatible", expect.objectContaining({
-    body: expect.objectContaining(expectedRequest),
-  }));
+  expect(apiClient.post).toHaveBeenCalledWith(
+    "/account_pool/openai-compatible",
+    expect.objectContaining({
+      body: expect.objectContaining({
+        openai_compatible: expect.objectContaining({
+          test_model: "fixture-alpha",
+          custom_models: ["fixture-alpha", "fixture-gamma"],
+        }),
+      }),
+    }),
+  );
+});
+
+it("mirrors manual model entry into the ticked rows and drops unticked models from the payload", async () => {
+  const user = userEvent.setup();
+  const onCreated = vi.fn();
+  vi.mocked(apiClient.post).mockResolvedValueOnce(["fixture-alpha", "fixture-beta"]);
+  render(
+    <AccountPoolOpenAICompatibleForm
+      mode="compatible"
+      accessToken="fixture-admin"
+      onClose={vi.fn()}
+      onCreated={onCreated}
+    />,
+  );
+  fillConnection("https://fixture.example");
+  await user.click(screen.getByRole("button", { name: "从资源侧获取" }));
+  await screen.findByRole("checkbox", { name: "fixture-alpha" });
+
+  fireEvent.change(screen.getByLabelText("自定义模型（逗号分隔）"), {
+    target: { value: "fixture-alpha, fixture-beta" },
+  });
+  expect(screen.getByRole("checkbox", { name: "fixture-alpha" })).toBeChecked();
+  expect(screen.getByRole("checkbox", { name: "fixture-beta" })).toBeChecked();
+
+  await user.click(screen.getByRole("checkbox", { name: "fixture-beta" }));
+  expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("fixture-alpha");
+  expect(screen.getByRole("checkbox", { name: "fixture-beta" })).not.toBeChecked();
+
+  await user.click(screen.getByRole("button", { name: i18n.t("accountPool.providers.create") }));
+  await waitFor(() => expect(onCreated).toHaveBeenCalledOnce());
+  expect(apiClient.post).toHaveBeenCalledWith(
+    "/account_pool/openai-compatible",
+    expect.objectContaining({
+      body: expect.objectContaining({
+        openai_compatible: expect.objectContaining({ test_model: "fixture-alpha", custom_models: ["fixture-alpha"] }),
+      }),
+    }),
+  );
+});
+
+it("disables creation until a model is present", async () => {
+  render(
+    <AccountPoolOpenAICompatibleForm
+      mode="compatible"
+      accessToken="fixture-admin"
+      onClose={vi.fn()}
+      onCreated={vi.fn()}
+    />,
+  );
+  await waitFor(() => expect(apiClient.get).toHaveBeenCalledOnce());
+  fillConnection("https://fixture.example");
+  expect(screen.getByRole("button", { name: i18n.t("accountPool.providers.create") })).toBeDisabled();
+  expect(screen.getByText("至少填写或勾选一个模型后才能创建卡片。")).toBeInTheDocument();
 });
 
 it("lets generic compatibility fetch with its selected proxy and headers, preserving manual entry on failure", async () => {
   const user = userEvent.setup();
   vi.mocked(apiClient.get).mockResolvedValue([{ id: "fixture-proxy", name: "测试代理" }]);
   vi.mocked(apiClient.post).mockRejectedValueOnce(new ApiError("model_list_http_401", 502, {}));
-  render(<AccountPoolOpenAICompatibleForm mode="compatible" accessToken="fixture-admin" onClose={vi.fn()} onCreated={vi.fn()} />);
+  render(
+    <AccountPoolOpenAICompatibleForm
+      mode="compatible"
+      accessToken="fixture-admin"
+      onClose={vi.fn()}
+      onCreated={vi.fn()}
+    />,
+  );
   expect(screen.queryByText("接入站点")).not.toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("服务地址"), { target: { value: "https://fixture.example" } });
-  fireEvent.change(screen.getByLabelText("测试模型"), { target: { value: "custom-test" } });
   fireEvent.change(screen.getByLabelText("自定义模型（逗号分隔）"), { target: { value: "custom-a, custom-b" } });
   fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "fixture-secret" } });
-  await user.click(screen.getByRole("combobox", { name: i18n.t("accountPool.providers.openaiCompatible.proxyProfileId") }));
+  await user.click(
+    screen.getByRole("combobox", { name: i18n.t("accountPool.providers.openaiCompatible.proxyProfileId") }),
+  );
   await user.click(await screen.findByRole("option", { name: "测试代理" }));
   await user.click(screen.getByText("高级连接设置"));
   await user.click(screen.getByRole("button", { name: i18n.t("accountPool.providers.openaiCompatible.addHeader") }));
@@ -92,14 +219,16 @@ it("lets generic compatibility fetch with its selected proxy and headers, preser
   expect(screen.getByRole("img", { name: "openai logo" })).toBeInTheDocument();
   expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
     "/account_pool/openai-compatible/models",
-    expect.objectContaining({ body: {
-      base_url: "https://fixture.example/v1",
-      credential: { api_key: "fixture-secret", weight: 1, proxy_profile_id: "fixture-proxy" },
-      headers: [["X-Fixture", "fixture-value"]],
-    } }),
+    expect.objectContaining({
+      body: {
+        base_url: "https://fixture.example/v1",
+        credential: { api_key: "fixture-secret", weight: 1, proxy_profile_id: "fixture-proxy" },
+        headers: [["X-Fixture", "fixture-value"]],
+      },
+    }),
   );
   expect(screen.getByLabelText("服务地址")).not.toHaveAttribute("readonly");
-  expect(screen.getByLabelText("测试模型")).toHaveValue("custom-test");
   expect(screen.getByLabelText("自定义模型（逗号分隔）")).toHaveValue("custom-a, custom-b");
+  expect(screen.queryByLabelText("测试模型")).not.toBeInTheDocument();
   expect(screen.getByLabelText("API Key")).toHaveAttribute("type", "password");
 });

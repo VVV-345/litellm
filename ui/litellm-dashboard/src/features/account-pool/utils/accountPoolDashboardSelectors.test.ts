@@ -10,6 +10,7 @@ import {
   summarizeAccountPoolDashboard,
 } from "./accountPoolDashboardSelectors";
 import type { AccountPoolEnvironment } from "./AccountPoolTypes";
+import { accountPoolFamilyKind } from "./AccountPoolTypes";
 
 const environment = (id: string, supplier: AccountPoolEnvironment["supplier"]): AccountPoolEnvironment =>
   ({
@@ -110,6 +111,26 @@ describe("account pool dashboard selectors", () => {
     expect(groupAccountPoolEnvironments([card, environment("two", "openai_codex")])).toHaveLength(1);
     expect(accountPoolVisibleModels(withModels)).toEqual(["a", "b", "c"]);
     expect(accountPoolHiddenModelCount(withModels)).toBe(1);
+  });
+
+  it("keeps GLM and OpenCode cards in their own provider families instead of OpenAI-compatible", () => {
+    const compatible = { ...environment("compatible", "openai_compatible"), provider_family: "openai_compatible" };
+    const glm = { ...environment("glm", "openai_compatible"), provider_family: "glm" };
+    const opencode = { ...environment("opencode", "openai_compatible"), provider_family: "opencode" };
+    const codex = environment("codex", "openai_codex");
+
+    const groups = groupAccountPoolEnvironments([compatible, glm, opencode, codex]);
+
+    expect(groups.map((group) => group.family)).toEqual(["glm", "openai_codex", "openai_compatible", "opencode"]);
+    expect(groups.find((group) => group.family === "glm")?.environments).toEqual([glm]);
+    expect(groups.find((group) => group.family === "openai_compatible")?.environments).toEqual([compatible]);
+    expect(groups.find((group) => group.family === "opencode")?.environments).toEqual([opencode]);
+  });
+
+  it("falls back to the supplier when a card predates the provider family field", () => {
+    const legacy = environment("legacy", "openai_compatible");
+    expect(accountPoolFamilyKind(legacy)).toBe("openai_compatible");
+    expect(groupAccountPoolEnvironments([legacy])[0]?.family).toBe("openai_compatible");
   });
   it("excludes pending authorization and configuration from available cards", () => {
     const ready = environment("ready", "openai_codex");

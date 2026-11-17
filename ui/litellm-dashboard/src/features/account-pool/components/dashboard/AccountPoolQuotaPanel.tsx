@@ -15,6 +15,7 @@ import {
   quotaWindowLabel,
 } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
+import { accountPoolFamilyKind } from "../../utils/AccountPoolTypes";
 
 export const AccountPoolQuotaPanel = ({ environments }: { environments: readonly AccountPoolEnvironment[] }) => {
   const { t, i18n } = useTranslation();
@@ -77,7 +78,7 @@ export const AccountPoolQuotaPanel = ({ environments }: { environments: readonly
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <CardTitle className="truncate text-base">{environment.name}</CardTitle>
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant="outline">{t(`accountPool.supplier.${environment.supplier}`)}</Badge>
+                      <Badge variant="outline">{t(`accountPool.supplier.${accountPoolFamilyKind(environment)}`)}</Badge>
                       {quota.refresh_status ? (
                         <Badge
                           variant={

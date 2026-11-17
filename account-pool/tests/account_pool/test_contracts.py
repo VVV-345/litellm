@@ -11,6 +11,8 @@ from account_pool.domain import (
     CleanupProgress,
     EnvironmentRecord,
     EnvironmentStatus,
+    OpenAICompatibleConfiguration,
+    OpenAICompatibleCredential,
     Provider,
     ProxyMode,
     QuotaSnapshot,
@@ -127,6 +129,47 @@ def test_to_view_includes_channel_and_supplier_without_internal_authorization_fi
         assert field not in payload
 
 
+def test_to_view_reports_the_provider_family_used_for_dashboard_grouping() -> None:
+    now: Final = datetime.now(timezone.utc)
+
+    def view_for(base_url: str) -> EnvironmentView:
+        record: Final = EnvironmentRecord(
+            id=uuid4(),
+            name="compatible",
+            provider=Provider.OPENAI,
+            channel=ChannelKind.OPENAI_COMPATIBLE,
+            supplier=SupplierKind.OPENAI_COMPATIBLE,
+            openai_compatible=OpenAICompatibleConfiguration(
+                base_url=base_url,
+                test_model="glm-5.3",
+                credentials=(OpenAICompatibleCredential(api_key_ciphertext="ciphertext"),),
+            ),
+            status=EnvironmentStatus.READY,
+            enabled=True,
+            manual_cooldown=False,
+            concurrency_limit=1,
+            proxy_mode=ProxyMode.DEFAULT_GATEWAY,
+            proxy_profile_id=None,
+            available_models=("glm-5.3",),
+            enabled_models=("glm-5.3",),
+            auth_file_name="encrypted-api-keys",
+            auth_index=None,
+            quota=QuotaSnapshot(),
+            cooldown_until=None,
+            oauth_state=None,
+            oauth_expires_at=None,
+            last_error=None,
+            created_at=now,
+            updated_at=now,
+        )
+        return to_view(record)
+
+    assert view_for("https://open.bigmodel.cn/api/paas/v4").provider_family == "glm"
+    assert view_for("https://api.z.ai/api/coding/paas/v4").provider_family == "glm"
+    assert view_for("https://opencode.ai/inference/openai/v1").provider_family == "opencode"
+    assert view_for("https://fixture.example/v1").provider_family == "openai_compatible"
+
+
 def test_authorization_view_contract_has_only_public_authorization_instructions() -> None:
     now: Final = datetime.now(timezone.utc)
     authorization: Final = AuthorizationView(
@@ -188,6 +231,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "provider": "openai",
             "channel": "cliproxyapi",
             "supplier": "openai_codex",
+            "provider_family": "",
             "authorization_flow": "browser_oauth",
             "status": "awaiting_authorization",
             "configuration_pending": False,

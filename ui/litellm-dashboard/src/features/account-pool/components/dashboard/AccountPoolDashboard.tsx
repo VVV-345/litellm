@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 
 import { formatCount, formatDateTime } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolQuotaRefreshStatus, ErrorStats } from "../../api/AccountPoolManagementApi";
-import type { AccountPoolEnvironment, AccountPoolSupplier } from "../../utils/AccountPoolTypes";
+import type { AccountPoolEnvironment, AccountPoolFamilyKind } from "../../utils/AccountPoolTypes";
 import { AccountPoolSortableCards } from "../cards/AccountPoolSortableCards";
 import dynamic from "next/dynamic";
 import { loadAccountPoolQuotaPanel } from "../../preloadModules";
@@ -88,7 +88,7 @@ export const AccountPoolDashboard = ({
   const interval = useAccountPoolQuotaInterval(accessToken);
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [pageSize, setPageSize] = useState<number>(4);
-  const [pages, setPages] = useState<Partial<Record<AccountPoolSupplier, number>>>({});
+  const [pages, setPages] = useState<Partial<Record<AccountPoolFamilyKind, number>>>({});
   const filtered = useMemo(
     () => filterAccountPoolDashboardEnvironments(environments, filters),
     [environments, filters],
@@ -334,20 +334,22 @@ export const AccountPoolDashboard = ({
       ) : (
         <AccountPoolWorkspace
           title="卡片"
-          defaultValue={visibleGroups.some((group) => group.supplier === "openai_codex") ? "openai_codex" : visibleGroups[0]?.supplier}
+          defaultValue={
+            visibleGroups.some((group) => group.family === "openai_codex") ? "openai_codex" : visibleGroups[0]?.family
+          }
           defaultOpen
           items={visibleGroups.map((group) => ({
-            value: group.supplier,
-            label: t(`accountPool.supplier.${group.supplier}`),
+            value: group.family,
+            label: t(`accountPool.supplier.${group.family}`),
             summary: `${group.environments.length}`,
             content: (
               <AccountPoolSortableCards
-                supplier={group.supplier}
+                supplier={group.family}
                 cards={group.environments}
                 pagination={{
-                  page: pages[group.supplier] ?? 1,
+                  page: pages[group.family] ?? 1,
                   pageSize,
-                  onPageChange: (page) => setPages((current) => ({ ...current, [group.supplier]: page })),
+                  onPageChange: (page) => setPages((current) => ({ ...current, [group.family]: page })),
                 }}
               >
                 {(environment) => renderCard(environment, statsByCard.get(environment.id))}

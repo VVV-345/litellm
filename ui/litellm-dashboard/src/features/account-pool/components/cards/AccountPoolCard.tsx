@@ -34,6 +34,7 @@ import type {
   AccountPoolProxyGatewayDelay,
   AccountPoolISPProbe,
 } from "../../utils/AccountPoolTypes";
+import { accountPoolFamilyKind } from "../../utils/AccountPoolTypes";
 import { accountPoolLatency } from "../../utils/accountPoolLatency";
 import { AccountPoolCardQuota } from "./AccountPoolCardQuota";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
@@ -122,6 +123,7 @@ const AccountPoolCardComponent = ({
   const usableModels = accountPoolUsableModels(environment);
   const visibleModels = accountPoolVisibleModels(environment);
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
+  const family = accountPoolFamilyKind(environment);
   const showPlan = environment.supplier !== "openai_codex" && Boolean(environment.quota.plan_type);
   const showLabels = showPlan || Boolean(group) || tags.length > 0;
   const policyValues = policy?.policy;
@@ -181,11 +183,11 @@ const AccountPoolCardComponent = ({
       <CardHeader className="gap-2">
         <div className="flex min-w-0 items-start justify-between gap-3 pr-8">
           <div className="flex min-w-0 items-start gap-3">
-            <AccountPoolSupplierLogo supplier={environment.supplier} className="mt-0.5 size-6 shrink-0" />
+            <AccountPoolSupplierLogo supplier={family} className="mt-0.5 size-6 shrink-0" />
             <div className="min-w-0">
               <CardTitle className="break-all text-base leading-6">{environment.name}</CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
-                {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${environment.supplier}`)}
+                {t(`accountPool.channel.${environment.channel}`)} · {t(`accountPool.supplier.${family}`)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground">
                 {t("accountPool.spendUsed", { amount: spendAmount })}

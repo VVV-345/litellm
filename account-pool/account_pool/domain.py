@@ -567,6 +567,7 @@ class EnvironmentView(BaseModel):
     provider: Provider
     channel: ChannelKind = ChannelKind.CLIPROXYAPI
     supplier: SupplierKind = SupplierKind.OPENAI_CODEX
+    provider_family: str = ""
     authorization_flow: AuthorizationFlow = AuthorizationFlow.BROWSER_OAUTH
     status: EnvironmentStatus
     configuration_pending: bool
@@ -775,6 +776,8 @@ def utc_now() -> datetime:
 
 def to_view(record: EnvironmentRecord) -> EnvironmentView:
     # 显式构造公开模型，避免未来新增内部字段时意外泄露 state、签名或代理凭据。
+    from account_pool.provider_families import provider_family_kind
+
     return EnvironmentView(
         access_token_fallback=record.access_token_fallback,
         credential_refresh=record.credential_refresh,
@@ -789,6 +792,7 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
         provider=record.provider,
         channel=record.channel,
         supplier=record.supplier,
+        provider_family=provider_family_kind(record),
         authorization_flow=record.authorization_flow,
         status=record.status,
         configuration_pending=record.configuration_pending,
