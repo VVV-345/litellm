@@ -441,7 +441,10 @@ def _run_browser_page(chromium: Chromium, authorization_url: str, proxy_server: 
     )
     try:
         page: Final = browser.new_page()
-        page.goto(authorization_url, wait_until="domcontentloaded", timeout=30_000)
+        page.goto(
+            authorization_url, wait_until="domcontentloaded",
+            timeout=int(os.environ.get("OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS", "60")) * 1000,
+        )
         ready_file.touch()
         while True:
             page.wait_for_timeout(30_000)

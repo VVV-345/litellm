@@ -9,7 +9,13 @@ import yaml
 
 from account_pool.config import Settings, validate_proxy_profile_url
 from account_pool.domain import EnvironmentRecord
-from account_pool.oauth_browser import OAuthBrowserAutomation, OAuthBrowserSession, oauth_browser_control_host
+from account_pool.oauth_browser import (
+    OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS,
+    OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS,
+    OAuthBrowserAutomation,
+    OAuthBrowserSession,
+    oauth_browser_control_host,
+)
 
 
 def render_cli_proxy_config(management_key: str, gateway_key: str, *, proxy_url: str = "") -> str:
@@ -129,6 +135,7 @@ def render_oauth_browser_compose(
                     "CHROME_PROXY": "http://egress-relay:8080",
                     "CALLBACK_RELAY_URL": "http://callback-relay:8092/callback",
                     "OAUTH_AUTHORIZATION_URL": authorization_url,
+                    "OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS": str(OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS),
                     "OAUTH_CALLBACK_LISTEN_PORT": str(callback_port),
                     "OAUTH_CALLBACK_LISTEN_PATH": callback_path,
                     "OAUTH_BROWSER_EXPIRES_AT": min(session.expires_at, automation.expires_at).isoformat() if automation else session.expires_at.isoformat(),
@@ -148,8 +155,8 @@ def render_oauth_browser_compose(
                     "test": ["CMD", "python", "/app/entrypoint.py", "healthcheck", "browser"],
                     "interval": "2s",
                     "timeout": "5s",
-                    "retries": 20,
-                    "start_period": "5s",
+                    "retries": 3,
+                    "start_period": f"{OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS}s",
                 },
                 "restart": "no",
             },

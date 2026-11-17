@@ -712,10 +712,11 @@ class AccountPoolManagerClient:
                 headers=headers,
                 content=body,
                 timeout=(
-                    120.0
+                    240.0
+                    if path.endswith("/oauth-browser-sessions") and method == "POST"
+                    else 120.0
                     if (
-                        (path.endswith("/oauth-browser-sessions") and method == "POST")
-                        or "/quota-reset" in path
+                        "/quota-reset" in path
                         or path.endswith("/access-token-fallback/verify")
                     )
                     else self._client.timeout

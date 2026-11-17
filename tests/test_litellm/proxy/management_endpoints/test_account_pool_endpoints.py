@@ -1487,7 +1487,7 @@ def test_browser_websocket_relays_binary_and_closes_after_upstream_disconnect() 
 
 def test_browser_start_has_timeout_for_worker_health_gate() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        assert request.extensions["timeout"]["read"] == 120.0
+        assert request.extensions["timeout"]["read"] == 240.0
         return httpx.Response(503)
 
     async def run():
@@ -1557,3 +1557,28 @@ def test_dashboard_rejects_invalid_range_without_reading_statistics(days):
     app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
     with TestClient(app) as client:
         assert client.get(f"/account_pool/dashboard?days={days}").status_code == 422
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method,path,expected",
+    [
+        ("POST", "/api/environments/test/oauth-browser-sessions", 240.0),
+        ("GET", "/api/environments/test/oauth-browser-sessions", 30.0),
+        ("POST", "/api/environments/test/quota-reset", 120.0),
+        ("POST", "/api/environments/test/access-token-fallback/verify", 120.0),
+    ],
+)
+async def test_browser_creation_timeout_leaves_other_manager_requests_unchanged(
+    method: Literal["POST", "GET"],
+    path: str,
+    expected: float,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.extensions["timeout"]["read"] == expected
+        return httpx.Response(200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler), timeout=30.0) as transport:
+        manager: Final = AccountPoolManagerClient("http://manager.test", "m" * 32, client=transport)
+        response: Final = await manager.request(method, path)
+        assert response.status_code == 200

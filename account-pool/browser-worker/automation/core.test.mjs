@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateAuthorization } from "./core.mjs";
+import * as startup from "./core.mjs";
 
 const valid = () => {
   const url = new URL("https://auth.openai.com/oauth/authorize");
@@ -31,4 +32,57 @@ test("untrusted authorization cannot receive credentials", () => {
     change(url);
     assert.throws(() => validateAuthorization(url.href), /url/);
   }
+});
+
+test("slow authorization navigation uses the shared 60 second budget without retries", async () => {
+  const events = [];
+  let calls = 0;
+  let now = 0;
+  const page = { goto: async (url, options) => {
+    calls += 1;
+    assert.equal(url, valid().href);
+    assert.equal(options.waitUntil, "domcontentloaded");
+    assert.equal(options.timeout, 60_000);
+    now = 50_000;
+  } };
+  await startup.openAuthorizationPage(page, valid().href, "60", { now: () => now, log: (event) => events.push(event) });
+  assert.equal(calls, 1);
+  assert.deepEqual(events.map(({ status, elapsed_ms }) => [status, elapsed_ms]), [["started", 0], ["ready", 50_000]]);
+});
+
+test("startup errors report only safe stage, category and elapsed time", async () => {
+  for (const [name, message, reason] of [
+    ["TimeoutError", "https://auth.example/?state=DO_NOT_LOG password=DO_NOT_LOG", "timeout"],
+    ["Error", "net::ERR_PROXY_CONNECTION_FAILED DO_NOT_LOG", "proxy_error"],
+    ["Error", "SSL_ERROR DO_NOT_LOG", "tls_error"],
+    ["Error", "password DO_NOT_LOG", "process_error"],
+  ]) {
+    const events = [];
+    const error = Object.assign(new Error(message), { name });
+    await assert.rejects(startup.runStartupStage("page_navigation", async () => { throw error; }, {
+      now: () => 10, log: (event) => events.push(event),
+    }), (caught) => caught === error);
+    assert.equal(events.at(-1).reason, reason);
+    assert.equal(events.at(-1).stage, "page_navigation");
+    assert.equal(events.at(-1).status, "failed");
+    assert.equal(JSON.stringify(events).includes("DO_NOT_LOG"), false);
+  }
+});
+
+test("navigation timeout propagates once without retrying or reporting readiness", async () => {
+  const events = [];
+  let calls = 0;
+  let now = 0;
+  const page = { goto: async (_url, { timeout }) => {
+    calls += 1;
+    now = timeout;
+    throw Object.assign(new Error("state=DO_NOT_LOG"), { name: "TimeoutError" });
+  } };
+  await assert.rejects(startup.openAuthorizationPage(page, valid().href, "60", {
+    now: () => now, log: (event) => events.push(event),
+  }), { name: "TimeoutError" });
+  assert.equal(calls, 1);
+  assert.deepEqual(events.map(({ status }) => status), ["started", "failed"]);
+  assert.equal(events.at(-1).elapsed_ms, 60_000);
+  assert.equal(JSON.stringify(events).includes("DO_NOT_LOG"), false);
 });

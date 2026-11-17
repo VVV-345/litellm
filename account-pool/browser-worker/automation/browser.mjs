@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { setTimeout } from "node:timers/promises";
 import { firefox } from "playwright-core";
 import { automateLogin, parseCredential, verifyResumableAccount } from "./login.mjs";
-import { validateAuthorization } from "./core.mjs";
+import { openAuthorizationPage, runStartupStage, validateAuthorization } from "./core.mjs";
 import { BrowserControl, createControlServer } from "./control.mjs";
 
 const exec = promisify(execFile);
@@ -22,9 +22,11 @@ async function main() {
   if (process.env.CHROME_PROXY !== "http://egress-relay:8080") throw new Error("proxy");
   const authorization = process.env.OAUTH_AUTHORIZATION_URL;
   const trusted = automatic ? validateAuthorization(authorization) : null;
-  const options = JSON.parse(execFileSync("python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 }));
+  const options = await runStartupStage("profile", async () => JSON.parse(execFileSync(
+    "python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 },
+  )));
   const locale = automatic ? JSON.parse(process.env.OAUTH_FINGERPRINT_PROFILE).locale : "en-US";
-  const browser = await firefox.launch(options);
+  const browser = await runStartupStage("browser_launch", () => firefox.launch(options));
   const context = await browser.newContext({ viewport: null });
   const page = await context.newPage();
   let controller = null;
@@ -34,7 +36,7 @@ async function main() {
   process.once("SIGINT", () => stop.abort());
   try {
     if (automatic) await input(false);
-    await page.goto(authorization, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await openAuthorizationPage(page, authorization, process.env.OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS);
     if (automatic) {
       if (new URL(page.url()).origin === "https://auth.openai.com") {
         process.stderr.write(`OAuth email form readiness: labelled=${await page.getByLabel("Email address", { exact: true }).count()}, typed=${await page.locator('input[type="email"]').count()}\n`);
@@ -63,7 +65,13 @@ async function main() {
           return controller;
         },
       });
-      await new Promise((resolve) => server.listen(8094, "0.0.0.0", resolve));
+      await runStartupStage("control_listener", () => new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(8094, "0.0.0.0", () => {
+          server.off("error", reject);
+          resolve();
+        });
+      }));
     }
     writeFileSync(readyFile, "ready", { mode: 0o600 });
     while (!stop.signal.aborted && Date.now() < deadline && browser.isConnected()) {
@@ -79,7 +87,7 @@ async function main() {
   }
 }
 
-main().catch(() => {
+runStartupStage("driver", main).catch(() => {
   process.stderr.write("OAuth browser driver failed; inspect the isolated worker health and pinned image\n");
   process.exitCode = 1;
 });

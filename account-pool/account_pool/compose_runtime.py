@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import logging
 import os
 import re
 import shutil
@@ -12,11 +13,11 @@ import tarfile
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
 from uuid import UUID, uuid4
 
 import yaml
-from pydantic import BaseModel, ConfigDict, TypeAdapter
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from account_pool.compose_renderer import (
     data_volume_name,
@@ -26,7 +27,12 @@ from account_pool.compose_renderer import (
 )
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus
-from account_pool.oauth_browser import OAuthBrowserAutomation, OAuthBrowserSession
+from account_pool.oauth_browser import (
+    OAUTH_BROWSER_COMMAND_TIMEOUT_SECONDS,
+    OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS,
+    OAuthBrowserAutomation,
+    OAuthBrowserSession,
+)
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 
@@ -43,6 +49,27 @@ class DockerProcess(Protocol):
 
 
 DockerRunner = Callable[[tuple[str, ...], dict[str, str]], Awaitable[DockerProcess]]
+
+_LOGGER: Final = logging.getLogger(__name__)
+
+
+class _BrowserContainerState(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+    service: Literal["browser", "callback-relay", "egress-relay"] = Field(alias="Service")
+    state: Literal["created", "restarting", "running", "removing", "paused", "exited", "dead"] = Field(alias="State")
+    health: Literal["", "starting", "healthy", "unhealthy"] = Field(default="", alias="Health")
+    exit_code: int = Field(default=0, alias="ExitCode", ge=-1, le=255, strict=True)
+
+
+class _BrowserStartupEvent(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="ignore")
+    stage: Literal["profile", "browser_launch", "page_navigation", "control_listener", "driver"]
+    status: Literal["started", "ready", "failed"]
+    elapsed_ms: int = Field(ge=0, le=3_600_000, strict=True)
+    reason: Literal["timeout", "proxy_error", "tls_error", "process_error"] | None = None
+
+
+_BROWSER_STATES: Final = TypeAdapter(_BrowserContainerState | tuple[_BrowserContainerState, ...])
 
 # 仅用于 chown 数据卷的固定 alpine 版本，digest 与 cli_proxy_image 同等锁定。
 _CHOWN_IMAGE: Final = "alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc"
@@ -431,14 +458,72 @@ class ComposeRuntime:
                 "-d",
                 "--wait",
                 "--wait-timeout",
-                "45",
+                str(OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS),
                 "--pull",
                 "never",
                 "--remove-orphans",
+                timeout_seconds=OAUTH_BROWSER_COMMAND_TIMEOUT_SECONDS,
             )
-        except BaseException:
-            await asyncio.shield(self.remove_oauth_browser(session.id))
+        except BaseException as error:
+            reason: Final = (
+                "cancelled" if isinstance(error, asyncio.CancelledError)
+                else "docker_timeout" if isinstance(error.__cause__, TimeoutError)
+                else "compose_failed"
+            )
+            _LOGGER.warning("OAuth browser startup failed session=%s reason=%s", session.id, reason)
+            try:
+                if isinstance(error, Exception):
+                    await self._log_oauth_browser_diagnostics(session.id, directory)
+            finally:
+                await asyncio.shield(self.remove_oauth_browser(session.id))
             raise
+
+    async def _log_oauth_browser_diagnostics(self, session_id: UUID, directory: Path) -> None:
+        for action in (
+            ("ps", "--all", "--format", "json"),
+            ("logs", "--no-color", "--no-log-prefix", "--tail", "30", "browser"),
+        ):
+            try:
+                process: Final = await self._runner(
+                    (
+                        "docker",
+                        "compose",
+                        "--project-name",
+                        f"account-pool-oauth-browser-{session_id.hex}",
+                        "--file",
+                        str(directory / "compose.yaml"),
+                        *action,
+                    ),
+                    self._docker_environment(),
+                )
+                stdout, stderr = await communicate_with_timeout(process, 5)
+                if process.returncode != 0:
+                    _LOGGER.warning("OAuth browser diagnostics unavailable session=%s source=%s", session_id, action[0])
+                    continue
+                # 只接受固定字段与枚举，不能把容器原始日志、命令或环境变量转存到 Manager。
+                lines: Final = (
+                    line
+                    for output in (stdout, stderr)
+                    for line in output[:16_384].decode("utf-8", errors="replace").splitlines()[:30]
+                )
+                for line in lines:
+                    try:
+                        if action[0] == "ps":
+                            parsed: Final = _BROWSER_STATES.validate_json(line)
+                            states: Final = parsed if isinstance(parsed, tuple) else (parsed,)
+                            for state in states[:3]:
+                                _LOGGER.warning(
+                                    "OAuth browser state session=%s %s", session_id, state.model_dump_json()
+                                )
+                        elif line.startswith("oauth_browser_startup "):
+                            event: Final = _BrowserStartupEvent.model_validate_json(
+                                line.removeprefix("oauth_browser_startup ")
+                            )
+                            _LOGGER.warning("OAuth browser stage session=%s %s", session_id, event.model_dump_json())
+                    except ValidationError:
+                        continue
+            except Exception:
+                _LOGGER.warning("OAuth browser diagnostics unavailable session=%s source=%s", session_id, action[0])
 
     async def remove_oauth_browser(self, session_id: UUID) -> None:
         directory: Final = self.oauth_browser_dir(session_id)
@@ -567,7 +652,9 @@ class ComposeRuntime:
         compose_file: Final = self.environment_dir(environment_id) / "compose.yaml"
         await self._compose_at(f"account-pool-{environment_id.hex}", compose_file.parent, *arguments)
 
-    async def _compose_at(self, project_name: str, environment_dir: Path, *arguments: str) -> None:
+    async def _compose_at(
+        self, project_name: str, environment_dir: Path, *arguments: str, timeout_seconds: float | None = None,
+    ) -> None:
         compose_file: Final = environment_dir / "compose.yaml"
         if not compose_file.exists() and arguments and arguments[0] == "down":
             return
@@ -575,7 +662,9 @@ class ComposeRuntime:
             ("docker", "compose", "--project-name", project_name, "--file", str(compose_file), *arguments),
             self._docker_environment(),
         )
-        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        stdout, stderr = await communicate_with_timeout(
+            process, self._settings.docker_command_timeout_seconds if timeout_seconds is None else timeout_seconds,
+        )
         if process.returncode != 0:
             detail: Final = (
                 stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()

@@ -24,3 +24,31 @@ export function validateAuthorization(value) {
     throw new Error("url");
   }
 }
+
+export async function runStartupStage(stage, operation, {
+  now = Date.now,
+  log = (event) => process.stderr.write(`oauth_browser_startup ${JSON.stringify(event)}\n`),
+} = {}) {
+  const started = now();
+  log({ stage, status: "started", elapsed_ms: 0 });
+  try {
+    const result = await operation();
+    log({ stage, status: "ready", elapsed_ms: Math.max(0, now() - started) });
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    const reason = error?.name === "TimeoutError" ? "timeout"
+      : /proxy/i.test(message) ? "proxy_error"
+      : /SSL|TLS|CERT_/i.test(message) ? "tls_error" : "process_error";
+    log({ stage, status: "failed", elapsed_ms: Math.max(0, now() - started), reason });
+    throw error;
+  }
+}
+
+export async function openAuthorizationPage(page, authorization, seconds = "60", diagnostics) {
+  const timeout = Number(seconds) * 1000;
+  if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 120_000) throw new Error("invalid navigation timeout");
+  return runStartupStage("page_navigation", () => page.goto(authorization, {
+    waitUntil: "domcontentloaded", timeout,
+  }), diagnostics);
+}

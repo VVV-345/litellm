@@ -24,6 +24,12 @@ token、密码和回调 code 不进入命令参数、日志或截图。worker �
 
 ## 可选授权自动化与 2FA
 
+浏览器启动采用分层超时：首次授权页导航 60 秒、Compose 等待就绪 120 秒、该次 Docker 启动命令 150 秒，同步创建会话的 Manager HTTP 调用为 240 秒，给准备、诊断和清理留出余量。Manager 在 `oauth_browser.py` 集中定义启动预算，并把导航预算传给 worker；其他 Docker 命令和接口超时不变，登录自动化与会话总时限也不变
+
+browser 健康检查有 120 秒启动宽限，导航与控制入口就绪后仍立即放行；不提前写 ready 文件。首次成功后连续 3 次探针失败即判定不健康。启动失败时先采集容器状态和浏览器阶段事件，再清理会话；两次诊断命令各限 5 秒，日志取最后 30 行，每路输出最多解析 16 KiB。Manager 只记录固定的服务、状态、退出码、阶段、耗时和错误分类，不转存原始 stderr、环境变量或授权参数。诊断失败不能阻止清理，取消启动仍终止命令并清理资源
+
+worker 日志以 `oauth_browser_startup` 标记阶段，Manager 日志以 session ID 关联 `OAuth browser startup failed`、`OAuth browser state` 和 `OAuth browser stage`。导航超时、代理错误、TLS 错误与进程错误分开记录，不自动重新提交登录资料。镜像需配套更新 Manager、browser-worker 和同步接口所在的 LiteLLM 才完整生效；这些日志和本地模拟测试不能替代真实授权验收，不需要修改 socket proxy 权限
+
 Manager 的 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 必须使用 digest。“自动化上号”下的“2FA / OAuth 授权”保留原任务队列、指纹配置和运行设置，默认关闭。先自检当前镜像、准备指纹，再选择已有空白 Codex 卡或填写卡名、选择代理创建新卡，提交一条 `email----password----TOTPBase32` 资料。卡名留空沿用 Codex-套餐-账号；不覆盖自定义名称。手动 OAuth 与邮箱库存保留在同一授权页
 
 授权队列只允许删除已结束、清理完成的单条记录。删除不会移除卡片、凭据、浏览器指纹或账号绑定，不能以删除代替取消任务

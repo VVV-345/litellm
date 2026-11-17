@@ -118,6 +118,9 @@ def test_browser_compose_keeps_worker_internal_and_binds_only_selected_proxy(tmp
     }
     for name in ("browser", "callback-relay", "egress-relay"):
         assert services[name]["healthcheck"]["test"] == ["CMD", "python", "/app/entrypoint.py", "healthcheck", name]
+    assert browser["environment"]["OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS"] == "60"
+    assert browser["healthcheck"]["start_period"] == "120s"
+    assert browser["healthcheck"]["retries"] == 3
 
 
 def test_browser_compose_rejects_proxy_credentials_and_direct_browser_egress(tmp_path: Path) -> None:
@@ -193,7 +196,7 @@ async def test_browser_runtime_removes_session_compose_and_private_files(tmp_pat
         "up",
     )
     assert "--wait" in calls[-1]
-    assert calls[-1][calls[-1].index("--wait-timeout") + 1] == "45"
+    assert calls[-1][calls[-1].index("--wait-timeout") + 1] == "120"
     assert calls[-1][calls[-1].index("--pull") + 1] == "never"
 
     await runtime.remove_oauth_browser(session.id)
@@ -245,6 +248,145 @@ def worker() -> ModuleType:
     return module
 
 
+@pytest.mark.asyncio
+async def test_browser_startup_command_budget_does_not_change_other_docker_commands(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import account_pool.compose_runtime as runtime_module
+
+    timeouts: Final[list[float]] = []
+    communicate: Final = runtime_module.communicate_with_timeout
+
+    async def observed(process: DockerProcess, timeout_seconds: float) -> tuple[bytes, bytes]:
+        timeouts.append(timeout_seconds)
+        return await communicate(process, timeout_seconds)
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
+        return _CompletedProcess()
+
+    monkeypatch.setattr(runtime_module, "communicate_with_timeout", observed)
+    settings: Final = _settings(tmp_path, f"registry.example/browser@sha256:{'d' * 64}").model_copy(
+        update={"docker_command_timeout_seconds": 7.0}
+    )
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver(settings.secret_seed), runner=runner)
+    session: Final = _session()
+    await runtime.start_oauth_browser(
+        session,
+        proxy_url="http://proxy.example:8080",
+        authorization_url="https://auth.example/authorize",
+        callback_token="test-secret",
+        callback_port=1455,
+        callback_path="/auth/callback",
+    )
+    await runtime.remove_oauth_browser(session.id)
+    assert timeouts == [150.0, 7.0]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("diagnostics_result", ["ok", "exit", "timeout"])
+async def test_browser_startup_diagnostics_are_safe_bounded_and_precede_cleanup(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    diagnostics_result: str,
+) -> None:
+    import asyncio
+    import json
+
+    import account_pool.compose_runtime as runtime_module
+
+    calls: Final[list[tuple[str, ...]]] = []
+    timeouts: Final[list[float]] = []
+    communicate: Final = runtime_module.communicate_with_timeout
+
+    async def observed(process: DockerProcess, timeout_seconds: float) -> tuple[bytes, bytes]:
+        timeouts.append(timeout_seconds)
+        return await communicate(process, 0.01 if timeout_seconds == 5 else timeout_seconds)
+
+    monkeypatch.setattr(runtime_module, "communicate_with_timeout", observed)
+
+    class Process(_CompletedProcess):
+        def __init__(self, code: int, output: bytes = b"", error_output: bytes = b"") -> None:
+            self.returncode = code
+            self.output = output
+            self.error_output = error_output
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return self.output, self.error_output
+
+    class PendingDiagnostic(Process):
+        def __init__(self) -> None:
+            super().__init__(0)
+            self.killed = asyncio.Event()
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            await self.killed.wait()
+            return b"", b""
+
+        def kill(self) -> None:
+            self.returncode = -9
+            self.killed.set()
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
+        calls.append(arguments)
+        if "up" in arguments:
+            return Process(1, b"browser is unhealthy")
+        if diagnostics_result == "timeout" and ("ps" in arguments or "logs" in arguments):
+            return PendingDiagnostic()
+        if "ps" in arguments:
+            return Process(
+                1 if diagnostics_result == "exit" else 0,
+                json.dumps(
+                    {
+                        "Service": "browser",
+                        "State": "exited",
+                        "Health": "unhealthy",
+                        "ExitCode": 1,
+                        "Command": "DO_NOT_LOG",
+                        "Environment": {"PASSWORD": "DO_NOT_LOG"},
+                    }
+                ).encode(),
+            )
+        if "logs" in arguments:
+            return Process(
+                1 if diagnostics_result == "exit" else 0,
+                b"raw password DO_NOT_LOG\n",
+                b'oauth_browser_startup {"stage":"page_navigation","status":"failed","elapsed_ms":60001,'
+                b'"reason":"timeout","secret":"DO_NOT_LOG"}\n'
+                b'oauth_browser_startup {"stage":"DO_NOT_LOG","status":"failed","elapsed_ms":1}\n',
+            )
+        return Process(0)
+
+    settings: Final = _settings(tmp_path, f"registry.example/browser@sha256:{'d' * 64}")
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver(settings.secret_seed), runner=runner)
+    session: Final = _session()
+    with pytest.raises(RuntimeError, match="unhealthy"):
+        await runtime.start_oauth_browser(
+            session,
+            proxy_url="http://proxy.example:8080",
+            authorization_url="https://auth.example/?state=DO_NOT_LOG",
+            callback_token="DO_NOT_LOG",
+            callback_port=1455,
+            callback_path="/auth/callback",
+        )
+    assert [next(word for word in ("up", "ps", "logs", "down") if word in call) for call in calls] == [
+        "up",
+        "ps",
+        "logs",
+        "down",
+    ]
+    assert "--tail" in calls[2] and calls[2][calls[2].index("--tail") + 1] == "30"
+    assert timeouts == [150.0, 5, 5, settings.docker_command_timeout_seconds]
+    assert "DO_NOT_LOG" not in caplog.text
+    assert str(session.id) in caplog.text
+    assert "compose_failed" in caplog.text
+    if diagnostics_result == "ok":
+        assert "page_navigation" in caplog.text and "60001" in caplog.text
+        assert "unhealthy" in caplog.text
+    assert not runtime.oauth_browser_dir(session.id).exists()
+
+
 @pytest.mark.parametrize("navigation_fails", (False, True))
 def test_browser_uses_loopback_bypass_and_becomes_ready_only_after_navigation(
     worker: ModuleType, tmp_path: Path, navigation_fails: bool
@@ -259,7 +401,7 @@ def test_browser_uses_loopback_bypass_and_becomes_ready_only_after_navigation(
     class Page:
         def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
             assert not ready.exists()
-            assert (url, wait_until, timeout) == ("https://auth.example/authorize", "domcontentloaded", 30_000)
+            assert (url, wait_until, timeout) == ("https://auth.example/authorize", "domcontentloaded", 60_000)
             if navigation_fails:
                 raise RuntimeError("navigation failed with private details")
 
@@ -306,6 +448,52 @@ def test_browser_health_requires_page_and_listeners(worker: ModuleType, tmp_path
     assert ports == [5900, 1455]
 
 
+@pytest.mark.asyncio
+async def test_browser_startup_cancellation_kills_command_and_cleans_session(tmp_path: Path) -> None:
+    import asyncio
+
+    entered: Final = asyncio.Event()
+    killed: Final = asyncio.Event()
+    calls: Final[list[tuple[str, ...]]] = []
+
+    class PendingProcess(_CompletedProcess):
+        returncode = None
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            entered.set()
+            await killed.wait()
+            return b"", b""
+
+        def kill(self) -> None:
+            self.returncode = -9
+            killed.set()
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
+        calls.append(arguments)
+        return PendingProcess() if "up" in arguments else _CompletedProcess()
+
+    settings: Final = _settings(tmp_path, f"registry.example/browser@sha256:{'d' * 64}")
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver(settings.secret_seed), runner=runner)
+    session: Final = _session()
+    task: Final = asyncio.create_task(
+        runtime.start_oauth_browser(
+            session,
+            proxy_url="http://proxy.example:8080",
+            authorization_url="https://auth.example/authorize",
+            callback_token="test-secret",
+            callback_port=1455,
+            callback_path="/auth/callback",
+        )
+    )
+    await asyncio.wait_for(entered.wait(), 1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert killed.is_set()
+    assert calls[-1][-3:] == ("down", "--volumes", "--remove-orphans")
+    assert not runtime.oauth_browser_dir(session.id).exists()
+
+
 @pytest.mark.parametrize("mode, ports", (("callback-relay", [8092, 8093]), ("egress-relay", [8080])))
 def test_relay_health_checks_required_listeners(worker: ModuleType, mode: str, ports: list[int]) -> None:
     checked: list[int] = []
@@ -345,6 +533,7 @@ def test_callback_relay_preserves_http_status_without_response_body(
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
             self.send_response(status)
             self.send_header("Content-Length", "0")
             self.end_headers()
