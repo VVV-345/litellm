@@ -17484,6 +17484,11 @@
               "title": "Provider",
               "type": "string"
             },
+            "provider_family": {
+              "default": "",
+              "title": "Provider Family",
+              "type": "string"
+            },
             "proxy_mode": {
               "enum": [
                 "default_gateway",
