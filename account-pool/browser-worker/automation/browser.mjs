@@ -19,61 +19,64 @@ const input = async (enabled) => {
 };
 
 async function main() {
-  if (process.env.CHROME_PROXY !== "http://egress-relay:8080") throw new Error("proxy");
-  const authorization = process.env.OAUTH_AUTHORIZATION_URL;
-  const trusted = automatic ? validateAuthorization(authorization) : null;
-  const options = await runStartupStage("profile", async () => JSON.parse(execFileSync(
-    "python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 },
-  )));
-  const locale = automatic ? JSON.parse(process.env.OAUTH_FINGERPRINT_PROFILE).locale : "en-US";
-  const browser = await runStartupStage("browser_launch", () => firefox.launch(options));
-  const context = await browser.newContext({ viewport: null });
-  const page = await context.newPage();
+  let browser = null;
   let controller = null;
   let server = null;
   const stop = new AbortController();
   process.once("SIGTERM", () => stop.abort());
   process.once("SIGINT", () => stop.abort());
   try {
-    if (automatic) await input(false);
-    await openAuthorizationPage(page, authorization, process.env.OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS);
-    if (automatic) {
-      if (new URL(page.url()).origin === "https://auth.openai.com") {
-        process.stderr.write(`OAuth email form readiness: labelled=${await page.getByLabel("Email address", { exact: true }).count()}, typed=${await page.locator('input[type="email"]').count()}\n`);
-      }
-      const callback = new URL(trusted.callback);
-      callback.searchParams.set("state", trusted.url.searchParams.get("state"));
-      server = createControlServer({
-        token: process.env.OAUTH_AUTOMATION_TOKEN,
-        createController: async (text) => {
-          const credential = parseCredential(text);
-          const submitted = new Set();
-          controller = new BrowserControl({
-            login: async (signal) => {
-              const result = await automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
-              if (result.status === "verification_required") {
-                const route = (path) => ["/log-in", "/log-in/password", "/oauth/authorize", "/authorize", "/sign-in-with-chatgpt/codex/consent"].includes(path) ? path : path.startsWith("/mfa-challenge/") ? "authenticator" : "other";
-                const state = await page.evaluate(() => ({ path: location.pathname, inputs: document.querySelectorAll("input").length }));
-                process.stderr.write(`OAuth form state: ${JSON.stringify({ route: route(new URL(page.url()).pathname), documentRoute: route(state.path), inputs: state.inputs, labelled: await page.getByLabel("Email address", { exact: true }).count(), typed: await page.locator('input[type="email"]').count(), text: await page.locator('input[type="text"]').count(), frames: page.frames().length })}\n`);
-              }
-              return result;
-            },
-            verifyAccount: () => verifyResumableAccount(page, credential, { locale }),
-            enableInput: input, close: () => context.close(),
-            totalDeadline: deadline, humanMs: Number(process.env.OAUTH_HUMAN_TIMEOUT_SECONDS ?? "300") * 1000,
-          });
-          return controller;
-        },
-      });
-      await runStartupStage("control_listener", () => new Promise((resolve, reject) => {
-        server.once("error", reject);
-        server.listen(8094, "0.0.0.0", () => {
-          server.off("error", reject);
-          resolve();
+    await runStartupStage("driver", async () => {
+      if (process.env.CHROME_PROXY !== "http://egress-relay:8080") throw new Error("proxy");
+      const authorization = process.env.OAUTH_AUTHORIZATION_URL;
+      const trusted = automatic ? validateAuthorization(authorization) : null;
+      const options = await runStartupStage("profile", async () => JSON.parse(execFileSync(
+        "python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 },
+      )));
+      const locale = automatic ? JSON.parse(process.env.OAUTH_FINGERPRINT_PROFILE).locale : "en-US";
+      browser = await runStartupStage("browser_launch", () => firefox.launch(options));
+      const context = await browser.newContext({ viewport: null });
+      const page = await context.newPage();
+      if (automatic) await input(false);
+      await openAuthorizationPage(page, authorization, process.env.OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS);
+      if (automatic) {
+        if (new URL(page.url()).origin === "https://auth.openai.com") {
+          process.stderr.write(`OAuth email form readiness: labelled=${await page.getByLabel("Email address", { exact: true }).count()}, typed=${await page.locator('input[type="email"]').count()}\n`);
+        }
+        const callback = new URL(trusted.callback);
+        callback.searchParams.set("state", trusted.url.searchParams.get("state"));
+        server = createControlServer({
+          token: process.env.OAUTH_AUTOMATION_TOKEN,
+          createController: async (text) => {
+            const credential = parseCredential(text);
+            const submitted = new Set();
+            controller = new BrowserControl({
+              login: async (signal) => {
+                const result = await automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
+                if (result.status === "verification_required") {
+                  const route = (path) => ["/log-in", "/log-in/password", "/oauth/authorize", "/authorize", "/sign-in-with-chatgpt/codex/consent"].includes(path) ? path : path.startsWith("/mfa-challenge/") ? "authenticator" : "other";
+                  const state = await page.evaluate(() => ({ path: location.pathname, inputs: document.querySelectorAll("input").length }));
+                  process.stderr.write(`OAuth form state: ${JSON.stringify({ route: route(new URL(page.url()).pathname), documentRoute: route(state.path), inputs: state.inputs, labelled: await page.getByLabel("Email address", { exact: true }).count(), typed: await page.locator('input[type="email"]').count(), text: await page.locator('input[type="text"]').count(), frames: page.frames().length })}\n`);
+                }
+                return result;
+              },
+              verifyAccount: () => verifyResumableAccount(page, credential, { locale }),
+              enableInput: input, close: () => context.close(),
+              totalDeadline: deadline, humanMs: Number(process.env.OAUTH_HUMAN_TIMEOUT_SECONDS ?? "300") * 1000,
+            });
+            return controller;
+          },
         });
-      }));
-    }
-    writeFileSync(readyFile, "ready", { mode: 0o600 });
+        await runStartupStage("control_listener", () => new Promise((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(8094, "0.0.0.0", () => {
+            server.off("error", reject);
+            resolve();
+          });
+        }));
+      }
+      writeFileSync(readyFile, "ready", { mode: 0o600 });
+    });
     while (!stop.signal.aborted && Date.now() < deadline && browser.isConnected()) {
       if (controller) await controller.command("status");
       await setTimeout(500, undefined, { signal: stop.signal }).catch(() => {});
@@ -83,11 +86,11 @@ async function main() {
     if (automatic) await input(false).catch(() => {});
     if (server) await new Promise((resolve) => server.close(resolve));
     if (controller) await controller.command("cancel").catch(() => {});
-    await browser.close();
+    if (browser) await browser.close();
   }
 }
 
-runStartupStage("driver", main).catch(() => {
+main().catch(() => {
   process.stderr.write("OAuth browser driver failed; inspect the isolated worker health and pinned image\n");
   process.exitCode = 1;
 });
