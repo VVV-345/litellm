@@ -12509,6 +12509,16 @@ class Router:
             excluded_deployment_ids=_excluded_deployment_ids,
         )
 
+        healthy_deployments = _without_unrequested_credential_clones(
+            cast(list[dict], healthy_deployments), request_kwargs
+        )
+        available_capacity: Final = [  # mutable-ok: native Router selectors require a list of deployment dictionaries
+            deployment
+            for deployment in healthy_deployments
+            if self._account_pool_concurrency_registry.has_available_capacity(deployment.get("model_info"))
+        ]
+        healthy_deployments = available_capacity or healthy_deployments
+
         if "litellm.proxy.management_endpoints.account_pool_integration" in sys.modules:
             from litellm.proxy.management_endpoints.account_pool_native_routing import (
                 effective_config,
@@ -12520,10 +12530,6 @@ class Router:
             healthy_deployments = preferred_deployments(
                 healthy_deployments, model, effective_config(self.account_pool_routing), snapshots.values, now_utc()
             )
-
-        healthy_deployments = _without_unrequested_credential_clones(
-            cast(list[dict], healthy_deployments), request_kwargs
-        )
 
         if len(healthy_deployments) == 0:
             exception: Final = await async_raise_no_deployment_exception(

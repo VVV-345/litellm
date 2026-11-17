@@ -129,6 +129,10 @@ class AccountPoolConcurrencyRegistry:
     def get_or_create(self, environment_id: str) -> AccountPoolSemaphore:
         return self._get_or_create_at_current_snapshot(environment_id)
 
+    def has_available_capacity(self, model_info: object) -> bool:
+        environment_id: Final = account_pool_environment_id(model_info)
+        return environment_id is None or not self.get_or_create(environment_id).locked()
+
     def update_environments(self, limits: dict[str, int], active_ids: frozenset[str]) -> None:
         with self._lock:
             self.update_snapshot(

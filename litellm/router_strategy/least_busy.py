@@ -6,7 +6,6 @@
 #   - use litellm.success + failure callbacks to log when a request completed
 #   - in get_available_deployment, for a given model group name -> pick based on traffic
 
-import random
 from typing import Final
 
 from litellm.caching.caching import DualCache
@@ -165,27 +164,10 @@ class LeastBusyLoggingHandler(CustomLogger):
         """
         Helper to get deployments using least busy strategy
         """
-        for d in healthy_deployments:
-            ## if healthy deployment not yet used
-            if d["model_info"]["id"] not in all_deployments:
-                all_deployments[d["model_info"]["id"]] = 0
-        # map deployment to id
-        # pick least busy deployment
-        min_traffic = float("inf")
-        min_deployment = None
-        for k, v in all_deployments.items():
-            if v < min_traffic:
-                min_traffic = v
-                min_deployment = k
-        if min_deployment is not None:
-            ## check if min deployment is a string, if so, cast it to int
-            for m in healthy_deployments:
-                if m["model_info"]["id"] == min_deployment:
-                    return m
-            min_deployment = random.choice(healthy_deployments)
-        else:
-            min_deployment = random.choice(healthy_deployments)
-        return min_deployment
+        return min(
+            healthy_deployments,
+            key=lambda deployment: all_deployments.get(deployment["model_info"]["id"], 0),
+        )
 
     def get_available_deployments(
         self,

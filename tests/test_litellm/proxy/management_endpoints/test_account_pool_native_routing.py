@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from typing import Final
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -25,6 +25,127 @@ def deployment(card, order=0):
         "model_info": {"id": str(card), "account_pool_environment_id": str(card)},
         "litellm_params": {"model": "openai/gpt-6-astra", "api_key": "test", "order": order},
     }
+
+
+def _capacity_deployment(card: UUID, model_id: str, model_name: str = "shared", order: int = 0) -> dict[str, object]:
+    return {
+        "model_name": model_name,
+        "model_info": {"id": model_id, "managed_by": "account_pool", "account_pool_environment_id": str(card)},
+        "litellm_params": {
+            "model": "openai/gpt-6.1-sol",
+            "api_key": "test",
+            "max_parallel_requests": 1,
+            "order": order,
+        },
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("selection", ["native", "quota", "plan", "expiry", "ordered"])
+async def test_account_pool_capacity_precedes_preference_and_recovers(selection: str) -> None:
+    first, second = uuid4(), uuid4()
+    other: Final = _capacity_deployment(first, "other", "other-model")
+    router: Final = Router(
+        model_list=[other, _capacity_deployment(first, "first"), _capacity_deployment(second, "second")],
+        routing_strategy="least-busy",
+        account_pool_routing={"selection": selection, "session_affinity": False, "preferred_account_ids": [str(first)]},
+    )
+    previous: Final = snapshots.values
+    now: Final = datetime.now(timezone.utc)
+    snapshots.replace(
+        {
+            str(first): RoutingSnapshot(
+                plan_rank=500,
+                quota=RoutingQuota(remaining_percent=90, observed_at=now),
+                subscription_active_until=now + timedelta(days=1),
+            ),
+            str(second): RoutingSnapshot(
+                plan_rank=100,
+                quota=RoutingQuota(remaining_percent=10, observed_at=now),
+                subscription_active_until=now + timedelta(days=2),
+            ),
+        }
+    )
+    router.cache.set_cache("shared_request_count", {"first": 0, "second": 1})
+    semaphore: Final = router._get_client(other, {}, client_type="max_parallel_requests")
+    try:
+        async with semaphore:
+            selected: Final = await router.async_get_available_deployment(model="shared", request_kwargs={})
+            assert selected["model_info"]["id"] == "second"
+            assert not router._get_client(selected, {}, client_type="max_parallel_requests").locked()
+        recovered: Final = await router.async_get_available_deployment(model="shared", request_kwargs={})
+        assert recovered["model_info"]["id"] == "first"
+    finally:
+        snapshots.replace(previous)
+        router.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "boundary", ["all_full", "card_key", "session", "continuation", "order", "excluded", "credential_clone"]
+)
+async def test_account_pool_capacity_preserves_existing_candidate_boundaries(boundary: str) -> None:
+    from contextlib import AsyncExitStack
+
+    from litellm.responses.utils import ResponsesAPIRequestUtils
+    from litellm.router_utils.pre_call_checks.deployment_affinity_check import DeploymentAffinityCheck
+
+    first, second = uuid4(), uuid4()
+    primary: Final = _capacity_deployment(first, "first")
+    backup: Final = {
+        **_capacity_deployment(second, "second", order=1 if boundary == "order" else 0),
+        **({"model_info": {"id": "second", "original_model_id": "first"}} if boundary == "credential_clone" else {}),
+    }
+    router: Final = Router(
+        model_list=[primary, backup], routing_strategy="least-busy", account_pool_routing={"session_affinity": True}
+    )
+    reset: Final = pool_identity.set(
+        PoolIdentity(
+            key_hash="caller",
+            request_id=uuid4(),
+            card_id=first if boundary == "card_key" else None,
+            headers=(("x-session-id", "same"),) if boundary == "session" else (),
+        )
+    )
+    router.cache.set_cache("shared_request_count", {"first": 0, "second": 1})
+    cache_key: Final = DeploymentAffinityCheck.get_session_affinity_cache_key("shared", "same", "caller")
+    await router.cache.async_set_cache(cache_key, {"model_id": "first"}, ttl=3600)
+    kwargs: Final = (
+        {"previous_response_id": ResponsesAPIRequestUtils._build_responses_api_response_id("openai", "first", "old")}
+        if boundary == "continuation"
+        else {"_excluded_deployment_ids": ["second"]}
+        if boundary == "excluded"
+        else {}
+    )
+    try:
+        async with AsyncExitStack() as stack:
+            await stack.enter_async_context(router._get_client(primary, {}, client_type="max_parallel_requests"))
+            if boundary == "all_full":
+                await stack.enter_async_context(router._get_client(backup, {}, client_type="max_parallel_requests"))
+            selected: Final = await router.async_get_available_deployment(model="shared", request_kwargs=kwargs)
+            assert selected["model_info"]["id"] == "first"
+            assert router._get_client(selected, {}, client_type="max_parallel_requests").locked()
+    finally:
+        pool_identity.reset(reset)
+        router.discard()
+
+
+@pytest.mark.asyncio
+async def test_account_pool_capacity_does_not_filter_ordinary_deployments() -> None:
+    first, second = uuid4(), uuid4()
+    primary: Final = _capacity_deployment(first, "first")
+    ordinary: Final = {**_capacity_deployment(second, "second"), "model_info": {"id": "second"}}
+    router: Final = Router(model_list=[primary, ordinary], routing_strategy="least-busy")
+    router.cache.set_cache("shared_request_count", {"first": 0, "second": 1})
+    try:
+        async with (
+            router._get_client(primary, {}, client_type="max_parallel_requests"),
+            router._get_client(ordinary, {}, client_type="max_parallel_requests"),
+        ):
+            selected: Final = await router.async_get_available_deployment(model="shared", request_kwargs={})
+            assert selected["model_info"]["id"] == "second"
+    finally:
+        router.discard()
 
 
 @pytest.mark.asyncio

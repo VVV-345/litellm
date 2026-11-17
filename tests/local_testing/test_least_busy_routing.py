@@ -5,6 +5,7 @@ import asyncio
 import random
 import time
 import traceback
+from typing import Final
 
 from dotenv import load_dotenv
 
@@ -18,6 +19,28 @@ from litellm.caching.caching import DualCache
 from litellm.router_strategy.least_busy import LeastBusyLoggingHandler
 
 ### UNIT TESTS FOR LEAST BUSY LOGGING ###
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("async_selection", [False, True])
+@pytest.mark.parametrize("counts", [{"busy": 8, "idle": 1, "excluded": 0}, {"busy": 8, "excluded": 0}])
+async def test_least_busy_only_ranks_eligible_candidates(
+    async_selection: bool, counts: dict[str, int], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cache: Final = DualCache()
+    handler: Final = LeastBusyLoggingHandler(router_cache=cache)
+    candidates: Final = [{"model_info": {"id": "busy"}}, {"model_info": {"id": "idle"}}]
+    cache.set_cache("shared_request_count", dict(counts))
+    monkeypatch.setattr(random, "choice", lambda deployments: deployments[0])
+
+    selected: Final = (
+        await handler.async_get_available_deployments("shared", candidates)
+        if async_selection
+        else handler.get_available_deployments("shared", candidates)
+    )
+
+    assert selected is candidates[1]
+    assert cache.get_cache("shared_request_count") == counts
 
 
 def test_model_added():
