@@ -111,9 +111,14 @@ export async function automateLogin(page, credential, {
         if (!unchanged()) return result("stopped");
         const value = field === "Email address" ? credential.email : field === "Password" ? credential.password : totp(credential.totpSecret, now());
         await input.fill(value, { timeout: 3000 });
+        const english = page.getByRole("button", { name: "Continue", exact: true });
+        const button = await visible(english) ? english : page.getByRole("button", { name: labels[3], exact: true });
+        const canClick = await visible(button);
         if (!unchanged()) return result("stopped");
+        // 有些登录页只响应按钮点击；一旦尝试提交，不再用另一种方式重发。
         submitted.add(path);
-        await input.press("Enter", { timeout: 3000, noWaitAfter: true });
+        if (canClick) await button.click({ timeout: 3000, noWaitAfter: true });
+        else await input.press("Enter", { timeout: 3000, noWaitAfter: true });
         continue;
       }
       await setTimeout(250, undefined, { signal });

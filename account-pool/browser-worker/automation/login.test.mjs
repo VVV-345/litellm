@@ -21,7 +21,7 @@ function pageFixture(stages) {
   const clicked = [];
   const stage = () => stages[position];
   const locator = (role, name) => ({
-    isVisible: async () => role === 'textbox' ? (name === stage().field || (stage().path === '/log-in/password' && name === (stage().emailLabel ?? 'Email address'))) : role === 'heading' ? (name instanceof RegExp ? name.test(stage().heading ?? '') : name === stage().heading) : false,
+    isVisible: async () => role === 'textbox' ? (name === stage().field || (stage().path === '/log-in/password' && name === (stage().emailLabel ?? 'Email address'))) : role === 'heading' ? (name instanceof RegExp ? name.test(stage().heading ?? '') : name === stage().heading) : role === 'button' && name === stage().buttonName,
     inputValue: async () => {
       if (stage().path === '/log-in/password' && name !== (stage().emailLabel ?? 'Email address')) throw new Error('no matching account field');
       return stage().email ?? credential.email;
@@ -33,7 +33,7 @@ function pageFixture(stages) {
       }
       clicked.push(stage().path); position = Math.min(position + 1, stages.length - 1);
     },
-    press: async (key) => { assert.equal(key, 'Enter'); clicked.push(stage().path); position = Math.min(position + 1, stages.length - 1); },
+    press: async (key) => { assert.equal(key, 'Enter'); if (stage().requiresClick) return; clicked.push(stage().path); position = Math.min(position + 1, stages.length - 1); },
     first() { return this; },
   });
   const page = {
@@ -111,7 +111,7 @@ test('never reports callback success for a foreign state or an OAuth error', asy
 });
 
 test('slow redirects and pause/resume cannot repeat a submitted form', async () => {
-  const { page, clicked } = pageFixture([{ path: '/log-in', field: 'Email address' }]);
+  const { page, clicked } = pageFixture([{ path: '/log-in', field: 'Email address', buttonName: 'Continue', requiresClick: true }]);
   const submitted = new Set();
   await automateLogin(page, credential, { submitted, timeoutMs: 20 });
   await automateLogin(page, credential, { submitted, timeoutMs: 20 });
@@ -134,10 +134,10 @@ test('resume verifies the visible account again and never guesses an unknown cha
 
 test('submits the known email form with the observed Japanese continue button', async () => {
   const { page, filled, clicked } = pageFixture([
-    { path: '/log-in', field: 'Email address', buttonName: '続行' },
-    { path: '/email-verification' },
+    { path: '/log-in', field: 'Email address', requiresClick: true, buttonName: '続行' },
+    { origin: 'http://127.0.0.1:1456', path: '/auth/callback?state=expected&code=test' },
   ]);
-  assert.equal((await automateLogin(page, credential)).status, 'verification_required');
+  assert.equal((await automateLogin(page, credential, { locale: 'ja-JP', timeoutMs: 30, callback: 'http://127.0.0.1:1456/auth/callback?state=expected' })).status, 'callback_received');
   assert.deepEqual(filled, [{ name: 'Email address', value: credential.email }]);
   assert.deepEqual(clicked, ['/log-in']);
 });
@@ -169,7 +169,7 @@ for (const [locale, emailLabel, passwordLabel, otpHeading, continueLabel] of [
   ['es-ES', 'Correo electrónico', 'Contraseña', 'Revisa tu aplicación de autenticación', 'Continuar'],
   ['pt-BR', 'Endereço de e-mail', 'Senha', 'Confira seu aplicativo autenticador', 'Continuar'],
 ]) {
-  test(`stable form fields complete ${locale} login without relying on translated submit labels`, async () => {
+  test(`stable form fields complete ${locale} login using the correct localized form`, async () => {
     const { page, filled, clicked } = pageFixture([
       { path: '/log-in', field: 'email-type', emailInputType: 'email', buttonName: continueLabel },
       { path: '/log-in/password', field: passwordLabel, emailLabel, inputSelector: 'input[type="password"]', buttonName: continueLabel },
