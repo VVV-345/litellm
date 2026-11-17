@@ -310,7 +310,7 @@ function JobRow({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>删除授权任务记录</DialogTitle>
-            <DialogDescription>只删除这条任务历史，不删除卡片、认证文件或指纹绑定。</DialogDescription>
+            <DialogDescription>删除这条任务历史及其中的加密登录资料，不删除卡片、认证文件或指纹绑定。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
@@ -359,9 +359,11 @@ function JobRow({
 export function AccountPoolAutomationPanel({
   accessToken,
   initialEnvironmentId,
+  reauthorizingJob,
 }: {
   accessToken: string;
   initialEnvironmentId?: string;
+  reauthorizingJob?: AutomationJob;
 }) {
   const client = useQueryClient();
   const queryOptions = {
@@ -490,6 +492,65 @@ export function AccountPoolAutomationPanel({
     };
     void run(() => createAutomationProfile(accessToken, body));
   };
+  const currentJob = query.data?.jobs.find((job) => job.id === reauthorizingJob?.id);
+  const currentStage = currentJob?.stage;
+  useEffect(() => {
+    if (currentStage && currentStage !== "queued" && !active.has(currentStage)) {
+      void client.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
+      void client.invalidateQueries({ queryKey: accountPoolQueryKeys.credentials(accessToken) });
+    }
+  }, [accessToken, client, currentStage]);
+  const renderJob = (job: AutomationJob) => (
+    <JobRow
+      key={job.id}
+      job={job}
+      cardMissing={cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
+      now={now}
+      disabled={busy}
+      run={run}
+      accessToken={accessToken}
+      view={async (id) => {
+        const session = await openAutomationScreen(accessToken, id);
+        setScreen(session.id);
+      }}
+    />
+  );
+  const screenDialog = (
+    <Dialog open={screen !== null} onOpenChange={(open) => !open && setScreen(null)}>
+      <DialogContent className="h-[85vh] w-[95vw] max-w-6xl">
+        <DialogHeader>
+          <DialogTitle>临时授权浏览器</DialogTitle>
+          <DialogDescription>
+            默认只能查看。请在任务操作中点击“停止脚本并接管”，确认成功后才能输入；不支持录屏或保留 Cookie
+          </DialogDescription>
+        </DialogHeader>
+        {screen && (
+          <iframe
+            title="授权浏览器画面"
+            src={getAccountPoolOAuthBrowserUrl(screen)}
+            className="h-full min-h-0 w-full border"
+            referrerPolicy="no-referrer"
+          />
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+  if (reauthorizingJob) {
+    return (
+      <div className="space-y-3" aria-live="polite">
+        {query.isError && <p role="alert">无法读取最新任务进度，正在重试</p>}
+        {operationError && (
+          <p role="alert" className="text-sm text-destructive">{operationError}</p>
+        )}
+        {currentJob || !query.isSuccess || !query.isFetchedAfterMount ? (
+          renderJob(currentJob ?? reauthorizingJob)
+        ) : (
+          <p role="status">当前任务不在此列表，请刷新或到授权任务队列查看</p>
+        )}
+        {screenDialog}
+      </div>
+    );
+  }
   if (query.isLoading) return <p role="status">正在读取授权自动化状态</p>;
   if (!query.data) return <p role="alert">授权自动化不可用，请检查 Manager 连接后刷新</p>;
   const state = query.data;
@@ -591,7 +652,7 @@ export function AccountPoolAutomationPanel({
             required
           />
           <p className="text-xs text-muted-foreground">
-            仅用于你有权登录的账号。提交后立即清空表单并加密保存；不覆盖已有认证，验证码或未知页面转人工处理
+            仅用于你有权登录的账号。资料加密保存在任务记录中，同一卡片授权失效后可复用；验证码或未知页面转人工处理。
           </p>
           {fileError && (
             <p role="alert" className="text-sm text-destructive">
@@ -611,21 +672,7 @@ export function AccountPoolAutomationPanel({
       {state.jobs.length === 0 ? (
         <p className="text-sm text-muted-foreground">还没有授权任务。先生成指纹，再添加空白卡片和授权资料</p>
       ) : (
-        [...state.jobs].reverse().map((job) => (
-          <JobRow
-            key={job.id}
-            job={job}
-            cardMissing={cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
-            now={now}
-            disabled={busy}
-            run={run}
-            accessToken={accessToken}
-            view={async (id) => {
-              const session = await openAutomationScreen(accessToken, id);
-              setScreen(session.id);
-            }}
-          />
-        ))
+        [...state.jobs].reverse().map(renderJob)
       )}
     </div>
   );
@@ -755,24 +802,7 @@ export function AccountPoolAutomationPanel({
           },
         ]}
       />
-      <Dialog open={screen !== null} onOpenChange={(open) => !open && setScreen(null)}>
-        <DialogContent className="h-[85vh] w-[95vw] max-w-6xl">
-          <DialogHeader>
-            <DialogTitle>临时授权浏览器</DialogTitle>
-            <DialogDescription>
-              默认只能查看。回到任务队列点击“停止脚本并接管”，确认成功后才能输入；不支持录屏或保留 Cookie
-            </DialogDescription>
-          </DialogHeader>
-          {screen && (
-            <iframe
-              title="授权浏览器画面"
-              src={getAccountPoolOAuthBrowserUrl(screen)}
-              className="h-full min-h-0 w-full border"
-              referrerPolicy="no-referrer"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {screenDialog}
     </>
   );
 }

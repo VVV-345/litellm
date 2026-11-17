@@ -6820,6 +6820,9 @@
       "modelUnavailable": "模型 {{model}} 当前不可用"
     },
     "mutation": {
+      "automaticReauthorization": "自动重新授权",
+      "manualReauthorization": "本卡没有保存登录资料，已生成手动授权链接",
+      "automaticReauthorizationDescription": "已复用本卡加密保存的登录资料，无需重新输入。关闭窗口不会取消任务。",
       "toggleUnavailable": "当前状态不支持切换环境开关",
       "updated": "环境开关已更新",
       "reauthorizeUnavailable": "当前状态不支持重新授权",

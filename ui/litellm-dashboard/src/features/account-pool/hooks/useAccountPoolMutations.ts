@@ -12,10 +12,13 @@ import {
   listAccountPoolEnvironments,
   updateAccountPoolEnvironment,
 } from "../api/AccountPoolApi";
+import { reauthorizeAutomation, type AutomationJob } from "../api/AccountPoolAutomationApi";
 import { canAuthorizeEnvironment, canDeleteEnvironment, canToggleEnvironment } from "../utils/AccountPoolPermissions";
 import { toUpdateRequest } from "../utils/AccountPoolTypes";
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import type { AccountPoolAuthorization, AccountPoolEnvironment } from "../utils/AccountPoolTypes";
+
+type AuthorizationResult = { job: AutomationJob } | { authorization: AccountPoolAuthorization; manualFallback: boolean };
 
 const isSavedWithPendingReconcile = (error: unknown): boolean =>
   error instanceof ApiError &&
@@ -51,7 +54,7 @@ const confirmEnvironmentDeleted = async (
 export const useAccountPoolMutations = (
   accessToken: string | null,
   canManage: boolean,
-  onAuthorized: (authorization: AccountPoolAuthorization) => void,
+  onAuthorized: (result: AuthorizationResult) => void,
   onDeleted: () => void,
 ) => {
   const { t } = useTranslation();
@@ -80,17 +83,31 @@ export const useAccountPoolMutations = (
     },
   });
   const authorizeMutation = useMutation({
-    mutationFn: (environment: AccountPoolEnvironment) => {
+    mutationFn: async (environment: AccountPoolEnvironment): Promise<AuthorizationResult> => {
       if (!accessToken) throw new Error("Access token required");
       if (!canManage || !canAuthorizeEnvironment(environment)) {
         throw new Error(t("accountPool.mutation.reauthorizeUnavailable"));
       }
-      return authorizeAccountPoolEnvironment(accessToken, environment.id);
+      const supportsAutomation = environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth";
+      if (supportsAutomation) {
+        const job = await reauthorizeAutomation(accessToken, environment.id);
+        if (job !== null) return { job };
+      }
+      return {
+        authorization: await authorizeAccountPoolEnvironment(accessToken, environment.id),
+        manualFallback: supportsAutomation,
+      };
     },
     onSuccess: (result) => {
       onAuthorized(result);
       invalidate();
-      toast.success(t("accountPool.mutation.authorizationGenerated"));
+      if ("job" in result) {
+        void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
+      } else {
+        toast.success(
+          t(result.manualFallback ? "accountPool.mutation.manualReauthorization" : "accountPool.mutation.authorizationGenerated"),
+        );
+      }
     },
     onError: (error: Error) => toast.fromError(error),
   });

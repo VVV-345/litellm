@@ -359,8 +359,8 @@ def authorized_email() -> str:
     return "one@example.test"
 
 
-@pytest.fixture
-async def execution(registry, tmp_path: Path, authorized_email: str):
+@asynccontextmanager
+async def _execution(registry_data, tmp_path: Path, authorized_email: str):
     from account_pool.compose_runtime import ComposeRuntime
     from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
     from account_pool.oauth_automation.runner import AutomationRunner
@@ -370,7 +370,7 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
     from test_account_pool import FakeRuntime, StaticProfiles, _fake_channels, _settings
     from test_oauth_browser_api import MemoryBrowserSessions
 
-    registry_service, card = registry
+    registry_service, card = registry_data
     profiles: Final = StaticProfiles("http://ordinary-proxy.test:8080")
     class CredentialCLI(FakeCLIProxy):
         async def read_account(self, record, *, refresh_quota=False):
@@ -420,7 +420,10 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
             if "inference-down" in commands:
                 return httpx.Response(503, json={"error": {"message": "private-upstream-body-must-not-be-shown"}})
             return httpx.Response(200, json={"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "Hello"}]}]})
-        action = json.loads(request.content)["action"]
+        payload = json.loads(request.content)
+        action = payload["action"]
+        if action == "start":
+            assert payload["credentials"] == CREDENTIAL
         commands.append(action)
         return httpx.Response(200, json={"status": "manual" if action == "takeover" else "running", "reason": None, "expires_at": "2099-01-01T00:00:00Z"})
 
@@ -431,6 +434,18 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
         worker: Final = AutomationWorker(ComposeRuntime(_settings(tmp_path).model_copy(update={"oauth_browser_image": IMAGE}), registry_service.secrets), http)
         runner: Final = AutomationRunner(registry_service, browser, worker)
         yield registry_service, card, manager, runner, browser, commands, starts, removals, submitted
+
+
+@pytest.fixture
+async def execution(registry, tmp_path: Path, authorized_email: str):
+    async with _execution(registry, tmp_path, authorized_email) as case:
+        yield case
+
+
+@pytest.fixture
+async def memory_execution(deletion_registry, tmp_path: Path, authorized_email: str):
+    async with _execution(deletion_registry, tmp_path, authorized_email) as case:
+        yield case
 
 
 @pytest.mark.asyncio
@@ -612,6 +627,72 @@ async def test_admin_api_is_default_off_authenticated_and_never_echoes_credentia
         assert checked.status_code == 200 and checked.json()["image_checked"] is True
         enabled: Final = await client.put("/api/oauth-automation/settings", headers=headers, json={"version": checked.json()["version"], "settings": {"enabled": True}})
         assert enabled.status_code == 200 and enabled.json()["settings"]["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_saved_login_can_be_reauthorized_without_resending_credentials(memory_execution) -> None:
+    from account_pool.domain import CredentialRefreshStatus, OAuthCallback
+    from account_pool.oauth_automation.api import create_automation_router
+    from account_pool.oauth_automation.models import AutomationSettings
+    from fastapi import FastAPI
+
+    service, card, manager, runner, _, commands, starts, _, submitted = memory_execution
+    await service.self_check()
+    await service.save_settings(AutomationSettings(enabled=True), (await service.view()).version)
+    await runner.run_once()
+    pending = await service.environments.get(card.id)
+    assert pending.oauth_state is not None, (await service.view()).jobs[0].message
+    assert isinstance(await manager.submit_oauth_callback(
+        OAuthCallback(state=pending.oauth_state, code="first-fixture-code"), card.id,
+    ), Success)
+    await runner.run_once()
+    first = (await service.view()).jobs[0]
+    assert first.stage == "completed"
+
+    app = FastAPI()
+    app.include_router(create_automation_router(runner, lambda: None))
+    path = f"/api/oauth-automation/environments/{card.id}/reauthorize"
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager.test") as client:
+        healthy = await client.post(path)
+        assert healthy.status_code == 409
+        ready = await service.environments.get(card.id)
+        other = ready.model_copy(update={"id": uuid4()})
+        await service.environments.save(other)
+        empty = await client.post(f"/api/oauth-automation/environments/{other.id}/reauthorize")
+        assert empty.status_code == 202 and empty.json() is None
+        assert len((await service.view()).jobs) == 1
+        await service.environments.save(ready.model_copy(update={
+            "status": EnvironmentStatus.ERROR,
+            "credential_email": "another@example.test",
+            "credential_refresh": CredentialRefreshStatus(schedule_reason="reauthorization_required"),
+        }))
+        assert (await client.post(path)).status_code == 409
+        await service.environments.save(ready.model_copy(update={
+            "status": EnvironmentStatus.ERROR,
+            "credential_refresh": CredentialRefreshStatus(schedule_reason="reauthorization_required"),
+        }))
+        response = await client.post(path)
+        duplicate = await client.post(path)
+        assert response.status_code == duplicate.status_code == 202
+        assert response.json() == duplicate.json()
+        assert response.json()["stage"] == "queued"
+        assert response.json()["profile_id"] == str(submitted.value.profile_id)
+        assert "test-only-password" not in response.text and "credential_ciphertext" not in response.text
+        assert (await service.environments.get(card.id)).auth_file_name == ready.auth_file_name
+
+    await runner.run_once()
+    second = await service.environments.get(card.id)
+    assert second.oauth_state != pending.oauth_state and second.status is EnvironmentStatus.AWAITING_AUTHORIZATION
+    assert len(starts) == commands.count("start") == 2
+    assert isinstance(await manager.submit_oauth_callback(
+        OAuthCallback(state=second.oauth_state, code="second-fixture-code"), card.id,
+    ), Success)
+    await runner.run_once()
+    renewed = (await service.view()).jobs[-1]
+    assert renewed.stage == "completed" and renewed.credentials_saved
+    assert renewed.chat_verified and renewed.responses_verified
+    print("healthy=409 no_saved=202:null account_mismatch=409 expired=202 duplicate=same_job new_state=true")
+    print("saved_email_password_2fa_reused=true card_id_unchanged=true stage=completed chat=true responses=true")
 
 
 @pytest.mark.asyncio

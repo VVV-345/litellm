@@ -1546,6 +1546,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/oauth-automation/environments/{environment_id}/reauthorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reauthorize */
+        post: operations["reauthorize_account_pool_oauth_automation_environments__environment_id__reauthorize_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-automation/jobs": {
         parameters: {
             query?: never;
@@ -48185,6 +48202,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutomationView"];
+                };
+            };
+        };
+    };
+    reauthorize_account_pool_oauth_automation_environments__environment_id__reauthorize_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                environment_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobView"] | null;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

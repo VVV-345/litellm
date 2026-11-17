@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from pydantic import JsonValue, TypeAdapter
 
+from account_pool.application.authorization import saved_login_can_replace
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import AuthorizationFlow, EnvironmentStatus, SupplierKind, utc_now
 from account_pool.isp_probe import ProxyLocation, ProxyLocationProbe
@@ -278,6 +279,66 @@ class AutomationRegistry:
                     }
                 )
             )
+            return Success(item)
+
+    async def reauthorize(self, environment_id: UUID) -> Result[JobView | None]:
+        async with self.ownership.operation(environment_id), self.repository.transaction() as tx:
+            state: Final = tx.snapshot
+            record: Final = await self.environments.get(environment_id)
+            if record is None or record.status is EnvironmentStatus.DELETING:
+                return Failure(FailureCode.NOT_FOUND, "卡片不存在")
+            if record.supplier is not SupplierKind.OPENAI_CODEX or (
+                record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH
+            ):
+                return Success(None)
+            existing: Final = next(
+                (row for row in state.jobs if row.item.environment_id == environment_id
+                 and row.item.stage in ACTIVE | {"queued"}), None,
+            )
+            if existing is not None:
+                return Success(existing.item)
+            saved: Final = next(
+                (row for row in reversed(state.jobs) if row.item.environment_id == environment_id
+                 and row.credential_ciphertext), None,
+            )
+            if saved is None:
+                return Success(None)
+            profile: Final = next((row for row in state.profiles if row.item.id == saved.item.profile_id), None)
+            if (
+                profile is None or not profile.item.enabled or profile.item.bound_environment_id != environment_id
+                or profile.account_digest != saved.account_digest
+            ):
+                return Failure(FailureCode.CONFLICT, "已保存的登录资料与当前指纹绑定不一致")
+            if self.worker.image is None or not state.settings.enabled or state.checked_image != self.worker.image:
+                return Failure(FailureCode.CONFLICT, "请先通过当前浏览器镜像自检并开启自动化")
+            if (
+                not record.enabled or record.manual_cooldown or record.auth_file_disabled
+                or record.configuration_pending or record.proxy_profile_id is None
+                or record.desired_configuration_version != record.observed_configuration_version
+                or record.oauth_automation_operation is not None
+                or any(row.item.environment_id == environment_id and row.cleanup_pending for row in state.jobs)
+            ):
+                return Failure(FailureCode.CONFLICT, "卡片或代理尚未就绪，或上次任务还在清理")
+            now: Final = utc_now()
+            if record.auth_file_name or record.credential_fingerprints:
+                email: Final = record.credential_email
+                if email is None or self.identity(email) != saved.account_digest or not saved_login_can_replace(
+                    record, email, now,
+                ):
+                    return Failure(FailureCode.CONFLICT, "卡片仍有可用凭据或账号无法确认，未启动重新授权")
+            elif record.status not in (EnvironmentStatus.ERROR, EnvironmentStatus.AWAITING_AUTHORIZATION):
+                return Failure(FailureCode.CONFLICT, "卡片状态不允许重新授权")
+            if len(state.jobs) >= 200:
+                return Failure(FailureCode.CONFLICT, "任务记录已达到 200 条上限，暂不能继续添加")
+            item: Final = JobView(
+                id=uuid4(), environment_id=environment_id, profile_id=profile.item.id,
+                proxy_profile_id=record.proxy_profile_id, configuration_version=record.observed_configuration_version,
+                message="已复用加密登录资料，等待建立新的 OAuth 会话", created_at=now, updated_at=now,
+            )
+            job: Final = StoredJob(
+                item=item, account_digest=saved.account_digest, credential_ciphertext=saved.credential_ciphertext,
+            )
+            await tx.save(state.model_copy(update={"jobs": (*state.jobs, job)}))
             return Success(item)
 
     async def _match_profile(self, profile: StoredProfile, proxy_id: str) -> Result[StoredProfile]:

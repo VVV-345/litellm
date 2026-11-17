@@ -6,7 +6,35 @@ from datetime import datetime, timedelta
 from typing import Final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from account_pool.domain import AuthorizationFlow, utc_now
+from account_pool.domain import AuthorizationFlow, EnvironmentRecord, EnvironmentStatus, SupplierKind, utc_now
+
+
+def saved_login_can_replace(record: EnvironmentRecord, email: str, now: datetime) -> bool:
+    """仅替换已确认失效、当前没有可路由凭据的同账号绑定。"""
+    fallback: Final = record.access_token_fallback
+    return (
+        record.supplier is SupplierKind.OPENAI_CODEX
+        and record.authorization_flow is AuthorizationFlow.BROWSER_OAUTH
+        and record.enabled and not record.manual_cooldown and not record.auth_file_disabled
+        and not record.configuration_pending and not record.credential_refresh.save_pending
+        and record.desired_configuration_version == record.observed_configuration_version
+        and record.status in (EnvironmentStatus.COOLING_DOWN, EnvironmentStatus.ERROR, EnvironmentStatus.READY)
+        and record.credential_email is not None and record.credential_email.casefold() == email.casefold()
+        and not any(fallback.usable_for(model, now) for model in record.enabled_models)
+        and (
+            (
+                record.status is not EnvironmentStatus.READY
+                and (
+                    record.credential_refresh.schedule_reason == "reauthorization_required"
+                    or record.last_error == "上游认证失效，请重新认证"
+                )
+            )
+            or fallback.failure_source == "refresh" and (
+                fallback.reason in ("access_expired", "access_rejected")
+                or fallback.expires_at is not None and fallback.expires_at <= now
+            )
+        )
+    )
 
 
 def _authorization_expires_at(flow: AuthorizationFlow, expires_in_seconds: int | None) -> datetime:

@@ -58,12 +58,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { ApiError } from "@/lib/http/client";
 import { migratedHref } from "@/utils/migratedPages";
 
+import type { AutomationJob } from "@/features/account-pool/api/AccountPoolAutomationApi";
 import { AccountPoolCard } from "@/features/account-pool/components/cards/AccountPoolCard";
 import { AccountPoolBatchPanel } from "@/features/account-pool/components/cards/AccountPoolBatchPanel";
 import { AccountPoolDashboard } from "@/features/account-pool/components/dashboard/AccountPoolDashboard";
@@ -139,6 +141,7 @@ export default function AccountPoolPage() {
   const [verifyAccessEnvironment, setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
+  const [reauthorizingJob, setReauthorizingJob] = useState<AutomationJob | null>(null);
   const [automationSelection, setAutomationSelection] = useState<{ environmentId?: string; visit: number } | null>(
     null,
   );
@@ -202,8 +205,12 @@ export default function AccountPoolPage() {
     accessToken,
     canManage,
     (result) => {
-      setAuthorization(result);
-      setCreateOpen(true);
+      if ("job" in result) {
+        setReauthorizingJob(result.job);
+      } else {
+        setAuthorization(result.authorization);
+        setCreateOpen(true);
+      }
     },
     () => setDeleteEnvironment(null),
   );
@@ -686,6 +693,21 @@ export default function AccountPoolPage() {
           onCreated={() => void environmentsQuery.refetch()}
           onAutomation={openCreatedCardAutomation}
         />
+      )}
+      {reauthorizingJob && accessToken && (
+        <Dialog open onOpenChange={(open) => !open && setReauthorizingJob(null)}>
+          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{t("accountPool.mutation.automaticReauthorization")}</DialogTitle>
+              <DialogDescription>{t("accountPool.mutation.automaticReauthorizationDescription")}</DialogDescription>
+            </DialogHeader>
+            <AccountPoolAutomationPanel
+              key={reauthorizingJob.id}
+              accessToken={accessToken}
+              reauthorizingJob={reauthorizingJob}
+            />
+          </DialogContent>
+        </Dialog>
       )}
       {testEnvironment && accessToken && (
         <AccountPoolModelTestDialog

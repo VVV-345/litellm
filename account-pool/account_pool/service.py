@@ -697,10 +697,11 @@ class EnvironmentService:
         return await self._provisioning_operations.delete_openai_compatible_credential(environment_id, request)
 
     async def authorize_environment(
-        self, environment_id: UUID, operation_id: str | None = None, *, require_empty: bool = False
+        self, environment_id: UUID, operation_id: str | None = None, *,
+        require_empty: bool = False, reauthorize_email: str | None = None,
     ) -> Result[AuthorizationView]:
         return await self._authorization_operations.authorize_environment(
-            environment_id, operation_id, require_empty=require_empty
+            environment_id, operation_id, require_empty=require_empty, reauthorize_email=reauthorize_email,
         )
 
     async def _authorize_prepared(

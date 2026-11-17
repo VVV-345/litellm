@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
 
+from account_pool.application.authorization import saved_login_can_replace
 from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
 from account_pool.credential_ownership import OAUTH_AUTOMATION_LOCK
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, utc_now
@@ -86,7 +87,7 @@ class AutomationRunner:
 
     async def _launch(self, row: StoredJob) -> None:
         state: Final = await self.registry.repository.read()
-        profile: Final = next(profile for profile in state.profiles if profile.item.id == row.item.profile_id)
+        profile: Final = next((profile for profile in state.profiles if profile.item.id == row.item.profile_id), None)
         async with (
             self.registry.ownership.operation(OAUTH_AUTOMATION_LOCK),
             self.registry.ownership.operation(row.item.environment_id),
@@ -109,17 +110,25 @@ class AutomationRunner:
             ):
                 return
             record: Final = await self.registry.environments.get(row.item.environment_id)
+            email: Final = None if record is None else record.credential_email
+            reauthorize_email: Final = (
+                email if record is not None and email is not None and self.registry.identity(email) == row.account_digest
+                and saved_login_can_replace(record, email, self.clock()) else None
+            )
             if (
                 record is None
-                or record.auth_file_name
-                or record.credential_fingerprints
+                or record.status is EnvironmentStatus.DELETING
+                or ((record.auth_file_name or record.credential_fingerprints) and reauthorize_email is None)
                 or not record.enabled
                 or record.manual_cooldown
                 or record.configuration_pending
+                or record.auth_file_disabled
+                or record.desired_configuration_version != record.observed_configuration_version
                 or record.proxy_profile_id != row.item.proxy_profile_id
                 or record.observed_configuration_version != row.item.configuration_version
                 or record.oauth_automation_operation is not None
-                or not profile.item.enabled
+                or profile is None or not profile.item.enabled
+                or profile.item.bound_environment_id != record.id or profile.account_digest != row.account_digest
             ):
                 await self._save(
                     row.model_copy(
@@ -181,6 +190,7 @@ class AutomationRunner:
                     row.item.environment_id,
                     operation_id=operation(claimed),
                     on_reserved=reserved,
+                    reauthorize_email=reauthorize_email,
                     automation=OAuthBrowserAutomation(
                         fingerprint_json=json.dumps(profile.data, separators=(",", ":")),
                         worker_token=token,

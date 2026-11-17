@@ -67,6 +67,7 @@ class ControlledOAuthBrowser:
         automation: OAuthBrowserAutomation | None = None,
         operation_id: str | None = None,
         on_reserved: Callable[[OAuthBrowserSessionGrant], Awaitable[None]] | None = None,
+        reauthorize_email: str | None = None,
     ) -> Result[OAuthBrowserSessionGrant]:
         await cleanup_oauth_browser_sessions(self.sessions, self.runtime)
         async with self.ownership.operation(OAUTH_AUTOMATION_LOCK), self.ownership.operation(environment_id):
@@ -98,6 +99,7 @@ class ControlledOAuthBrowser:
                     environment_id,
                     operation_id=operation_id,
                     require_empty=True,
+                    reauthorize_email=reauthorize_email,
                 )
                 if automation
                 else await self.service.authorize_environment(

@@ -27,6 +27,8 @@ export const deleteAutomationProfile = (accessToken: string, id: string) =>
   apiClient.delete<AutomationView>(`${root}/profiles/${encodeURIComponent(id)}`, { accessToken });
 export const submitAutomation = (accessToken: string, body: JobInput) =>
   apiClient.post<AutomationJob>(`${root}/jobs`, { accessToken, body });
+export const reauthorizeAutomation = (accessToken: string, environmentId: string) =>
+  apiClient.post<AutomationJob | null>(`${root}/environments/${encodeURIComponent(environmentId)}/reauthorize`, { accessToken });
 export const deleteAutomationJob = (accessToken: string, id: string) =>
   apiClient.delete<AutomationView>(`${root}/jobs/${encodeURIComponent(id)}`, { accessToken });
 export const actOnAutomation = (accessToken: string, id: string, action: JobAction, model?: string | null) =>

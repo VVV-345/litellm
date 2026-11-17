@@ -6820,6 +6820,9 @@
       "modelUnavailable": "Model {{model}} is not currently available."
     },
     "mutation": {
+      "automaticReauthorization": "Automatic reauthorization",
+      "manualReauthorization": "No sign-in details are saved for this card. A manual authorization link was generated.",
+      "automaticReauthorizationDescription": "This card’s saved encrypted sign-in details were reused. Closing this window does not cancel the job.",
       "toggleUnavailable": "The environment switch cannot be changed in its current state.",
       "updated": "Environment switch updated",
       "reauthorizeUnavailable": "This environment cannot be reauthorized in its current state.",

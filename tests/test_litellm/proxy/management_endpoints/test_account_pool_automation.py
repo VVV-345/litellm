@@ -86,3 +86,35 @@ def test_automation_job_delete_is_admin_only_and_targets_the_same_record(admin):
         manager.assert_awaited_once_with("DELETE", f"/api/oauth-automation/jobs/{job_id}", None)
     else:
         manager.assert_not_awaited()
+
+
+@pytest.mark.parametrize(("role", "manager_status", "expected"), [
+    (LitellmUserRoles.INTERNAL_USER, 202, 403),
+    (LitellmUserRoles.PROXY_ADMIN, 202, 202),
+    (LitellmUserRoles.PROXY_ADMIN, 409, 409),
+])
+def test_reauthorize_requests_saved_details_for_the_same_card(role, manager_status, expected):
+    manager = AsyncMock(return_value=httpx.Response(
+        manager_status, content=b"null" if manager_status == 202 else b'{"detail":"private fixture"}',
+    ))
+    card_id = uuid4()
+
+    def require_admin(user):
+        if user.user_role != LitellmUserRoles.PROXY_ADMIN:
+            raise HTTPException(403, "admin only")
+
+    app = FastAPI()
+    app.include_router(create_automation_router(manager, require_admin), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=role)
+    with TestClient(app) as client:
+        result = client.post(f"/account_pool/oauth-automation/environments/{card_id}/reauthorize")
+    assert result.status_code == expected
+    if expected == 403:
+        manager.assert_not_awaited()
+    else:
+        manager.assert_awaited_once_with("POST", f"/api/oauth-automation/environments/{card_id}/reauthorize", None)
+        assert result.headers["cache-control"] == "no-store"
+        if expected == 202:
+            assert result.json() is None
+        else:
+            assert "private fixture" not in result.text

@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from account_pool.application.authorization import (
     _authorization_expires_at,
+    saved_login_can_replace,
 )
 from account_pool.application.environments.contracts import (
     AUTHORIZATION_COMPLETE_STATUSES as _AUTHORIZATION_COMPLETE_STATUSES,
@@ -80,6 +81,7 @@ class EnvironmentAuthorization:
         operation_id: str | None = None,
         *,
         require_empty: bool = False,
+        reauthorize_email: str | None = None,
     ) -> Result[AuthorizationView]:
         """为已有 Compose 环境创建新的、一次性的 OAuth state，不重建可复用资源。"""
         lock: Final = await self._lock_for(environment_id)
@@ -91,10 +93,14 @@ class EnvironmentAuthorization:
                 return Failure(FailureCode.CONFLICT, "卡片正由授权自动化独占，请先取消自动化任务")
             if record.status is EnvironmentStatus.DELETING:
                 return Failure(FailureCode.CONFLICT, "environment is being deleted")
-            if require_empty and (
-                record.auth_file_name or record.credential_fingerprints or not record.enabled or record.manual_cooldown
+            if require_empty and (not record.enabled or record.manual_cooldown):
+                return Failure(FailureCode.CONFLICT, "卡片停用或手动冷却，不启动登录资料授权")
+            if require_empty and (record.auth_file_name or record.credential_fingerprints) and (
+                reauthorize_email is None
+                or operation_id is None or record.oauth_automation_operation != operation_id
+                or not saved_login_can_replace(record, reauthorize_email, utc_now())
             ):
-                return Failure(FailureCode.CONFLICT, "卡片已绑定凭据、停用或冷却，不启动登录资料授权")
+                return Failure(FailureCode.CONFLICT, "卡片已有凭据，仅允许同账号的失效凭据重新授权")
             if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
                 return Failure(FailureCode.INVALID, "direct credential cards do not use OAuth authorization")
             if (

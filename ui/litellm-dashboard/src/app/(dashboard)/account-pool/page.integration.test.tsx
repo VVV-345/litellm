@@ -13,15 +13,18 @@ const push = vi.fn();
 const listAccounts = vi.fn();
 const updateAccount = vi.fn();
 const authorizeAccount = vi.fn();
+const reauthorizeAutomation = vi.fn();
+const automationJobs = vi.fn();
 const searchState = { value: "" };
 const loadStats = vi.fn();
 vi.mock("@/features/account-pool/api/AccountPoolAutomationApi", async (original) => ({
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolAutomationApi")>()),
+  reauthorizeAutomation: (...args: unknown[]) => reauthorizeAutomation(...args),
   getAutomation: async () => ({
     version: 1,
     settings: { enabled: false },
     profiles: [],
-    jobs: [],
+    jobs: automationJobs(),
     image_checked: false,
   }),
 }));
@@ -108,6 +111,8 @@ describe("account card local configuration", () => {
   beforeEach(async () => {
     await i18n.changeLanguage("zh-CN");
     vi.clearAllMocks();
+    reauthorizeAutomation.mockResolvedValue(null);
+    automationJobs.mockReturnValue([]);
     searchState.value = "";
     listAccounts.mockResolvedValue([environment]);
     loadStats.mockResolvedValue({ cards: [], summary: {} });
@@ -180,7 +185,7 @@ describe("account card local configuration", () => {
     expect(screen.getByRole("textbox", { name: "单账号资料" })).toHaveValue("");
   });
 
-  it("starts a new OAuth session directly from a card whose access fallback has been rejected", async () => {
+  it("offers manual authorization when the card has no saved login details", async () => {
     const user = userEvent.setup();
     listAccounts.mockResolvedValue([
       {
@@ -215,8 +220,50 @@ describe("account card local configuration", () => {
     const dialog = await screen.findByRole("dialog", { name: "完成账号授权" });
     expect(within(dialog).getByRole("textbox", { name: "授权链接" })).toHaveValue(authorizationUrl);
     expect(within(dialog).getByRole("textbox", { name: "回调地址" })).toBeEnabled();
+    expect(reauthorizeAutomation).toHaveBeenCalledExactlyOnceWith("token", environment.id);
     expect(authorizeAccount).toHaveBeenCalledExactlyOnceWith("token", environment.id);
     expect(dashboardTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps one-click reauthorization on the card page without asking for login details", async () => {
+    const user = userEvent.setup();
+    listAccounts.mockResolvedValue([{ ...environment, status: "error" }]);
+    const job = {
+      id: "reauth-job",
+      environment_id: environment.id,
+      profile_id: "same-profile",
+      stage: "queued",
+      message: "等待建立新的 OAuth 会话",
+      created_at: "2026-11-17T00:00:00Z",
+      updated_at: "2026-11-17T00:00:00Z",
+    };
+    reauthorizeAutomation.mockResolvedValue(job);
+    automationJobs.mockReturnValue([job]);
+    renderPage();
+    const dashboardTab = screen.getByRole("tab", { name: "仪表盘", selected: true });
+
+    await user.click(await screen.findByRole("button", { name: `重新授权 ${environment.name}` }));
+
+    const dialog = await screen.findByRole("dialog", { name: "自动重新授权" });
+    expect(await within(dialog).findByText("等待建立新的 OAuth 会话")).toBeVisible();
+    expect(within(dialog).queryByRole("textbox")).not.toBeInTheDocument();
+    expect(reauthorizeAutomation).toHaveBeenCalledExactlyOnceWith("token", environment.id);
+    expect(authorizeAccount).not.toHaveBeenCalled();
+    expect(dashboardTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("never starts manual OAuth if the automatic request is blocked", async () => {
+    const user = userEvent.setup();
+    listAccounts.mockResolvedValue([{ ...environment, status: "error" }]);
+    reauthorizeAutomation.mockRejectedValue(new ApiError("卡片仍有可用凭据", 409, null));
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: `重新授权 ${environment.name}` }));
+
+    await waitFor(() => expect(reauthorizeAutomation).toHaveBeenCalledExactlyOnceWith("token", environment.id));
+    await waitFor(() => expect(screen.getByRole("button", { name: `重新授权 ${environment.name}` })).toBeEnabled());
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(authorizeAccount).not.toHaveBeenCalled();
   });
 
   it("updates an open model test when query refresh removes access proof, and closes it after card deletion", async () => {
