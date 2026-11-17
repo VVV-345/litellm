@@ -290,6 +290,10 @@ def is_glm_standard_api(account: Candidate) -> bool:
     return account.supplier == "openai_compatible" and is_glm_standard_api_base(account.api_base)
 
 
+def is_glm_chat_api(account: Candidate) -> bool:
+    return account.supplier == "openai_compatible" and is_glm_chat_api_base(account.api_base)
+
+
 def _is_glm_api_base(base: SplitResult, path: str) -> bool:
     return (
         base.scheme == "https" and base.hostname in ("open.bigmodel.cn", "api.z.ai")
@@ -300,6 +304,11 @@ def _is_glm_api_base(base: SplitResult, path: str) -> bool:
 
 def is_glm_standard_api_base(api_base: str) -> bool:
     return _is_glm_api_base(urlsplit(api_base), "/api/paas/v4")
+
+
+def is_glm_chat_api_base(api_base: str) -> bool:
+    base: Final = urlsplit(api_base)
+    return _is_glm_api_base(base, "/api/paas/v4") or _is_glm_api_base(base, "/api/coding/paas/v4")
 
 
 def upstream_url(account: Candidate, path: str) -> str:

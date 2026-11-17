@@ -39,7 +39,7 @@
 
 日志 → 号池日志 → 日志详情 → 请求与关联信息 → 思考强度。日常摘要仅记录进入号池网关的 HTTP 请求中明确提供的 `reasoning_effort`、`reasoning.effort`、`output_config.effort` 或 `thinking.budget_tokens`。流式请求也记录这些参数；不需要开启完整日志，不保存思考内容。旧日志或未指定的请求显示「未指定」，不推断模型默认值。
 
-GLM 标准 Chat 会将 `max_completion_tokens` 等值转换成官方 `max_tokens`；同时传入且值冲突时返回明确 400，不选取其一或丢弃限制。其他通用 OpenAI 兼容卡片保持原行为
+GLM 标准与 Coding 地址的 Chat 请求都会把 `max_completion_tokens` 等值转换成官方 `max_tokens`；同时传入且值冲突时返回明确 400，不选取其一或丢弃限制。其他通用 OpenAI 兼容卡片保持原行为
 
 国内站地址 `https://open.bigmodel.cn/api/paas/v4`，国际站地址 `https://api.z.ai/api/paas/v4`。来源：[智谱标准 API](https://docs.bigmodel.cn/cn/api/introduction)、[Z.AI 标准 API](https://docs.z.ai/guides/overview/quick-start)。标准 API 使用对应站点的标准 Key。Coding Plan 单独使用同站点的 /api/coding/paas/v4，只用于编程场景，以套餐权限为准。两者不混用 Key 或额度，不使用浏览器登录或 OAuth。见 [官方端点说明](https://zcode.z.ai/cn/docs/configuration/)
 
@@ -75,5 +75,5 @@ Chat 测试把 `finish_reason` 为 `stop` 或 `length`、且响应里存在可�
 
 连接失败同样给出可操作信息：消息里附上脱敏后的上游摘要（URL 整体替换为 `[url]`，`Bearer`、`sk-` 前缀和 `key=` / `token=` 之类赋值一律脱敏，最长 400 字符）。上游的具体 400 原因（例如不支持的参数或请求头）会直接出现在卡片的测试结果里，不再只有「检查请求日志」
 
-`max_completion_tokens` 到标准 GLM `max_tokens` 的转换仍只作用于 `/api/paas/v4` 标准地址；Coding Plan 地址不走这条转换，也不自动放行推理字段。如果 Coding 端点拒绝该参数，会以带上游摘要的 400 失败，是否扩大转换范围需要单独决定，因为那会同时改变推理字段白名单
+`max_completion_tokens` 到标准 GLM `max_tokens` 的转换现在同时覆盖 `/api/paas/v4` 与 `/api/coding/paas/v4`；推理字段 `reasoning_effort` / `thinking` 的白名单仍只对标准地址生效，Coding 地址不会因此自动放行推理参数
 

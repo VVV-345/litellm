@@ -8,7 +8,7 @@ type GeneratedAccountPoolUpdateRequest = components["schemas"]["AccountPoolUpdat
 
 export type AccountPoolEnvironment = Omit<
   GeneratedAccountPoolEnvironment,
-  "version" | "configuration_pending" | "model_cooldowns"
+  "version" | "configuration_pending" | "model_cooldowns" | "provider_family"
 > & {
   version: number;
   configuration_pending: boolean;

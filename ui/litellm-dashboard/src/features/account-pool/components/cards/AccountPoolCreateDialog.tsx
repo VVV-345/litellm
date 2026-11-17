@@ -1,7 +1,7 @@
 /** 本文件从 AI 提供商入口创建卡片，并按供应商展示授权引导。 */
 
 import { Bot, Plus } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -106,12 +106,40 @@ export const AccountPoolCreateDialog = ({
     ["ready", "cooling_down", "disabled"].includes(currentEnvironment.status) &&
     !currentEnvironment.configuration_pending;
 
+  const resetDraft = useCallback(() => {
+    setName("");
+    setApiKey("");
+    setPrefix("");
+    setBaseUrl("");
+    setPriority(0);
+    setWeight(1);
+    setProxyProfileId("");
+    setUseApiKey(false);
+    setLocation("us-central1");
+    setVertexFile(null);
+    setAuthorization(null);
+  }, []);
+
+  const closeDialog = useCallback(() => {
+    resetDraft();
+    onOpenChange(false);
+  }, [onOpenChange, resetDraft]);
+
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && saving) return;
+      if (!nextOpen) resetDraft();
+      onOpenChange(nextOpen);
+    },
+    [onOpenChange, resetDraft, saving],
+  );
+
   useEffect(() => {
     if (!open || !authorizationComplete || completionReported.current) return;
     completionReported.current = true;
     toast.success(t("accountPool.create.authorizationCompleted"));
-    onOpenChange(false);
-  }, [open, authorizationComplete, onOpenChange, t]);
+    closeDialog();
+  }, [open, authorizationComplete, closeDialog, t]);
 
   const handleCreate = async () => {
     if (compatiblePreset) return;
@@ -167,7 +195,7 @@ export const AccountPoolCreateDialog = ({
       });
       onCreated();
       toast.success(t("accountPool.create.directCredentialCreated"));
-      onOpenChange(false);
+      closeDialog();
     } catch (error) {
       toast.fromError(error);
     } finally {
@@ -191,30 +219,12 @@ export const AccountPoolCreateDialog = ({
       await createVertexAccountPoolEnvironment(accessToken, trimmedName, location.trim(), vertexFile);
       onCreated();
       toast.success(t("accountPool.create.vertexCreated"));
-      onOpenChange(false);
+      closeDialog();
     } catch (error) {
       toast.fromError(error);
     } finally {
       setSaving(false);
     }
-  };
-
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && saving) return;
-    if (!nextOpen) {
-      setName("");
-      setApiKey("");
-      setPrefix("");
-      setBaseUrl("");
-      setPriority(0);
-      setWeight(1);
-      setProxyProfileId("");
-      setUseApiKey(false);
-      setLocation("us-central1");
-      setVertexFile(null);
-      setAuthorization(null);
-    }
-    onOpenChange(nextOpen);
   };
 
   const cancelAuthorization = async () => {
@@ -223,7 +233,7 @@ export const AccountPoolCreateDialog = ({
       await cancelAccountPoolOAuthSession(accessToken, authorization.environment.id);
       toast.success(t("accountPool.create.authorizationCancelled"));
       onCreated();
-      onOpenChange(false);
+      closeDialog();
     } catch (error) {
       toast.fromError(error);
     }
@@ -296,7 +306,7 @@ export const AccountPoolCreateDialog = ({
             <Button type="button" variant="outline" onClick={() => void cancelAuthorization()}>
               {t("accountPool.create.cancelAuthorization")}
             </Button>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button type="button" variant="outline" onClick={closeDialog}>
               {t("common.close")}
             </Button>
           </DialogFooter>
@@ -309,7 +319,7 @@ export const AccountPoolCreateDialog = ({
           key={supplier}
           mode={compatiblePreset ? supplier : "compatible"}
           accessToken={accessToken}
-          onClose={() => onOpenChange(false)}
+          onClose={closeDialog}
           onCreated={onCreated}
         />
       );
@@ -392,7 +402,7 @@ export const AccountPoolCreateDialog = ({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
               {t("accountPool.cancel")}
             </Button>
             <Button
@@ -433,7 +443,7 @@ export const AccountPoolCreateDialog = ({
           </div>
           {renderProxyProfileSelect()}
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
               {t("accountPool.cancel")}
             </Button>
             <Button type="button" onClick={() => void handleCreate()} disabled={!canStartOAuth}>
@@ -478,7 +488,7 @@ export const AccountPoolCreateDialog = ({
             </div>
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
               {t("accountPool.cancel")}
             </Button>
             <Button
@@ -514,7 +524,7 @@ export const AccountPoolCreateDialog = ({
         </div>
         {renderProxyProfileSelect()}
         <DialogFooter className="mt-2">
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)} disabled={saving}>
             {t("accountPool.cancel")}
           </Button>
           <Button type="button" onClick={() => void handleCreate()} disabled={!canStartOAuth}>

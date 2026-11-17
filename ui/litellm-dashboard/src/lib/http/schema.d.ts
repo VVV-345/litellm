@@ -25042,6 +25042,11 @@ export interface components {
              */
             provider: "openai";
             /**
+             * Provider Family
+             * @default
+             */
+            provider_family: string;
+            /**
              * Proxy Mode
              * @enum {string}
              */
@@ -31691,6 +31696,10 @@ export interface components {
             output_tokens?: number | null;
             /** Proxy Endpoint */
             proxy_endpoint?: string | null;
+            /** Reasoning Budget Tokens */
+            reasoning_budget_tokens?: number | null;
+            /** Reasoning Effort */
+            reasoning_effort?: ("none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max") | null;
             /**
              * Response Completed
              * @default false

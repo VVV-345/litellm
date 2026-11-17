@@ -4465,6 +4465,69 @@ def test_glm_standard_chat_preserves_tools_reasoning_and_stream(base, stream, mo
 
 
 @pytest.mark.parametrize(
+    ("base", "chat", "standard"),
+    (
+        ("https://open.bigmodel.cn/api/paas/v4", True, True),
+        ("https://api.z.ai/api/paas/v4/", True, True),
+        ("https://open.bigmodel.cn/api/coding/paas/v4", True, False),
+        ("https://api.z.ai/api/coding/paas/v4/", True, False),
+        ("https://fixture.example/v1", False, False),
+    ),
+)
+def test_glm_base_detection_separates_token_limits_from_reasoning_whitelist(base, chat, standard):
+    from litellm.proxy.management_endpoints.account_pool_routing import (
+        is_glm_chat_api_base,
+        is_glm_standard_api_base,
+    )
+
+    assert is_glm_chat_api_base(base) is chat
+    assert is_glm_standard_api_base(base) is standard
+
+
+@pytest.mark.parametrize("base", ("https://open.bigmodel.cn/api/coding/paas/v4", "https://api.z.ai/api/coding/paas/v4/"))
+def test_glm_coding_plan_translates_completion_token_limit(base, monkeypatch):
+    monkeypatch.setattr(
+        "litellm.proxy.management_endpoints.account_pool_gateway_forwarder.validate_url", lambda url: (url, None)
+    )
+    seen = []
+
+    def upstream(request):
+        seen.append(request)
+        body = json.loads(request.content)
+        assert body["max_tokens"] == 256
+        assert "max_completion_tokens" not in body
+        return httpx.Response(
+            200,
+            json={
+                "id": "chat-glm",
+                "model": "glm-5.3",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}],
+            },
+        )
+
+    client, control = setup_gateway(upstream)
+    candidate = control.resolution.candidates[0].model_copy(
+        update={
+            "channel": "openai_compatible",
+            "supplier": "openai_compatible",
+            "api_base": base,
+            "api_key": "fixture-coding-key",
+            "enabled_models": ("glm-5.3",),
+            "credentials": (),
+        }
+    )
+    control.resolution = control.resolution.model_copy(update={"candidates": (candidate,)})
+    with client:
+        response = client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": f"Bearer {_KEY}"},
+            json={"model": "glm-5.3", "messages": [{"role": "user", "content": "hi"}], "max_completion_tokens": 256},
+        )
+    assert response.status_code == 200, response.text
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize(
     "endpoint,fields",
     [
         (

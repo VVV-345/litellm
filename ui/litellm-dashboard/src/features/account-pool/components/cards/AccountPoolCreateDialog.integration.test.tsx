@@ -96,6 +96,18 @@ describe("AccountPoolCreateDialog", () => {
     expect(createMock).not.toHaveBeenCalled();
   });
 
+  it("clears the draft when the create dialog is cancelled", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    renderDialog({ initialSupplier: "gemini", onOpenChange });
+    fireEvent.change(screen.getByLabelText("环境名称"), { target: { value: "草稿卡片" } });
+    fireEvent.change(screen.getByLabelText("API Key"), { target: { value: "draft-key" } });
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(screen.getByLabelText("环境名称")).toHaveValue("");
+    expect(screen.getByLabelText("API Key")).toHaveValue("");
+  });
+
   it.each(["ready", "cooling_down", "disabled"] as const)(
     "closes after the current authorization reaches %s",
     (status) => {

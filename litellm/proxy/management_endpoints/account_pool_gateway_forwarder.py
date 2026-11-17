@@ -63,7 +63,7 @@ from litellm.proxy.management_endpoints.account_pool_retry import (
 )
 from litellm.proxy.management_endpoints.account_pool_routing import (
     Route,
-    is_glm_standard_api,
+    is_glm_chat_api,
     upstream_url,
 )
 from litellm.proxy.management_endpoints.account_pool_session import SESSION_HEADERS, session_identifier
@@ -773,7 +773,7 @@ async def execute(
         else route.model
     )
     glm_limit: Final = (
-        is_glm_standard_api(route.account) and request.url.path == "/v1/chat/completions"
+        is_glm_chat_api(route.account) and request.url.path == "/v1/chat/completions"
         and "max_completion_tokens" in payload
     )
     if glm_limit and "max_tokens" in payload and payload["max_tokens"] != payload["max_completion_tokens"]:
