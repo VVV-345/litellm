@@ -52,6 +52,7 @@ def test_all_cost_routes_require_admin():
     assert client.get("/account_pool/costs?starts_on=2026-01-01&ends_on=2026-01-31").status_code == 403
     assert client.post("/account_pool/costs", json=payload()).status_code == 403
     assert client.post(f"/account_pool/costs/{uuid4()}/void", json={"reason": "误录"}).status_code == 403
+    assert client.post(f"/account_pool/costs/{uuid4()}/stop-renewal").status_code == 403
     assert not seen
 
 
@@ -70,3 +71,23 @@ def test_invalid_amount_and_account_scope_not_forwarded():
     assert client.post("/account_pool/costs", json={**payload(), "amount_cents": 1.25}).status_code == 422
     assert client.post("/account_pool/costs", json={**payload(), "category": "subscription"}).status_code == 422
     assert not seen
+
+
+def test_stop_renewal_forwards_fixed_uuid_path_and_validates_response():
+    from litellm.proxy.management_endpoints.account_pool_cost_models import PoolCostRecord
+
+    record_id = uuid4()
+    seen = []
+
+    async def manager(method, path, body):
+        seen.append((method, path, body))
+        record = PoolCostRecord(**{**payload(), "id": record_id},
+            created_at=datetime.now(timezone.utc), created_by="admin:tester")
+        return httpx.Response(200, json=record.model_dump(mode="json"))
+
+    app = FastAPI()
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_id="tester")
+    app.include_router(create_cost_router(manager, lambda _: None), prefix="/account_pool")
+    response = TestClient(app).post(f"/account_pool/costs/{record_id}/stop-renewal")
+    assert response.status_code == 200 and response.json()["auto_renew"] is False
+    assert seen == [("POST", f"/api/costs/{record_id}/stop-renewal", None)]

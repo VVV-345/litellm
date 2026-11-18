@@ -71,6 +71,13 @@ def create_cost_router(
             TypeAdapter(PoolCostRecord),
         )
 
+    async def stop_renewal(record_id: UUID, identity: Annotated[str, Depends(admin)]) -> PoolCostRecord:
+        return parse(
+            await request_manager("POST", f"/api/costs/{record_id}/stop-renewal", None),
+            TypeAdapter(PoolCostRecord),
+        )
+
+    router.post("/{record_id}/stop-renewal", response_model=PoolCostRecord)(stop_renewal)
     router.get("", response_model=PoolCostReport)(report)
     router.post("", response_model=PoolCostRecord)(create)
     router.post("/{record_id}/void", response_model=PoolCostRecord)(void)

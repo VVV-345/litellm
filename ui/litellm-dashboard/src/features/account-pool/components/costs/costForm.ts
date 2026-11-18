@@ -26,3 +26,15 @@ export function expiryLabel(days: number | null | undefined): string {
   if (days === 0) return "今天到期";
   return `${days} 天后到期`;
 }
+
+export function cycleEnd(value: string, months: number): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "";
+  const start = new Date(`${value}T00:00:00Z`);
+  if (!Number.isFinite(start.getTime()) || start.toISOString().slice(0, 10) !== value) return "";
+  const lastDay = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + months + 1, 0)).getUTCDate();
+  const next = new Date(
+    Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + months, Math.min(start.getUTCDate(), lastDay)),
+  );
+  next.setUTCDate(next.getUTCDate() - 1);
+  return next.toISOString().slice(0, 10);
+}

@@ -27,6 +27,7 @@ from account_pool.clash import ClashController
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
+from account_pool.cost_renewal import CostRenewalScheduler
 from account_pool.cost_repository import PostgresCostRepository
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService
@@ -244,6 +245,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _LOGGER.warning("Account pool startup settings sync failed: %s", error.__class__.__name__)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
+        cost_renewal_task: Final = asyncio.create_task(CostRenewalScheduler(costs).run_until_cancelled(retry_stopped))
         log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
         onboarding_task: Final = asyncio.create_task(onboarding_service.run_until_cancelled(retry_stopped))
         automation_task: Final = asyncio.create_task(automation.run_until_cancelled(retry_stopped))
@@ -280,6 +282,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             access_discovery_task.cancel()
             browser_cleanup_task.cancel()
             proxy_expiry_task.cancel()
+            cost_renewal_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
@@ -291,6 +294,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(access_discovery_task, return_exceptions=True)
             await asyncio.gather(browser_cleanup_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)
+            await asyncio.gather(cost_renewal_task, return_exceptions=True)
             try:
                 await retry_task
             except asyncio.CancelledError:

@@ -125,3 +125,27 @@ def test_future_payment_does_not_hide_a_gap_in_subscription_coverage():
     assert future.accounts[0].recorded
     assert future.accounts[0].days_until_expiry is None
     assert future.overdue_count == future.expiring_count == 0
+
+
+@pytest.mark.parametrize(
+    "start, months, end",
+    [
+        ("2026-11-18", 1, "2026-12-17"),
+        ("2026-01-31", 1, "2026-02-27"),
+        ("2024-01-31", 1, "2024-02-28"),
+        ("2024-02-29", 12, "2025-02-27"),
+        ("2026-11-18", 3, "2027-02-17"),
+    ],
+)
+def test_renewal_calendar_end(start, months, end):
+    from account_pool.cost_renewal import cycle_end
+
+    assert cycle_end(date.fromisoformat(start), months) == date.fromisoformat(end)
+
+
+def test_auto_renew_requires_account_and_cycle():
+    with pytest.raises(ValidationError):
+        record(auto_renew=True)
+    with pytest.raises(ValidationError):
+        record(category="server", account_id=None, auto_renew=True, cycle_months=1)
+    assert record().auto_renew is False

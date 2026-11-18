@@ -38,6 +38,7 @@ it("retains input and the same id after a failed save, then closes on success", 
     account_id: account.id,
     amount_cents: 29,
     currency: "CNY",
+    auto_renew: false,
     paid_on: "2026-01-01",
     ends_on: "2026-01-31",
   };
@@ -52,6 +53,7 @@ it("retains input and the same id after a failed save, then closes on success", 
 it("prefills a renewal but records a new period with a new id", async () => {
   const renewal: CostRecord = {
     id: "old",
+    auto_renew: false,
     currency: "CNY",
     note: "",
     category: "subscription",
@@ -97,7 +99,7 @@ it("applies the annual total only on request and saves the edited real payment f
   fireEvent.change(screen.getByLabelText("Coding Plan 预设（选填）"), { target: { value: "kimi" } });
   fireEvent.change(screen.getByLabelText("套餐与计费周期"), { target: { value: "4" } });
   expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("12.34");
-  await userEvent.click(screen.getByRole("button", { name: "套用名称和金额" }));
+  await userEvent.click(screen.getByRole("button", { name: "套用套餐" }));
   expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("948.00");
   expect(screen.getByLabelText("套餐 / 费用名称")).toHaveValue("Kimi 会员（含 Code） Plus（年付）");
   expect(screen.getByLabelText("服务开始日期")).toHaveValue("2026-01-01");
@@ -124,15 +126,40 @@ it("clears the previous price when applying a plan without a verified quote and 
     "href",
     "https://www.volcengine.com/activity/codingplan",
   );
-  await userEvent.click(screen.getByRole("button", { name: "套用名称和金额" }));
+  await userEvent.click(screen.getByRole("button", { name: "套用套餐" }));
   expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("");
   fireEvent.change(screen.getByLabelText("Coding Plan 预设（选填）"), { target: { value: "glm" } });
   expect(screen.getByLabelText("套餐与计费周期")).toHaveValue("");
-  expect(screen.getByRole("button", { name: "套用名称和金额" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "套用套餐" })).toBeDisabled();
   expect(createCost).not.toHaveBeenCalled();
 });
 
 it("keeps coding presets out of independent server and proxy entries", () => {
   render(<CostEntryDialog accessToken="admin" target={{ category: "server" }} onClose={vi.fn()} />, { wrapper });
   expect(screen.queryByLabelText("Coding Plan 预设（选填）")).not.toBeInTheDocument();
+});
+
+it("applies monthly dates, follows start edits until manually overridden and saves opt-in renewal", async () => {
+  render(<CostEntryDialog accessToken="admin" target={{ category: "subscription", account }} onClose={vi.fn()} />, {
+    wrapper,
+  });
+  expect(screen.getByRole("switch", { name: "到期后自动续期" })).not.toBeChecked();
+  fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-11-18" } });
+  fireEvent.change(screen.getByLabelText("Coding Plan 预设（选填）"), { target: { value: "glm" } });
+  fireEvent.change(screen.getByLabelText("套餐与计费周期"), { target: { value: "0" } });
+  await userEvent.click(screen.getByRole("button", { name: "套用套餐" }));
+  expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-12-17");
+  fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-01-31" } });
+  expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-02-27");
+  fireEvent.change(screen.getByLabelText("服务结束日期"), { target: { value: "2026-02-28" } });
+  fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-02-01" } });
+  expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-02-28");
+  await userEvent.click(screen.getByRole("switch", { name: "到期后自动续期" }));
+  await userEvent.click(screen.getByRole("button", { name: "保存费用" }));
+  await waitFor(() =>
+    expect(createCost).toHaveBeenCalledWith(
+      "admin",
+      expect.objectContaining({ auto_renew: true, cycle_months: 1, ends_on: "2026-02-28" }),
+    ),
+  );
 });

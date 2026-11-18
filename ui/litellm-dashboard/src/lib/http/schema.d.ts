@@ -822,6 +822,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/costs/{record_id}/stop-renewal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop Renewal */
+        post: operations["stop_renewal_account_pool_costs__record_id__stop_renewal_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/costs/{record_id}/void": {
         parameters: {
             query?: never;
@@ -39693,6 +39710,11 @@ export interface components {
             /** Amount Cents */
             amount_cents: number;
             /**
+             * Auto Renew
+             * @default false
+             */
+            auto_renew: boolean;
+            /**
              * Category
              * @enum {string}
              */
@@ -39703,6 +39725,8 @@ export interface components {
              * @constant
              */
             currency: "CNY";
+            /** Cycle Months */
+            cycle_months?: (1 | 3 | 12) | null;
             /**
              * Ends On
              * Format: date
@@ -39740,6 +39764,11 @@ export interface components {
             /** Amount Cents */
             amount_cents: number;
             /**
+             * Auto Renew
+             * @default false
+             */
+            auto_renew: boolean;
+            /**
              * Category
              * @enum {string}
              */
@@ -39757,6 +39786,8 @@ export interface components {
              * @constant
              */
             currency: "CNY";
+            /** Cycle Months */
+            cycle_months?: (1 | 3 | 12) | null;
             /**
              * Ends On
              * Format: date
@@ -39779,6 +39810,8 @@ export interface components {
              * Format: date
              */
             paid_on: string;
+            /** Renewal Of */
+            renewal_of?: string | null;
             /**
              * Starts On
              * Format: date
@@ -47217,6 +47250,37 @@ export interface operations {
                 "application/json": components["schemas"]["PoolCostCreate"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolCostRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    stop_renewal_account_pool_costs__record_id__stop_renewal_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {

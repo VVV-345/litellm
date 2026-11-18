@@ -21,6 +21,9 @@ class UnavailableCosts:
     async def create(self, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure:
         raise psycopg.OperationalError("private-db-password-do-not-expose")
 
+    async def stop_renewal(self, record_id: UUID) -> PoolCostRecord | CostFailure:
+        return CostFailure(404, "费用记录不存在")
+
     async def void(self, record_id: UUID, reason: str, actor: str) -> PoolCostRecord | CostFailure:
         return CostFailure(404, "费用记录不存在")
 

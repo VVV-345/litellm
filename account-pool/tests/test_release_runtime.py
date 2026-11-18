@@ -1415,6 +1415,10 @@ def test_cost_schema_upgrade_is_exact_and_cannot_be_reversed() -> None:
     target: Final = (*baseline, ("cost_repository.py", source))
     assert additive_manager_schema_upgrade(baseline, target)
     assert not additive_manager_schema_upgrade(target, baseline)
+    legacy: Final = source[:source.index(b'    """CREATE TABLE IF NOT EXISTS account_pool_cost_renewals')] + b")"
+    previous: Final = (*baseline, ("cost_repository.py", legacy))
+    assert additive_manager_schema_upgrade(previous, target)
+    assert not additive_manager_schema_upgrade(target, previous)
     assert not additive_manager_schema_upgrade(baseline, (*baseline, (
         "cost_repository.py", source.replace(b"payload jsonb NOT NULL", b"payload text NOT NULL"),
     )))

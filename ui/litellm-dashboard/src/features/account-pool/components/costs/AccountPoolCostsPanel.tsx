@@ -15,7 +15,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
-import { getCosts, voidCost, type CostRecord, type CostReport } from "../../api/AccountPoolCostsApi";
+import { getCosts, stopCostRenewal, voidCost, type CostRecord, type CostReport } from "../../api/AccountPoolCostsApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { CostEntryDialog, type CostEntryTarget } from "./CostEntryDialog";
 import { chinaToday, costLabels, expiryLabel, money } from "./costForm";
@@ -30,8 +30,12 @@ function AccountCostRow({
   a,
   mode,
   setTarget,
+  stopRenewal,
+  stopping,
 }: {
   a: CostAccount;
+  stopRenewal: (id: string) => void;
+  stopping: boolean;
   mode: "period" | "paid";
   setTarget: (target: CostEntryTarget) => void;
 }) {
@@ -52,6 +56,7 @@ function AccountCostRow({
             <p className="text-xs text-muted-foreground">
               {a.latest.starts_on} 至 {a.latest.ends_on}
             </p>
+            <p className="text-xs text-muted-foreground">{a.latest.auto_renew ? "自动续期已开启" : "到期不自动续期"}</p>
           </>
         ) : (
           "未录入"
@@ -77,6 +82,11 @@ function AccountCostRow({
             >
               录入
             </Button>
+            {a.latest?.auto_renew && (
+              <Button size="sm" variant="ghost" disabled={stopping} onClick={() => stopRenewal(a.latest!.id)}>
+                关闭续期
+              </Button>
+            )}
             {a.latest && (
               <Button
                 size="sm"
@@ -100,6 +110,15 @@ function AccountCostRow({
 }
 
 export function AccountPoolCostsPanel({ accessToken, active = true }: { accessToken: string; active?: boolean }) {
+  const cache = useQueryClient();
+  const renewal = useMutation({
+    mutationFn: (id: string) => stopCostRenewal(accessToken, id),
+    onSuccess: async () => {
+      await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.costsRoot(accessToken) });
+      toast.success("自动续期已关闭");
+    },
+    onError: (error: Error) => toast.error(error.message || "关闭失败，请重试"),
+  });
   const today = chinaToday();
   const [range, setRange] = useState({ start: `${today.slice(0, 7)}-01`, end: today });
   const [mode, setMode] = useState<"period" | "paid">("period");
@@ -198,7 +217,15 @@ export function AccountPoolCostsPanel({ accessToken, active = true }: { accessTo
       {valid && data && (
         <>
           <CostSummary data={data} mode={mode} />
-          <AccountCosts accounts={accounts} mode={mode} setTarget={setTarget} search={search} setSearch={setSearch} />
+          <AccountCosts
+            accounts={accounts}
+            mode={mode}
+            setTarget={setTarget}
+            search={search}
+            setSearch={setSearch}
+            stopRenewal={(id) => renewal.mutate(id)}
+            stopping={renewal.isPending}
+          />
           <CostRecords data={data} records={records} page={page} setRecordPage={setRecordPage} beginVoid={setVoiding} />
         </>
       )}
@@ -258,6 +285,7 @@ function CostRecords({
                 </TableCell>
                 <TableCell className="max-w-xs whitespace-normal break-words">
                   {r.note || "无备注"}
+                  {r.renewal_of && <p>自动续期生成（按约定金额记账）</p>}
                   {r.voided_at && <p>已作废：{r.void_reason}</p>}
                 </TableCell>
                 <TableCell>
@@ -321,7 +349,7 @@ function CostSummary({ data, mode }: { data: CostReport; mode: "period" | "paid"
       <p className="text-xs text-muted-foreground">
         {mode === "period"
           ? "按已录入费用的服务天数计算所选期间成本，未来日期包含预付服务成本，不代表已经使用"
-          : "按付款日期汇总已确认支出，不包含作废记录"}
+          : "按付款日期汇总支出，含按约定金额生成的自动续期，不包含作废记录"}
         。不包含模型估算费用；未录入的费用不计入合计
       </p>
       <div className="flex flex-wrap gap-2" role="status">
@@ -404,12 +432,16 @@ function AccountCosts({
   setTarget,
   search,
   setSearch,
+  stopRenewal,
+  stopping,
 }: {
   accounts: CostAccount[];
   mode: "period" | "paid";
   setTarget: (target: CostEntryTarget) => void;
   search: string;
   setSearch: (value: string) => void;
+  stopRenewal: (id: string) => void;
+  stopping: boolean;
 }) {
   return (
     <section className="space-y-3">
@@ -437,7 +469,14 @@ function AccountCosts({
           </TableHeader>
           <TableBody>
             {accounts.map((a) => (
-              <AccountCostRow key={a.account_id} a={a} mode={mode} setTarget={setTarget} />
+              <AccountCostRow
+                key={a.account_id}
+                a={a}
+                mode={mode}
+                setTarget={setTarget}
+                stopRenewal={stopRenewal}
+                stopping={stopping}
+              />
             ))}
             {!accounts.length && (
               <TableRow>

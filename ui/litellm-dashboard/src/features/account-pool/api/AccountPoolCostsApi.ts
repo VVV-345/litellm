@@ -14,3 +14,6 @@ export const createCost = (accessToken: string, body: CostCreate) =>
   apiClient.post<CostRecord>("/account_pool/costs", { accessToken, body });
 export const voidCost = (accessToken: string, id: string, reason: string) =>
   apiClient.post<CostRecord>(`/account_pool/costs/${encodeURIComponent(id)}/void`, { accessToken, body: { reason } });
+
+export const stopCostRenewal = (accessToken: string, id: string) =>
+  apiClient.post<CostRecord>(`/account_pool/costs/${encodeURIComponent(id)}/stop-renewal`, { accessToken });

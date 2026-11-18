@@ -1,15 +1,16 @@
-/** 订阅表单的官方套餐选择与显式套用，不保存费用或修改服务日期。 */
+/** 订阅表单的官方套餐选择与显式套用，不保存费用。 */
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { codingPlanProviders, codingPlansVerifiedOn } from "./codingPlanPresets";
 import { money } from "./costForm";
 
-export function CodingPlanPresetPicker({ onApply }: { onApply: (name: string, amount: string) => void }) {
+export function CodingPlanPresetPicker({ onApply }: { onApply: (name: string, amount: string, months: 1 | 3 | 12) => void }) {
   const [providerId, setProviderId] = useState("");
   const [planIndex, setPlanIndex] = useState("");
   const provider = codingPlanProviders.find((item) => item.id === providerId);
   const plan = planIndex === "" ? undefined : provider?.plans[Number(planIndex)];
+  const cycleMonths = { 月付: 1, 季付: 3, 年付: 12 } as const;
   const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm";
   return (
     <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
@@ -64,16 +65,17 @@ export function CodingPlanPresetPicker({ onApply }: { onApply: (name: string, am
                   onApply(
                     `${provider.name} ${plan.label}（${plan.cycle}）`,
                     plan.amountCents === null ? "" : (plan.amountCents / 100).toFixed(2),
+                    cycleMonths[plan.cycle],
                   );
               }}
             >
-              套用名称和金额
+              套用套餐
             </Button>
           </div>
         </>
       )}
       <p className="text-xs text-muted-foreground">
-        预设为价格快照，金额可修改。付款及服务日期请按真实订单填写，点击保存后才计入台账
+        预设为价格快照，金额可修改。服务结束日期按周期预填，可按真实订单修改，点击保存后才计入台账
       </p>
     </div>
   );

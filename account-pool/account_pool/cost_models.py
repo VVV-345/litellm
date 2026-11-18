@@ -20,11 +20,15 @@ class PoolCostCreate(BaseModel):
     starts_on: date
     ends_on: date
     note: str = Field(default="", max_length=2000)
+    auto_renew: bool = False
+    cycle_months: Literal[1, 3, 12] | None = None
 
     @model_validator(mode="after")
     def validate_scope(self) -> Self:
         if (self.category == "subscription") != (self.account_id is not None):
             raise ValueError("订阅费用必须关联已有账号，代理和服务器费用不能关联账号")
+        if self.auto_renew and (self.category != "subscription" or self.cycle_months is None):
+            raise ValueError("自动续期仅支持指定计费周期的账号订阅")
         if self.ends_on < self.starts_on:
             raise ValueError("服务结束日期不能早于开始日期")
         if (self.ends_on - self.starts_on).days > 3660:
@@ -33,6 +37,7 @@ class PoolCostCreate(BaseModel):
 
 
 class PoolCostRecord(PoolCostCreate):
+    renewal_of: UUID | None = None
     account_name: str | None = None
     created_at: datetime
     created_by: str

@@ -66,6 +66,10 @@ def create_cost_router(
     ) -> PoolCostRecord:
         return expose(await repository.void(record_id, request.reason, actor))
 
+    async def stop_renewal(record_id: UUID) -> PoolCostRecord:
+        return expose(await repository.stop_renewal(record_id))
+
+    router.post("/{record_id}/stop-renewal", response_model=PoolCostRecord)(stop_renewal)
     router.get("", response_model=PoolCostReport)(report)
     router.post("", response_model=PoolCostRecord)(create)
     router.post("/{record_id}/void", response_model=PoolCostRecord)(void)

@@ -4,14 +4,20 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import { getCosts, voidCost, type CostReport } from "../../api/AccountPoolCostsApi";
+import { getCosts, stopCostRenewal, voidCost, type CostReport } from "../../api/AccountPoolCostsApi";
 import { AccountPoolCostsPanel } from "./AccountPoolCostsPanel";
 
-vi.mock("../../api/AccountPoolCostsApi", () => ({ getCosts: vi.fn(), voidCost: vi.fn(), createCost: vi.fn() }));
+vi.mock("../../api/AccountPoolCostsApi", () => ({
+  getCosts: vi.fn(),
+  voidCost: vi.fn(),
+  stopCostRenewal: vi.fn(),
+  createCost: vi.fn(),
+}));
 it("switches totals, keeps missing costs visible, and refreshes after an explicit void", async () => {
   await i18n.changeLanguage("zh-CN");
   const record = {
     id: "record",
+    auto_renew: false,
     category: "server" as const,
     name: "服务器月费",
     amount_cents: 3100,
@@ -70,4 +76,57 @@ it("switches totals, keeps missing costs visible, and refreshes after an explici
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(voidCost).toHaveBeenCalledWith("admin", "record", "重复登记");
   expect(getCosts).toHaveBeenCalledTimes(2);
+});
+
+it("displays automatic renewal and stops it through the account action", async () => {
+  const latest = {
+    id: "subscription",
+    note: "",
+    category: "subscription" as const,
+    account_id: "existing",
+    name: "月费",
+    amount_cents: 11800,
+    currency: "CNY" as const,
+    paid_on: "2026-11-01",
+    starts_on: "2026-11-01",
+    ends_on: "2026-11-30",
+    auto_renew: true,
+    cycle_months: 1 as const,
+    created_at: "2026-11-01T00:00:00Z",
+    created_by: "admin",
+  };
+  const totals = { subscription_cents: 11800, proxy_cents: 0, server_cents: 0, total_cents: 11800 };
+  const report: CostReport = {
+    currency: "CNY",
+    starts_on: "2026-11-01",
+    ends_on: "2026-11-18",
+    today: "2026-11-18",
+    paid: totals,
+    period: totals,
+    records: [latest],
+    record_count: 1,
+    expiring_count: 0,
+    overdue_count: 0,
+    accounts: [
+      {
+        account_id: "existing",
+        account_name: "续期账号",
+        archived: false,
+        recorded: true,
+        paid_cents: 11800,
+        period_cents: 11800,
+        latest,
+      },
+    ],
+  };
+  vi.mocked(getCosts).mockResolvedValue(report);
+  vi.mocked(stopCostRenewal).mockResolvedValue({ ...latest, auto_renew: false });
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
+      <AccountPoolCostsPanel accessToken="admin" />
+    </QueryClientProvider>,
+  );
+  expect(await screen.findByText("自动续期已开启")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "关闭续期" }));
+  await waitFor(() => expect(stopCostRenewal).toHaveBeenCalledWith("admin", "subscription"));
 });

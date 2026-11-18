@@ -1,6 +1,6 @@
 /** 验证人民币输入精度与跨月续费日期。 */
 import { describe, expect, it } from "vitest";
-import { expiryLabel, nextDate, parseCents } from "./costForm";
+import { cycleEnd, expiryLabel, nextDate, parseCents } from "./costForm";
 
 describe("manual cost values", () => {
   it.each([
@@ -21,4 +21,16 @@ describe("manual cost values", () => {
     expect(expiryLabel(0)).toBe("今天到期");
     expect(expiryLabel(-2)).toBe("已到期 2 天");
   });
+});
+
+it.each([
+  ["2026-11-18", 1, "2026-12-17"],
+  ["2026-01-31", 1, "2026-02-27"],
+  ["2024-01-31", 1, "2024-02-28"],
+  ["2024-02-29", 12, "2025-02-27"],
+  ["2026-11-18", 3, "2027-02-17"],
+  ["2026-01-01", 12, "2026-12-31"],
+  ["", 1, ""],
+])("calculates inclusive service end for %s (%i months)", (start, months, end) => {
+  expect(cycleEnd(start, months)).toBe(end);
 });
