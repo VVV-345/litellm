@@ -264,10 +264,32 @@ index 38b94c802b9dc308c267b626ac1ab59e0c8e37ea..f43375810f289dbc2b5b167d3493b094
  		entry["model_quotas"] = modelQuotas
  	}
 diff --git a/internal/api/handlers/management/auth_files_fields.go b/internal/api/handlers/management/auth_files_fields.go
-index bbe12e5418a273a00f39df24030dacf1e09d21b9..30a218f9f2f1dcfe2b29da2273cb4398440fe12b 100644
+index bbe12e5418a273a00f39df24030dacf1e09d21b9..75e5e3b287f3b1c93ff24d32272ea2b4e2fef1b0 100644
 --- a/internal/api/handlers/management/auth_files_fields.go
 +++ b/internal/api/handlers/management/auth_files_fields.go
-@@ -540,6 +540,12 @@ func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]str
+@@ -108,6 +108,10 @@ func (h *Handler) PatchAuthFileStatus(c *gin.Context) {
+ 
+ 	applyAuthDisabledState(targetAuth, *req.Disabled)
+ 	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
++		if errors.Is(err, coreauth.ErrRefreshStale) {
++			c.JSON(http.StatusConflict, gin.H{"error": "credential changed; reload before editing"})
++			return
++		}
+ 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
+ 		return
+ 	}
+@@ -344,6 +348,10 @@ func (h *Handler) PatchAuthFileFields(c *gin.Context) {
+ 	targetAuth.UpdatedAt = time.Now()
+ 
+ 	if _, err := h.authManager.Update(ctx, targetAuth); err != nil {
++		if errors.Is(err, coreauth.ErrRefreshStale) {
++			c.JSON(http.StatusConflict, gin.H{"error": "credential changed; reload before editing"})
++			return
++		}
+ 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("failed to update auth: %v", err)})
+ 		return
+ 	}
+@@ -540,6 +548,12 @@ func syncAuthFileMetadataFields(auth *coreauth.Auth, touchedRoots map[string]str
  	if auth == nil || len(touchedRoots) == 0 {
  		return
  	}
@@ -1071,10 +1093,10 @@ index 6144f0e53821b34054ee55669c149c38808a53f2..d538bc9ba0a6e7507fe9ea68b527f0d7
 +	}
 +}
 diff --git a/internal/runtime/executor/codex_executor_auth.go b/internal/runtime/executor/codex_executor_auth.go
-index e200d69021c90394433314b37d80d9e598f978b2..b14c997cae8fa27262194210ac3503710d78eb0c 100644
+index e200d69021c90394433314b37d80d9e598f978b2..0e77505cbff4e7338100b31e2b5c2ad855938c72 100644
 --- a/internal/runtime/executor/codex_executor_auth.go
 +++ b/internal/runtime/executor/codex_executor_auth.go
-@@ -34,24 +34,36 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
+@@ -34,24 +34,35 @@ func (e *CodexExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth) (*
  	if err != nil {
  		return nil, err
  	}
@@ -1110,9 +1132,10 @@ index e200d69021c90394433314b37d80d9e598f978b2..b14c997cae8fa27262194210ac350371
 +		auth.Metadata["expired"] = td.Expire
 +	}
  	auth.Metadata["type"] = "codex"
- 	now := time.Now().Format(time.RFC3339)
- 	auth.Metadata["last_refresh"] = now
+-	now := time.Now().Format(time.RFC3339)
+-	auth.Metadata["last_refresh"] = now
 -	return auth, nil
++	auth.Metadata["last_refresh"] = time.Now().UTC().Format(time.RFC3339Nano)
  }
  
  func codexCreds(a *cliproxyauth.Auth) (apiKey, baseURL string) {
@@ -3216,10 +3239,10 @@ index c245ff3715384256a2230d4a39aeff68640223c2..fbbf3663f38769e3decc1d04069b8e2e
  	AuthID string
  	// Provider is copied for convenience when emitting hooks.
 diff --git a/sdk/cliproxy/auth/conductor_cooldown.go b/sdk/cliproxy/auth/conductor_cooldown.go
-index d69cd99..34cfc04 100644
+index d69cd9913b2a62f2f49c9de2aad30d4ec4c71f77..9075b2355e1230abb43857bc0bf333ff8a097333 100644
 --- a/sdk/cliproxy/auth/conductor_cooldown.go
 +++ b/sdk/cliproxy/auth/conductor_cooldown.go
-@@ -7,6 +7,7 @@
+@@ -7,6 +7,7 @@ import (
  	"fmt"
  	"io"
  	"net/http"
@@ -3227,7 +3250,7 @@ index d69cd99..34cfc04 100644
  	"sort"
  	"strings"
  	"sync/atomic"
-@@ -334,6 +335,31 @@
+@@ -334,6 +335,31 @@ func (m *Manager) RestoreCooldownStates(ctx context.Context) error {
  
  func (m *Manager) restoreCooldownRecordLocked(record CooldownStateRecord, now time.Time) bool {
  	authID := strings.TrimSpace(record.AuthID)
@@ -3259,7 +3282,7 @@ index d69cd99..34cfc04 100644
  	if authID == "" || record.NextRetryAfter.IsZero() || !record.NextRetryAfter.After(now) {
  		return false
  	}
-@@ -604,10 +630,19 @@
+@@ -604,10 +630,27 @@ func (m *Manager) cooldownStateRecordsSnapshot() []CooldownStateRecord {
  }
  
  func (m *Manager) cooldownStateRecordsForAuthLocked(auth *Auth, now time.Time) []CooldownStateRecord {
@@ -3270,7 +3293,15 @@ index d69cd99..34cfc04 100644
 -	records := make([]CooldownStateRecord, 0, 1+len(auth.ModelStates))
 +	records := make([]CooldownStateRecord, 0, 2+len(auth.ModelStates))
 +	if !auth.refreshAttemptedAt.IsZero() && auth.refreshLastResult != "" {
-+		records = append(records, CooldownStateRecord{Provider: auth.Provider, AuthID: auth.ID, AuthFile: cooldownAuthFile(auth), Model: "$credential_refresh", CredentialRefresh: &CredentialRefreshState{Credential: refreshCredentialFingerprint(auth), AttemptedAt: auth.refreshAttemptedAt, SuccessAt: auth.LastRefreshedAt, RetryAt: auth.NextRefreshAfter, Result: auth.refreshLastResult}})
++		state := &CredentialRefreshState{Credential: refreshCredentialFingerprint(auth), AttemptedAt: auth.refreshAttemptedAt, SuccessAt: auth.LastRefreshedAt, RetryAt: auth.NextRefreshAfter, Result: auth.refreshLastResult}
++		if auth.Provider == "codex" && auth.refreshSavePending && auth.refreshConsumedCredential != "" {
++			// 新凭据尚未落盘，重启可能只读到旧凭据；保留针对旧指纹的防重放记录。
++			state.Credential = auth.refreshConsumedCredential
++			state.Result = "pending"
++			state.SuccessAt = time.Time{}
++			state.RetryAt = time.Time{}
++		}
++		records = append(records, CooldownStateRecord{Provider: auth.Provider, AuthID: auth.ID, AuthFile: cooldownAuthFile(auth), Model: "$credential_refresh", CredentialRefresh: state})
 +	}
 +	if accessFallbackBound(auth) {
 +		records = append(records, CooldownStateRecord{Provider: auth.Provider, AuthID: auth.ID, AuthFile: cooldownAuthFile(auth), Model: "$access_token_fallback", AccessFallback: auth.AccessFallback.Clone()})
@@ -3281,7 +3312,7 @@ index d69cd99..34cfc04 100644
  	if record, ok := authCooldownStateRecord(auth, now); ok {
  		records = append(records, record)
  	}
-@@ -635,7 +670,7 @@
+@@ -635,7 +678,7 @@ func cooldownStateRecordsEqual(a, b []CooldownStateRecord) bool {
  }
  
  func cooldownStateRecordEqual(a, b CooldownStateRecord) bool {
@@ -3290,11 +3321,10 @@ index d69cd99..34cfc04 100644
  		a.AuthID != b.AuthID ||
  		a.AuthFile != b.AuthFile ||
  		a.Model != b.Model ||
-@@ -748,6 +783,15 @@
- 		trackCooldownState := m.cooldownStore != nil
+@@ -749,6 +792,15 @@ func (m *Manager) MarkResult(ctx context.Context, result Result) {
  		if trackCooldownState {
  			cooldownRecordsBefore = m.cooldownStateRecordsForAuthLocked(auth, now)
-+		}
+ 		}
 +		if result.CredentialFingerprint != "" && result.CredentialFingerprint != refreshCredentialFingerprint(auth) {
 +			m.mu.Unlock()
 +			return
@@ -3303,10 +3333,11 @@ index d69cd99..34cfc04 100644
 +			auth.AccessFallback = auth.AccessFallback.Clone()
 +			auth.AccessFallback.AccessRejected = true
 +			result.Error = cloneError(result.Error)
- 		}
++		}
  		auth.recordRecentRequest(now, result.Success)
  		if result.Success {
-@@ -1493,7 +1537,10 @@
+ 			auth.Success++
+@@ -1493,7 +1545,10 @@ func isUnauthorizedError(err error) bool {
  		return true
  	}
  	raw := strings.ToLower(err.Error())
@@ -3318,7 +3349,7 @@ index d69cd99..34cfc04 100644
  }
  
  func hasUnauthorizedAuthFailure(auth *Auth) bool {
-@@ -1512,7 +1559,7 @@
+@@ -1512,7 +1567,7 @@ func refreshErrorFromError(err error) *Error {
  		statusCode = http.StatusUnauthorized
  	}
  	authErr := &Error{Message: err.Error(), HTTPStatus: statusCode}
@@ -3377,10 +3408,10 @@ index 3aa1f67d3411641ecdd28e3b2cd7be8a97bef409..30ba610209cee59dcd732ff685cb2caf
  				m.reportHomeResult(execCtx, result, auth)
  				releaseAttempt()
 diff --git a/sdk/cliproxy/auth/conductor_lifecycle.go b/sdk/cliproxy/auth/conductor_lifecycle.go
-index d14b661..87fb54d 100644
+index d14b66155b7e51e282dd336edda2c6daaaf8d5c3..3bf46c4884a0816ee68f9c299cdf7fd7767611b0 100644
 --- a/sdk/cliproxy/auth/conductor_lifecycle.go
 +++ b/sdk/cliproxy/auth/conductor_lifecycle.go
-@@ -3,6 +3,7 @@
+@@ -3,6 +3,7 @@ package auth
  import (
  	"context"
  	"fmt"
@@ -3388,7 +3419,7 @@ index d14b661..87fb54d 100644
  	"strings"
  	"time"
  
-@@ -76,6 +77,9 @@
+@@ -76,6 +77,9 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
  	if auth.ID == "" {
  		auth.ID = uuid.NewString()
  	}
@@ -3398,7 +3429,7 @@ index d14b661..87fb54d 100644
  	now := time.Now()
  	if auth.Generation == 0 {
  		auth.Generation = 1
-@@ -85,6 +89,7 @@
+@@ -85,6 +89,7 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
  	}
  	auth.UpdatedAt = now
  	cooldownStateChanged := normalizeModelStates(auth)
@@ -3406,10 +3437,13 @@ index d14b661..87fb54d 100644
  	if m.cooldownDisabledForAuth(auth) || auth.Disabled || auth.Status == StatusDisabled {
  		cooldownStateChanged = clearCooldownStateForAuth(auth, now) || cooldownStateChanged
  	}
-@@ -125,6 +130,16 @@
- 	if auth == nil || auth.ID == "" {
- 		return nil, nil
- 	}
+@@ -122,6 +127,16 @@ func (m *Manager) Register(ctx context.Context, auth *Auth) (*Auth, error) {
+ 
+ // Update replaces an existing auth entry and notifies hooks.
+ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
++	if auth == nil || auth.ID == "" {
++		return nil, nil
++	}
 +	lock := m.authRefreshLock(auth.ID)
 +	lock.commitMu.Lock()
 +	defer lock.commitMu.Unlock()
@@ -3417,25 +3451,38 @@ index d14b661..87fb54d 100644
 +}
 +
 +func (m *Manager) updateAuth(ctx context.Context, auth *Auth, refreshCommit bool) (*Auth, error) {
-+	if auth == nil || auth.ID == "" {
-+		return nil, nil
-+	}
- 	NormalizeCredentialMetadata(auth.Metadata)
- 	if errWeight := ValidateAuthWeight(auth); errWeight != nil {
- 		return nil, fmt.Errorf("update auth: %w", errWeight)
-@@ -134,6 +149,11 @@
- 	if !ok || existing == nil {
+ 	if auth == nil || auth.ID == "" {
+ 		return nil, nil
+ 	}
+@@ -135,6 +150,27 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  		m.mu.Unlock()
  		return nil, nil
-+	}
+ 	}
 +	if shouldSkipPersist(ctx) && existing.refreshConsumedCredential == refreshCredentialFingerprint(auth) && !sameRefreshCredential(existing, auth) {
 +		current := existing.Clone()
 +		m.mu.Unlock()
 +		return current, nil
- 	}
++	}
++	if !refreshCommit && existing.Provider == "codex" && refreshCredentialFingerprint(existing) != refreshCredentialFingerprint(auth) {
++		if shouldSkipPersist(ctx) {
++			incomingAt, hasIncomingTime := authLastRefreshTimestamp(auth)
++			currentAt, hasCurrentTime := authLastRefreshTimestamp(existing)
++			// 监听事件可能跨过不止一次轮换；只接收比当前凭据更新的文件快照。
++			if existing.refreshSavePending || (hasCurrentTime && (!hasIncomingTime || !incomingAt.After(currentAt))) {
++				current := existing.Clone()
++				m.mu.Unlock()
++				return current, nil
++			}
++		}
++		if auth.Generation > 0 && auth.Generation < existing.Generation {
++			m.mu.Unlock()
++			return nil, ErrRefreshStale
++		}
++	}
  	if m.authEpochs == nil {
  		m.authEpochs = make(map[string]uint64)
-@@ -154,6 +174,46 @@
+ 	}
+@@ -154,6 +190,48 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  		auth.Index = existing.Index
  		auth.indexAssigned = existing.indexAssigned
  	}
@@ -3443,7 +3490,9 @@ index d14b661..87fb54d 100644
 +		auth.refreshSavePending = true
 +	}
 +	if sameRefreshCredential(existing, auth) {
-+		auth.refreshConsumedCredential = existing.refreshConsumedCredential
++		if !refreshCommit {
++			auth.refreshConsumedCredential = existing.refreshConsumedCredential
++		}
 +		if !refreshCommit && (auth.refreshAttemptedAt.IsZero() || auth.refreshAttemptedAt.Before(existing.refreshAttemptedAt) || auth.Generation < existing.Generation || existing.refreshInProgress || existing.refreshLastResult == "unknown_outcome") {
 +			auth.refreshAttemptedAt = existing.refreshAttemptedAt
 +			auth.refreshLastResult = existing.refreshLastResult
@@ -3482,7 +3531,7 @@ index d14b661..87fb54d 100644
  	auth.Success = existing.Success
  	auth.Failed = existing.Failed
  	auth.recentRequests = existing.recentRequests
-@@ -177,7 +237,7 @@
+@@ -177,7 +255,7 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  	}
  	now := time.Now()
  	auth.UpdatedAt = now
@@ -3491,7 +3540,7 @@ index d14b661..87fb54d 100644
  	if m.cooldownDisabledForAuth(auth) || auth.Disabled || auth.Status == StatusDisabled {
  		cooldownStateChanged = clearCooldownStateForAuth(auth, now) || cooldownStateChanged
  	}
-@@ -192,12 +252,24 @@
+@@ -192,12 +270,24 @@ func (m *Manager) Update(ctx context.Context, auth *Auth) (*Auth, error) {
  		m.scheduler.upsertAuth(authClone.Clone())
  	}
  	m.queueRefreshReschedule(auth.ID)
@@ -3518,7 +3567,7 @@ index d14b661..87fb54d 100644
  }
  
  // Remove deletes an auth from runtime state without persisting.
-@@ -211,6 +283,9 @@
+@@ -211,6 +301,9 @@ func (m *Manager) Remove(ctx context.Context, id string) {
  		return
  	}
  	_ = ctx
@@ -3997,14 +4046,16 @@ index d0d46e07eeb9270a3eecec29b0e2ebe44a95a706..70ca6d14d3684c751611fb8fb581037d
  			if idx < len(execModels)-1 {
  				lastErr = emptyErr
 diff --git a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
-index 3745192..018ee6a 100644
+index 37451925076ee1e16b5a79f92f5d597f51b3190f..776bb18f135a989d1e90097dd194bbb92868fa0e 100644
 --- a/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
 +++ b/sdk/cliproxy/auth/conductor_unauthorized_refresh_test.go
-@@ -2,9 +2,11 @@
+@@ -2,9 +2,13 @@ package auth
  
  import (
  	"context"
++	"crypto/sha256"
 +	"errors"
++	"fmt"
  	"net/http"
  	"sync"
  	"testing"
@@ -4012,7 +4063,7 @@ index 3745192..018ee6a 100644
  
  	"github.com/router-for-me/CLIProxyAPI/v7/internal/registry"
  	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v7/sdk/cliproxy/executor"
-@@ -138,6 +140,7 @@
+@@ -138,6 +142,7 @@ func newUnauthorizedRefreshFixture(t *testing.T, refreshFail bool) (*Manager, *u
  	}
  
  	m := NewManager(nil, nil, nil)
@@ -4020,7 +4071,7 @@ index 3745192..018ee6a 100644
  	m.RegisterExecutor(executor)
  
  	reg := registry.GetGlobalRegistry()
-@@ -334,3 +337,319 @@
+@@ -334,3 +339,472 @@ func TestManager_Execute_UnauthorizedRefreshThenRetryStillFailsFallsBackOnce(t *
  		t.Fatalf("Execute calls = %v, want [primary, primary, backup]", got)
  	}
  }
@@ -4339,6 +4390,159 @@ index 3745192..018ee6a 100644
 +	if authAccessToken(current) != "synthetic-new-access" {
 +		t.Fatal("state merge discarded rotation")
 +	}
++}
++
++type singleUseCodexRefreshExecutor struct {
++	ProviderExecutor
++	calls   int
++	current string
++	during  func()
++}
++
++func (*singleUseCodexRefreshExecutor) Identifier() string { return "codex" }
++
++func (e *singleUseCodexRefreshExecutor) Refresh(_ context.Context, a *Auth) (*Auth, error) {
++	e.calls++
++	if a.Metadata["refresh_token"] != e.current {
++		return nil, &Error{HTTPStatus: 401, Code: "refresh_token_reused"}
++	}
++	if e.during != nil {
++		e.during()
++	}
++	e.current = fmt.Sprintf("fixture-rt-%d", e.calls)
++	a.Metadata["refresh_token"] = e.current
++	a.Metadata["access_token"] = fmt.Sprintf("fixture-at-%d", e.calls)
++	a.Metadata["last_refresh"] = time.Date(2026, 1, 1, 0, 0, e.calls, 0, time.UTC).Format(time.RFC3339Nano)
++	a.Metadata["expired"] = time.Now().Add(24 * time.Hour).Format(time.RFC3339)
++	return a, nil
++}
++
++func singleUseCodexRefreshFixture(t *testing.T) (*Manager, *refreshPersistenceStore, *singleUseCodexRefreshExecutor, CooldownStateStore, *Auth) {
++	t.Helper()
++	ctx := context.Background()
++	store := &refreshPersistenceStore{}
++	exec := &singleUseCodexRefreshExecutor{current: "fixture-rt-0"}
++	m := NewManager(store, nil, nil)
++	m.RegisterExecutor(exec)
++	journal := NewFileCooldownStateStore(t.TempDir())
++	m.SetCooldownStateStore(journal)
++	a, err := m.Register(ctx, &Auth{ID: "codex-fixture", Provider: "codex", Status: StatusActive, Metadata: map[string]any{
++		"type": "codex", "access_token": "fixture-at-0", "refresh_token": exec.current,
++		"last_refresh": "2026-01-01T00:00:00Z", "expired": time.Now().Add(time.Hour).Format(time.RFC3339),
++	}})
++	if err != nil || store.stored == nil {
++		t.Fatalf("fixture was not durably registered: %v", err)
++	}
++	return m, store, exec, journal, a
++}
++
++func refreshFixtureCredential(m *Manager, a *Auth) (*Auth, error) {
++	fp := fmt.Sprintf("%x", sha256.Sum256([]byte(authAccessToken(a))))
++	return m.RefreshCredential(context.Background(), a.ID, fp)
++}
++
++func TestCodexRotationBlocksRestartReplayAfterFailedSave(t *testing.T) {
++	ctx := context.Background()
++	m, store, exec, journal, before := singleUseCodexRefreshFixture(t)
++	store.fail = true
++	rotated, err := refreshFixtureCredential(m, before)
++	if !errors.Is(err, ErrRefreshPersistence) || rotated == nil || rotated.Metadata["refresh_token"] != exec.current {
++		t.Fatalf("rotation fixture did not reach a pending save: %v", err)
++	}
++	if store.stored.Metadata["refresh_token"] != before.Metadata["refresh_token"] || !m.CredentialRefreshStatus(before.ID).SavePending {
++		t.Fatal("fixture did not retain old disk state and pending memory state")
++	}
++	// A restarted runtime only has the old on-disk credential and the persisted journal.
++	restart := NewManager(store, nil, nil)
++	restart.RegisterExecutor(exec)
++	restart.SetCooldownStateStore(journal)
++	a, err := restart.Register(WithSkipPersist(ctx), store.stored.Clone())
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := restart.RestoreCooldownStates(ctx); err != nil {
++		t.Fatal(err)
++	}
++	status := restart.CredentialRefreshStatus(a.ID)
++	_, manualErr := refreshFixtureCredential(restart, a)
++	_, requestErr := restart.RefreshAuthAfterUnauthorized(ctx, a.ID, authAccessToken(a))
++	restart.refreshAuth(ctx, a.ID)
++	t.Logf("restart state=%s; total refresh exchanges=%d; manual blocked=%t; 401-trigger blocked=%t", status.LastResult, exec.calls, manualErr != nil, requestErr != nil)
++	if status.LastResult != "unknown_outcome" || !errors.Is(manualErr, ErrRefreshRejected) || !errors.Is(requestErr, ErrRefreshRejected) || exec.calls != 1 {
++		t.Fatal("restart replayed a consumed refresh token or lost the pause state")
++	}
++}
++
++func TestCodexRotationRejectsStaleCredentialSettings(t *testing.T) {
++	ctx := context.Background()
++	m, store, exec, _, before := singleUseCodexRefreshFixture(t)
++	stale, _ := m.GetByID(before.ID)
++	if _, err := refreshFixtureCredential(m, before); err != nil {
++		t.Fatal(err)
++	}
++	stale.Metadata["disabled"] = true
++	stale.Disabled = true
++	stale.Status = StatusDisabled
++	_, err := m.Update(ctx, stale)
++	current, _ := m.GetByID(before.ID)
++	pairCurrent := current.Metadata["refresh_token"] == exec.current && store.stored.Metadata["refresh_token"] == exec.current
++	t.Logf("stale settings conflict=%t; rotated credential preserved on disk and in memory=%t; exchanges=%d", errors.Is(err, ErrRefreshStale), pairCurrent, exec.calls)
++	if !errors.Is(err, ErrRefreshStale) || !pairCurrent {
++		t.Fatal("stale management snapshot overwrote rotated credentials")
++	}
++	current.Disabled = true
++	current.Status = StatusDisabled
++	current.Metadata["disabled"] = true
++	if _, err := m.Update(ctx, current); err != nil || !store.stored.Disabled || store.stored.Metadata["refresh_token"] != exec.current {
++		t.Fatal("settings retry against the latest credential did not persist safely")
++	}
++}
++
++func TestCodexRotationIgnoresOlderFileWatcherSnapshot(t *testing.T) {
++	ctx := context.Background()
++	m, store, exec, _, original := singleUseCodexRefreshFixture(t)
++	first, err := refreshFixtureCredential(m, original)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := refreshFixtureCredential(m, first); err != nil {
++		t.Fatal(err)
++	}
++	snapshot := original.Clone()
++	snapshot.Generation = 0
++	snapshot.RegistrationEpoch = 0
++	if _, err := m.Update(WithSkipPersist(ctx), snapshot); err != nil {
++		t.Fatal(err)
++	}
++	current, _ := m.GetByID(original.ID)
++	latest := current.Metadata["refresh_token"] == exec.current && store.stored.Metadata["refresh_token"] == exec.current
++	t.Logf("two rotations followed by an older watcher event: latest pair preserved=%t; exchanges=%d", latest, exec.calls)
++	if !latest {
++		t.Fatal("older watcher event resurrected a consumed refresh token")
++	}
++}
++
++func TestCodexRotationSharesManualBackgroundAndUnauthorized(t *testing.T) {
++	ctx := context.Background()
++	m, store, exec, _, before := singleUseCodexRefreshFixture(t)
++	entered, release := make(chan struct{}), make(chan struct{})
++	exec.during = func() { close(entered); <-release }
++	done := make(chan error, 4)
++	go func() { _, err := refreshFixtureCredential(m, before); done <- err }()
++	<-entered
++	go func() { _, err := refreshFixtureCredential(m, before); done <- err }()
++	go func() { m.refreshAuth(ctx, before.ID); done <- nil }()
++	go func() { _, err := m.RefreshAuthAfterUnauthorized(ctx, before.ID, authAccessToken(before)); done <- err }()
++	close(release)
++	for i := 0; i < cap(done); i++ {
++		if err := <-done; err != nil && !errors.Is(err, ErrRefreshStale) {
++			t.Fatal(err)
++		}
++	}
++	if exec.calls != 1 || store.stored.Metadata["refresh_token"] != exec.current {
++		t.Fatalf("overlapping refresh sources made %d exchanges or lost the new pair", exec.calls)
++	}
++	t.Log("manual, duplicate manual, background and request-401: one exchange; new pair saved")
 +}
 diff --git a/sdk/cliproxy/auth/conductor_warn_logging_test.go b/sdk/cliproxy/auth/conductor_warn_logging_test.go
 index a769be4..33199f5 100644

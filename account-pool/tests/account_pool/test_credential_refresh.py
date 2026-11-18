@@ -1,10 +1,18 @@
 """单卡刷新使用合成凭据验证版本、归属和删除边界，不连接真实供应商。"""
 
+import asyncio
 import importlib
+from typing import Final
+
 import pytest
-from account_pool.domain import EnvironmentStatus
+from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_refresh import CredentialRefreshResult, CredentialRefreshService
+from account_pool.domain import EnvironmentRecord, EnvironmentStatus
+from account_pool.quota_reset_repository import PostgresResetStore
+from account_pool.repository import PostgresEnvironmentRepository
+from test_access_token_fallback import FallbackEnvironments, FallbackOwnership
 from test_cliproxy_supplier_client import _record
-from test_access_token_fallback import FallbackOwnership, FallbackEnvironments
+from test_quota_reset_postgres import database as database
 
 
 class Upstream:
@@ -36,13 +44,65 @@ async def test_refresh_requires_current_version_and_never_revives_deleted_card()
     service = module.CredentialRefreshService(env, FallbackOwnership(), up)
     result = await service.refresh(card.id, card.version)
     assert result.saved and up.calls == 1
-    assert env.record.version == card.version + 1
+    assert env.record.version == card.version + 2
     assert env.record.status == card.status
     denied = await service.refresh(card.id, card.version)
     assert not denied.saved and up.calls == 1
     env.record = card.model_copy(update={"status": EnvironmentStatus.DELETING})
     denied = await service.refresh(card.id, card.version)
     assert not denied.saved and up.calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_lost", [False, True])
+async def test_two_managers_cannot_refresh_again_with_version_seen_during_exchange(
+    database: tuple[str, PostgresEnvironmentRepository, PostgresResetStore], response_lost: bool,
+) -> None:
+    url, repository, _ = database
+    card: Final = _record().model_copy(update={
+        "auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",),
+    })
+    entered: Final = asyncio.Event()
+    release: Final = asyncio.Event()
+
+    class BlockingUpstream(Upstream):
+        async def refresh_credentials(self, record: EnvironmentRecord) -> CredentialRefreshResult:
+            self.calls += 1
+            entered.set()
+            await release.wait()
+            if response_lost:
+                raise TimeoutError("synthetic refresh response lost")
+            return CredentialRefreshResult(saved=True, reason="saved")
+
+    upstream: Final = BlockingUpstream()
+    first_owner: Final = CredentialOwnership(url)
+    other_owner: Final = CredentialOwnership(url)
+    await first_owner.initialize()
+    await first_owner.claim(card.id, card.credential_fingerprints)
+    await repository.save(card)
+    first: Final = CredentialRefreshService(repository, first_owner, upstream)
+    second: Final = CredentialRefreshService(PostgresEnvironmentRepository(url), other_owner, upstream)
+
+    async def refresh(service: CredentialRefreshService, version: int) -> CredentialRefreshResult | None:
+        try:
+            return await service.refresh(card.id, version)
+        except TimeoutError:
+            return None
+
+    async with asyncio.timeout(10), asyncio.TaskGroup() as tasks:
+        initial: Final = tasks.create_task(refresh(first, card.version))
+        await entered.wait()
+        during: Final = await repository.get(card.id)
+        assert during is not None and during.version > card.version
+        duplicate: Final = tasks.create_task(refresh(second, during.version))
+        release.set()
+    result: Final = duplicate.result()
+    assert (initial.result() is None) == response_lost
+    assert upstream.calls == 1
+    assert result is not None and not result.saved and result.reason == "state_changed"
+    final: Final = await repository.get(card.id)
+    assert final is not None and final.version > during.version
+    assert final.credential_fingerprints == (("fixture",) if response_lost else ("rotated-fixture",))
 
 
 @pytest.mark.asyncio
@@ -67,9 +127,6 @@ async def test_refresh_does_not_claim_inference_or_clear_limits():
 
 @pytest.mark.asyncio
 async def test_refresh_commits_rotated_identity_without_reenabling_card():
-    from account_pool.credential_ownership import CredentialOwnership
-    from account_pool.credential_refresh import CredentialRefreshService
-
     card = _record().model_copy(
         update={
             "auth_file_name": "fixture.json",
@@ -93,12 +150,13 @@ async def test_refresh_commits_rotated_identity_without_reenabling_card():
 @pytest.mark.parametrize("rotated_refresh", ["fixture-refresh-new", None, " "])
 async def test_refresh_transport_rebinds_only_a_complete_rotated_file(rotated_refresh):
     import json
+
     import httpx
-    from account_pool.credential_ownership import CredentialOwnership, credential_identity
-    from account_pool.credential_refresh import CredentialRefreshService
     from account_pool.channels.cliproxyapi.quota_reset import CodexResetClient
     from account_pool.channels.cliproxyapi.transport import CLIProxyTransport
+    from account_pool.credential_ownership import credential_identity
     from account_pool.shared.secrets import EnvironmentSecretDeriver
+
     secrets = EnvironmentSecretDeriver("s" * 32)
     files = [{"access_token":"fixture-access-old", "refresh_token":"fixture-refresh-old", "email":"fixture@example.invalid"}]
     calls = []
@@ -135,9 +193,6 @@ async def test_refresh_transport_rebinds_only_a_complete_rotated_file(rotated_re
 
 @pytest.mark.asyncio
 async def test_refresh_readback_timeout_keeps_current_binding_and_reports_unconfirmed():
-    from account_pool.credential_ownership import CredentialOwnership
-    from account_pool.credential_refresh import CredentialRefreshService
-
     class Unreadable(Upstream):
         async def read_credential_identity(self, record):
             raise TimeoutError("fixture readback timeout")

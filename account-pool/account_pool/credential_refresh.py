@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Literal, Protocol
@@ -75,18 +76,25 @@ class CredentialRefreshService:
                 or not await self.ownership.owns(environment_id, record.credential_fingerprints)
             ):
                 return CredentialRefreshResult(saved=False, reason="state_changed")
-            # 先推进版本，串行排队的重复请求不能在本次轮换后再次使用新 refresh token。
+            # 刷新前后分别作废版本，拒绝由旧界面或刷新进行中的界面发出的重复请求。
             claimed: Final = await self.environments.save_if_version(
                 record.model_copy(update={"version": record.version + 1, "updated_at": utc_now()}),
                 record.version,
             )
             if claimed is None:
                 return CredentialRefreshResult(saved=False, reason="state_changed")
-            reported: Final = await self.upstream.refresh_credentials(claimed)
-            identity: Final = (
-                await self._confirm_saved_identity(claimed)
-                if reported.saved and not reported.status.save_pending else None
-            )
+            completed_version: Final = claimed.version + 1
+            try:
+                reported: Final = await self.upstream.refresh_credentials(claimed)
+                identity: Final = (
+                    await self._confirm_saved_identity(claimed)
+                    if reported.saved and not reported.status.save_pending else None
+                )
+            except (ValueError, httpx.HTTPError, TimeoutError, asyncio.CancelledError):
+                await self.environments.save_if_version(
+                    claimed.model_copy(update={"version": completed_version, "updated_at": utc_now()}), claimed.version,
+                )
+                raise
             result: Final = (
                 reported if not reported.saved or identity is not None
                 else CredentialRefreshResult(
@@ -101,6 +109,7 @@ class CredentialRefreshService:
             saved: Final = await self.environments.save_if_version(
                 claimed.model_copy(
                     update={
+                        "version": completed_version,
                         "credential_refresh": result.status,
                         "updated_at": utc_now(),
                         **(
