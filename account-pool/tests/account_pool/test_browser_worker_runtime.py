@@ -166,6 +166,30 @@ class _CompletedProcess:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("locale", "allowed"), [
+    ("ja-JP", True), ("pt-BR", True), ("it-IT", True), ("JP", True),
+    ("ja-jp", False), ("ja-JP/extra", False), ("--bad", False),
+])
+async def test_worker_locale_validation_matches_profile_input(tmp_path: Path, locale: str, allowed: bool) -> None:
+    commands: list[tuple[str, ...]] = []
+
+    async def runner(arguments: tuple[str, ...], environment: dict[str, str]) -> DockerProcess:
+        commands.append(arguments)
+        return _CompletedProcess()
+
+    settings = _settings(tmp_path, f"registry.example/browser@sha256:{'d' * 64}")
+    runtime = ComposeRuntime(settings, EnvironmentSecretDeriver(settings.secret_seed), runner=runner)
+    action = ("generate-profile", locale, "linux")
+    if not allowed:
+        with pytest.raises(ValueError, match="unsupported worker check"):
+            await runtime.oauth_worker_check(action)
+        assert not commands
+        return
+    await runtime.oauth_worker_check(action)
+    assert commands[0][-3:] == action
+
+
+@pytest.mark.asyncio
 async def test_browser_runtime_removes_session_compose_and_private_files(tmp_path: Path) -> None:
     calls: list[tuple[str, ...]] = []
 

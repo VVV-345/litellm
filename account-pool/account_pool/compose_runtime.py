@@ -29,6 +29,7 @@ from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus
 from account_pool.manager_logs import BrowserStartupStep, ManagerDiagnostic, RecordManagerDiagnostic
 from account_pool.oauth_browser import (
+    BROWSER_LOCALE_PATTERN,
     OAUTH_BROWSER_COMMAND_TIMEOUT_SECONDS,
     OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS,
     OAuthBrowserAutomation,
@@ -557,7 +558,7 @@ class ComposeRuntime:
     async def oauth_worker_check(self, action: tuple[str, ...]) -> bytes:
         if action != ("self-check",) and not (
             len(action) in {2, 3} and action[0] == "generate-profile"
-            and (action[1] in {"en-US", "en-GB", "zh-CN"} or re.fullmatch(r"[A-Z]{2}", action[1]))
+            and (re.fullmatch(BROWSER_LOCALE_PATTERN, action[1]) or re.fullmatch(r"[A-Z]{2}", action[1]))
             and (len(action) == 2 or action[2] in {"linux", "windows", "macos"})
         ):
             raise ValueError("unsupported worker check")

@@ -11,8 +11,9 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, f
 
 from account_pool.isp_probe import ProxyLocation
 from account_pool.manager_logs import BrowserPageDiagnostic
+from account_pool.oauth_browser import BROWSER_LOCALE_PATTERN
 
-Locale = Annotated[str, Field(pattern=r"^[a-z]{2,3}-[A-Z]{2}$")]
+Locale = Annotated[str, Field(pattern=BROWSER_LOCALE_PATTERN)]
 BROWSER_LOCALE_BY_COUNTRY: Final = MappingProxyType({
     "US": "en-US",
     "GB": "en-GB",

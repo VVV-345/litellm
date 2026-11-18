@@ -158,13 +158,13 @@ export function AccountPoolLoginScriptSettings({ accessToken }: { accessToken: s
         {status.isPending ? "正在加载脚本设置" : scriptStatusLabel(status.data, status.isError)}
       </p>
       {publishingNotConfigured && (
-        <p className="text-sm text-muted-foreground">请由部署人员在 Manager 配置脚本发布密钥后开启上传</p>
+        <p className="text-sm text-muted-foreground">上传未启用，请联系管理员开启脚本发布。当前脚本不受影响。</p>
       )}
       <p className="text-sm text-muted-foreground">
-        可上传单个 JavaScript 模块或一个目录，再选入口。目录内的辅助脚本和数据文件会一并保留。
-        入口需导出 automateLogin 和 verifyResumableAccount。脚本能接触登录资料，只发布你审核过的代码。
+        独立脚本：选 login.mjs（也支持 .js）。有相对引用：选包含入口和依赖文件的目录，不用打包。
+        入口须导出 automateLogin 和 verifyResumableAccount。
       </p>
-      <form className="grid gap-3" onSubmit={publish}>
+      {!publishingNotConfigured && <form className="grid gap-3" onSubmit={publish}>
         <div className="grid gap-2">
           <Label htmlFor="oauth-script-single">上传单文件</Label>
           <Input id="oauth-script-single" type="file" accept=".mjs,.js" disabled={disabled} onChange={(event) => choose(event.target.files)} />
@@ -172,7 +172,7 @@ export function AccountPoolLoginScriptSettings({ accessToken }: { accessToken: s
           <Input id="oauth-script-folder" type="file" multiple {...{ webkitdirectory: "" }} disabled={disabled}
             onChange={(event) => choose(event.target.files)} />
         </div>
-        {files.length > 0 && (
+        {files.filter(({ path }) => isEntry(path)).length > 1 && (
           <div className="grid gap-2">
             <Label htmlFor="oauth-script-entry">入口文件（{files.length} 个文件）</Label>
             <select id="oauth-script-entry" className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -194,7 +194,7 @@ export function AccountPoolLoginScriptSettings({ accessToken }: { accessToken: s
         </div>
         {notice && <p role="status" className="text-sm">{notice}</p>}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      </form>
+      </form>}
     </section>
   );
 }

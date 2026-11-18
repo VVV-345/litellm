@@ -19,6 +19,7 @@ from account_pool.config import validate_proxy_profile_url
 from account_pool.domain import OAuthCallback, utc_now
 from account_pool.shared.result import Failure, FailureCode, Result, Success
 
+BROWSER_LOCALE_PATTERN: Final = r"^[a-z]{2,3}-[A-Z]{2}$"
 OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS: Final = 60
 OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS: Final = 120
 OAUTH_BROWSER_COMMAND_TIMEOUT_SECONDS: Final = 150

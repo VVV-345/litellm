@@ -95,7 +95,7 @@ Codex 归属检查同时登记 access 与 refresh 的不可逆指纹；即使缺
 
 ### 发布浏览器登录脚本
 
-在「自动化上号 → 2FA / OAuth 授权 → 运行设置 → 浏览器登录脚本」可以发布单个 `login.mjs`，也可以上传一个目录并选择其中任意 `.mjs` 或 `.js` 入口。入口必须导出 `automateLogin(page, credential, options)` 和 `verifyResumableAccount(page, credential, options)`，可用镜像中的默认脚本作为起点。目录内的相对辅助脚本和数据资源会一并保留，不要求固定的文件清单，不自动安装依赖。上限为 64 个文件、解码后总计 64 KiB，只允许相对路径
+在「自动化上号 → 2FA / OAuth 授权 → 运行设置 → 浏览器登录脚本」可以发布单个 `login.mjs`，也可以上传一个目录并选择其中任意 `.mjs` 或 `.js` 入口。入口必须导出 `automateLogin(page, credential, options)` 和 `verifyResumableAccount(page, credential, options)`，可用镜像中的默认脚本作为起点。只有一个可用入口会自动选中，不用压缩目录；有多个入口时才显示选择框。目录内的相对辅助脚本和数据资源会一并保留，不要求固定的文件清单，不自动安装依赖。上限为 64 个文件、解码后总计 64 KiB，只允许相对路径
 
 首次启用需要配套更新 LiteLLM、Manager 和按 digest 配置的 browser-worker，并由部署人员仅在 Manager 配置 `ACCOUNT_POOL_OAUTH_LOGIN_SCRIPT_PUBLISH_KEY`（至少 32 字符、与管理员 Key 和 Manager Token 不同）。上传和切回内置脚本都要用发布密钥。它等同于发布能接触登录资料的受信代码，不应交给普通管理账号，也不要把凭据放进脚本。现有浏览器隔离不是对恶意脚本的安全沙箱
 

@@ -28,6 +28,7 @@ it.each(["file", "directory"])("publishes a %s selection without requiring a wra
   const selected = single ? [file("login.mjs", "", [120])]
     : [file("run.mjs", entrypoint, [120]), file("data.json", "data.json", [123, 125])];
   fireEvent.change(upload, { target: { files: selected } });
+  expect(screen.queryByLabelText(/^入口文件/)).not.toBeInTheDocument();
   const key = "fixture-publisher-key-".repeat(2);
   const input = screen.getByLabelText("脚本发布密钥");
   fireEvent.change(input, { target: { value: key } });
@@ -37,4 +38,12 @@ it.each(["file", "directory"])("publishes a %s selection without requiring a wra
     entrypoint, files: [{ path: entrypoint, data: "eA==" }, ...(single ? [] : [{ path: "data.json", data: "e30=" }])],
   });
   expect(input).toHaveValue("");
+});
+
+it("shows the upload requirements without unusable controls when publishing is disabled", async () => {
+  vi.mocked(getAutomationLoginScript).mockResolvedValue({ upload_enabled: false, invalid: false, active: null });
+  render(<QueryClientProvider client={new QueryClient()}><AccountPoolLoginScriptSettings accessToken="fake-admin" /></QueryClientProvider>);
+  await screen.findByText(/上传未启用/);
+  expect(screen.getByText(/独立脚本：选 login.mjs/)).toBeVisible();
+  expect(screen.queryByLabelText("脚本发布密钥")).not.toBeInTheDocument();
 });
