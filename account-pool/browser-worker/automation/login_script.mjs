@@ -41,7 +41,11 @@ export async function loadLoginScript(payload) {
 }
 
 const trustedAuth = "https://auth.openai.com";
-const routes = new Set(["/log-in", "/log-in/password", "/oauth/authorize", "/authorize", "/sign-in-with-chatgpt/codex/consent"]);
+const routes = new Map([
+  ["/log-in", "email"], ["/log-in/password", "password"],
+  ["/oauth/authorize", "authorize"], ["/authorize", "authorize"],
+  ["/sign-in-with-chatgpt/codex/consent", "consent"],
+]);
 export function observeLoginPage(page) {
   let lastNavigation = null;
   page.on("response", response => {
@@ -55,23 +59,32 @@ export function observeLoginPage(page) {
       // Playwright may report the navigation before the frame is attached.
     }
   });
-  return async () => {
+  const location = () => {
     const url = new URL(page.url());
     const origin = url.origin === trustedAuth ? "openai_auth" : "other";
     const route = origin !== "openai_auth" ? "other" : routes.has(url.pathname) ? url.pathname
       : url.pathname.startsWith("/mfa-challenge/") ? "authenticator"
       : /(?:^|\/)(?:email-verification|verify-email)(?:\/|$)/.test(url.pathname) ? "email_verification" : "other";
     const httpStatus = lastNavigation?.url === url.href ? lastNavigation.status : null;
+    const step = routes.get(route) ?? (route === "other" ? "login" : route);
+    const reason = route === "email_verification" ? "email_verification"
+      : origin !== "openai_auth" ? "unexpected_origin"
+      : httpStatus >= 400 ? "navigation_http_error"
+      : route === "other" ? "unrecognized_route" : null;
+    return { origin, route, step, httpStatus, reason };
+  };
+  const inspect = async () => {
+    const current = location();
     const shape = await page.evaluate(() => ({
       inputs: document.querySelectorAll("input").length,
       challenge: Boolean(document.querySelector('iframe[src*="challenges.cloudflare.com"], #challenge-running')) ||
         /^(?:Just a moment|Verify you are human|请稍候)/i.test(document.title),
     })).catch(() => ({ inputs: null, challenge: false }));
     const reason = shape.challenge ? "browser_security_challenge"
-      : route === "email_verification" ? "email_verification"
-      : origin !== "openai_auth" ? "unexpected_origin"
-      : httpStatus >= 400 ? "navigation_http_error"
-      : route === "other" ? "unrecognized_route" : "form_or_transition_not_confirmed";
-    return { origin, route, httpStatus, reason, ...shape };
+      : current.reason ?? "form_or_transition_not_confirmed";
+    return { ...current, reason, ...shape };
   };
+  return { current: () => toPageDiagnostic(location()), inspect };
 }
+
+export const toPageDiagnostic = ({ step, reason, httpStatus }) => ({ step, reason, http_status: httpStatus });

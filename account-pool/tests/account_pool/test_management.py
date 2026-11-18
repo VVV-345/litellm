@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -354,6 +355,43 @@ def test_manager_auth_and_single_disclosure(management) -> None:
     assert response.json()["key"] not in str(logs.events)
     assert client.post(path).status_code == 409
     assert client.post(f"/api/cards/{uuid4()}/key").status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_manager_log_cleanup_respects_age_boundary_and_excludes_model_events() -> None:
+    from account_pool.management_repository import PostgresErrorLogRepository, initialize_management_schema
+    from account_pool.manager_logs import ManagerDiagnostic, ManagerLogQuery, ManagerLogs
+    from account_pool.repository import PostgresEnvironmentRepository
+
+    database_url: Final = os.environ.get("MANAGER_LOGS_TEST_DATABASE_URL")
+    if not database_url:
+        pytest.skip("requires dedicated MANAGER_LOGS_TEST_DATABASE_URL")
+    assert database_url.endswith("/manager_logs_test")
+    await PostgresEnvironmentRepository(database_url).initialize()
+    await initialize_management_schema(database_url)
+    card: Final = _record(status=EnvironmentStatus.READY)
+    store: Final = PostgresErrorLogRepository(database_url)
+    now: Final = utc_now()
+    cutoff: Final = now - timedelta(days=7)
+    logs: Final = ManagerLogs(store, MemoryRepository(card), lambda: now)
+    old: Final = uuid4()
+    current: Final = uuid4()
+    event: Final = ManagerDiagnostic(step="page_navigation", state="failed", reason="timeout", duration_ms=60_001)
+    await replace(logs, clock=lambda: cutoff - timedelta(seconds=1)).record(card.id, old, event)
+    await replace(logs, clock=lambda: cutoff).record(card.id, current, event)
+    spend: Final = ErrorLogRecord(
+        occurred_at=cutoff - timedelta(days=1), channel=card.channel, supplier=card.supplier,
+        card_id=card.id, environment_id=card.id, account_id=card.id, stage="upstream",
+        operation=MODEL_REQUEST_OPERATION, message="fixture-model",
+    )
+    await store.append(spend)
+    before: Final = await logs.list(ManagerLogQuery(card_id=card.id, session_id=old))
+    assert len(before.items) == 1 and before.items[0].reason == "timeout"
+    assert (await logs.delete(7)).deleted == 1
+    assert (await logs.list(ManagerLogQuery(card_id=card.id, session_id=old))).items == ()
+    tail: Final = await logs.list(ManagerLogQuery(card_id=card.id))
+    assert tuple(item.session_id for item in tail.items) == (current,)
+    assert (await store.detail(spend.event_id)) is not None
 
 
 def test_policy_versions_and_supplier_scope(management) -> None:

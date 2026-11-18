@@ -8,7 +8,7 @@ import subprocess
 import sys
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 from uuid import uuid4
@@ -430,6 +430,16 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
             if "reject-script" in commands:
                 return httpx.Response(409, json={"error": "unverified"})
             return httpx.Response(200, json={"sha256": payload["sha256"]})
+        if action == "status" and "fixture-waiting" in commands:
+            assert request.headers["X-OAuth-Diagnostics"] == "1"
+            return httpx.Response(200, json={
+                "status": "waiting", "reason": "verification_required", "expires_at": "2099-01-01T00:00:00Z",
+                "diagnostic": (
+                    {"step": "password", "reason": "fixture-secret-not-a-reason"}
+                    if "unsafe-diagnostic" in commands
+                    else {"step": "password", "reason": "browser_security_challenge", "http_status": 403}
+                ),
+            })
         return httpx.Response(200, json={"status": "manual" if action == "takeover" else "running", "reason": None, "expires_at": "2099-01-01T00:00:00Z"})
 
     await registry_service.create_profile(ProfileInput(name="test Linux"))
@@ -451,6 +461,52 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
 async def memory_execution(deletion_registry, tmp_path: Path, authorized_email: str):
     async with _execution(deletion_registry, tmp_path, authorized_email) as case:
         yield case
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("unsafe", [False, True])
+async def test_runner_records_waiting_phase_once_without_raw_worker_text(memory_execution, unsafe: bool) -> None:
+    from account_pool.error_logs import ErrorLogRecord
+    from account_pool.manager_logs import ManagerLogQuery, ManagerLogs
+    from account_pool.oauth_automation.models import AutomationSettings
+
+    registry, card, _, runner, _, commands, starts, _, _ = memory_execution
+    class LogStore:
+        events: tuple[ErrorLogRecord, ...] = ()
+
+        async def append(self, event: ErrorLogRecord) -> None:
+            self.events += (event,)
+
+        async def query_browser_logs(self, query: ManagerLogQuery) -> tuple[ErrorLogRecord, ...]:
+            return tuple(
+                event for event in reversed(self.events)
+                if event.session_id == str(query.session_id) and event.card_id == query.card_id
+            )[: query.limit + 1]
+
+        async def delete_browser_logs(self, before: datetime) -> int:
+            raise AssertionError("recording should not prune events")
+
+    logs: Final = ManagerLogs(LogStore(), registry.environments)
+    checked: Final = await registry.self_check()
+    assert isinstance(checked, Success)
+    saved: Final = await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    assert isinstance(saved, Success)
+    observer: Final = replace(runner, record_diagnostic=logs.record)
+    await observer.run_once()
+    commands.append("fixture-waiting")
+    if unsafe:
+        commands.append("unsafe-diagnostic")
+    await observer.run_once()
+    await observer.run_once()
+    assert (await registry.view()).jobs[0].stage == "waiting"
+    result: Final = await logs.list(ManagerLogQuery(card_id=card.id, session_id=starts[0]))
+    waiting: Final = [(item.step, item.reason, item.http_status) for item in result.items if item.state == "waiting"]
+    assert waiting == ([
+        ("login", "verification_required", None),
+    ] if unsafe else [
+        ("password", "browser_security_challenge", 403),
+    ])
+    assert commands.count("start") == 1
 
 
 @pytest.mark.asyncio

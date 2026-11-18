@@ -20,6 +20,7 @@ from account_pool.error_logs import (
     ErrorStats,
     LogStorageStats,
 )
+from account_pool.manager_logs import MANAGER_BROWSER_OPERATION, ManagerLogQuery
 from account_pool.repository import database_connection
 
 _KEY: Final = TypeAdapter(CardKeyRecord)
@@ -203,6 +204,32 @@ class PostgresErrorLogRepository:
             has_more=len(rows) > query.limit,
             total=TypeAdapter(int).validate_python(count_row["total"] if count_row else 0),
         )
+
+    async def query_browser_logs(self, query: ManagerLogQuery) -> tuple[ErrorLogRecord, ...]:
+        filters: Final = {
+            "operation": MANAGER_BROWSER_OPERATION,
+            **({"session_id": str(query.session_id)} if query.session_id is not None else {}),
+        }
+        card_filter: Final = sql.SQL(" AND card_id = %s" if query.card_id is not None else "")
+        card_values: Final = (query.card_id,) if query.card_id is not None else ()
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                sql.SQL(
+                    "SELECT payload FROM account_pool_error_log WHERE payload @> %s{} "
+                    "ORDER BY occurred_at DESC, event_id DESC LIMIT %s OFFSET %s"
+                ).format(card_filter),
+                (Jsonb(filters), *card_values, query.limit + 1, query.offset),
+            )
+            rows: Final = await cursor.fetchall()
+        return tuple(ErrorLogRecord.model_validate(row["payload"]) for row in rows)
+
+    async def delete_browser_logs(self, before: datetime) -> int:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "DELETE FROM account_pool_error_log WHERE occurred_at < %s AND payload @> %s",
+                (before, Jsonb({"operation": MANAGER_BROWSER_OPERATION})),
+            )
+        return cursor.rowcount
 
     async def detail(self, event_id: UUID) -> ErrorLogDetail | None:
         async with database_connection(self._database_url) as connection:

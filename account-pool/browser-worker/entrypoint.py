@@ -298,7 +298,10 @@ class _ManagerCallbackRelayHandler(http.server.BaseHTTPRequestHandler):
                 return
             request: Final = Request(
                 "http://browser:8094/control", data=self.rfile.read(length), method="POST",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                headers={
+                    "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                    **({"X-OAuth-Diagnostics": "1"} if self.headers.get("X-OAuth-Diagnostics") == "1" else {}),
+                },
             )
             with cast(HTTPResponse, urlopen(request, timeout=15)) as response:
                 content: Final = response.read(4097)

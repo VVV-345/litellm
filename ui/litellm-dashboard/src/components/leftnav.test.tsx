@@ -438,6 +438,17 @@ describe("Sidebar (leftnav)", () => {
       mockUseAuthorized.mockReset();
     });
 
+    it("puts Manager 日志 beside Logs for proxy administrators only", () => {
+      mockUseAuthorized.mockReturnValue(authFor("admin"));
+      const { rerender } = renderWithProviders(<Sidebar {...defaultProps} />);
+      expect(placementsOf("manager-logs")).toEqual(["OBSERVABILITY"]);
+      expect(screen.getByRole("link", { name: "Manager 日志" })).toHaveAttribute("href", "/ui/manager-logs");
+      mockUseAuthorized.mockReturnValue(authFor("admin_viewer"));
+      rerender(<Sidebar {...defaultProps} />);
+      expect(screen.getByText("Logs")).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Manager 日志" })).not.toBeInTheDocument();
+    });
+
     it("hides Workflow Runs and Memory from an internal user under Agentic", async () => {
       mockUseAuthorized.mockReturnValue(authFor("internal"));
       renderWithProviders(<Sidebar {...defaultProps} />);

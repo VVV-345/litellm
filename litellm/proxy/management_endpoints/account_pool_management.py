@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Final, Literal, TypeVar
+from urllib.parse import urlencode
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import TypeAdapter
 
 from litellm.proxy._types import UserAPIKeyAuth
@@ -17,6 +18,7 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     AccountPoolCredentialDeleteRequest,
     AccountPoolCredentialMutationResult,
     AccountPoolCredentialRequest,
+    AccountPoolLogClearResult,
     AccountPoolPluginManifest,
     AccountPoolPluginRecord,
     AccountPoolSettingsHistoryEntry,
@@ -27,6 +29,8 @@ from litellm.proxy.management_endpoints.account_pool_management_models import (
     BatchJob,
     BatchRequest,
     CodexReviewPackage,
+    ManagerLogPage,
+    ManagerLogQuery,
     PolicyUpdate,
     PolicyView,
     UpstreamSyncDispatch,
@@ -82,12 +86,31 @@ def create_management_router(
     ) -> bytes:
         response: Final = await request_manager(method, path, body)
         if response.is_error:
+            if path.startswith("/api/manager-logs?"):
+                raise HTTPException(response.status_code, _GENERIC_POOL_ERROR)
             if response.status_code == 429 and path.startswith("/api/upstream-sync"):
                 raise HTTPException(
                     429, "GitHub API rate limit exceeded; retry later or configure this target's GitHub token"
                 )
             raise HTTPException(response.status_code, _operator_detail(response.content))
         return response.content
+
+    async def manager_logs(query: Annotated[ManagerLogQuery, Query()], response: Response) -> ManagerLogPage:
+        response.headers["Cache-Control"] = "no-store"
+        params: Final = urlencode(query.model_dump(mode="json", exclude_none=True))
+        return parse_response(await call("GET", f"/api/manager-logs?{params}"), TypeAdapter(ManagerLogPage))
+
+    async def delete_manager_logs(
+        older_than_days: Annotated[int, Query(ge=1, le=365)], response: Response,
+    ) -> AccountPoolLogClearResult:
+        response.headers["Cache-Control"] = "no-store"
+        return parse_response(
+            await call("DELETE", f"/api/manager-logs?older_than_days={older_than_days}"),
+            TypeAdapter(AccountPoolLogClearResult),
+        )
+
+    router.add_api_route("/manager-logs", manager_logs, methods=["GET"])
+    router.add_api_route("/manager-logs", delete_manager_logs, methods=["DELETE"])
 
     @router.get("/credentials", response_model=tuple[AccountPoolCredential, ...])
     @router.get("/auth-files", response_model=tuple[AccountPoolCredential, ...])

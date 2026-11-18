@@ -1529,6 +1529,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/manager-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Manager Logs */
+        get: operations["manager_logs_account_pool_manager_logs_get"];
+        put?: never;
+        post?: never;
+        /** Delete Manager Logs */
+        delete: operations["delete_manager_logs_account_pool_manager_logs_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-automation": {
         parameters: {
             query?: never;
@@ -36371,6 +36389,51 @@ export interface components {
             /** Mcp Server Ids */
             mcp_server_ids: string[];
         };
+        /** ManagerLogItem */
+        ManagerLogItem: {
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Http Status */
+            http_status?: number | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Reason */
+            reason?: string | null;
+            /** Session Id */
+            session_id: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "error";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "started" | "ready" | "running" | "waiting" | "manual" | "failed" | "expired" | "cancelled" | "completed";
+            /** Step */
+            step: string;
+        };
+        /** ManagerLogPage */
+        ManagerLogPage: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["ManagerLogItem"][];
+        };
         /** Member */
         Member: {
             /**
@@ -48238,6 +48301,71 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    manager_logs_account_pool_manager_logs_get: {
+        parameters: {
+            query?: {
+                session_id?: string | null;
+                card_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagerLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_manager_logs_account_pool_manager_logs_delete: {
+        parameters: {
+            query: {
+                older_than_days: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
             };
             /** @description Validation Error */
             422: {

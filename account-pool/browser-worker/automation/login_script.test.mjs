@@ -45,6 +45,10 @@ test("classifies an OAuth security page without exposing location tokens", async
     url: () => url,
     evaluate: async () => ({ inputs: 0, challenge: true }),
   };
-  const cause = await observeLoginPage(page)();
-  assert.deepEqual(cause, { origin: "openai_auth", route: "other", httpStatus: 403, reason: "browser_security_challenge", inputs: 0, challenge: true });
+  const observed = observeLoginPage(page);
+  assert.deepEqual(observed.current(), { step: "login", reason: "navigation_http_error", http_status: 403 });
+  assert.deepEqual(await observed.inspect(), {
+    origin: "openai_auth", route: "other", step: "login", httpStatus: 403,
+    reason: "browser_security_challenge", inputs: 0, challenge: true,
+  });
 });

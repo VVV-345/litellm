@@ -6,9 +6,10 @@ import asyncio
 import json
 import logging
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from types import MappingProxyType
 from typing import Final, Literal
 from uuid import UUID
 
@@ -16,7 +17,10 @@ from account_pool.application.authorization import saved_login_can_replace
 from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
 from account_pool.credential_ownership import OAUTH_AUTOMATION_LOCK
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus, utc_now
-from account_pool.oauth_automation.models import ACTIVE, AutomationScreen, JobView, SessionSecrets, Stage, StoredJob
+from account_pool.manager_logs import BrowserPageDiagnostic, ManagerDiagnostic, ManagerLogReason, RecordManagerDiagnostic
+from account_pool.oauth_automation.models import (
+    ACTIVE, AutomationScreen, JobView, SessionSecrets, Stage, StoredJob, WorkerView,
+)
 from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.oauth_automation.worker import AutomationWorker
 from account_pool.oauth_browser import OAuthBrowserAutomation, OAuthBrowserSessionGrant, OAuthBrowserSessionStatus
@@ -26,6 +30,37 @@ from account_pool.shared.secrets import StateCipher
 
 _LOGGER: Final = logging.getLogger(__name__)
 _CLEANUP_MESSAGE: Final = "\n清理状态："
+_JOB_DIAGNOSTICS: Final[Mapping[Stage, ManagerDiagnostic]] = MappingProxyType({
+    "queued": ManagerDiagnostic(step="authorize", state="started"),
+    "starting": ManagerDiagnostic(step="authorize", state="started"),
+    "running": ManagerDiagnostic(step="login", state="running"),
+    "waiting": ManagerDiagnostic(step="login", state="waiting", reason="verification_required"),
+    "manual": ManagerDiagnostic(step="login", state="manual", reason="manual_takeover"),
+    "callback_pending": ManagerDiagnostic(step="callback", state="running"),
+    "validating": ManagerDiagnostic(step="credentials", state="running"),
+    "verifying": ManagerDiagnostic(step="model_check", state="running"),
+    "verification_failed": ManagerDiagnostic(step="model_check", state="failed"),
+    "completed": ManagerDiagnostic(step="model_check", state="completed"),
+    "failed": ManagerDiagnostic(step="authorize", state="failed"),
+    "expired": ManagerDiagnostic(step="authorize", state="expired"),
+    "cancelled": ManagerDiagnostic(step="authorize", state="cancelled"),
+})
+
+
+def _worker_event(stage: Stage, status: WorkerView) -> ManagerDiagnostic:
+    event: Final = _JOB_DIAGNOSTICS[stage]
+    if stage == "callback_pending":
+        return event
+    page: Final = status.diagnostic
+    match status.reason:
+        case "manual_takeover" | "account_verification_required" | "account_mismatch" | "confirmation_required" as reason:
+            safe_reason: Final = reason
+        case _:
+            safe_reason: Final = page.reason if page and page.reason else event.reason
+    return ManagerDiagnostic(
+        step=page.step if page else event.step, state=event.state, reason=safe_reason,
+        http_status=page.http_status if page else None,
+    )
 
 
 def operation(job: StoredJob) -> str:
@@ -38,13 +73,14 @@ class AutomationRunner:
     browser: ControlledOAuthBrowser
     worker: AutomationWorker
     clock: Callable[[], datetime] = utc_now
+    record_diagnostic: RecordManagerDiagnostic | None = None
 
     async def _human_deadline(self, row: StoredJob, reported: datetime) -> datetime:
         state: Final = await self.registry.repository.read()
         limit: Final = self.clock() + timedelta(seconds=state.settings.human_timeout_seconds)
         return min(reported, row.item.expires_at or limit, row.item.human_expires_at or limit, limit)
 
-    async def _save(self, row: StoredJob) -> StoredJob:
+    async def _save(self, row: StoredJob, *, diagnostic: ManagerDiagnostic | None = None) -> StoredJob:
         async with self.registry.repository.transaction() as tx:
             latest: Final = next(job for job in tx.snapshot.jobs if job.item.id == row.item.id)
             updated: Final = row.model_copy(
@@ -62,7 +98,12 @@ class AutomationRunner:
                     update={"jobs": tuple(updated if job.item.id == row.item.id else job for job in tx.snapshot.jobs)}
                 )
             )
-            return updated
+        if self.record_diagnostic is not None and (latest.item.stage != updated.item.stage or diagnostic is not None):
+            await self.record_diagnostic(
+                updated.item.environment_id, updated.item.browser_session_id,
+                diagnostic or _JOB_DIAGNOSTICS[updated.item.stage],
+            )
+        return updated
 
     async def run_once(self) -> None:
         async with self.registry.repository.worker_lock() as acquired:
@@ -89,7 +130,7 @@ class AutomationRunner:
         scripts: Final = self.registry.login_scripts
         script: Final = Success(None) if scripts is None else scripts.read()
         if isinstance(script, Failure):
-            await self._finish(row, "failed", script.message)
+            await self._finish(row, "failed", script.message, reason="script_invalid")
             return
         bundle: Final = script.value
         state: Final = await self.registry.repository.read()
@@ -143,7 +184,8 @@ class AutomationRunner:
                                 update={"stage": "failed", "message": "卡片或指纹状态已改变；未启动登录"}
                             )
                         }
-                    )
+                    ),
+                    diagnostic=ManagerDiagnostic(step="authorize", state="failed", reason="card_changed"),
                 )
                 return
             claimed: Final = await self._save(
@@ -171,7 +213,7 @@ class AutomationRunner:
                 record.version,
             )
         if saved is None:
-            await self._finish(claimed, "failed", "卡片被其他操作修改；未启动登录")
+            await self._finish(claimed, "failed", "卡片被其他操作修改；未启动登录", reason="card_changed")
             return
         cipher: Final = StateCipher(self.registry.secrets)
         token: Final = secrets.token_urlsafe(32)
@@ -209,13 +251,17 @@ class AutomationRunner:
                     job for job in (await self.registry.repository.read()).jobs if job.item.id == row.item.id
                 )
                 if isinstance(started, Failure):
-                    await self._finish(durable, "failed", "浏览器启动失败；检查镜像自检、代理和显示服务")
+                    await self._finish(
+                        durable, "failed", "浏览器启动失败；检查镜像自检、代理和显示服务", reason="browser_start_failed",
+                    )
                     return
                 if durable.item.cancel_requested:
                     await self._finish(durable, "cancelled", "任务已取消")
                     return
                 if bundle and not await self.worker.confirm_login_script(started.value.session.id, token, bundle.info.sha256):
-                    await self._finish(durable, "failed", "Worker 未确认已加载发布的登录脚本；未发送登录资料")
+                    await self._finish(
+                        durable, "failed", "Worker 未确认已加载发布的登录脚本；未发送登录资料", reason="script_mismatch",
+                    )
                     return
                 # 发送前落盘；进程崩溃后只查询 worker，不重复发送登录资料。
                 await self._save(
@@ -234,25 +280,28 @@ class AutomationRunner:
                     "start",
                     credentials=cipher.open(row.item.environment_id, row.credential_ciphertext),
                 )
-        except Exception:
+        except Exception as error:
             latest: Final = next(
                 job for job in (await self.registry.repository.read()).jobs if job.item.id == row.item.id
             )
-            await self._finish(latest, "failed", "启动或任务通道失败；不会自动重发登录资料，请检查后重试")
+            await self._finish(
+                latest, "failed", "启动或任务通道失败；不会自动重发登录资料，请检查后重试",
+                reason="job_timeout" if isinstance(error, TimeoutError) else "worker_unreachable",
+            )
 
     async def _advance(self, row: StoredJob) -> None:
         if row.item.cancel_requested:
             await self._finish(row, "cancelled", "任务已取消")
             return
         if row.item.expires_at is None or row.item.expires_at <= self.clock():
-            await self._finish(row, "expired", "任务总时限已到；请重试以建立新 OAuth 会话")
+            await self._finish(row, "expired", "任务总时限已到；请重试以建立新 OAuth 会话", reason="job_timeout")
             return
         if row.item.human_expires_at is not None and row.item.human_expires_at <= self.clock():
-            await self._finish(row, "expired", "人工处理时限已到；已停止本次登录")
+            await self._finish(row, "expired", "人工处理时限已到；已停止本次登录", reason="human_timeout")
             return
         record: Final = await self.registry.environments.get(row.item.environment_id)
         if record is None or record.oauth_automation_operation != operation(row):
-            await self._finish(row, "failed", "卡片归属发生变化；已停止")
+            await self._finish(row, "failed", "卡片归属发生变化；已停止", reason="card_changed")
             return
         if row.item.stage in {"validating", "verifying"} or record.oauth_state_consumed_at is not None:
             await self._validate(row)
@@ -263,11 +312,13 @@ class AutomationRunner:
             or row.item.browser_session_id is None
             or row.session_ciphertext is None
         ):
-            await self._finish(row, "failed", "启动被中断；不会恢复或重发结果未知的登录，请重试")
+            await self._finish(
+                row, "failed", "启动被中断；不会恢复或重发结果未知的登录，请重试", reason="startup_interrupted",
+            )
             return
         session: Final = await self.browser.sessions.get(row.item.browser_session_id)
         if session is None or not await self.browser.current_binding(session):
-            await self._finish(row, "failed", "卡片、会话或出口绑定发生变化；已停止")
+            await self._finish(row, "failed", "卡片、会话或出口绑定发生变化；已停止", reason="session_changed")
             return
         try:
             secret: Final = SessionSecrets.model_validate_json(
@@ -275,7 +326,11 @@ class AutomationRunner:
             )
             status: Final = await self.worker.command(row.item.browser_session_id, secret.worker_token, "status")
             if status.status in {"prepared", "failed", "cancelled", "expired"}:
-                await self._finish(row, "failed", "浏览器未运行或已结束；不会重复提交登录")
+                await self._finish(
+                    row, "failed", "浏览器未运行或已结束；不会重复提交登录",
+                    reason="browser_driver_failed" if status.reason == "browser_driver_failed" else "worker_not_running",
+                    page=status.diagnostic,
+                )
                 return
             stages: Final[dict[str, Stage]] = {
                 "running": "running",
@@ -299,18 +354,19 @@ class AutomationRunner:
                                 if stage in {"manual", "waiting"}
                                 else None,
                             }
-                        )
+                        ),
                     }
-                )
+                ),
+                diagnostic=_worker_event(stage, status),
             )
         except Exception:
-            await self._finish(row, "failed", "浏览器通道不可达；已停止，不会自动重发登录")
+            await self._finish(row, "failed", "浏览器通道不可达；已停止，不会自动重发登录", reason="worker_unreachable")
 
     async def _validate(self, row: StoredJob) -> None:
         await self.browser.service.get_environment(row.item.environment_id)
         record: Final = await self.registry.environments.get(row.item.environment_id)
         if record is None or record.proxy_profile_id != row.item.proxy_profile_id:
-            await self._finish(row, "verification_failed", "出口或卡片状态改变，未进行模型验收")
+            await self._finish(row, "verification_failed", "出口或卡片状态改变，未进行模型验收", reason="card_changed")
             return
         consumed: Final = row.item.callback_consumed or record.oauth_state_consumed_at is not None
         saved: Final = bool(record.auth_file_name and record.credential_fingerprints)
@@ -331,7 +387,8 @@ class AutomationRunner:
         if not saved:
             if record.status in {EnvironmentStatus.ERROR, EnvironmentStatus.DELETING}:
                 await self._finish(
-                    updated, "verification_failed", "回调已消费但凭据尚未就绪；不会重放回调，请检查后重试"
+                    updated, "verification_failed", "回调已消费但凭据尚未就绪；不会重放回调，请检查后重试",
+                    reason="credentials_unavailable",
                 )
             return
         if record.credential_email is None or self.registry.identity(record.credential_email) != row.account_digest:
@@ -355,16 +412,22 @@ class AutomationRunner:
                 )
                 if blocked is None:
                     return
-            await self._finish(updated, "verification_failed", "保存的账号与任务身份不一致，卡片已停用，请重新授权")
+            await self._finish(
+                updated, "verification_failed", "保存的账号与任务身份不一致，卡片已停用，请重新授权",
+                reason="account_mismatch",
+            )
             return
         await self._verify(updated, record)
 
     async def _verify(self, row: StoredJob, record: EnvironmentRecord) -> None:
         if record.oauth_automation_operation != operation(row):
-            await self._finish(row, "verification_failed", "卡片已不属于当前任务，未启动模型验收")
+            await self._finish(row, "verification_failed", "卡片已不属于当前任务，未启动模型验收", reason="card_changed")
             return
         if row.verification_started:
-            await self._finish(row, "verification_failed", "上次模型验收结果未知；请仅重试验收，不重新登录")
+            await self._finish(
+                row, "verification_failed", "上次模型验收结果未知；请仅重试验收，不重新登录",
+                reason="model_check_interrupted",
+            )
             return
         # 仅本任务的同卡内部探测使用临时快照，不解除普通 Key 的自动化门禁。
         endpoint: Final = self.browser.service.gateway_environment(
@@ -373,7 +436,9 @@ class AutomationRunner:
         cooling: Final = {item.model for item in record.model_cooldowns if item.retry_at > self.clock()}
         model: Final = row.item.model or next((item for item in endpoint.enabled_models if item not in cooling), None)
         if model is None or model not in endpoint.enabled_models or model in cooling or not endpoint.routable:
-            await self._finish(row, "verification_failed", "凭据已保存，但选定模型不可路由或仍在冷却；请仅重试验收")
+            await self._finish(
+                row, "verification_failed", "凭据已保存，但选定模型不可路由或仍在冷却；请仅重试验收", reason="model_unavailable",
+            )
             return
         checking: Final = await self._save(
             row.model_copy(
@@ -420,9 +485,12 @@ class AutomationRunner:
                 "同卡 Chat 与 Responses 验收通过"
                 if accepted.chat and accepted.responses
                 else f"凭据已保存，但模型推理未通过（{accepted.failure_detail or '结果未知'}）；请仅重试验收，不重新登录",
+                reason=None if accepted.chat and accepted.responses else "model_check_failed",
             )
         except Exception:
-            await self._finish(checking, "verification_failed", "模型验收中断或超时，结果未知；请仅重试验收")
+            await self._finish(
+                checking, "verification_failed", "模型验收中断或超时，结果未知；请仅重试验收", reason="model_check_interrupted",
+            )
 
     async def _wait_for_cancel(self, job_id: UUID) -> None:
         while not next(
@@ -430,9 +498,23 @@ class AutomationRunner:
         ).item.cancel_requested:
             await asyncio.sleep(0.25)
 
-    async def _finish(self, row: StoredJob, stage: Stage, message: str) -> None:
+    async def _finish(
+        self, row: StoredJob, stage: Stage, message: str, *,
+        reason: ManagerLogReason | None = None, page: BrowserPageDiagnostic | None = None,
+    ) -> None:
+        last_page: Final = page if row.item.stage in {"running", "waiting", "manual"} else None
+        step: Final = (
+            "model_check" if stage == "completed" or reason == "model_unavailable"
+            else "login_script" if reason in {"script_invalid", "script_mismatch"}
+            else last_page.step if last_page else _JOB_DIAGNOSTICS[row.item.stage].step
+        )
+        diagnostic: Final = ManagerDiagnostic(
+            step=step, state=_JOB_DIAGNOSTICS[stage].state, reason=reason,
+            http_status=last_page.http_status if last_page else None,
+        )
         finished: Final = await self._save(
-            row.model_copy(update={"item": row.item.model_copy(update={"stage": stage, "message": message})})
+            row.model_copy(update={"item": row.item.model_copy(update={"stage": stage, "message": message})}),
+            diagnostic=diagnostic,
         )
         if finished.item.cancel_requested and stage != "cancelled":
             cancelled: Final = await self._save(
@@ -457,7 +539,10 @@ class AutomationRunner:
         if row.item.message == notice:
             return
         _LOGGER.warning("OAuth automation cleanup pending: job=%s reason=%s", row.item.id, message)
-        await self._save(row.model_copy(update={"item": row.item.model_copy(update={"message": notice})}))
+        await self._save(
+            row.model_copy(update={"item": row.item.model_copy(update={"message": notice})}),
+            diagnostic=ManagerDiagnostic(step="cleanup", state="waiting", reason="cleanup_pending"),
+        )
 
     async def _cleanup(self, row: StoredJob) -> None:
         try:
@@ -572,13 +657,16 @@ class AutomationRunner:
                                     if acknowledged.status != "running"
                                     else None,
                                 }
-                            )
+                            ),
                         }
-                    )
+                    ),
+                    diagnostic=_worker_event(acknowledged.status, acknowledged),
                 )
                 return Success(updated.item)
             except Exception:
-                await self._finish(latest, "failed", "接管通道失败；未确认脚本停止，禁止人工输入")
+                await self._finish(
+                    latest, "failed", "接管通道失败；未确认脚本停止，禁止人工输入", reason="worker_unreachable",
+                )
                 return Failure(FailureCode.UPSTREAM, "接管通道不可用，任务已停止")
 
     async def _retry(self, row: StoredJob, model: str | None = None) -> Result[JobView]:

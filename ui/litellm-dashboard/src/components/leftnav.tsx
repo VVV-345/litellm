@@ -244,6 +244,13 @@ const menuGroups: MenuGroup[] = [
       },
       { key: "logs", page: "logs", label: "Logs", icon: <Activity {...ICON} /> },
       {
+        key: "manager-logs",
+        page: "manager-logs",
+        label: "Manager 日志",
+        icon: <ScrollText {...ICON} />,
+        roles: proxyAdminRoles,
+      },
+      {
         key: "guardrails-monitor",
         page: "guardrails-monitor",
         label: "Guardrails Monitor",

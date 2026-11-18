@@ -6,9 +6,10 @@ from datetime import datetime
 from typing import Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator, model_validator
 
 from account_pool.isp_probe import ProxyLocation
+from account_pool.manager_logs import BrowserPageDiagnostic
 
 Locale = Literal["en-US", "en-GB", "zh-CN"]
 BrowserOS = Literal["linux", "windows", "macos"]
@@ -139,6 +140,17 @@ class WorkerView(BaseModel):
         | None
     ) = None
     expires_at: datetime
+    diagnostic: BrowserPageDiagnostic | None = None
+
+    @field_validator("diagnostic", mode="before")
+    @classmethod
+    def ignore_invalid_diagnostic(cls, value: object) -> BrowserPageDiagnostic | None:
+        if value is None:
+            return None
+        try:
+            return BrowserPageDiagnostic.model_validate(value)
+        except ValidationError:
+            return None
 
 
 class AutomationState(BaseModel):

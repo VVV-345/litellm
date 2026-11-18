@@ -4,6 +4,9 @@ const ACCOUNT_POOL_ROOT = ["account-pool"] as const;
 
 export const accountPoolQueryKeys = {
   automation: (accessToken: string | null) => [...ACCOUNT_POOL_ROOT, "oauth-automation", accessToken] as const,
+  managerLogsRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "manager-logs", accessToken] as const,
+  managerLogs: (accessToken: string, filters: { session_id?: string | null; card_id?: string | null; offset?: number }) =>
+    [...ACCOUNT_POOL_ROOT, "manager-logs", accessToken, filters] as const,
   runtimeCards: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "runtime-cards", accessToken] as const,
   quotaReset: (accessToken: string, id: string) => [...ACCOUNT_POOL_ROOT, "quota-reset", accessToken, id] as const,
   all: ACCOUNT_POOL_ROOT,

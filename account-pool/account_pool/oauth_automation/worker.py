@@ -108,7 +108,7 @@ class AutomationWorker:
         payload: Final = {"action": action, **({"credentials": credentials} if action == "start" else {})}
         response: Final = await self.http.post(
             f"http://{oauth_browser_control_host(session_id)}:8092/control",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-OAuth-Diagnostics": "1"},
             json=payload,
             timeout=20,
             follow_redirects=False,

@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { setTimeout } from "node:timers/promises";
 import { firefox } from "playwright-core";
 import { parseCredential } from "./login.mjs";
-import { loadLoginScript, observeLoginPage } from "./login_script.mjs";
+import { loadLoginScript, observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
 import { openAuthorizationPage, runStartupStage, validateAuthorization } from "./core.mjs";
 import { BrowserControl, createControlServer } from "./control.mjs";
 
@@ -45,7 +45,7 @@ async function main() {
       const loginDiagnostics = automatic ? observeLoginPage(page) : null;
       if (automatic) await input(false);
       await openAuthorizationPage(page, authorization, process.env.OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS);
-      if (automatic) {
+      if (loginDiagnostics) {
         if (new URL(page.url()).origin === "https://auth.openai.com") {
           process.stderr.write(`OAuth email form readiness: labelled=${await page.getByLabel("Email address", { exact: true }).count()}, typed=${await page.locator('input[type="email"]').count()}\n`);
         }
@@ -61,11 +61,15 @@ async function main() {
               login: async (signal) => {
                 const result = await loginScript.automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
                 if (result.status === "verification_required") {
-                  const status = await loginDiagnostics().catch(() => ({ reason: "page_observation_failed" }));
+                  const status = await loginDiagnostics.inspect().catch(() => ({
+                    step: "login", reason: "page_observation_failed", httpStatus: null,
+                  }));
                   process.stderr.write(`OAuth form state: ${JSON.stringify(status)}\n`);
+                  return { status: result.status, diagnostic: toPageDiagnostic(status) };
                 }
-                return result;
+                return { status: result.status };
               },
+              observe: loginDiagnostics.current,
               verifyAccount: () => loginScript.verifyResumableAccount(page, credential, { locale }),
               enableInput: input, close: () => context.close(),
               totalDeadline: deadline, humanMs: Number(process.env.OAUTH_HUMAN_TIMEOUT_SECONDS ?? "300") * 1000,

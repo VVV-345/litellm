@@ -76,14 +76,20 @@ test("the job channel authenticates every command, accepts credentials once and 
     createController: async (credentials) => {
       assert.equal(credentials, "private-credential-input");
       starts += 1;
-      return fixture(async () => ({ status: "verification_required" })).controller;
+      return fixture(async () => ({
+        status: "verification_required",
+        diagnostic: { step: "password", reason: "browser_security_challenge", http_status: 403 },
+      })).controller;
     },
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   const url = `http://127.0.0.1:${server.address().port}/control`;
-  const send = (body, authenticated = true) => fetch(url, {
+  const send = (body, authenticated = true, diagnostic = false) => fetch(url, {
     method: "POST", body: JSON.stringify(body),
-    headers: { ...(authenticated ? { Authorization: "Bearer job-token-not-manager-token-12345678" } : {}) },
+    headers: {
+      ...(authenticated ? { Authorization: "Bearer job-token-not-manager-token-12345678" } : {}),
+      ...(diagnostic ? { "X-OAuth-Diagnostics": "1" } : {}),
+    },
   });
   try {
     assert.equal((await send({ action: "start", credentials: "private-credential-input" }, false)).status, 401);
@@ -96,6 +102,10 @@ test("the job channel authenticates every command, accepts credentials once and 
       assert.equal(body.includes("job-token"), false);
     }
     assert.equal(starts, 1);
+    assert.equal((await send({ action: "status" }, false, true)).status, 401);
+    assert.equal((await (await send({ action: "status" })).json()).diagnostic, undefined);
+    const optedIn = await (await send({ action: "status" }, true, true)).json();
+    assert.deepEqual(optedIn.diagnostic, { step: "password", reason: "browser_security_challenge", http_status: 403 });
     assert.equal((await send({ action: "execute", script: "not-allowed" })).status, 400);
     assert.equal((await send({ action: "status", credentials: "not-allowed" })).status, 400);
     await send({ action: "cancel" });

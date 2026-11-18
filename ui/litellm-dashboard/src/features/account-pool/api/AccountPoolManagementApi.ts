@@ -2,10 +2,24 @@
 
 import { apiClient } from "@/components/networking";
 import { normalizeRootPath } from "@/lib/http/resolveApiBase";
-import type { components } from "@/lib/http/schema";
+import type { components, paths } from "@/lib/http/schema";
 import { serverRootPath } from "@/lib/serverRootPath";
 
 export type PolicyView = components["schemas"]["PolicyView"];
+export type ManagerLogItem = components["schemas"]["ManagerLogItem"];
+export type ManagerLogFilter = NonNullable<paths["/account_pool/manager-logs"]["get"]["parameters"]["query"]>;
+const managerLogsPath = "/account_pool/manager-logs";
+
+export const getManagerLogs = (accessToken: string, query: ManagerLogFilter, signal?: AbortSignal) => {
+  const options = { accessToken, query, signal, cache: "no-store" } as const;
+  return apiClient.get<components["schemas"]["ManagerLogPage"]>(managerLogsPath, options);
+};
+
+export const deleteManagerLogs = (accessToken: string, days: number) => {
+  const options = { accessToken, query: { older_than_days: days }, cache: "no-store", invalidateOnSuccess: false } as const;
+  return apiClient.delete<components["schemas"]["AccountPoolLogClearResult"]>(managerLogsPath, options);
+};
+
 export type AccountPoolRoutingStatus = components["schemas"]["AccountPoolRoutingStatus"];
 export type AccountPolicy = components["schemas"]["AccountPolicy"];
 export type ErrorStats = Omit<

@@ -31,6 +31,7 @@ from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
+from account_pool.manager_logs import ManagerLogs
 from account_pool.feedback import FeedbackService
 from account_pool.feedback.repository import PostgresFeedbackRepository
 from account_pool.gateway_repository import PostgresLeaseRepository
@@ -93,9 +94,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings_repository: Final = PostgresAccountPoolSettingsRepository(resolved.database_url)
     plugin_repository: Final = PostgresPluginRepository(resolved.database_url)
     plugin_service: Final = PluginService(plugin_repository, parse_plugin_registry(resolved.plugin_registry_json))
-    logs: Final = ErrorLogService(
-        PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days, settings_repository
-    )
+    log_repository: Final = PostgresErrorLogRepository(resolved.database_url)
+    logs: Final = ErrorLogService(log_repository, resolved.log_retention_days, settings_repository)
+    manager_logs: Final = ManagerLogs(log_repository, environments)
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
@@ -112,7 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
     runtime: Final = channel
-    browser_runtime: Final = ComposeRuntime(resolved, secrets)
+    browser_runtime: Final = ComposeRuntime(resolved, secrets, record_diagnostic=manager_logs.record)
     controller: Final = (
         ClashController(resolved.clash_controller_url, resolved.clash_secret) if resolved.clash_controller_url else None
     )
@@ -167,7 +168,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 resolved.data_root / ".oauth-login-package.json", resolved.oauth_login_script_publish_key,
             ),
         ),
-        browser_controller, automation_worker,
+        browser_controller, automation_worker, record_diagnostic=manager_logs.record,
     )
     quota_scheduler: Final = QuotaRefreshScheduler(
         settings_repository,
@@ -353,6 +354,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_runtime=browser_runtime,
             browser_controller=browser_controller,
             automation=automation,
+            manager_logs=manager_logs,
             feedback=feedback,
             quota_reset=quota_reset,
             access_token_fallback=access_fallback,
