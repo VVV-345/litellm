@@ -7,6 +7,7 @@ import ipaddress
 import json
 import socket
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import AsyncExitStack
 from io import BytesIO
 from pathlib import Path
 from types import MappingProxyType
@@ -34,7 +35,13 @@ from account_pool.domain import (
     configured_proxy_url,
     utc_now,
 )
-from account_pool.provider_families import OPENCODE_GO_BASES, OPENCODE_GO_CATALOG_BASE
+from account_pool.provider_families import (
+    GLM_CODING_PLAN_QUOTA_URLS,
+    OPENCODE_GO_BASES,
+    OPENCODE_GO_CATALOG_BASE,
+    provider_family_kind,
+)
+from account_pool.providers.usage.glm import parse_glm_coding_quota
 from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
 
 
@@ -77,6 +84,7 @@ _SUPPLIER: Final = SupplierDefinition(
 )
 _HEADERS: Final = TypeAdapter(tuple[tuple[str, str], ...])
 _MAX_MODEL_LIST_BYTES: Final = 2 * 1024 * 1024
+_MAX_GLM_QUOTA_BYTES: Final = 64 * 1024
 _MAX_PREVIEW_MODELS: Final = 500
 _AZURE_WIRE_SERVER: Final = ipaddress.ip_address("168.63.129.16")
 HostResolver = Callable[[str, int], Awaitable[Sequence[str]]]
@@ -185,10 +193,13 @@ class OpenAICompatibleChannel:
         raise RuntimeError("OpenAI-compatible cards do not accept OAuth callbacks")
 
     async def read_account(self, record: EnvironmentRecord, *, refresh_quota: bool = False) -> EnvironmentRecord:
-        _ = refresh_quota
         configuration: Final = self._configuration(record)
         if len(configuration.credentials) != 1:
             raise CredentialConflict("一张卡片只能使用一个 API Key，请先删除多余凭证")
+        if refresh_quota:
+            display_quota: Final = await self._read_display_quota(record)
+            if display_quota is not None:
+                return record.model_copy(update={"display_quota": display_quota})
         identity: Final = credential_identity(
             json.dumps(
                 {"api_key": self._cipher.open(record.id, configuration.credentials[0].api_key_ciphertext)}
@@ -223,6 +234,55 @@ class OpenAICompatibleChannel:
                 "status": status,
                 "last_error": None,
             }
+        )
+
+    async def _read_display_quota(self, record: EnvironmentRecord) -> QuotaSnapshot | None:
+        family: Final = provider_family_kind(record)
+        if family == "opencode":
+            return QuotaSnapshot(refresh_status="unsupported")
+        if family != "glm":
+            return None
+        configuration: Final = self._configuration(record)
+        endpoint: Final = GLM_CODING_PLAN_QUOTA_URLS.get(str(configuration.base_url).rstrip("/"))
+        if endpoint is None:
+            return QuotaSnapshot(
+                refresh_status="unsupported",
+                refresh_error="此 GLM 卡片不是 Coding Plan 接入，未查询套餐额度",
+            )
+        observed_at: Final = utc_now()
+        try:
+            credential: Final = configuration.credentials[0]
+            async with asyncio.timeout(10), AsyncExitStack() as stack:
+                destination, _ = await _validate_destination(endpoint, self._resolver)
+                proxy: Final = credential.proxy_url or configured_proxy_url(record) or None
+                client: Final = self._client if proxy is None else await stack.enter_async_context(
+                    httpx.AsyncClient(proxy=proxy, timeout=10, trust_env=False, follow_redirects=False)
+                )
+                # 额度请求只带同卡密钥，不复用可自定义的推理请求头，也不跟随重定向。
+                async with client.stream(
+                    "GET",
+                    destination,
+                    headers={"Authorization": self._cipher.open(record.id, credential.api_key_ciphertext)},
+                    follow_redirects=False,
+                ) as response:
+                    response.raise_for_status()
+                    body: Final = BytesIO()
+                    async for chunk in response.aiter_bytes():
+                        if body.tell() + len(chunk) > _MAX_GLM_QUOTA_BYTES:
+                            raise ValueError("GLM quota response too large")
+                        body.write(chunk)
+                parsed: Final = parse_glm_coding_quota(body.getvalue().decode("utf-8"), observed_at)
+                if parsed is not None:
+                    return parsed
+        except httpx.HTTPStatusError as error:
+            return QuotaSnapshot(
+                refresh_attempted_at=observed_at, refresh_status="failed",
+                refresh_error=f"GLM 套餐额度未获取（HTTP {error.response.status_code}）",
+            )
+        except (httpx.HTTPError, TimeoutError, ValueError):
+            pass
+        return QuotaSnapshot(
+            refresh_attempted_at=observed_at, refresh_status="failed", refresh_error="GLM 套餐额度未获取",
         )
 
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:

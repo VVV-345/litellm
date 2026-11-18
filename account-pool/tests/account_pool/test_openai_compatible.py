@@ -43,6 +43,141 @@ async def private_resolver(_: str, __: int) -> tuple[str, ...]:
     return ("10.0.0.8",)
 
 
+def _compatible_card(base_url: str, secrets: EnvironmentSecretDeriver) -> EnvironmentRecord:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    return record.model_copy(update={
+        "channel": ChannelKind.OPENAI_COMPATIBLE,
+        "supplier": SupplierKind.OPENAI_COMPATIBLE,
+        "openai_compatible": OpenAICompatibleConfiguration(
+            base_url=base_url,
+            test_model="model-a",
+            credentials=(OpenAICompatibleCredential(
+                api_key_ciphertext=StateCipher(secrets).seal(record.id, "synthetic-glm-key"),
+            ),),
+        ),
+    })
+
+
+@pytest.mark.parametrize("issuer", ["open.bigmodel.cn", "api.z.ai"])
+def test_glm_coding_plan_quota_is_read_only_in_manager(tmp_path: Path, issuer: str) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card(f"https://{issuer}/api/coding/paas/v4/", secrets)
+    repository: Final = MemoryRepository(record)
+    requests: Final[list[tuple[str, str, str]]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append((request.method, str(request.url), request.headers["Authorization"]))
+        if request.url.path.endswith("/models"):
+            return httpx.Response(200, json={"data": [{"id": "model-a"}]})
+        if len(requests) > 1:
+            return httpx.Response(401)
+        return httpx.Response(200, json={
+            "code": 200, "success": True, "data": {"level": "pro", "limits": [
+                {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 100, "nextResetTime": 2_000_000_000_000},
+                {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 25},
+            ]},
+        })
+
+    channel: Final = OpenAICompatibleChannel(
+        secrets, httpx.AsyncClient(transport=httpx.MockTransport(upstream)), public_resolver,
+    )
+    registry: Final = replace(
+        ChannelRegistry.default(), implementations=MappingProxyType({ChannelKind.OPENAI_COMPATIBLE: channel}),
+    )
+    service: Final = EnvironmentService(
+        _settings(tmp_path), repository, FakeRuntime(), FakeCLIProxy(), EmptyProfiles(), secrets, channels=registry,
+    )
+    app: Final = FastAPI()
+    app.include_router(create_router(service, "fixture-manager", environments=repository))
+    with TestClient(app, headers={"Authorization": "Bearer fixture-manager"}) as client:
+        response: Final = client.post(f"/api/environments/{record.id}/refresh")
+        assert response.status_code == 200
+        assert requests == [("GET", f"https://{issuer}/api/monitor/usage/quota/limit", "synthetic-glm-key")]
+        value: Final = response.json()
+        assert "synthetic-glm-key" not in response.text
+        assert value["status"] == "ready" and value["quota"]["windows"] == []
+        shown: Final = {window["window_minutes"]: window for window in value["display_quota"]["windows"]}
+        assert shown[10080]["remaining_percent"] == 0 and shown[10080]["resets_at"] == "2033-05-18T03:33:20Z"
+        assert shown[300]["remaining_percent"] == 75 and shown[300]["resets_at"] is None
+        listed: Final = client.get("/api/environments").json()
+        assert listed[0]["display_quota"] == value["display_quota"]
+        bulk: Final = client.post("/api/quotas/refresh").json()
+        assert bulk["failed_card_ids"] == [str(record.id)]
+        assert bulk["refreshed"][0]["status"] == "ready"
+        assert bulk["refreshed"][0]["display_quota"]["windows"] == []
+    assert repository.records[record.id].quota == record.quota
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("status_code", "resolver", "expected_requests"), [
+    (401, public_resolver, 1),
+    (302, public_resolver, 1),
+    (200, public_resolver, 1),
+    (200, private_resolver, 0),
+])
+async def test_glm_quota_failures_are_unknown_and_do_not_destabilize_the_card(
+    status_code, resolver, expected_requests,
+) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card("https://api.z.ai/api/coding/paas/v4", secrets)
+    requests: Final[list[str]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(status_code, headers={"Location": "https://never-follow.example/"}, json={
+            "code": 401, "success": False, "msg": "fixture-body-secret",
+            "data": {"limits": [{"type": "CREDIT_LIMIT", "unit": 3, "number": 5, "percentage": 0}]},
+        })
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), follow_redirects=True) as http:
+        observed: Final = await OpenAICompatibleChannel(secrets, http, resolver).read_account(record, refresh_quota=True)
+    assert requests == ["https://api.z.ai/api/monitor/usage/quota/limit"] * expected_requests
+    quota: Final = observed.display_quota
+    assert quota is not None and quota.refresh_status == "failed"
+    assert quota.observed_at is None and not quota.windows
+    assert quota.refresh_error is not None and "fixture-body-secret" not in quota.refresh_error
+    assert observed.model_copy(update={"display_quota": None}) == record
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_url", [
+    "https://open.bigmodel.cn/api/paas/v4",
+    "https://api.z.ai/api/paas/v4",
+    "https://opencode.ai/inference/openai/v1",
+    "https://opencode.ai/inference/go/openai/v1",
+    "https://opencode.ai/zen/v1",
+])
+async def test_billing_offers_no_upstream_probe_for_paygo_glm_or_opencode(base_url: str) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card(base_url, secrets)
+
+    def unexpected(_: httpx.Request) -> httpx.Response:
+        pytest.fail("never probe billing with a key from an unsupported integration")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unexpected)) as http:
+        observed: Final = await OpenAICompatibleChannel(secrets, http, public_resolver).read_account(
+            record, refresh_quota=True,
+        )
+    assert observed.display_quota is not None and observed.display_quota.refresh_status == "unsupported"
+    assert observed.model_copy(update={"display_quota": None}) == record
+
+
+@pytest.mark.asyncio
+async def test_glm_like_model_on_a_different_issuer_does_not_cause_a_glm_quota_query() -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card("https://api.z.ai.example.com/api/coding/paas/v4", secrets)
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        assert str(request.url) == "https://api.z.ai.example.com/api/coding/paas/v4/models"
+        return httpx.Response(200, json={"data": [{"id": "glm-model"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        observed: Final = await OpenAICompatibleChannel(secrets, http, public_resolver).read_account(
+            record, refresh_quota=True,
+        )
+    assert observed.display_quota is None and observed.available_models == ("glm-model",)
+
+
 @pytest.mark.parametrize(
     ("base", "catalog_path"),
     (

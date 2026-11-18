@@ -325,6 +325,40 @@ it("keeps card logs in the action row for non-Codex cards without Codex recovery
   expect(actions.onViewLogs).toHaveBeenCalledExactlyOnceWith(environment);
 });
 
+it("shows GLM plan quota on the card without offering Codex redemption", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({
+    supplier: "openai_compatible",
+    provider_family: "glm",
+    display_quota: {
+      plan_type: "Pro", windows: [{
+        name: "5 hour", used_percent: 64, remaining_percent: 36, window_minutes: 300,
+        resets_at: "2090-01-01T00:00:00Z",
+      }], balances: [],
+    },
+  });
+  expect(screen.getByText("套餐额度")).toBeVisible();
+  expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "36");
+  expect(screen.queryByRole("button", { name: /额度重置/ })).not.toBeInTheDocument();
+});
+
+it("shows an unchecked GLM plan as not fetched rather than zero", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({ supplier: "openai_compatible", provider_family: "glm" });
+  expect(screen.getByText("套餐额度未获取")).toBeVisible();
+  expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+});
+
+it("offers only the official OpenCode workspace billing link, without a zero balance", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({ supplier: "openai_compatible", provider_family: "opencode" });
+  expect(screen.getByRole("link", { name: "打开 OpenCode 账单" })).toHaveAttribute(
+    "href", "https://opencode.ai/console/login",
+  );
+  expect(screen.getByText("工作区余额未获取")).toBeVisible();
+  expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+});
+
 it("shows an uncertain refresh as paused without claiming the access token was rejected", async () => {
   await i18n.changeLanguage("zh-CN");
   renderCard({

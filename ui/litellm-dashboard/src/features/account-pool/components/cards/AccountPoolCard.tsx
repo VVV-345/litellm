@@ -290,7 +290,7 @@ const AccountPoolCardComponent = ({
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {environment.supplier === "openai_codex" && <AccountPoolCardQuota environment={environment} />}
+        {["openai_codex", "glm", "opencode"].includes(family) && <AccountPoolCardQuota environment={environment} />}
         {environment.access_token_fallback?.active && (
           <p role="status" className="text-sm font-medium text-amber-700 dark:text-amber-400">
             {t("accountPool.credential.temporary")}

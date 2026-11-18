@@ -309,9 +309,10 @@ class EnvironmentService:
         async def refresh(record: EnvironmentRecord) -> UUID | None:
             async with semaphore:
                 result: Final = await self.refresh_environment(record.id)
-                return (
-                    record.id if isinstance(result, Failure) or result.value.quota.refresh_status == "failed" else None
-                )
+                if isinstance(result, Failure):
+                    return record.id
+                quota: Final = result.value.display_quota or result.value.quota
+                return record.id if quota.refresh_status == "failed" else None
 
         failed: Final = await asyncio.gather(*(refresh(record) for record in ready))
         return tuple(card_id for card_id in failed if card_id is not None)
@@ -925,9 +926,10 @@ class EnvironmentService:
                     ),
                 }
             )
-            refresh_failures: Final = refreshed.quota.refresh_failures
             saved: Final = await self._repository.save(refreshed)
-            if refresh_quota and saved.quota.refresh_status in ("partial", "failed") and saved.quota.refresh_error:
+            quota_result: Final = saved.display_quota or saved.quota
+            refresh_failures: Final = quota_result.refresh_failures
+            if refresh_quota and quota_result.refresh_status in ("partial", "failed") and quota_result.refresh_error:
                 if refresh_failures:
                     for failure in refresh_failures:
                         await self._log_event(
@@ -936,8 +938,8 @@ class EnvironmentService:
                             ProviderQuotaError((failure,), "Provider quota refresh partially failed"),
                         )
                 else:
-                    await self._log_event(saved, "quota", RuntimeError(saved.quota.refresh_error), retryable=True)
-            elif refresh_quota and saved.quota.refresh_status == "complete":
+                    await self._log_event(saved, "quota", RuntimeError(quota_result.refresh_error), retryable=True)
+            elif refresh_quota and quota_result.refresh_status == "complete":
                 await self._log_event(saved, "quota", None)
             return saved
 

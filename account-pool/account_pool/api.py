@@ -606,7 +606,9 @@ def create_router(
             else await quota_scheduler.track(
                 execute,
                 lambda outcomes: sum(
-                    isinstance(result, Failure) or result.value.quota.refresh_status == "failed" for result in outcomes
+                    isinstance(result, Failure)
+                    or (result.value.display_quota or result.value.quota).refresh_status == "failed"
+                    for result in outcomes
                 ),
             )
         )
@@ -614,7 +616,7 @@ def create_router(
         failed: Final = tuple(
             record.id
             for record, result in zip(records, results)
-            if isinstance(result, Failure) or result.value.quota.refresh_status == "failed"
+            if isinstance(result, Failure) or (result.value.display_quota or result.value.quota).refresh_status == "failed"
         )
         return QuotaRefreshResult(refreshed=refreshed, failed_card_ids=failed)
 

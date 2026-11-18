@@ -7152,6 +7152,11 @@
       "expiresAt": "订阅到期",
       "resetCredits": "可用重置次数",
       "availableResets": "可用重置次数 {{countText}}",
+      "codingPlanQuota": "套餐额度",
+      "codingPlanNotFetched": "套餐额度未获取",
+      "workspaceNotFetched": "工作区余额未获取",
+      "openCodeBilling": "打开 OpenCode 账单",
+      "openCodeBillingHint": "登录后选择工作区，打开「设置 → 账单」。Go 套餐用量也可在该工作区查看。",
       "awaitingRefresh": "已到重置时间，等待刷新",
       "modelCooldown": "{{model}}：冷却至 {{time}}，到期后等待请求探测恢复",
       "remainingValue": "剩余 {{percent}}",
@@ -7204,7 +7209,8 @@
       "unit": {
         "cents": "美分",
         "credits": "点数",
-        "tasks": "次"
+        "tasks": "次",
+        "tokens": "Token"
       }
     },
     "plugins": {

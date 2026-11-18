@@ -17422,6 +17422,16 @@
               ],
               "title": "Desired State"
             },
+            "display_quota": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AccountPoolQuotaSnapshot"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "enabled": {
               "title": "Enabled",
               "type": "boolean"

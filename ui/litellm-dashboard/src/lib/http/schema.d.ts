@@ -25059,6 +25059,7 @@ export interface components {
             desired_configuration_version: number;
             /** Desired State */
             desired_state?: string | null;
+            display_quota?: components["schemas"]["AccountPoolQuotaSnapshot"] | null;
             /** Enabled */
             enabled: boolean;
             /** Enabled Models */

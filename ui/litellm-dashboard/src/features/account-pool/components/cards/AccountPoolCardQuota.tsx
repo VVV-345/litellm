@@ -2,14 +2,33 @@ import { useTranslation } from "react-i18next";
 
 import { Badge } from "@/components/ui/badge";
 import { accountPoolPlanLabel } from "../../utils/accountPoolCodexPlan";
-import { formatDateTime, formatQuota, quotaProxyLabel, quotaWindowLabel } from "../../utils/AccountPoolFormatters";
-import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
+import {
+  displayedQuota, formatDateTime, formatQuota, quotaProxyLabel, quotaWindowLabel,
+} from "../../utils/AccountPoolFormatters";
+import { accountPoolFamilyKind, type AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import { useAccountPoolClock } from "../../hooks/useAccountPoolClock";
 
 export function AccountPoolCardQuota({ environment }: { environment: AccountPoolEnvironment }) {
   const { t, i18n } = useTranslation();
   const now = useAccountPoolClock();
-  const quota = environment.quota;
+  const family = accountPoolFamilyKind(environment);
+  if (family === "opencode") {
+    return (
+      <div className="grid gap-1 rounded-lg border bg-muted/20 p-2.5 text-xs">
+        <span className="text-muted-foreground">{t("accountPool.quotas.workspaceNotFetched")}</span>
+        <a
+          className="w-fit font-medium underline underline-offset-4"
+          href="https://opencode.ai/console/login"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {t("accountPool.quotas.openCodeBilling")}
+        </a>
+        <span className="text-muted-foreground">{t("accountPool.quotas.openCodeBillingHint")}</span>
+      </div>
+    );
+  }
+  const quota = displayedQuota(environment);
   const plan =
     environment.supplier === "openai_codex"
       ? accountPoolPlanLabel(quota.plan_type, quota.auth_file_plan_type)
@@ -37,11 +56,15 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
           <span className="text-muted-foreground">{t("accountPool.quotas.plan")}</span>
           <span>{planLabel}</span>
         </Badge>
-        <span className="tabular-nums text-muted-foreground">
-          {t("accountPool.quotas.availableResets", {
-            countText: quota.reset_credits_available ?? t("accountPool.dashboard.unknown"),
-          })}
-        </span>
+        {family === "glm" ? (
+          <span className="text-muted-foreground">{t("accountPool.quotas.codingPlanQuota")}</span>
+        ) : (
+          <span className="tabular-nums text-muted-foreground">
+            {t("accountPool.quotas.availableResets", {
+              countText: quota.reset_credits_available ?? t("accountPool.dashboard.unknown"),
+            })}
+          </span>
+        )}
         {quota.source && <Badge variant="secondary">{t(`accountPool.quotas.source.${quota.source}`)}</Badge>}
         {quota.refresh_status && (
           <Badge variant={quota.refresh_status === "failed" ? "destructive" : "secondary"}>
@@ -50,7 +73,9 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
         )}
       </div>
       {quota.windows.length === 0 && (
-        <p className="text-xs text-muted-foreground">{t("accountPool.config.notObserved")}</p>
+        <p className="text-xs text-muted-foreground">
+          {t(family === "glm" ? "accountPool.quotas.codingPlanNotFetched" : "accountPool.config.notObserved")}
+        </p>
       )}
       <div className="grid gap-2 @sm/quota:grid-cols-2">
         {quota.windows.map((window, index) => {

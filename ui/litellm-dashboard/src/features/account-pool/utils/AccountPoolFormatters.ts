@@ -24,8 +24,14 @@ export const statusVariant = (status: AccountPoolStatus): "default" | "secondary
   return "outline";
 };
 
+export const displayedQuota = (environment: AccountPoolEnvironment): AccountPoolQuotaSnapshot =>
+  environment.display_quota ?? environment.quota;
+
 export const mostConstrainedWindow = (environment: AccountPoolEnvironment): AccountPoolQuotaWindow | null => {
-  const windows = [...environment.quota.windows, ...environment.model_quotas.flatMap((item) => item.quota.windows)];
+  const windows = [
+    ...displayedQuota(environment).windows,
+    ...environment.model_quotas.flatMap((item) => item.quota.windows),
+  ];
   if (windows.length === 0) return null;
   return windows.reduce((lowest, window) => (window.remaining_percent < lowest.remaining_percent ? window : lowest));
 };
@@ -49,6 +55,7 @@ export const formatQuotaAmounts = (t: TFunction, window: AccountPoolQuotaWindow,
     cents: t("accountPool.quotas.unit.cents"),
     credits: t("accountPool.quotas.unit.credits"),
     tasks: t("accountPool.quotas.unit.tasks"),
+    tokens: t("accountPool.quotas.unit.tokens"),
   };
   const unit = window.unit ? ` ${units[window.unit] ?? window.unit}` : "";
   if (window.used != null && window.total != null)
@@ -100,6 +107,6 @@ export const quotaRows = (
   t: TFunction,
   environment: AccountPoolEnvironment,
 ): Array<{ key: string; label: string; quota: AccountPoolQuotaSnapshot }> => [
-  { key: "account", label: t("accountPool.config.account"), quota: environment.quota },
+  { key: "account", label: t("accountPool.config.account"), quota: displayedQuota(environment) },
   ...environment.model_quotas.map((item) => ({ key: item.model, label: item.model, quota: item.quota })),
 ];

@@ -353,6 +353,7 @@ class AccountPoolEnvironment(BaseModel):
     enabled_models: tuple[str, ...]
     configured_models: tuple[str, ...] | None = None
     quota: AccountPoolQuotaSnapshot
+    display_quota: AccountPoolQuotaSnapshot | None = Field(default=None, exclude_if=lambda value: value is None)
     model_quotas: tuple[AccountPoolModelQuotaSnapshot, ...] = ()
     model_cooldowns: tuple[AccountPoolModelCooldown, ...] = ()
     cooldown_until: str | None

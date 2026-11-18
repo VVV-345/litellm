@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import {
+  displayedQuota,
   formatDateTime,
   formatQuota,
   formatQuotaAmounts,
@@ -31,7 +32,7 @@ export const AccountPoolQuotaPanel = ({ environments }: { environments: readonly
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           {environments.map((environment) => {
             const constrained = mostConstrainedWindow(environment);
-            const quota = environment.quota;
+            const quota = displayedQuota(environment);
             const balances = quota.balances ?? [];
             const metadata = [
               quota.plan_type ? [t("accountPool.quotas.plan"), quota.plan_type] : null,

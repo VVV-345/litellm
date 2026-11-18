@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final
 
 from account_pool.domain import EnvironmentRecord, SupplierKind
@@ -111,13 +112,12 @@ OPENCODE_PROVIDER_FAMILY: Final = ProviderFamily(
     description="OpenCode Console / Zen 与 OpenCode Go 的 API Key 接入",
 )
 
+_GLM_ISSUERS: Final = ("https://open.bigmodel.cn", "https://api.z.ai")
+GLM_CODING_PLAN_QUOTA_URLS: Final = MappingProxyType({
+    f"{issuer}/api/coding/paas/v4": f"{issuer}/api/monitor/usage/quota/limit" for issuer in _GLM_ISSUERS
+})
 _GLM_BASES: Final = frozenset(
-    (
-        "https://open.bigmodel.cn/api/paas/v4",
-        "https://api.z.ai/api/paas/v4",
-        "https://open.bigmodel.cn/api/coding/paas/v4",
-        "https://api.z.ai/api/coding/paas/v4",
-    )
+    (*GLM_CODING_PLAN_QUOTA_URLS, *(f"{issuer}/api/paas/v4" for issuer in _GLM_ISSUERS))
 )
 OPENCODE_GO_CATALOG_BASE: Final = "https://opencode.ai/inference/go/v1"
 OPENCODE_GO_BASES: Final = frozenset(
@@ -130,6 +130,6 @@ def provider_family_kind(record: EnvironmentRecord) -> str:
     base_url: Final = str(config.base_url).rstrip("/") if config is not None else ""
     if base_url in _GLM_BASES:
         return GLM_PROVIDER_FAMILY.kind
-    if base_url == "https://opencode.ai/inference/openai/v1" or base_url in OPENCODE_GO_BASES:
+    if base_url in {"https://opencode.ai/inference/openai/v1", "https://opencode.ai/zen/v1"} or base_url in OPENCODE_GO_BASES:
         return OPENCODE_PROVIDER_FAMILY.kind
     return record.supplier.value

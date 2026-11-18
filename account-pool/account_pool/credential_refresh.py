@@ -1,8 +1,10 @@
 """编排单卡凭据刷新，复用所有权锁与 CPA 协调器，不将保存成功当作推理成功。"""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Final, Literal, Protocol
+from typing import TYPE_CHECKING, Final, Literal, Protocol
 from uuid import UUID
 
 import httpx
@@ -11,7 +13,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from account_pool.credential_ownership import CredentialIdentity, CredentialOwnership
 from account_pool.domain import CredentialRefreshStatus, EnvironmentRecord, EnvironmentStatus, SupplierKind, utc_now
-from account_pool.ports import EnvironmentRepository
+
+if TYPE_CHECKING:
+    from account_pool.ports import EnvironmentRepository
 
 
 class _RefreshedCredential(BaseModel):

@@ -7152,6 +7152,11 @@
       "expiresAt": "Subscription expires",
       "resetCredits": "Reset credits available",
       "availableResets": "Available resets {{countText}}",
+      "codingPlanQuota": "Plan quota",
+      "codingPlanNotFetched": "Plan quota not fetched",
+      "workspaceNotFetched": "Workspace balance not fetched",
+      "openCodeBilling": "Open OpenCode billing",
+      "openCodeBillingHint": "Sign in, choose the workspace, and open Settings → Billing. Go usage is also available in the workspace.",
       "awaitingRefresh": "Reset due, awaiting refresh",
       "modelCooldown": "{{model}}: cooling until {{time}}, then awaiting a recovery probe",
       "remainingValue": "{{percent}} remaining",
@@ -7204,7 +7209,8 @@
       "unit": {
         "cents": "cents",
         "credits": "credits",
-        "tasks": "tasks"
+        "tasks": "tasks",
+        "tokens": "tokens"
       }
     },
     "plugins": {
