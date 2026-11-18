@@ -97,8 +97,7 @@ export function CostEntryDialog({
     setStartsOn(value);
     if (automaticEnd && cycleMonths) setEndsOn(cycleEnd(value, cycleMonths));
   };
-  const changeCycle = (value: string) => {
-    const months = value === "" ? null : (Number(value) as 1 | 3 | 12);
+  const changeCycle = (months: 1 | 3 | 12 | null) => {
     setCycleMonths(months);
     if (!months) {
       setAutoRenew(false);
@@ -213,18 +212,30 @@ export function CostEntryDialog({
               </div>
             </div>
             <div className="space-y-3 rounded-lg border p-3">
-              <Label htmlFor="cost-cycle">计费周期</Label>
-              <select
-                id="cost-cycle"
-                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                value={cycleMonths ?? ""}
-                onChange={(event) => changeCycle(event.target.value)}
-              >
-                <option value="">自定义服务期</option>
-                <option value="1">月付</option>
-                {target.category === "subscription" && <option value="3">季付</option>}
-                <option value="12">年付</option>
-              </select>
+              <Label id="cost-cycle-label">计费周期</Label>
+              <div role="group" aria-labelledby="cost-cycle-label" className="flex flex-wrap gap-2">
+                {(
+                  [
+                    { months: 1, label: "月付" },
+                    { months: 3, label: "季付" },
+                    { months: 12, label: "年付" },
+                    { months: null, label: "自定义服务期" },
+                  ] as const
+                )
+                  .filter(({ months }) => months !== 3 || target.category === "subscription")
+                  .map(({ months, label }) => (
+                    <Button
+                      key={months ?? "custom"}
+                      type="button"
+                      variant={cycleMonths === months ? "default" : "outline"}
+                      aria-pressed={cycleMonths === months}
+                      className="flex-1"
+                      onClick={() => changeCycle(months)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+              </div>
               {target.category === "subscription" && (
                 <>
                   <div className="flex items-center justify-between gap-3">
