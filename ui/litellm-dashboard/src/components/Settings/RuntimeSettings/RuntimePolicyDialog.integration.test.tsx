@@ -40,6 +40,7 @@ const environment = {
   proxy_profile_id: "clash-gateway-7891",
   available_models: ["gpt-5"],
   enabled_models: ["gpt-5"],
+  auth_file_bound: true,
   quota: {
     observed_at: "2026-09-15T13:00:00Z",
     refresh_attempted_at: "2026-09-15T13:05:00Z",
@@ -88,7 +89,7 @@ const renderDialog = (environments: AccountPoolEnvironment[] = [environment]) =>
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <RuntimePolicyDialog
         accessToken="token"
-        environment={environment}
+        environment={environments[0]}
         environments={environments}
         policies={[]}
         onOpenRuntimeConfig={vi.fn()}
@@ -262,6 +263,15 @@ describe("RuntimePolicyDialog", () => {
     expect(savePolicy.mock.calls[1][2]).toBe(4);
     unmount();
     client.clear();
+  });
+
+  it("disables managed identity until the card has a bound credential", async () => {
+    const user = userEvent.setup();
+    renderDialog([{ ...environment, auth_file_bound: false }]);
+    await user.click(await screen.findByRole("combobox", { name: "Codex 指纹收敛模式" }));
+    expect(screen.getByRole("option", { name: "托管安装 ID（推荐）" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText(/请先完成这张卡片的 Codex 授权/)).toBeInTheDocument();
+    expect(savePolicy).not.toHaveBeenCalled();
   });
 
   it("saves managed installation identity together with identity confusion", async () => {

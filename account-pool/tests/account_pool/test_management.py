@@ -394,6 +394,33 @@ async def test_manager_log_cleanup_respects_age_boundary_and_excludes_model_even
     assert (await store.detail(spend.event_id)) is not None
 
 
+def test_managed_policy_requires_bound_credential_before_saving_or_syncing() -> None:
+    card = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    environments = MemoryRepository(card)
+    policies = MemoryPolicies()
+    synced: list[UUID] = []
+
+    async def sync(record: EnvironmentRecord, _: AccountPolicy) -> None:
+        synced.append(record.id)
+
+    app = FastAPI()
+    app.include_router(
+        create_management_router(object(), object(), environments, lambda: None, policies, sync_policy=sync)
+    )
+    with TestClient(app) as client:
+        path = f"/api/environments/{card.id}/policy"
+        request = {"version": 0, "policy": {"codex": {"identity_fingerprint_mode": "managed"}}}
+        response = client.put(path, json=request)
+        assert response.status_code == 422
+        assert "授权" in response.json()["detail"]
+        assert card.id not in policies.records and not synced
+        environments.records[card.id] = card.model_copy(
+            update={"status": EnvironmentStatus.DISABLED, "auth_file_name": "bound.json"}
+        )
+        assert client.put(path, json=request).status_code == 200
+        assert policies.records[card.id].runtime_status == "synced" and synced == [card.id]
+
+
 def test_policy_versions_and_supplier_scope(management) -> None:
     client, record, _, _, _ = management
     client.headers["Authorization"] = "Bearer " + "m" * 32

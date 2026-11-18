@@ -315,6 +315,7 @@ def _manager_response(request: httpx.Request) -> httpx.Response:
                     "model_quotas": [],
                     "cooldown_until": None,
                     "automatic_cooldown": True,
+                    "auth_file_bound": True,
                     "last_error": None,
                     "created_at": "2026-01-01T00:00:00Z",
                     "updated_at": "2026-01-01T00:00:00Z",
@@ -674,6 +675,7 @@ def test_proxy_admin_can_read_channel_and_supplier_metadata() -> None:
     first: Final = response.json()[0]
     assert first["channel"] == "cliproxyapi"
     assert first["supplier"] == "openai_codex"
+    assert first["auth_file_bound"] is True
     assert first["configuration_pending"] is False
 
 

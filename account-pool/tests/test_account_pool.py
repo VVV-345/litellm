@@ -1053,7 +1053,31 @@ async def test_explicit_refresh_requests_live_quota_but_environment_listing_does
     refreshed: Final = await service.refresh_environment(record.id)
 
     assert isinstance(refreshed, Success)
-    assert cli.refresh_quota_calls == [False, True]
+    assert cli.refresh_quota_calls == [True]
+
+
+@pytest.mark.asyncio
+async def test_listing_reads_snapshots_and_background_poll_advances_authorization(tmp_path: Path) -> None:
+    ready = _record(status=EnvironmentStatus.READY)
+    pending = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    cli = FakeCLIProxy(authorization_status="ok")
+    service = _service(ready, cli, tmp_path)
+    state = service._callback_state(pending)
+    await service._repository.save(pending.model_copy(update={
+        "oauth_state": state, "oauth_state_signature": state.rpartition(".")[2],
+    }))
+
+    cards = {card.id: card for card in await service.list_environments()}
+    assert cli.read_calls == cli.authorization_status_calls == 0
+    assert cards[ready.id].auth_file_bound
+    assert not cards[pending.id].auth_file_bound
+    assert cards[pending.id].status is EnvironmentStatus.AWAITING_AUTHORIZATION
+
+    await service.reconcile_pending_authorizations()
+    cards = {card.id: card for card in await service.list_environments()}
+    assert cli.authorization_status_calls == 1
+    assert cards[pending.id].status is EnvironmentStatus.READY
+    assert cards[pending.id].auth_file_bound
 
 
 @pytest.mark.asyncio

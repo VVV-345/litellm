@@ -249,10 +249,9 @@ class EnvironmentService:
 
     async def list_environments(self) -> tuple[EnvironmentView, ...]:
         records: Final = await self._repository.list()
-        refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
         spends: Final = await self._spend_by_environment()
         return tuple(
-            to_view(record).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}) for record in refreshed
+            to_view(record).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}) for record in records
         )
 
     def _channel(self, record: EnvironmentRecord) -> EnvironmentChannel:

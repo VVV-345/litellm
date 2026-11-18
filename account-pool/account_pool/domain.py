@@ -553,6 +553,7 @@ class EnvironmentRecord(BaseModel):
 class EnvironmentView(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    auth_file_bound: bool = False
     access_token_fallback: AccessTokenFallbackStatus = Field(default_factory=AccessTokenFallbackStatus)
     credential_refresh: CredentialRefreshStatus = Field(default_factory=CredentialRefreshStatus)
 
@@ -779,6 +780,7 @@ def to_view(record: EnvironmentRecord) -> EnvironmentView:
     from account_pool.provider_families import provider_family_kind
 
     return EnvironmentView(
+        auth_file_bound=bool(record.auth_file_name),
         access_token_fallback=record.access_token_fallback,
         credential_refresh=record.credential_refresh,
         id=record.id,

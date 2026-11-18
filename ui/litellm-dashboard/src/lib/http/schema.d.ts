@@ -25017,6 +25017,8 @@ export interface components {
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
             access_token_fallback?: components["schemas"]["AccountPoolAccessTokenFallbackStatus"];
+            /** Auth File Bound */
+            auth_file_bound?: boolean | null;
             /**
              * Authorization Flow
              * @default browser_oauth

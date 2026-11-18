@@ -200,7 +200,12 @@ class EnvironmentConfigurationOperations:
         """关闭页面后仍由后台继续验证已接收的授权，不重复领取或写入凭据。"""
         records: Final = await self._repository.list()
         await asyncio.gather(
-            *(self._refresh_if_needed(record) for record in records if record.status is EnvironmentStatus.VALIDATING)
+            *(
+                self._refresh_if_needed(record)
+                for record in records
+                if record.status is EnvironmentStatus.VALIDATING
+                or (record.status is EnvironmentStatus.AWAITING_AUTHORIZATION and record.oauth_state is not None)
+            )
         )
 
     async def reconcile_pending_deletions(self) -> None:

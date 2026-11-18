@@ -17320,6 +17320,17 @@
             "access_token_fallback": {
               "$ref": "#/components/schemas/AccountPoolAccessTokenFallbackStatus"
             },
+            "auth_file_bound": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Auth File Bound"
+            },
             "authorization_flow": {
               "default": "browser_oauth",
               "enum": [
