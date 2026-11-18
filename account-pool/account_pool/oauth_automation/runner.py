@@ -63,6 +63,28 @@ def _worker_event(stage: Stage, status: WorkerView) -> ManagerDiagnostic:
     )
 
 
+def _worker_message(stage: Stage, status: WorkerView) -> str:
+    if stage == "callback_pending":
+        return "等待一次性 OAuth 回调"
+    if stage == "running":
+        return "正在登录并处理验证器 2FA"
+    action: Final = "已接管，可在当前画面操作" if stage == "manual" else "请点「停止脚本并接管」打开当前画面"
+    page: Final = status.diagnostic
+    if status.reason == "account_mismatch":
+        return "当前账号与任务不一致，请取消任务并核对账号，不要继续输入"
+    if page and page.reason == "unexpected_origin":
+        return "当前页面不是预期的授权站点，请勿输入资料；可查看画面或取消任务"
+    if page and page.reason == "browser_security_challenge":
+        return f"上游要求人机验证。{action}，请本人在授权页完成验证"
+    if page and (page.reason == "navigation_http_error" or (page.http_status or 0) >= 400):
+        return "上游验证页返回 HTTP 错误，请查看画面和 Manager 日志，不要重复提交"
+    if page and page.step == "email_verification" and page.reason == "email_verification":
+        return f"上游要求邮箱验证。{action}，请从该账号收件箱查收邮箱验证码，只在授权页输入；验证器的动态码不能代替"
+    if status.reason == "confirmation_required":
+        return f"上游等待授权确认。{action}，请先核对账号和授权内容"
+    return "已停止脚本，可以人工输入" if stage == "manual" else f"当前页面尚未确认，可先查看画面。{action}"
+
+
 def operation(job: StoredJob) -> str:
     return f"automation:{job.item.id.hex}:{job.item.attempt}"
 
@@ -345,11 +367,7 @@ class AutomationRunner:
                         "item": row.item.model_copy(
                             update={
                                 "stage": stage,
-                                "message": "等待人工处理，接管后脚本将停止"
-                                if stage in {"manual", "waiting"}
-                                else "等待一次性 OAuth 回调"
-                                if stage == "callback_pending"
-                                else "正在登录并处理验证器 2FA",
+                                "message": _worker_message(stage, status),
                                 "human_expires_at": await self._human_deadline(row, status.expires_at)
                                 if stage in {"manual", "waiting"}
                                 else None,
@@ -648,11 +666,7 @@ class AutomationRunner:
                             "item": latest.item.model_copy(
                                 update={
                                     "stage": acknowledged.status,
-                                    "message": "已停止脚本，可以人工输入"
-                                    if acknowledged.status == "manual"
-                                    else "已关闭人工输入，继续自动化"
-                                    if acknowledged.status == "running"
-                                    else "账号或页面无法确认，仍需人工处理",
+                                    "message": _worker_message(acknowledged.status, acknowledged),
                                     "human_expires_at": await self._human_deadline(latest, acknowledged.expires_at)
                                     if acknowledged.status != "running"
                                     else None,

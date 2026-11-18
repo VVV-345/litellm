@@ -42,7 +42,7 @@ async function main() {
       browser = await runStartupStage("browser_launch", () => firefox.launch(options));
       const context = await browser.newContext({ viewport: null });
       const page = await context.newPage();
-      const loginDiagnostics = automatic ? observeLoginPage(page) : null;
+      const loginDiagnostics = automatic ? observeLoginPage(page, locale) : null;
       if (automatic) await input(false);
       await openAuthorizationPage(page, authorization, process.env.OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS);
       if (loginDiagnostics) {

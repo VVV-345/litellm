@@ -1,7 +1,8 @@
 // 验证外部脚本包保留相对依赖，拒绝越界路径，诊断不回显 URL。
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loadLoginScript, observeLoginPage } from "./login_script.mjs";
+import { runInNewContext } from "node:vm";
+import { loadLoginScript, observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
 
 const file = (path, source) => ({ path, data: Buffer.from(source).toString("base64") });
 
@@ -51,4 +52,35 @@ test("classifies an OAuth security page without exposing location tokens", async
     origin: "openai_auth", route: "other", step: "login", httpStatus: 403,
     reason: "browser_security_challenge", inputs: 0, challenge: true,
   });
+});
+
+test("classifies localized manual checks without forwarding page text or input values", async () => {
+  const trusted = "https://auth.openai.com";
+  const cases = [
+    ["ja-JP", "", "メールアドレスを確認してください", "", trusted, "/step", 200, "email_verification", "email_verification"],
+    ["ja-JP", "pt-BR", "Verifique seu e-mail", "", trusted, "/step", 200, "email_verification", "email_verification"],
+    ["pt-BR", "", "", "Verifique se você é humano", trusted, "/step", 403, "login", "browser_security_challenge"],
+    ["pt-BR", "ja", "", "人間であることを確認", trusted, "/step", 403, "login", "browser_security_challenge"],
+    ["ja-JP", "pt-BR", "Confirme que você é humano", "", trusted, "/pt-BR/log-in/password", 403, "password", "browser_security_challenge"],
+    ["ja-JP", "en", "Enter your code", "", trusted, "/step", 200, "login", "unrecognized_route"],
+    ["ja-JP", "", "メールアドレスを確認してください", "", trusted, "/verify-email", 429, "email_verification", "navigation_http_error"],
+    ["pt-BR", "", "Verifique seu e-mail", "", trusted, "/pt-BR/mfa-challenge/totp", 200, "authenticator", "form_or_transition_not_confirmed"],
+    ["ja-JP", "", "メールアドレスを確認してください", "Just a moment", "https://other.test", "/verify-email", 200, "login", "unexpected_origin"],
+  ];
+  for (const [profile, lang, heading, title, origin, path, code, step, reason] of cases) {
+    const url = origin + path + "?state=private-fixture";
+    const document = {
+      documentElement: { lang }, title,
+      querySelectorAll: () => ({ length: 1 }),
+      querySelector: selector => selector.includes("h1") ? { textContent: heading }
+        : selector.includes("autocomplete") ? {} : null,
+    };
+    const page = {
+      url: () => url, mainFrame: () => 1,
+      on: (_, fn) => fn({ url: () => url, status: () => code, request: () => ({ isNavigationRequest: () => true, frame: () => 1 }) }),
+      evaluate: (fn, arg) => Promise.resolve(runInNewContext(`(${fn})(arg)`, { document, arg })),
+    };
+    const diagnostic = toPageDiagnostic(await observeLoginPage(page, profile).inspect());
+    assert.deepEqual(diagnostic, { step, reason, http_status: code }, profile + " / " + path);
+  }
 });

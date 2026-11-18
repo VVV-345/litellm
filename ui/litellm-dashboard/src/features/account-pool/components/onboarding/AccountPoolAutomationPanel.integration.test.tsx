@@ -90,6 +90,44 @@ const orphanProfile: AutomationView["profiles"][number] = {
   bound_environment_id: "deleted-card",
 };
 
+it.each([
+  ["ja-JP", "accepted"],
+  ["pt-BR", "denied"],
+  ["pt-BR", "screen-unavailable"],
+] as const)("shows the job profile language %s and opens its screen only after manual acknowledgement (%s)", async (locale, outcome) => {
+  const waiting = { ...job, stage: "waiting", message: "上游要求邮箱验证", callback_consumed: false, credentials_saved: false };
+  const profile = { ...orphanProfile, id: job.profile_id, auto_match_proxy: true, matched_locale: locale };
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation") ? { ...view, profiles: [profile], jobs: [waiting] } : [{ id: job.environment_id }],
+  );
+  post.mockImplementation(async (path: string) => {
+    if (path.endsWith("/action")) {
+      if (outcome === "denied") throw new ApiError("当前会话无法接管", 409, {});
+      return { ...waiting, stage: "manual" };
+    }
+    if (path.endsWith("/screen")) {
+      if (outcome === "screen-unavailable") throw new Error("private-upstream-detail");
+      return { id: "session-fixture", ticket: "private-screen-ticket" };
+    }
+  });
+  mount();
+  const user = userEvent.setup();
+  expect(await screen.findByText(`配置语言 ${locale}`)).toBeVisible();
+  expect(screen.getByText(/Chat 未验收，Responses 未验收/)).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "停止脚本并接管" }));
+  expect(post.mock.calls[0][1].body).toEqual({ action: "takeover" });
+  if (outcome === "accepted") {
+    expect(await screen.findByTitle("授权浏览器画面")).toHaveAttribute("src", expect.stringContaining("/session-fixture/"));
+    expect(post.mock.calls.map(([path]) => path.split("/").pop())).toEqual(["action", "screen", "browser"]);
+    expect(screen.getByTitle("授权浏览器画面").getAttribute("src")).not.toContain("private-screen-ticket");
+  } else {
+    const denied = outcome === "denied";
+    expect(await screen.findByRole("alert")).toHaveTextContent(denied ? "当前会话无法接管" : "已接管，但画面未能打开");
+    expect(post).toHaveBeenCalledTimes(denied ? 1 : 2);
+    expect(screen.queryByTitle("授权浏览器画面")).not.toBeInTheDocument();
+  }
+});
+
 it("confirms deletion of an orphaned binding but never silently deletes it", async () => {
   get.mockImplementation(async (path: string) =>
     path.endsWith("/oauth-automation") ? { ...view, profiles: [orphanProfile] } : [],

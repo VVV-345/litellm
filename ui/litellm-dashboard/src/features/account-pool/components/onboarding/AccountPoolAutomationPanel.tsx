@@ -61,6 +61,7 @@ const labels: Record<AutomationJob["stage"], string> = {
 };
 type Operation = (action: () => Promise<unknown>) => Promise<void>;
 const systemLabels = { linux: "Linux", windows: "Windows", macos: "macOS" };
+const screenUnavailableAfterTakeover = new Error("已接管，但画面未能打开。请点「查看画面」重开，无需重新授权");
 
 function ProfileRow({
   profile,
@@ -169,6 +170,7 @@ const remainingJobSeconds = (job: AutomationJob, now: number): number | null => 
 
 function JobRow({
   job,
+  profile,
   cardMissing,
   now,
   disabled,
@@ -177,6 +179,7 @@ function JobRow({
   view,
 }: {
   job: AutomationJob;
+  profile?: AutomationProfile;
   cardMissing: boolean;
   now: number;
   disabled: boolean;
@@ -189,6 +192,8 @@ function JobRow({
   const finished = !active.has(job.stage) && job.stage !== "queued";
   const remaining = remainingJobSeconds(job, now);
   const interactive = ["running", "waiting", "manual"].includes(job.stage);
+  const locale = profile?.auto_match_proxy ? profile.matched_locale : profile?.locale;
+  const unverified = job.credentials_saved ? "未确认通过" : "未验收";
   return (
     <article className="space-y-3 rounded-lg border bg-background p-3" aria-label={`任务 ${job.id.slice(0, 8)}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -196,6 +201,7 @@ function JobRow({
           <strong>{labels[job.stage]}</strong>
           <span>卡片 {job.environment_id.slice(0, 8)}</span>
           <span>出口 {job.proxy_profile_id}</span>
+          {locale && <span>配置语言 {locale}</span>}
           {active.has(job.stage) && remaining !== null && <span className="tabular-nums">剩余 {remaining} 秒</span>}
         </div>
         <fieldset className="flex flex-wrap gap-2" disabled={disabled}>
@@ -210,7 +216,17 @@ function JobRow({
               variant="outline"
               disabled={disabled}
               onClick={() =>
-                void run(() => actOnAutomation(accessToken, job.id, job.stage === "manual" ? "resume" : "takeover"))
+                void run(async () => {
+                  const action = job.stage === "manual" ? "resume" : "takeover";
+                  const ack = await actOnAutomation(accessToken, job.id, action);
+                  if (action === "takeover" && ack.stage === "manual") {
+                    try {
+                      await view(job.id);
+                    } catch {
+                      throw screenUnavailableAfterTakeover;
+                    }
+                  }
+                })
               }
             >
               {job.stage === "manual" ? "交回自动化" : "停止脚本并接管"}
@@ -285,8 +301,8 @@ function JobRow({
         />
       )}
       <p className="text-xs text-muted-foreground">
-        凭据{job.credentials_saved ? "已保存" : "未确认"}，Chat {job.chat_verified ? "通过" : "未通过"}，Responses{" "}
-        {job.responses_verified ? "通过" : "未通过"}
+        凭据{job.credentials_saved ? "已保存" : "未确认"}，Chat {job.chat_verified ? "通过" : unverified}，Responses{" "}
+        {job.responses_verified ? "通过" : unverified}
         {job.model ? `，模型 ${job.model}` : ""}
       </p>
     </article>
@@ -336,12 +352,15 @@ export function AccountPoolAutomationPanel({
       await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
       toast.success("操作已完成");
     } catch (error) {
-      const message =
-        error instanceof ApiError && [404, 409].includes(error.status)
-          ? error.message
-          : "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
+      const knownError = error === screenUnavailableAfterTakeover || (error instanceof ApiError && [404, 409].includes(error.status));
+      const message = knownError && error instanceof Error
+        ? error.message
+        : "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
       setOperationError(message);
       toast.error(message);
+      if (error === screenUnavailableAfterTakeover) {
+        await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
+      }
     } finally {
       setBusy(false);
     }
@@ -441,6 +460,7 @@ export function AccountPoolAutomationPanel({
     <JobRow
       key={job.id}
       job={job}
+      profile={query.data?.profiles.find((profile) => profile.id === job.profile_id)}
       cardMissing={cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
       now={now}
       disabled={busy}
@@ -458,7 +478,7 @@ export function AccountPoolAutomationPanel({
         <DialogHeader>
           <DialogTitle>临时授权浏览器</DialogTitle>
           <DialogDescription>
-            默认只能查看。请在任务操作中点击“停止脚本并接管”，确认成功后才能输入；不支持录屏或保留 Cookie
+            查看画面不会开启输入。接管成功后请在授权页完成验证；返回任务可交回自动化。不支持录屏或保留 Cookie
           </DialogDescription>
         </DialogHeader>
         {screen && (

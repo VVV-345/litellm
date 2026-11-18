@@ -437,6 +437,8 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
                 "diagnostic": (
                     {"step": "password", "reason": "fixture-secret-not-a-reason"}
                     if "unsafe-diagnostic" in commands
+                    else {"step": "email_verification", "reason": "email_verification", "http_status": 200}
+                    if "email-verification" in commands
                     else {"step": "password", "reason": "browser_security_challenge", "http_status": 403}
                 ),
             })
@@ -464,8 +466,12 @@ async def memory_execution(deletion_registry, tmp_path: Path, authorized_email: 
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("unsafe", [False, True])
-async def test_runner_records_waiting_phase_once_without_raw_worker_text(memory_execution, unsafe: bool) -> None:
+@pytest.mark.parametrize(("fixture", "expected", "hint"), [
+    ("email-verification", ("email_verification", "email_verification", 200), "邮箱验证码"),
+    ("security-challenge", ("password", "browser_security_challenge", 403), "人机验证"),
+    ("unsafe-diagnostic", ("login", "verification_required", None), "查看画面"),
+])
+async def test_runner_records_waiting_phase_once_without_raw_worker_text(memory_execution, fixture, expected, hint) -> None:
     from account_pool.error_logs import ErrorLogRecord
     from account_pool.manager_logs import ManagerLogQuery, ManagerLogs
     from account_pool.oauth_automation.models import AutomationSettings
@@ -493,19 +499,15 @@ async def test_runner_records_waiting_phase_once_without_raw_worker_text(memory_
     assert isinstance(saved, Success)
     observer: Final = replace(runner, record_diagnostic=logs.record)
     await observer.run_once()
-    commands.append("fixture-waiting")
-    if unsafe:
-        commands.append("unsafe-diagnostic")
+    commands.extend(("fixture-waiting", fixture))
     await observer.run_once()
     await observer.run_once()
-    assert (await registry.view()).jobs[0].stage == "waiting"
+    job = (await registry.view()).jobs[0]
+    assert job.stage == "waiting" and hint in job.message and "fixture-secret" not in job.message
+    assert not job.credentials_saved and not job.callback_consumed and not {"chat", "responses"}.intersection(commands)
     result: Final = await logs.list(ManagerLogQuery(card_id=card.id, session_id=starts[0]))
     waiting: Final = [(item.step, item.reason, item.http_status) for item in result.items if item.state == "waiting"]
-    assert waiting == ([
-        ("login", "verification_required", None),
-    ] if unsafe else [
-        ("password", "browser_security_challenge", 403),
-    ])
+    assert waiting == [expected]
     assert commands.count("start") == 1
 
 
