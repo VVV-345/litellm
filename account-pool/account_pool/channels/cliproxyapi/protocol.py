@@ -18,6 +18,13 @@ class AuthorizationStart:
     provider_state: str
     user_code: str | None
     expires_in_seconds: int | None
+    staged: bool = False
+
+
+class StagedOAuthProbeFailure(RuntimeError):
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
 
 
 class _AuthorizationResponse(BaseModel):

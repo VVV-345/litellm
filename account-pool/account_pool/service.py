@@ -613,13 +613,18 @@ class EnvironmentService:
 
     async def _start_authorization(
         self, record: EnvironmentRecord
-    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None]:
+    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None, bool]:
         return await self._provisioning_operations.start_authorization(record)
 
     async def create_environment(
         self, request: CreateEnvironmentRequest, *, environment_id: UUID | None = None
     ) -> Result[AuthorizationView]:
         return await self._provisioning_operations.create_environment(request, environment_id=environment_id)
+
+    async def prepare_oauth_draft(
+        self, request: CreateEnvironmentRequest, environment_id: UUID,
+    ) -> Result[EnvironmentRecord]:
+        return await self._provisioning_operations.prepare_oauth_draft(request, environment_id)
 
     async def create_direct_credential_environment(
         self, request: CreateDirectCredentialEnvironmentRequest
@@ -699,10 +704,15 @@ class EnvironmentService:
     async def authorize_environment(
         self, environment_id: UUID, operation_id: str | None = None, *,
         require_empty: bool = False, reauthorize_email: str | None = None,
+        expected_account: str | None = None, verification_model: str | None = None,
     ) -> Result[AuthorizationView]:
         return await self._authorization_operations.authorize_environment(
             environment_id, operation_id, require_empty=require_empty, reauthorize_email=reauthorize_email,
+            expected_account=expected_account, verification_model=verification_model,
         )
+
+    async def recover_oauth_for_retry(self, record: EnvironmentRecord, model: str | None = None) -> Result[EnvironmentRecord]:
+        return await self._authorization_operations.recover_oauth_for_retry(record, model)
 
     async def _authorize_prepared(
         self, record: EnvironmentRecord, operation_id: str | None

@@ -49,6 +49,7 @@ class CLIProxyTransport:
         headers: Mapping[str, str] | None = None,
         management: bool = True,
         gateway: bool = False,
+        timeout: float | None = None,
     ) -> httpx.Response:
         host: Final = f"cliproxy-{record.id.hex}"
         auth_headers: Final = (
@@ -66,6 +67,7 @@ class CLIProxyTransport:
             params=params,
             json=json,
             content=content,
+            timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
         )
         response.raise_for_status()
         return response

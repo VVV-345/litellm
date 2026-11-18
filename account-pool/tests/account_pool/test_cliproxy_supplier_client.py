@@ -14,6 +14,7 @@ import yaml
 from account_pool.channels.cliproxyapi.client import AuthorizationStart, HttpCLIProxyClient
 from account_pool.channels.cliproxyapi.settings_sync import CLIProxySettingsSynchronizer
 from account_pool.channels.cliproxyapi.suppliers.registry import SupplierRegistry
+from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
 from account_pool.domain import (
     EnvironmentConfiguration,
     EnvironmentRecord,
@@ -62,6 +63,37 @@ def _record() -> EnvironmentRecord:
         created_at=now,
         updated_at=now,
     )
+
+
+@pytest.mark.asyncio
+async def test_managed_oauth_leaves_existing_binding_and_claims_before_promotion() -> None:
+    secrets = EnvironmentSecretDeriver("s" * 32)
+    owners = CredentialOwnership()
+    supplier = SupplierRegistry.default().get(SupplierKind.OPENAI_CODEX)
+    record = _record().model_copy(update={"auth_file_name": "current.json", "oauth_provider_state": None})
+    stages: list[tuple[str, str]] = []
+    candidate = b'{"type":"codex","email":"same@example.test","access_token":"new-fixture","refresh_token":"shared-fixture"}'
+    await owners.claim(uuid4(), credential_identity(candidate, supplier.kind.value, secrets).fingerprints)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        stages.append((request.method, request.url.path))
+        if request.url.path.endswith("/codex/oauth-stage") and request.method == "GET":
+            return httpx.Response(200, json={"version": 1})
+        if request.url.path.endswith("/codex-auth-url"):
+            assert request.url.params.get("managed-stage") == "1"
+            return httpx.Response(200, json={"status": "ok", "state": "fixture-stage", "url": "https://auth.example.test"})
+        if request.url.path.endswith("/auth-files/download"):
+            return httpx.Response(200, content=b'{"access_token":"old-fixture","refresh_token":"old-refresh-fixture"}')
+        pytest.fail(f"activation touched the live credential: {request.method} {request.url.path}")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        client = HttpCLIProxyClient(secrets, http, owners)
+        started = await client.start_authorization(record, supplier)
+        assert started.staged
+        with pytest.raises(CredentialConflict):
+            await client.activate_staged_oauth(record.model_copy(update={"oauth_provider_state": started.provider_state}), candidate)
+    assert all(method == "GET" for method, _ in stages)
+    assert stages[:2] == [("GET", "/v0/management/codex/oauth-stage"), ("GET", "/v0/management/codex-auth-url")]
 
 
 @pytest.mark.asyncio

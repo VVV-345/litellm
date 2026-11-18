@@ -543,6 +543,11 @@ class EnvironmentRecord(BaseModel):
     oauth_state_consumed_at: datetime | None = None
     oauth_state_signature: str | None = None
     oauth_provider_state: str | None = None
+    oauth_staged: bool = False
+    oauth_verification_pending: bool = False
+    oauth_expected_account: str | None = Field(default=None, repr=False)
+    oauth_requested_model: str | None = None
+    oauth_previous_status: EnvironmentStatus | None = None
     oauth_authorization_url: str | None = None
     authorization_flow: AuthorizationFlow = AuthorizationFlow.BROWSER_OAUTH
     authorization_user_code: str | None = None

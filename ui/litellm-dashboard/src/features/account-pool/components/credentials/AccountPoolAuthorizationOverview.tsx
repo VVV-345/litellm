@@ -33,7 +33,7 @@ export const AccountPoolAuthorizationOverview = ({
   active?: boolean;
   environments: readonly AccountPoolEnvironment[];
   onCreate: (supplier: AccountPoolSupplier) => void;
-  onAuthorize: (environment: AccountPoolEnvironment) => void;
+  onAuthorize: (environment: AccountPoolEnvironment, manual?: boolean) => void;
   onAutomation?: (environmentId?: string) => void;
 }) => {
   const { t } = useTranslation();
@@ -135,6 +135,12 @@ export const AccountPoolAuthorizationOverview = ({
                   <Button type="button" size="sm" variant="outline" onClick={() => onAuthorize(environment)}>
                     <KeyRound />
                     {t("accountPool.oauth.reauthorize")}
+                  </Button>
+                )}
+                {environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth"
+                  && canAuthorizeEnvironment(environment) && (
+                  <Button type="button" size="sm" variant="ghost" onClick={() => onAuthorize(environment, true)}>
+                    {t("accountPool.oauth.manualReauthorize")}
                   </Button>
                 )}
               </div>

@@ -91,6 +91,12 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
     async def delete_profile(profile_id: UUID) -> AutomationView:
         return _unwrap(await registry.delete_profile(profile_id))
 
+    async def forget_login(profile_id: UUID) -> AutomationView:
+        return _unwrap(await registry.forget_login(profile_id))
+
+    async def release_reservation(profile_id: UUID) -> AutomationView:
+        return _unwrap(await registry.release_reservation(profile_id))
+
     async def submit(request: JobInput) -> JobView:
         return _unwrap(await registry.submit(request))
 
@@ -117,6 +123,8 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
     router.add_api_route("/profiles", create_profile, methods=["POST"], status_code=201)
     router.add_api_route("/profiles/{profile_id}", update_profile, methods=["PUT"])
     router.add_api_route("/profiles/{profile_id}", delete_profile, methods=["DELETE"])
+    router.add_api_route("/profiles/{profile_id}/login", forget_login, methods=["DELETE"])
+    router.add_api_route("/profiles/{profile_id}/reservation", release_reservation, methods=["DELETE"])
     router.add_api_route("/jobs", submit, methods=["POST"], status_code=202)
     router.add_api_route("/environments/{environment_id}/reauthorize", reauthorize, methods=["POST"], status_code=202)
     router.add_api_route("/jobs/{job_id}", delete_job, methods=["DELETE"])

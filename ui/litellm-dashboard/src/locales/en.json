@@ -7081,7 +7081,8 @@
       "cardsTitle": "Configured cards",
       "configurationPending": "Runtime configuration is synchronizing",
       "credentialStored": "Credential status is managed by the provider adapter",
-      "reauthorize": "Authorize again"
+      "reauthorize": "Authorize again",
+      "manualReauthorize": "Reauthorize manually"
     },
     "credentials": {
       "accountIdentity": "Account",

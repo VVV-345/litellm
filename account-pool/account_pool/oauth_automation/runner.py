@@ -16,7 +16,7 @@ from uuid import UUID
 from account_pool.application.authorization import saved_login_can_replace
 from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
 from account_pool.credential_ownership import OAUTH_AUTOMATION_LOCK
-from account_pool.domain import EnvironmentRecord, EnvironmentStatus, utc_now
+from account_pool.domain import CreateEnvironmentRequest, EnvironmentRecord, EnvironmentStatus, utc_now
 from account_pool.manager_logs import BrowserPageDiagnostic, ManagerDiagnostic, ManagerLogReason, RecordManagerDiagnostic
 from account_pool.oauth_automation.models import (
     ACTIVE, AutomationScreen, JobView, SessionSecrets, Stage, StoredJob, WorkerView,
@@ -89,6 +89,15 @@ def operation(job: StoredJob) -> str:
     return f"automation:{job.item.id.hex}:{job.item.attempt}"
 
 
+def _unfenced_operations(jobs: tuple[StoredJob, ...], records: tuple[EnvironmentRecord, ...]) -> bool:
+    fenced: Final = frozenset(operation(job) for job in jobs if job.browser_fenced and job.cleanup_pending
+                              and job.item.stage not in ACTIVE)
+    return any(job.cleanup_pending and not job.browser_fenced and job.item.stage not in ACTIVE for job in jobs) or any(
+        record.oauth_automation_operation is not None and record.oauth_automation_operation not in fenced
+        for record in records
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class AutomationRunner:
     registry: AutomationRegistry
@@ -132,17 +141,21 @@ class AutomationRunner:
             if not acquired:
                 return
             state: Final = await self.registry.repository.read()
-            cleanup: Final = next(
-                (job for job in state.jobs if job.cleanup_pending and job.item.stage not in ACTIVE), None
-            )
-            if cleanup is not None:
-                await self._cleanup(cleanup)
-                return
             current: Final = next((job for job in state.jobs if job.item.stage in ACTIVE), None)
             if current is not None:
                 await self._advance(current)
                 return
-            if not state.settings.enabled or state.checked_image != self.registry.worker.image:
+            cleanup: Final = next((
+                job for job in state.jobs if job.cleanup_pending
+                and (job.cleanup_retry_at is None or job.cleanup_retry_at <= self.clock())
+            ), None)
+            if cleanup is not None:
+                await self._cleanup(cleanup)
+                state_after_cleanup: Final = await self.registry.repository.read()
+                pending: Final = next((job for job in state_after_cleanup.jobs if job.item.id == cleanup.item.id), None)
+                if pending is not None and pending.cleanup_pending and not pending.browser_fenced:
+                    return
+            if not state.settings.enabled or self.registry.worker.image is None or state.checked_image != self.registry.worker.image:
                 return
             queued: Final = next((job for job in state.jobs if job.item.stage == "queued"), None)
             if queued is not None:
@@ -157,6 +170,27 @@ class AutomationRunner:
         bundle: Final = script.value
         state: Final = await self.registry.repository.read()
         profile: Final = next((profile for profile in state.profiles if profile.item.id == row.item.profile_id), None)
+        if row.item.draft_pending and row.draft is not None:
+            if profile is None or not profile.item.enabled or row.item.cancel_requested:
+                await self._finish(row, "failed", "原草稿没有可用指纹，未创建替代卡", reason="card_changed")
+                return
+            draft: Final = await self.browser.service.prepare_oauth_draft(
+                CreateEnvironmentRequest(
+                    name=row.draft.name, proxy_profile_id=row.draft.proxy_profile_id,
+                    operation_id=f"oauth-draft:{row.item.id.hex}",
+                ),
+                row.item.environment_id,
+            )
+            if isinstance(draft, Failure):
+                await self._finish(row, "failed", draft.message, reason="card_changed")
+                return
+            row = await self._save(row.model_copy(update={"item": row.item.model_copy(update={
+                "draft_pending": False, "configuration_version": draft.value.observed_configuration_version,
+                "message": "卡片已准备，等待浏览器授权",
+            })}))
+            if row.item.cancel_requested:
+                await self._finish(row, "cancelled", "任务已取消，原卡可继续授权")
+                return
         async with (
             self.registry.ownership.operation(OAUTH_AUTOMATION_LOCK),
             self.registry.ownership.operation(row.item.environment_id),
@@ -166,7 +200,7 @@ class AutomationRunner:
             sessions: Final = await asyncio.gather(
                 *(self.browser.sessions.list_for_environment(record.id) for record in records)
             )
-            if any(record.oauth_automation_operation is not None for record in records) or any(
+            if _unfenced_operations(state.jobs, records) or any(
                 session.expires_at > self.clock()
                 and session.status
                 in {
@@ -261,6 +295,8 @@ class AutomationRunner:
                     operation_id=operation(claimed),
                     on_reserved=reserved,
                     reauthorize_email=reauthorize_email,
+                    expected_account=row.account_digest,
+                    verification_model=row.item.model,
                     automation=OAuthBrowserAutomation(
                         fingerprint_json=json.dumps(profile.data, separators=(",", ":")),
                         worker_token=token,
@@ -316,7 +352,11 @@ class AutomationRunner:
             await self._finish(row, "cancelled", "任务已取消")
             return
         if row.item.expires_at is None or row.item.expires_at <= self.clock():
-            await self._finish(row, "expired", "任务总时限已到；请重试以建立新 OAuth 会话", reason="job_timeout")
+            stored: Final = await self.registry.environments.get(row.item.environment_id)
+            consumed: Final = row.item.callback_consumed or bool(stored and stored.oauth_state_consumed_at)
+            latest: Final = row.model_copy(update={"item": row.item.model_copy(update={"callback_consumed": consumed})})
+            message: Final = "任务总时限已到；请核对回调结果后重试" if consumed else "任务总时限已到；请重试以建立新 OAuth 会话"
+            await self._finish(latest, "expired", message, reason="job_timeout")
             return
         if row.item.human_expires_at is not None and row.item.human_expires_at <= self.clock():
             await self._finish(row, "expired", "人工处理时限已到；已停止本次登录", reason="human_timeout")
@@ -387,7 +427,10 @@ class AutomationRunner:
             await self._finish(row, "verification_failed", "出口或卡片状态改变，未进行模型验收", reason="card_changed")
             return
         consumed: Final = row.item.callback_consumed or record.oauth_state_consumed_at is not None
-        saved: Final = bool(record.auth_file_name and record.credential_fingerprints)
+        saved: Final = bool(
+            record.auth_file_name and record.credential_fingerprints
+            and not record.oauth_staged and record.status not in {EnvironmentStatus.VALIDATING, EnvironmentStatus.ERROR}
+        )
         updated: Final = await self._save(
             row.model_copy(
                 update={
@@ -435,6 +478,7 @@ class AutomationRunner:
                 reason="account_mismatch",
             )
             return
+        await self.registry.remember_login(updated)
         await self._verify(updated, record)
 
     async def _verify(self, row: StoredJob, record: EnvironmentRecord) -> None:
@@ -449,7 +493,7 @@ class AutomationRunner:
             return
         # 仅本任务的同卡内部探测使用临时快照，不解除普通 Key 的自动化门禁。
         endpoint: Final = self.browser.service.gateway_environment(
-            record.model_copy(update={"oauth_automation_operation": None})
+            record.model_copy(update={"oauth_automation_operation": None, "oauth_verification_pending": False})
         )
         cooling: Final = {item.model for item in record.model_cooldowns if item.retry_at > self.clock()}
         model: Final = row.item.model or next((item for item in endpoint.enabled_models if item not in cooling), None)
@@ -553,12 +597,17 @@ class AutomationRunner:
 
     async def _cleanup_blocked(self, row: StoredJob, message: str) -> None:
         result: Final = row.item.message.partition(_CLEANUP_MESSAGE)[0]
-        notice: Final = f"{result}{_CLEANUP_MESSAGE}{message}；清理完成前暂停后续任务，系统会自动重试"
+        suffix: Final = "旧浏览器已停止，不影响其他卡排队" if row.browser_fenced else "确认旧浏览器停止前暂停后续任务"
+        notice: Final = f"{result}{_CLEANUP_MESSAGE}{message}；{suffix}，系统会自动重试"
         if row.item.message == notice:
+            await self._save(row.model_copy(update={"cleanup_retry_at": self.clock() + timedelta(seconds=10)}))
             return
         _LOGGER.warning("OAuth automation cleanup pending: job=%s reason=%s", row.item.id, message)
         await self._save(
-            row.model_copy(update={"item": row.item.model_copy(update={"message": notice})}),
+            row.model_copy(update={
+                "cleanup_retry_at": self.clock() + timedelta(seconds=10),
+                "item": row.item.model_copy(update={"message": notice}),
+            }),
             diagnostic=ManagerDiagnostic(step="cleanup", state="waiting", reason="cleanup_pending"),
         )
 
@@ -578,6 +627,8 @@ class AutomationRunner:
                 return
             record: Final = await self.registry.environments.get(row.item.environment_id)
             if (
+                not row.browser_fenced
+                and
                 record is not None
                 and record.oauth_automation_operation == operation(row)
                 and record.oauth_state_consumed_at is None
@@ -589,12 +640,14 @@ class AutomationRunner:
                     return
             async with self.registry.ownership.operation(row.item.environment_id):
                 current: Final = await self.registry.environments.get(row.item.environment_id)
-                if row.item.browser_session_id is not None:
+                if not row.browser_fenced and row.item.browser_session_id is not None:
                     await self.browser.sessions.transition(
                         row.item.browser_session_id, OAuthBrowserSessionStatus.CANCELLED
                     )
                     await self.browser.runtime.remove_oauth_browser(row.item.browser_session_id)
                     await self.browser.sessions.mark_cleaned(row.item.browser_session_id)
+                if not row.browser_fenced:
+                    row = await self._save(row.model_copy(update={"browser_fenced": True}))
                 if current is not None and current.oauth_automation_operation == operation(row):
                     email: Final = current.credential_email
                     # 仅替换已验收账号的默认占位名，不改自定义名称或代理配置。
@@ -610,6 +663,7 @@ class AutomationRunner:
                     unlocked: Final = await self.registry.environments.save_if_version(
                         current.model_copy(update={
                             "version": current.version + 1, "oauth_automation_operation": None, "name": name,
+                            "oauth_verification_pending": current.oauth_verification_pending and row.item.stage != "completed",
                             "desired_configuration": configuration.model_copy(update={"name": name})
                             if name != current.name and configuration is not None else configuration,
                         }),
@@ -619,14 +673,15 @@ class AutomationRunner:
                         await self._cleanup_blocked(row, "卡片状态已改变，尚未释放清理锁")
                         return
             await self._save(row.model_copy(update={
-                "cleanup_pending": False, "session_ciphertext": None,
+                "cleanup_pending": False, "session_ciphertext": None, "cleanup_retry_at": None,
                 "item": row.item.model_copy(update={"message": row.item.message.partition(_CLEANUP_MESSAGE)[0]}),
             }))
         except Exception:
             await self._cleanup_blocked(row, "授权任务清理或状态保存失败，请检查 Manager 日志及运行环境")
 
     async def action(
-        self, job_id: UUID, action: Literal["cancel", "retry", "takeover", "resume"], *, model: str | None = None
+        self, job_id: UUID, action: Literal["cancel", "retry", "takeover", "resume", "cleanup"], *,
+        model: str | None = None,
     ) -> Result[JobView]:
         if action == "cancel":
             return await self.registry.cancel(job_id)
@@ -638,6 +693,12 @@ class AutomationRunner:
             )
             if row is None:
                 return Failure(FailureCode.NOT_FOUND, "任务不存在")
+            if action == "cleanup":
+                if not row.cleanup_pending or row.item.stage in ACTIVE:
+                    return Failure(FailureCode.CONFLICT, "没有等待清理的已结束任务")
+                await self._cleanup(row)
+                checked: Final = next(job for job in (await self.registry.repository.read()).jobs if job.item.id == job_id)
+                return Success(checked.item.model_copy(update={"cleanup_pending": checked.cleanup_pending}))
             if action == "retry":
                 return await self._retry(row, model)
             if (
@@ -705,26 +766,42 @@ class AutomationRunner:
             self.browser.service.proxy_profile_operation(row.item.proxy_profile_id),
         ):
             records: Final = await self.registry.environments.list()
-            record: Final = next((record for record in records if record.id == row.item.environment_id), None)
+            record = next((record for record in records if record.id == row.item.environment_id), None)
+            pending_draft: Final = row.draft is not None and row.item.draft_pending
+            if not pending_draft and record is None:
+                return Failure(FailureCode.NOT_FOUND, "原卡片已删除，不会自动重建")
             if (
-                record is None
-                or record.status is EnvironmentStatus.DELETING
+                record is not None and (record.status is EnvironmentStatus.DELETING
                 or not record.enabled
                 or record.manual_cooldown
                 or record.configuration_pending
                 or record.proxy_profile_id != row.item.proxy_profile_id
-                or any(record.oauth_automation_operation for record in records)
+                or record.oauth_automation_operation is not None)
+                or _unfenced_operations(state.jobs, records)
             ):
                 return Failure(FailureCode.CONFLICT, "卡片、代理或运行状态不允许重试")
-            verify_only: Final = (
-                row.item.callback_consumed
-                or row.item.credentials_saved
-                or bool(record.auth_file_name or record.credential_fingerprints)
+            profile: Final = next((item for item in state.profiles if item.item.id == row.item.profile_id), None)
+            if profile is None or profile.item.bound_environment_id != row.item.environment_id:
+                return Failure(FailureCode.CONFLICT, "原指纹预留已释放，请选择原卡重新提交登录资料")
+            if record is not None and (row.item.callback_consumed or record.oauth_state_consumed_at) and not row.item.credentials_saved:
+                recovered: Final = await self.browser.service.recover_oauth_for_retry(record, model)
+                if isinstance(recovered, Failure):
+                    return recovered
+                record = recovered.value
+            email: Final = record.credential_email if record is not None else None
+            replacing: Final = record is not None and email is not None and self.registry.identity(email) == row.account_digest and saved_login_can_replace(
+                record, email, self.clock(),
             )
-            if model is not None and (not verify_only or model not in record.enabled_models):
+            verify_only: Final = record is not None and (
+                row.item.credentials_saved
+                or bool(record.auth_file_name or record.credential_fingerprints) and not replacing
+            )
+            if model is not None and verify_only and (record is None or model not in record.enabled_models):
                 return Failure(FailureCode.CONFLICT, "只能选择当前卡片已启用的模型重试验收，不重新登录")
+            if not verify_only and not row.credential_ciphertext:
+                return Failure(FailureCode.CONFLICT, "已忘记登录资料，请在原卡提交新的登录资料")
             if verify_only and (
-                not record.auth_file_name
+                record is None or record.oauth_staged or not record.auth_file_name
                 or not record.credential_fingerprints
                 or record.credential_email is None
                 or self.registry.identity(record.credential_email) != row.account_digest
@@ -735,6 +812,8 @@ class AutomationRunner:
             retry: Final = row.model_copy(
                 update={
                     "cleanup_pending": verify_only,
+                    "browser_fenced": False,
+                    "cleanup_retry_at": None,
                     "session_ciphertext": None,
                     "login_submitted": False,
                     "verification_started": False,
@@ -743,10 +822,12 @@ class AutomationRunner:
                             "stage": "validating" if verify_only else "queued",
                             "message": "仅重试同卡模型验收，不重新登录" if verify_only else "等待建立全新 OAuth 会话",
                             "browser_session_id": None,
+                            "callback_consumed": verify_only,
+                            "credentials_saved": verify_only,
                             "cancel_requested": False,
                             "chat_verified": False,
                             "responses_verified": False,
-                            "configuration_version": record.observed_configuration_version,
+                            "configuration_version": record.observed_configuration_version if record else 0,
                             "model": model or row.item.model,
                             "attempt": row.item.attempt + 1 if verify_only else row.item.attempt,
                             "expires_at": self.clock() + timedelta(seconds=state.settings.total_timeout_seconds)
@@ -765,7 +846,7 @@ class AutomationRunner:
                     )
                 )
             if (
-                verify_only
+                verify_only and record is not None
                 and await self.registry.environments.save_if_version(
                     record.model_copy(
                         update={"version": record.version + 1, "oauth_automation_operation": operation(retry)}

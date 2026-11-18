@@ -28,6 +28,7 @@ from account_pool.channels.cliproxyapi.protocol import (
     _ModelsResponse,
     _ProviderAPICallResult,
     _StatusResponse,
+    StagedOAuthProbeFailure,
     model_cooldowns_from_auth,
 )
 from account_pool.channels.cliproxyapi.provider_requests import (
@@ -45,6 +46,7 @@ from account_pool.credential_ownership import (
     CredentialIdentity,
     CredentialOwnership,
     credential_identity,
+    oauth_account_digest,
 )
 from account_pool.credential_refresh import require_refreshed_pair
 from account_pool.domain import (
@@ -75,6 +77,27 @@ _JSON_OBJECT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _MODEL_IDS_ADAPTER: Final = TypeAdapter(tuple[str, ...])
 _OAUTH_EXCLUSIONS_ADAPTER: Final = TypeAdapter(dict[str, list[str]])
 _DEFAULT_SUPPLIERS: Final = SupplierRegistry.default()
+_CODEX_OAUTH_STAGE: Final = "/v0/management/codex/oauth-stage"
+_STAGED_PROBE_FAILURES: Final = {
+    "authentication_failed": "候选凭据被供应商拒绝",
+    "inference_failed": "候选凭据的模型请求失败，可更换验收模型",
+    "model_unavailable": "未找到可验收的模型",
+    "incomplete": "候选模型响应不完整",
+    "timeout": "候选模型验收超时",
+    "binding_or_persistence_failed": "原凭据已改变或新凭据未确认落盘",
+    "other_credential": "CPA 还有其他运行中的认证文件",
+    "other_credential_on_disk": "认证卷还存在其他凭据，不会覆盖",
+    "stage_changed": "暂存内容已变更，请核对原卡",
+}
+
+
+def _oauth_pair_digest(content: bytes) -> str:
+    fields: Final = _JSON_OBJECT_ADAPTER.validate_json(content)
+    access: Final = fields.get("access_token")
+    refresh: Final = fields.get("refresh_token")
+    return hashlib.sha256(
+        f"{access if isinstance(access, str) else ''}\x00{refresh if isinstance(refresh, str) else ''}".encode()
+    ).hexdigest()
 
 
 def _legacy_openai_supplier() -> SupplierDefinition:
@@ -110,17 +133,31 @@ class HttpCLIProxyClient:
             await self._client.aclose()
 
     async def start_authorization(self, record: EnvironmentRecord, supplier: SupplierDefinition) -> AuthorizationStart:
+        staged: Final = self._ownership is not None and supplier.kind is SupplierKind.OPENAI_CODEX
+        if staged:
+            try:
+                capability: Final = await self._request(record, "GET", _CODEX_OAUTH_STAGE)
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code not in (404, 405):
+                    raise
+                raise RuntimeError("当前 CPA 镜像不支持 OAuth 安全暂存；请先更新该卡运行时") from None
+            if capability.json() != {"version": 1}:
+                raise RuntimeError("当前 CPA 镜像不支持 OAuth 安全暂存；请先更新该卡运行时")
         if self._ownership is not None:
             if record.oauth_provider_state is not None:
                 await self.cancel_oauth_session(record, record.oauth_provider_state)
-            await self.delete_auth_file(record, record.auth_file_name or "")
-        response: Final = await self._request(record, "GET", supplier.authorization_path)
+            if not staged:
+                await self.delete_auth_file(record, record.auth_file_name or "")
+        response: Final = await self._request(
+            record, "GET", supplier.authorization_path, params={"managed-stage": "1"} if staged else None,
+        )
         payload: Final = _AuthorizationResponse.model_validate(response.json())
         return AuthorizationStart(
             authorization_url=payload.url or "",
             provider_state=payload.state,
             user_code=payload.user_code,
             expires_in_seconds=payload.expires_in,
+            staged=staged,
         )
 
     async def start_openai_authorization(self, record: EnvironmentRecord) -> tuple[str, str]:
@@ -143,9 +180,75 @@ class HttpCLIProxyClient:
         await self._request(
             record,
             "DELETE",
-            "/v0/management/oauth-session",
+            _CODEX_OAUTH_STAGE if record.oauth_staged else "/v0/management/oauth-session",
             params={"state": state},
         )
+
+    async def staged_oauth_content(self, record: EnvironmentRecord) -> bytes | None:
+        if record.oauth_provider_state is None:
+            return None
+        try:
+            response: Final = await self._request(
+                record, "GET", _CODEX_OAUTH_STAGE, params={"state": record.oauth_provider_state},
+            )
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 404:
+                return None
+            raise
+        return response.content
+
+    async def activate_staged_oauth(self, record: EnvironmentRecord, content: bytes) -> None:
+        ownership: Final = self._ownership
+        if ownership is None or record.oauth_provider_state is None:
+            raise RuntimeError("OAuth credential staging is unavailable")
+        try:
+            require_refreshed_pair(content)
+        except ValueError:
+            raise CredentialConflict("OAuth 暂存凭据没有完整的一对访问/刷新令牌") from None
+        identity: Final = credential_identity(content, record.supplier.value, self._secrets)
+        expected: Final = record.oauth_expected_account
+        if (
+            expected is not None and (identity.email is None or oauth_account_digest(identity.email, self._secrets) != expected)
+            or record.credential_account_id is not None and identity.account_id != record.credential_account_id
+        ):
+            raise CredentialConflict("OAuth 回调账号与此卡绑定不一致，旧凭据未替换")
+        if identity.email is None and identity.account_id is None:
+            raise CredentialConflict("OAuth 回调未提供可核对的账号")
+        filename: Final = record.auth_file_name or "codex-pool.json"
+        old: Final = await self.download_auth_file(record, filename) if record.auth_file_name else None
+        await ownership.claim(record.id, identity.fingerprints)
+        try:
+            activated: Final = await self._transport.request(
+                record, "POST", _CODEX_OAUTH_STAGE, timeout=50.0, json={
+                    "name": filename, "state": record.oauth_provider_state, "digest": hashlib.sha256(content).hexdigest(),
+                    "previous": "" if old is None else _oauth_pair_digest(old[0]),
+                    "model": record.oauth_requested_model or next(iter(record.enabled_models), ""),
+                },
+            )
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code != 409:
+                raise
+            try:
+                reason: Final = _JSON_OBJECT_ADAPTER.validate_json(error.response.content).get("reason")
+            except ValueError:
+                raise RuntimeError("CPA 未确认暂存凭据切换") from None
+            if isinstance(reason, str) and reason in _STAGED_PROBE_FAILURES:
+                raise StagedOAuthProbeFailure(reason, _STAGED_PROBE_FAILURES[reason]) from None
+            raise RuntimeError("CPA 未确认暂存凭据切换") from None
+        if activated.json().get("activated") is not True:
+            raise RuntimeError("CPA 未确认新凭据切换")
+
+    async def oauth_runtime_matches(self, record: EnvironmentRecord) -> bool:
+        """回调结果不明时只读核对，绝不通过重新登录覆盖未知凭据。"""
+        response: Final = await self._request(record, "GET", "/v0/management/auth-files")
+        files: Final = _AUTH_FILES_ADAPTER.validate_json(response.content).files
+        if not record.auth_file_name and not record.credential_fingerprints:
+            return not files
+        if len(files) != 1 or files[0].name != record.auth_file_name or not record.credential_fingerprints:
+            return False
+        content, _ = await self.download_auth_file(record, files[0].name)
+        identity: Final = credential_identity(content, record.supplier.value, self._secrets)
+        return identity.fingerprints == record.credential_fingerprints
 
     async def submit_callback(
         self,

@@ -83,13 +83,15 @@ export const useAccountPoolMutations = (
     },
   });
   const authorizeMutation = useMutation({
-    mutationFn: async (environment: AccountPoolEnvironment): Promise<AuthorizationResult> => {
+    mutationFn: async ({ environment, manual }: {
+      environment: AccountPoolEnvironment; manual?: boolean;
+    }): Promise<AuthorizationResult> => {
       if (!accessToken) throw new Error("Access token required");
       if (!canManage || !canAuthorizeEnvironment(environment)) {
         throw new Error(t("accountPool.mutation.reauthorizeUnavailable"));
       }
       const supportsAutomation = environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth";
-      if (supportsAutomation) {
+      if (supportsAutomation && !manual) {
         const job = await reauthorizeAutomation(accessToken, environment.id);
         if (job !== null) return { job };
       }

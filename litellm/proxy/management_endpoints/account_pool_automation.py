@@ -100,6 +100,12 @@ def create_automation_router(
     async def delete_profile(profile_id: UUID) -> AutomationView:
         return await call("DELETE", f"/profiles/{profile_id}", TypeAdapter(AutomationView))
 
+    async def forget_login(profile_id: UUID) -> AutomationView:
+        return await call("DELETE", f"/profiles/{profile_id}/login", TypeAdapter(AutomationView))
+
+    async def release_reservation(profile_id: UUID) -> AutomationView:
+        return await call("DELETE", f"/profiles/{profile_id}/reservation", TypeAdapter(AutomationView))
+
     async def submit(request: JobInput) -> JobView:
         return await call("POST", "/jobs", TypeAdapter(JobView), request.model_dump_json().encode())
 
@@ -123,6 +129,8 @@ def create_automation_router(
     router.add_api_route("/profiles", create_profile, methods=["POST"], status_code=201)
     router.add_api_route("/profiles/{profile_id}", update_profile, methods=["PUT"])
     router.add_api_route("/profiles/{profile_id}", delete_profile, methods=["DELETE"])
+    router.add_api_route("/profiles/{profile_id}/login", forget_login, methods=["DELETE"])
+    router.add_api_route("/profiles/{profile_id}/reservation", release_reservation, methods=["DELETE"])
     router.add_api_route("/jobs", submit, methods=["POST"], status_code=202)
     router.add_api_route("/environments/{environment_id}/reauthorize", reauthorize, methods=["POST"], status_code=202)
     router.add_api_route("/jobs/{job_id}", delete_job, methods=["DELETE"])

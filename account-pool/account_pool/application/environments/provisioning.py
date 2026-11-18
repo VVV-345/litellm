@@ -103,7 +103,7 @@ class EnvironmentProvisioning:
     async def start_authorization(
         self,
         record: EnvironmentRecord,
-    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None]:
+    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None, bool]:
         channel: Final = self._channel(record)
         result: Final = await channel.start_authorization(record)
         supplier: Final = channel.supplier(record.supplier)
@@ -118,11 +118,28 @@ class EnvironmentProvisioning:
             supplier.authorization_flow,
             result.user_code,
             result.expires_in_seconds,
+            result.staged,
         )
 
     async def create_environment(
         self, request: CreateEnvironmentRequest, *, environment_id: UUID | None = None
     ) -> Result[AuthorizationView]:
+        if request.operation_id is not None:
+            existing: Final = await self._find_by_operation_id(request.operation_id)
+            if existing is not None:
+                if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
+                    return Success(self._authorization_view(existing))
+                return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
+        built: Final = await self._build_oauth_environment(request, environment_id)
+        if isinstance(built, Failure):
+            return built
+        record: Final = built.value
+        async with self._proxy_operation(record.proxy_profile_id):
+            return await self._provision_oauth_environment(record)
+
+    async def _build_oauth_environment(
+        self, request: CreateEnvironmentRequest, environment_id: UUID | None,
+    ) -> Result[EnvironmentRecord]:
         try:
             channel_definition: Final = self._channels.get(request.channel)
             supplier_definition: Final = channel_definition.supplier(request.supplier)
@@ -130,12 +147,6 @@ class EnvironmentProvisioning:
             return Failure(FailureCode.INVALID, str(error))
         if supplier_definition.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
             return Failure(FailureCode.INVALID, "direct credential suppliers require the credential creation endpoint")
-        if request.operation_id is not None:
-            existing: Final = await self._find_by_operation_id(request.operation_id)
-            if existing is not None:
-                if existing.oauth_authorization_url is not None and existing.oauth_expires_at is not None:
-                    return Success(self._authorization_view(existing))
-                return Failure(FailureCode.CONFLICT, "environment operation is still in progress")
         pool_settings: Final = await self._account_pool_settings()
         proxy_result: Final = (
             await self._default_proxy(pool_settings)
@@ -196,8 +207,52 @@ class EnvironmentProvisioning:
             created_at=now,
             updated_at=now,
         )
-        async with self._proxy_operation(record.proxy_profile_id):
-            return await self._provision_oauth_environment(record)
+        return Success(record)
+
+    async def prepare_oauth_draft(
+        self, request: CreateEnvironmentRequest, environment_id: UUID,
+    ) -> Result[EnvironmentRecord]:
+        lock: Final = await self._lock_for(environment_id)
+        async with lock, self._ownership.operation(environment_id):
+            existing: Final = await self._repository.get(environment_id)
+            if existing is not None:
+                if (
+                    existing.operation_id != request.operation_id or existing.supplier is not SupplierKind.OPENAI_CODEX
+                    or existing.proxy_profile_id != request.proxy_profile_id
+                    or not existing.enabled or existing.manual_cooldown or existing.configuration_pending
+                    or existing.auth_file_name or existing.credential_fingerprints or existing.oauth_state
+                ):
+                    return Failure(FailureCode.CONFLICT, "原草稿已变化，未创建替代卡")
+                if existing.status is EnvironmentStatus.AWAITING_AUTHORIZATION:
+                    return Success(existing)
+                if existing.status not in (EnvironmentStatus.PROVISIONING, EnvironmentStatus.ERROR):
+                    return Failure(FailureCode.CONFLICT, "原草稿状态不允许重新创建")
+                record: Final = existing
+            else:
+                built: Final = await self._build_oauth_environment(request, environment_id)
+                if isinstance(built, Failure):
+                    return built
+                record = await self._repository.save(built.value)
+            async with self._proxy_operation(record.proxy_profile_id):
+                try:
+                    channel: Final = self._channel(record)
+                    await channel.provision(record)
+                    if record.desired_configuration is not None:
+                        await channel.apply_configuration(record, record.desired_configuration)
+                except Exception as error:
+                    failed: Final = record.model_copy(update={
+                        "version": record.version + 1, "status": EnvironmentStatus.ERROR,
+                        "desired_state": EnvironmentStatus.ERROR, "last_error": _safe_error(error), "updated_at": utc_now(),
+                    })
+                    await self._repository.save_if_version(failed, record.version)
+                    await self._log_event(failed, "provisioning", error, retryable=True)
+                    return Failure(FailureCode.UPSTREAM, "原卡待授权，运行时未就绪，可重试准备")
+                awaiting: Final = record.model_copy(update={
+                    "version": record.version + 1, "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
+                    "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION, "last_error": None, "updated_at": utc_now(),
+                })
+                saved: Final = await self._repository.save_if_version(awaiting, record.version)
+                return Success(saved) if saved is not None else Failure(FailureCode.CONFLICT, "原草稿状态已改变")
 
     async def _provision_oauth_environment(self, record: EnvironmentRecord) -> Result[AuthorizationView]:
         await self._repository.save(record)
@@ -213,6 +268,7 @@ class EnvironmentProvisioning:
                 authorization_flow,
                 authorization_user_code,
                 expires_in_seconds,
+                staged,
             ) = await self.start_authorization(record)
             validated_authorization_url: Final = _HTTP_URL_ADAPTER.validate_python(callback_url)
         except Exception as error:
@@ -237,6 +293,7 @@ class EnvironmentProvisioning:
                 "oauth_state_consumed_at": None,
                 "oauth_state_signature": callback_state.rpartition(".")[2],
                 "oauth_provider_state": provider_state,
+                "oauth_staged": staged,
                 "oauth_authorization_url": callback_url,
                 "authorization_flow": authorization_flow,
                 "authorization_user_code": authorization_user_code,

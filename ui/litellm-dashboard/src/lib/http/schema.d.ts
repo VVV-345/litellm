@@ -1702,6 +1702,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/oauth-automation/profiles/{profile_id}/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Forget Login */
+        delete: operations["forget_login_account_pool_oauth_automation_profiles__profile_id__login_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/oauth-automation/profiles/{profile_id}/reservation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Release Reservation */
+        delete: operations["release_reservation_account_pool_oauth_automation_profiles__profile_id__reservation_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-automation/self-check": {
         parameters: {
             query?: never;
@@ -27241,6 +27275,13 @@ export interface components {
              */
             status: "disabled" | "waiting" | "checking" | "current" | "available" | "queued" | "deploying" | "paused" | "error";
         };
+        /** AutomationDraft */
+        AutomationDraft: {
+            /** Name */
+            name: string;
+            /** Proxy Profile Id */
+            proxy_profile_id: string;
+        };
         /** AutomationScreen */
         AutomationScreen: {
             /**
@@ -32897,7 +32938,7 @@ export interface components {
              * Action
              * @enum {string}
              */
-            action: "cancel" | "retry" | "takeover" | "resume";
+            action: "cancel" | "retry" | "takeover" | "resume" | "cleanup";
             /** Model */
             model?: string | null;
         };
@@ -32905,6 +32946,7 @@ export interface components {
         JobInput: {
             /** Credentials */
             credentials: string;
+            draft?: components["schemas"]["AutomationDraft"] | null;
             /**
              * Environment Id
              * Format: uuid
@@ -32917,6 +32959,8 @@ export interface components {
             id: string;
             /** Model */
             model?: string | null;
+            /** Reuse Profile Id */
+            reuse_profile_id?: string | null;
         };
         /** JobView */
         JobView: {
@@ -32942,6 +32986,11 @@ export interface components {
              * @default false
              */
             chat_verified: boolean;
+            /**
+             * Cleanup Pending
+             * @default false
+             */
+            cleanup_pending: boolean;
             /** Configuration Version */
             configuration_version: number;
             /**
@@ -32954,6 +33003,11 @@ export interface components {
              * @default false
              */
             credentials_saved: boolean;
+            /**
+             * Draft Pending
+             * @default false
+             */
+            draft_pending: boolean;
             /**
              * Environment Id
              * Format: uuid
@@ -39403,6 +39457,11 @@ export interface components {
              */
             locale: string;
             location?: components["schemas"]["ProxyLocation"] | null;
+            /**
+             * Login Saved
+             * @default false
+             */
+            login_saved: boolean;
             /** Matched Locale */
             matched_locale?: string | null;
             /** Name */
@@ -39413,6 +39472,11 @@ export interface components {
              * @enum {string}
              */
             os: "linux" | "windows" | "macos";
+            /**
+             * Reservation
+             * @default false
+             */
+            reservation: boolean;
             /**
              * Version
              * @default 0
@@ -48683,6 +48747,68 @@ export interface operations {
         };
     };
     delete_profile_account_pool_oauth_automation_profiles__profile_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    forget_login_account_pool_oauth_automation_profiles__profile_id__login_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                profile_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    release_reservation_account_pool_oauth_automation_profiles__profile_id__reservation_delete: {
         parameters: {
             query?: never;
             header?: never;

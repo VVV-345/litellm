@@ -7081,7 +7081,8 @@
       "cardsTitle": "已配置卡片",
       "configurationPending": "运行环境配置正在同步",
       "credentialStored": "凭据状态由供应商适配器管理",
-      "reauthorize": "重新授权"
+      "reauthorize": "重新授权",
+      "manualReauthorize": "手动重新授权"
     },
     "credentials": {
       "accountIdentity": "对应账号",

@@ -31,6 +31,10 @@ export const updateAutomationProfile = (accessToken: string, id: string, body: P
   apiClient.put<AutomationProfile>(`${root}/profiles/${encodeURIComponent(id)}`, { accessToken, body });
 export const deleteAutomationProfile = (accessToken: string, id: string) =>
   apiClient.delete<AutomationView>(`${root}/profiles/${encodeURIComponent(id)}`, { accessToken });
+export const forgetAutomationLogin = (accessToken: string, id: string) =>
+  apiClient.delete<AutomationView>(`${root}/profiles/${encodeURIComponent(id)}/login`, { accessToken });
+export const releaseAutomationReservation = (accessToken: string, id: string) =>
+  apiClient.delete<AutomationView>(`${root}/profiles/${encodeURIComponent(id)}/reservation`, { accessToken });
 export const submitAutomation = (accessToken: string, body: JobInput) =>
   apiClient.post<AutomationJob>(`${root}/jobs`, { accessToken, body });
 export const reauthorizeAutomation = (accessToken: string, environmentId: string) =>

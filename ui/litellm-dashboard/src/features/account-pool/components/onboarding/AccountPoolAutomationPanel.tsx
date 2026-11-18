@@ -25,15 +25,16 @@ import {
   createAutomationProfile,
   deleteAutomationJob,
   deleteAutomationProfile,
+  forgetAutomationLogin,
   getAutomation,
   openAutomationScreen,
+  releaseAutomationReservation,
   saveAutomationSettings,
   submitAutomation,
   updateAutomationProfile,
   type AutomationJob,
   type AutomationProfile,
 } from "../../api/AccountPoolAutomationApi";
-import { createAccountPoolEnvironment } from "../../api/AccountPoolApi";
 import { parseMailboxAccounts } from "../../api/AccountPoolOnboardingApi";
 import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
@@ -79,10 +80,10 @@ function ProfileRow({
 }) {
   const [name, setName] = useState(profile.name);
   const [enabled, setEnabled] = useState(profile.enabled ?? true);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [profileAction, setProfileAction] = useState<"delete" | "forget" | "release" | null>(null);
   const locationHint = profile.auto_match_proxy ? "首次绑定时按代理出口匹配地区、语言和时区" : "保留原有手动配置";
   const bindingLabel = profile.bound_environment_id
-    ? `已绑定 ${profile.bound_environment_id.slice(0, 8)}`
+    ? `${profile.reservation ? "预留" : "已绑定"} ${profile.bound_environment_id.slice(0, 8)}`
     : "未绑定，按顺序分配";
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -129,21 +130,36 @@ function ProfileRow({
         size="sm"
         variant="ghost"
         disabled={disabled || (Boolean(profile.bound_environment_id) && !orphaned)}
-        onClick={() => setConfirmDelete(true)}
+        onClick={() => setProfileAction("delete")}
       >
         {orphaned ? "删除失效绑定" : "删除指纹"}
       </Button>
-      <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      {profile.reservation && (
+        <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => setProfileAction("release")}>
+          释放未登录预留
+        </Button>
+      )}
+      {profile.login_saved && (
+        <Button type="button" size="sm" variant="ghost" disabled={disabled} onClick={() => setProfileAction("forget")}>
+          忘记登录资料
+        </Button>
+      )}
+      <Dialog open={profileAction !== null} onOpenChange={(open) => !open && setProfileAction(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>确认删除指纹</DialogTitle>
+            <DialogTitle>
+              {profileAction === "forget" ? "确认忘记登录资料" : profileAction === "release" ? "确认释放预留" : "确认删除指纹"}
+            </DialogTitle>
             <DialogDescription>
-              将永久删除“{profile.name}”及其账号绑定，无法撤销。不会删除卡片凭据或历史任务；
-              旧卡已删除的历史任务不能重新登录重试。重新提交会使用新的指纹，可能需要上游重新验证。
+              {profileAction === "forget"
+                ? "清除这份指纹和相关任务中的加密登录资料，不删除卡片、当前 OAuth 凭据或任务历史。"
+                : profileAction === "release"
+                  ? "仅在旧任务从未提交登录且已停止后释放；原卡保留，可在原卡重新填写资料。"
+                  : `将删除“${profile.name}”及其账号绑定。不会删除卡片凭据或历史任务；若要沿用此指纹，请在新任务选择迁移。`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
+            <Button type="button" variant="outline" onClick={() => setProfileAction(null)}>
               取消
             </Button>
             <Button
@@ -151,11 +167,16 @@ function ProfileRow({
               variant="destructive"
               disabled={disabled}
               onClick={() => {
-                setConfirmDelete(false);
-                void run(() => deleteAutomationProfile(accessToken, profile.id));
+                const action = profileAction;
+                setProfileAction(null);
+                void run(() => (
+                  action === "forget" ? forgetAutomationLogin(accessToken, profile.id)
+                    : action === "release" ? releaseAutomationReservation(accessToken, profile.id)
+                      : deleteAutomationProfile(accessToken, profile.id)
+                ));
               }}
             >
-              确认删除
+              {profileAction === "forget" ? "确认忘记" : profileAction === "release" ? "确认释放" : "确认删除"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -188,7 +209,7 @@ function JobRow({
   accessToken: string;
   view: (id: string) => Promise<void>;
 }) {
-  const [retryModel, setRetryModel] = useState(job.model || "");
+  const [retryModel, setRetryModel] = useState(job.credentials_saved ? job.model || "" : "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const finished = !active.has(job.stage) && job.stage !== "queued";
   const remaining = remainingJobSeconds(job, now);
@@ -200,7 +221,7 @@ function JobRow({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-3 text-sm">
           <strong>{labels[job.stage]}</strong>
-          <span>卡片 {job.environment_id.slice(0, 8)}</span>
+          <span>{job.draft_pending ? "待创建卡片" : "卡片"} {job.environment_id.slice(0, 8)}</span>
           <span>出口 {job.proxy_profile_id}</span>
           {locale && <span>配置语言 {locale}</span>}
           {active.has(job.stage) && remaining !== null && <span className="tabular-nums">剩余 {remaining} 秒</span>}
@@ -243,17 +264,22 @@ function JobRow({
               取消
             </Button>
           )}
-          {["failed", "expired", "cancelled", "verification_failed"].includes(job.stage) && (
+          {finished && job.cleanup_pending && (
+            <Button size="sm" variant="outline" onClick={() => void run(() => actOnAutomation(accessToken, job.id, "cleanup"))}>
+              重试清理
+            </Button>
+          )}
+          {!job.cleanup_pending && ["failed", "expired", "cancelled", "verification_failed"].includes(job.stage) && (
             <Button
               size="sm"
               variant="outline"
               disabled={cardMissing}
-              onClick={() => void run(() => actOnAutomation(accessToken, job.id, "retry", retryModel))}
+              onClick={() => void run(() => actOnAutomation(accessToken, job.id, "retry", retryModel.trim()))}
             >
-              {job.credentials_saved || job.callback_consumed ? "仅重试验收" : "新会话重试"}
+              {job.credentials_saved ? "仅重试验收" : job.callback_consumed ? "核对凭据后重试" : "新会话重试"}
             </Button>
           )}
-          {finished && (
+          {finished && !job.cleanup_pending && (
             <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>
               删除记录
             </Button>
@@ -264,7 +290,7 @@ function JobRow({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>删除授权任务记录</DialogTitle>
-            <DialogDescription>删除这条任务历史及其中的加密登录资料，不删除卡片、认证文件或指纹绑定。</DialogDescription>
+            <DialogDescription>只删除任务历史。已保存的一键重授权资料请在指纹配置中单独忘记。</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
@@ -290,7 +316,7 @@ function JobRow({
       <p className="text-sm text-muted-foreground" role="status">
         {job.message}
       </p>
-      {job.stage === "verification_failed" && job.credentials_saved && (
+      {job.stage === "verification_failed" && (job.credentials_saved || job.callback_consumed) && (
         <Input
           aria-label="重试验收模型"
           value={retryModel}
@@ -336,7 +362,7 @@ export function AccountPoolAutomationPanel({
   const creatingCard = selectedCard === "__new__";
   const [newProxyId, setNewProxyId] = useState("");
   const { options: proxyOptions, profilesQuery, defaultLabel } = useAccountPoolProxyOptions(accessToken, creatingCard);
-  const pendingCreation = useRef<{ name: string; proxy: string; id: string } | null>(null);
+  const pendingSubmission = useRef<{ key: string; id: string } | null>(null);
   const validProxy = profilesQuery.isSuccess && proxyOptions.some((option) => option.value === newProxyId);
   const [screen, setScreen] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -369,12 +395,9 @@ export function AccountPoolAutomationPanel({
   const submitJob = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const body = {
-      id: createAccountPoolJobId(),
-      environment_id: String(form.get("card")),
-      credentials,
-      model: String(form.get("model") || "") || null,
-    };
+    const environmentId = String(form.get("card"));
+    const model = String(form.get("model") || "") || null;
+    const reuseProfileId = String(form.get("reuse_profile_id") || "") || undefined;
     const explicitName = String(form.get("card_name") || "").trim();
     const account = creatingCard
       ? (() => {
@@ -391,29 +414,19 @@ export function AccountPoolAutomationPanel({
       return;
     }
     const name = explicitName || `Codex-套餐待识别-${account ?? ""}`.slice(0, 80);
+    const draft = creatingCard ? { name, proxy_profile_id: newProxyId } : undefined;
+    const key = JSON.stringify([environmentId, model, draft, reuseProfileId]);
+    const id = pendingSubmission.current?.key === key ? pendingSubmission.current.id : createAccountPoolJobId();
+    pendingSubmission.current = { key, id };
     fileGeneration.current += 1;
     setCredentials("");
     setFileError("");
     void run(async () => {
-      if (!creatingCard) return submitAutomation(accessToken, body);
-      const pending = pendingCreation.current;
-      const id = pending?.name === name && pending.proxy === newProxyId ? pending.id : body.id;
-      pendingCreation.current = { name, proxy: newProxyId, id };
-      const result = await createAccountPoolEnvironment(
-        accessToken,
-        {
-          name,
-          provider: "openai",
-          supplier: "openai_codex",
-          channel: "cliproxyapi",
-          proxy_profile_id: newProxyId,
-        },
-        id,
-      );
-      setSelectedCard(result.environment.id);
-      pendingCreation.current = null;
-      await client.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
-      return submitAutomation(accessToken, { ...body, id, environment_id: result.environment.id });
+      await submitAutomation(accessToken, {
+        id, environment_id: draft ? id : environmentId, credentials, model,
+        ...(draft ? { draft } : {}), ...(reuseProfileId ? { reuse_profile_id: reuseProfileId } : {}),
+      });
+      pendingSubmission.current = null;
     });
   };
   const readCredentialFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -463,7 +476,7 @@ export function AccountPoolAutomationPanel({
       key={job.id}
       job={job}
       profile={query.data?.profiles.find((profile) => profile.id === job.profile_id)}
-      cardMissing={cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
+      cardMissing={!job.draft_pending && cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
       now={now}
       disabled={busy}
       run={run}
@@ -513,10 +526,15 @@ export function AccountPoolAutomationPanel({
   if (query.isLoading) return <p role="status">正在读取授权自动化状态</p>;
   if (!query.data) return <p role="alert">授权自动化不可用，请检查 Manager 连接后刷新</p>;
   const state = query.data;
+  const orphanedProfiles = state.profiles.filter((profile) =>
+    profile.bound_environment_id && cards.isSuccess &&
+    !cards.data.some((card) => card.id === profile.bound_environment_id) &&
+    !state.jobs.some((job) => job.environment_id === profile.bound_environment_id && job.draft_pending && job.stage !== "cancelled"),
+  );
   const emptyCards = (cards.data ?? []).filter((card) => {
     const oauthCard = card.supplier === "openai_codex" && card.authorization_flow === "browser_oauth";
     const configured = card.enabled && card.proxy_profile_id && !card.configuration_pending;
-    return oauthCard && configured && ["awaiting_authorization", "error"].includes(card.status);
+    return oauthCard && configured && !card.auth_file_bound && ["awaiting_authorization", "error"].includes(card.status);
   });
   const selectedCardAvailable = emptyCards.some((card) => card.id === selectedCard);
   const linkedCardUnavailable =
@@ -586,6 +604,16 @@ export function AccountPoolAutomationPanel({
           <Label htmlFor="automation-model">验收模型（可留空，授权后发现）</Label>
           <Input id="automation-model" name="model" maxLength={256} disabled={busy} />
         </div>
+        {orphanedProfiles.length > 0 && (
+          <div className="space-y-2">
+            <Label htmlFor="automation-reuse-profile">沿用原指纹（只限同一账号）</Label>
+            <select id="automation-reuse-profile" name="reuse_profile_id" disabled={busy}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm">
+              <option value="">使用现有绑定或未绑定指纹</option>
+              {orphanedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+            </select>
+          </div>
+        )}
         <div className="space-y-2 md:col-span-2">
           <Label htmlFor="automation-file">登录资料文件</Label>
           <Input
@@ -611,7 +639,7 @@ export function AccountPoolAutomationPanel({
             required
           />
           <p className="text-xs text-muted-foreground">
-            仅用于你有权登录的账号。资料加密保存在任务记录中，同一卡片授权失效后可复用；验证码或未知页面转人工处理。
+            仅用于你有权登录的账号。验证账号后，登录资料加密保存供原卡重新授权，可在指纹配置中忘记；验证码或未知页面转人工处理。
           </p>
           {fileError && (
             <p role="alert" className="text-sm text-destructive">
@@ -683,20 +711,17 @@ export function AccountPoolAutomationPanel({
       </form>
       {!state.image_checked && <p className="text-sm text-muted-foreground">请先在运行设置中完成镜像自检</p>}
       <p className="text-sm text-muted-foreground">
-        同一账号优先使用原指纹，新建指纹不会覆盖已有绑定。原卡已删除时，可确认删除失效绑定后重新提交。
+        原卡删除且任务清理完成后，可在新任务中为同一账号选择沿用原指纹。不迁移旧 OAuth 凭据。
       </p>
       {state.profiles.map((profile) => (
         <ProfileRow
           key={`${profile.id}:${profile.version}`}
           profile={profile}
-          orphaned={
-            Boolean(profile.bound_environment_id) &&
-            cards.isSuccess &&
-            !cards.data.some((card) => card.id === profile.bound_environment_id)
-          }
+          orphaned={orphanedProfiles.some(({ id }) => id === profile.id)}
           disabled={
             busy ||
-            state.jobs.some((job) => job.profile_id === profile.id && (active.has(job.stage) || job.stage === "queued"))
+            state.jobs.some((job) => job.profile_id === profile.id &&
+              (active.has(job.stage) || job.stage === "queued" || job.cleanup_pending))
           }
           run={run}
           accessToken={accessToken}

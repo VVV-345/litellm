@@ -120,7 +120,7 @@ class RefreshIfNeededOperation(Protocol):
 class StartAuthorizationOperation(Protocol):
     async def __call__(
         self, record: EnvironmentRecord
-    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None]: ...
+    ) -> tuple[str, str, str, AuthorizationInstructionFlow, str | None, int | None, bool]: ...
 
 
 class WaitForDirectCredentialOperation(Protocol):

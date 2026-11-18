@@ -17,14 +17,21 @@ import httpx
 import psycopg
 import pytest
 from account_pool.credential_ownership import CredentialOwnership
-from account_pool.domain import EnvironmentStatus
+from account_pool.domain import ChannelKind, EnvironmentStatus
 from account_pool.oauth_automation.models import JobInput, ProfileInput
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
 from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.shared.result import Failure, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver
 from pydantic import JsonValue
-from test_account_pool import FakeCLIProxy, MemoryRepository, StaticProfiles, _record, _service
+from test_account_pool import (
+    FakeChannel,
+    FakeCLIProxy,
+    MemoryRepository,
+    StaticProfiles,
+    _record,
+    _service,
+)
 
 IMAGE: Final = "registry.example/worker@sha256:" + "d" * 64
 CREDENTIAL: Final = "one@example.test----test-only-password----GEZDGNBVGY3TQOJQ"
@@ -109,6 +116,49 @@ async def test_profile_deletion_preserves_live_bindings_and_unfinished_cleanup(
 
 
 @pytest.mark.asyncio
+async def test_orphaned_fingerprint_migrates_only_to_the_same_account(deletion_registry) -> None:
+    service, card = deletion_registry
+    profile = await service.create_profile(ProfileInput(name="preserved original"))
+    assert isinstance(profile, Success)
+    started = await service.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(started, Success)
+    bound_digest = (await service.view()).profiles[0].digest
+    await service.cancel(started.value.id)
+    replacement = card.model_copy(update={"id": uuid4()})
+    await service.environments.save(replacement)
+    request = JobInput(
+        id=uuid4(), environment_id=replacement.id, credentials=CREDENTIAL, reuse_profile_id=profile.value.id,
+    )
+    assert isinstance(await service.submit(request), Failure)
+    await service.environments.delete(card.id)
+    assert isinstance(await service.submit(request.model_copy(update={
+        "credentials": CREDENTIAL.replace("one@", "other@"),
+    })), Failure)
+    accepted = await service.submit(request)
+    assert isinstance(accepted, Success) and accepted.value.profile_id == profile.value.id
+    migrated = (await service.view()).profiles[0]
+    assert migrated.digest == bound_digest and migrated.bound_environment_id == replacement.id
+
+
+@pytest.mark.asyncio
+async def test_cancelled_prelogin_reservation_can_be_released_without_deleting_its_card(deletion_registry) -> None:
+    service, card = deletion_registry
+    profile = await service.create_profile(ProfileInput(name="laboratory"))
+    assert isinstance(profile, Success)
+    queued = await service.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
+    assert isinstance(queued, Success)
+    assert isinstance(await service.release_reservation(profile.value.id), Failure)
+    await service.cancel(queued.value.id)
+    released = await service.release_reservation(profile.value.id)
+    assert isinstance(released, Success) and released.value.profiles[0].bound_environment_id is None
+    assert await service.environments.get(card.id) is not None
+    retargeted = await service.submit(JobInput(
+        id=uuid4(), environment_id=card.id, credentials=CREDENTIAL.replace("one@", "corrected@"),
+    ))
+    assert isinstance(retargeted, Success) and retargeted.value.profile_id == profile.value.id
+
+
+@pytest.mark.asyncio
 async def test_unused_profile_can_still_be_deleted(deletion_registry):
     service, _ = deletion_registry
     profile = await service.create_profile(ProfileInput(name="unused"))
@@ -170,6 +220,36 @@ async def registry():
         StaticProfiles("http://ordinary-proxy.test:8080"), FixtureLocationProbe(),
     )
     return registry, record
+
+
+@pytest.mark.asyncio
+async def test_new_card_intent_is_durable_before_provisioning(memory_execution) -> None:
+    from account_pool.oauth_automation.api import create_automation_router
+    from fastapi import FastAPI
+
+    registry, _, _, runner, _, _, starts, _, existing = memory_execution
+    await registry.cancel(existing.value.id)
+    await registry.create_profile(ProfileInput(name="available"))
+    app = FastAPI()
+    app.include_router(create_automation_router(runner, lambda: None))
+    operation = str(uuid4())
+    body = {
+        "id": operation, "environment_id": operation,
+        "credentials": CREDENTIAL.replace("one@", "draft@"),
+        "draft": {"name": "queued draft", "proxy_profile_id": "ordinary-proxy"},
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager.test") as client:
+        first = await client.post("/api/oauth-automation/jobs", json=body)
+        assert first.status_code == 202, first.text
+        duplicate = await client.post("/api/oauth-automation/jobs", json=body)
+        assert first.json() == duplicate.json()
+        changed = await client.post("/api/oauth-automation/jobs", json={
+            **body, "draft": {**body["draft"], "name": "another intent"},
+        })
+        assert changed.status_code == 409
+    assert first.json()["environment_id"] == operation
+    assert first.json()["draft_pending"] is True
+    assert len(await registry.environments.list()) == 1 and not starts
 
 
 @pytest.mark.asyncio
@@ -385,7 +465,8 @@ def authorized_email() -> str:
 
 
 @asynccontextmanager
-async def _execution(registry_data, tmp_path: Path, authorized_email: str):
+async def _execution(registry_data, tmp_path: Path, authorized_email: str, *, use_staging: bool = False):
+    from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
     from account_pool.compose_runtime import ComposeRuntime
     from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
     from account_pool.oauth_automation.runner import AutomationRunner
@@ -397,7 +478,18 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
 
     registry_service, card = registry_data
     profiles: Final = StaticProfiles("http://ordinary-proxy.test:8080")
+    commands: Final[list[str]] = []
+
     class CredentialCLI(FakeCLIProxy):
+        async def start_authorization(self, record):
+            started = await super().start_authorization(record)
+            return replace(started, staged=True) if use_staging else started
+
+        async def submit_callback(self, record, callback):
+            if use_staging:
+                commands.append("oauth-callback")
+            await super().submit_callback(record, callback)
+
         async def read_account(self, record, *, refresh_quota=False):
             observed = await super().read_account(record, refresh_quota=refresh_quota)
             return observed.model_copy(update={
@@ -407,11 +499,50 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
             })
 
     cli: Final = CredentialCLI()
-    runtime: Final = FakeRuntime()
+    class DraftRuntime(FakeRuntime):
+        async def provision(self, record):
+            if "fail-draft-once" in commands and "draft-provision-failed" not in commands:
+                commands.append("draft-provision-failed")
+                raise RuntimeError("fixture partial provisioning")
+            await super().provision(record)
+
+    runtime: Final = DraftRuntime()
+    class StagedChannel(FakeChannel, CLIProxyAPIChannel):
+        async def staged_oauth_content(self, record):
+            commands.append("read-staged")
+            return b"synthetic-stage" if "staged-on-disk" in commands else None
+
+        async def activate_staged_oauth(self, record, content):
+            assert content == b"synthetic-stage"
+            commands.append("activate-staged")
+            if "staged-token-rejected" in commands:
+                from account_pool.channels.cliproxyapi.protocol import (
+                    StagedOAuthProbeFailure,
+                )
+
+                raise StagedOAuthProbeFailure("authentication_failed", "fixture rejected")
+
+        async def authorization_status(self, record, state):
+            return "error:fixture-exchange-failed" if use_staging else await super().authorization_status(record, state)
+
+        async def oauth_runtime_matches(self, record):
+            commands.append("read-live")
+            return "unexpected-live-credential" not in commands
+
+        async def cancel_oauth_session(self, record, state):
+            if use_staging:
+                commands.append("fence-oauth")
+                if "staged-on-disk" in commands:
+                    commands.remove("staged-on-disk")
+            await super().cancel_oauth_session(record, state)
+
+    channels = _fake_channels(runtime, cli)
+    if use_staging:
+        channels = replace(channels, implementations={ChannelKind.CLIPROXYAPI: StagedChannel(runtime, cli)})
     manager: Final = EnvironmentService(
         settings=_settings(tmp_path), repository=registry_service.environments, runtime=runtime,
         cli_proxy=cli, proxy_profiles=profiles, secrets=registry_service.secrets,
-        channels=_fake_channels(runtime, cli), ownership=registry_service.ownership,
+        channels=channels, ownership=registry_service.ownership,
     )
     starts: Final[list[object]] = []
     removals: Final[list[object]] = []
@@ -429,8 +560,6 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
         OAuthBrowserSessionService(MemoryBrowserSessions.create(), fingerprint_key=b"test-only-automation-browser-key"),
         BrowserProcess(), manager, registry_service.ownership,
     )
-    commands: Final[list[str]] = []
-
     async def external_worker(request: httpx.Request) -> httpx.Response:
         import json
         if request.url.path.endswith("/chat/completions"):
@@ -488,6 +617,83 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
 async def memory_execution(deletion_registry, tmp_path: Path, authorized_email: str):
     async with _execution(deletion_registry, tmp_path, authorized_email) as case:
         yield case
+
+
+@pytest.mark.asyncio
+async def test_failed_draft_provisioning_retries_the_same_card(memory_execution) -> None:
+    from account_pool.oauth_automation.models import AutomationDraft, AutomationSettings
+
+    registry, _, _, runner, _, commands, starts, _, old = memory_execution
+    await registry.cancel(old.value.id)
+    assert isinstance(await registry.release_reservation(old.value.profile_id), Success)
+    operation_id = uuid4()
+    queued = await registry.submit(JobInput(
+        id=operation_id, environment_id=operation_id, credentials=CREDENTIAL,
+        draft=AutomationDraft(name="Recoverable draft", proxy_profile_id="ordinary-proxy"),
+    ))
+    assert isinstance(queued, Success) and queued.value.draft_pending
+    checked = await registry.self_check()
+    assert isinstance(checked, Success)
+    await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    commands.append("fail-draft-once")
+    await runner.run_once()
+    assert "draft-provision-failed" in commands and not starts
+    assert (await registry.environments.get(operation_id)).status is EnvironmentStatus.ERROR
+    assert isinstance(await runner.action(operation_id, "retry"), Success)
+    await runner.run_once()
+    assert starts and commands.count("start") == 1
+    assert len(await registry.environments.list()) == 2
+    job = next(job for job in (await registry.view()).jobs if job.id == operation_id)
+    assert job.stage == "running" and job.environment_id == operation_id and not job.draft_pending
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ("missing", "saved", "rejected"))
+async def test_consumed_callback_recovers_original_card_without_replaying_code(
+    deletion_registry, tmp_path, outcome,
+) -> None:
+    from account_pool.domain import OAuthCallback
+    from account_pool.oauth_automation.models import AutomationSettings
+
+    async with _execution(deletion_registry, tmp_path, "one@example.test", use_staging=True) as case:
+        registry, card, manager, runner, _, commands, starts, _, submitted = case
+        checked = await registry.self_check()
+        assert isinstance(checked, Success)
+        await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+        await runner.run_once()
+        first = await registry.environments.get(card.id)
+        assert first.oauth_state and first.oauth_staged
+        callback = OAuthCallback(state=first.oauth_state, code="fixture-once")
+        assert isinstance(await manager.submit_oauth_callback(callback, card.id), Success)
+        if outcome == "rejected":
+            commands.extend(("staged-on-disk", "staged-token-rejected"))
+        await runner.run_once()
+        terminal = (await registry.view()).jobs[0]
+        assert terminal.stage == "verification_failed" and terminal.callback_consumed and not terminal.credentials_saved
+        assert isinstance(await manager.submit_oauth_callback(callback, card.id), Failure)
+        if outcome == "saved":
+            commands.append("staged-on-disk")
+        elif outcome == "missing":
+            commands.append("unexpected-live-credential")
+            assert isinstance(await runner.action(submitted.value.id, "retry"), Failure)
+            assert len(starts) == 1
+            commands.remove("unexpected-live-credential")
+        else:
+            assert "fence-oauth" in commands and "staged-on-disk" not in commands
+            assert (await registry.environments.get(card.id)).oauth_provider_state is None
+        recovery = await runner.action(submitted.value.id, "retry")
+        assert isinstance(recovery, Success)
+        assert recovery.value.environment_id == card.id
+        if outcome == "saved":
+            assert recovery.value.stage == "validating" and recovery.value.credentials_saved
+            assert commands.count("activate-staged") == 1 and len(starts) == 1
+        else:
+            assert recovery.value.stage == "queued" and not recovery.value.callback_consumed
+            assert commands.count("read-live") == 3 and "fence-oauth" in commands
+            await runner.run_once()
+            second = await registry.environments.get(card.id)
+            assert second.oauth_state and second.oauth_state != first.oauth_state and len(starts) == 2
+        assert commands.count("oauth-callback") == 1
 
 
 @pytest.mark.asyncio
@@ -845,6 +1051,43 @@ async def test_saved_login_can_be_reauthorized_without_resending_credentials(mem
 
 
 @pytest.mark.asyncio
+async def test_history_deletion_does_not_forget_verified_login(memory_execution) -> None:
+    from account_pool.domain import CredentialRefreshStatus, OAuthCallback
+    from account_pool.oauth_automation.models import AutomationSettings
+
+    registry, card, manager, runner, _, commands, _, _, submitted = memory_execution
+    checked = await registry.self_check()
+    assert isinstance(checked, Success)
+    await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    await runner.run_once()
+    pending = await registry.environments.get(card.id)
+    assert pending.oauth_state
+    assert isinstance(await manager.submit_oauth_callback(
+        OAuthCallback(state=pending.oauth_state, code="fixture-once"), card.id,
+    ), Success)
+    await runner.run_once()
+    assert (await registry.view()).jobs[0].stage == "completed"
+    assert isinstance(await registry.delete_job(submitted.value.id), Success)
+    assert not (await registry.view()).jobs
+    ready = await registry.environments.get(card.id)
+    await registry.environments.save(ready.model_copy(update={
+        "status": EnvironmentStatus.ERROR,
+        "credential_refresh": CredentialRefreshStatus(schedule_reason="reauthorization_required"),
+    }))
+    reauthorized = await registry.reauthorize(card.id)
+    assert isinstance(reauthorized, Success) and reauthorized.value is not None
+    assert reauthorized.value.environment_id == card.id
+    assert reauthorized.value.profile_id == submitted.value.profile_id
+    assert commands.count("start") == 1
+    await registry.cancel(reauthorized.value.id)
+    erased = await registry.forget_login(reauthorized.value.profile_id)
+    assert isinstance(erased, Success) and not erased.value.profiles[0].login_saved
+    assert len(erased.value.jobs) == 1
+    assert (await registry.environments.get(card.id)).auth_file_name == ready.auth_file_name
+    assert (await registry.reauthorize(card.id)).value is None
+
+
+@pytest.mark.asyncio
 async def test_saved_credentials_retry_only_inference_and_keep_the_same_fingerprint(execution) -> None:
     from account_pool.domain import OAuthCallback
     from account_pool.oauth_automation.models import AutomationSettings
@@ -1017,6 +1260,77 @@ async def test_completed_browser_job_uses_shared_card_naming_without_overwriting
 
 
 @pytest.mark.asyncio
+async def test_fenced_browser_does_not_block_a_different_queued_card(deletion_registry) -> None:
+    from types import SimpleNamespace
+
+    from account_pool.oauth_automation.models import AutomationSettings
+    from account_pool.oauth_automation.runner import AutomationRunner, operation
+    from account_pool.shared.result import FailureCode
+
+    registry, first = deletion_registry
+    await registry.create_profile(ProfileInput(name="first"))
+    await registry.create_profile(ProfileInput(name="second"))
+    second = first.model_copy(update={"id": uuid4()})
+    await registry.environments.save(second)
+    one = await registry.submit(JobInput(id=uuid4(), environment_id=first.id, credentials=CREDENTIAL))
+    two = await registry.submit(JobInput(
+        id=uuid4(), environment_id=second.id, credentials=CREDENTIAL.replace("one@", "two@"),
+    ))
+    assert isinstance(one, Success) and isinstance(two, Success)
+    checked = await registry.self_check()
+    assert isinstance(checked, Success)
+    await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    async with registry.repository.transaction() as tx:
+        old, new = tx.snapshot.jobs
+        finished = old.model_copy(update={"cleanup_pending": True, "item": old.item.model_copy(update={
+            "stage": "failed", "attempt": 1, "browser_session_id": uuid4(),
+        })})
+        await tx.save(tx.snapshot.model_copy(update={"jobs": (finished, new)}))
+
+    class Repository(MemoryRepository):
+        async def save_if_version(self, record, version):
+            return None if record.id == first.id else await super().save_if_version(record, version)
+
+    environments = Repository(first.model_copy(update={"oauth_automation_operation": operation(finished)}))
+    await environments.save(second)
+    registry = replace(registry, environments=environments)
+    removed = []
+    started = []
+
+    async def remove_session(session_id):
+        removed.append(session_id)
+
+    async def nothing(*args):
+        return None
+
+    async def no_sessions(environment_id):
+        return ()
+
+    async def start(environment_id, **kwargs):
+        started.append(environment_id)
+        return Failure(FailureCode.UPSTREAM, "stop the fixture before supplying credentials")
+
+    @asynccontextmanager
+    async def proxy_lock(_):
+        yield
+
+    browser = SimpleNamespace(
+        sessions=SimpleNamespace(
+            get=nothing, transition=nothing, mark_cleaned=nothing, list_for_environment=no_sessions,
+        ),
+        runtime=SimpleNamespace(remove_oauth_browser=remove_session),
+        service=SimpleNamespace(proxy_profile_operation=proxy_lock),
+        start=start,
+    )
+    runner = AutomationRunner(registry, browser, registry.worker)
+    await runner.run_once()
+    assert removed == [finished.item.browser_session_id]
+    assert started == [second.id]
+    assert (await registry.view()).jobs[0].cleanup_pending
+    assert (await environments.get(first.id)).oauth_automation_operation == operation(finished)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["browser", "cancel", "conflict"])
 async def test_cleanup_failure_is_visible_redacted_and_retried_before_next_job(deletion_registry, caplog, failure):
     from types import SimpleNamespace
@@ -1088,17 +1402,15 @@ async def test_cleanup_failure_is_visible_redacted_and_retried_before_next_job(d
     assert isinstance(await registry.delete_job(finished.item.id), Failure)
     assert isinstance(await runner.action(finished.item.id, "retry"), Failure)
     assert (await registry.repository.read()).jobs[0].session_ciphertext == "encrypted-session"
-    assert set((await registry.repository.read()).jobs[0].model_dump()) == {
-        "item", "account_digest", "credential_ciphertext", "session_ciphertext", "cleanup_pending",
-        "login_submitted", "verification_started",
-    }
+    assert blocked[0].cleanup_pending
+    assert "encrypted-session" not in (await registry.view()).model_dump_json()
     before_retry = caplog.text
     await runner.run_once()
     assert (await registry.view()).jobs[0].message == blocked[0].message
     assert caplog.text == before_retry
 
     faults.clear()
-    await runner.run_once()
+    assert isinstance(await runner.action(finished.item.id, "cleanup"), Success)
     recovered = (await registry.view()).jobs
     assert recovered[0].stage == "failed" and recovered[0].message == "登录未完成"
     assert recovered[1].stage == "queued"

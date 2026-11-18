@@ -100,6 +100,15 @@ class CLIProxyAPIChannel:
     async def cancel_oauth_session(self, record: EnvironmentRecord, state: str) -> None:
         await self._client.cancel_oauth_session(record, state)
 
+    async def staged_oauth_content(self, record: EnvironmentRecord) -> bytes | None:
+        return await self._client.staged_oauth_content(record)
+
+    async def activate_staged_oauth(self, record: EnvironmentRecord, content: bytes) -> None:
+        await self._client.activate_staged_oauth(record, content)
+
+    async def oauth_runtime_matches(self, record: EnvironmentRecord) -> bool:
+        return await self._client.oauth_runtime_matches(record)
+
     async def submit_callback(self, record: EnvironmentRecord, callback: OAuthCallback) -> None:
         await self._client.submit_callback(record, self.supplier(record.supplier), callback)
 
@@ -201,6 +210,7 @@ class CLIProxyAPIChannel:
             id=record.id,
             routable=record.status.value == "ready"
             and record.oauth_automation_operation is None
+            and not record.oauth_verification_pending
             and (record.access_token_fallback.failure_source != "refresh" or any(record.access_token_fallback.usable_for(model, utc_now()) for model in record.enabled_models))
             and (self._ownership is None or bool(record.credential_fingerprints))
             and record.enabled

@@ -69,6 +69,12 @@ curl --fail-with-body -sS -X POST "$MANAGER_URL/api/environments/$CARD_UUID/acce
 
 只有 `passed=true`、`restored=true`、`reason=temporary_access`，状态显示对应模型已验证、令牌仍有效且正常网关调用成功，才能认定降级可用。能力接口 200、用量接口 200、额度为 100% 或卡片单独变为 ready 都不够。若存在独立冷却、停用、额度限制或 access token 已失效，仍应拒绝；本修复不强制恢复这些卡片。降级只在 access token 有效期内临时可用，不修复已失效的 refresh token，到期后仍需重新授权
 
+## Codex OAuth 暂存与恢复
+
+Manager 启动托管 Codex OAuth 前要求已通过管理鉴权的 `GET /v0/management/codex/oauth-stage` 返回 `version=1`。回调只产生一个不被认证目录扫描的暂存文件。Manager 核对账号并独占认领凭据后，CPA 才用候选访问令牌发一条不刷新、不换卡的模型验收请求；验收及凭据原子落盘都成功后才替换同一个认证槽。重复确认只核对已激活记录，不重放 OAuth code 或旧 RT。浏览器自动化仍会验证该卡的 Chat 和 Responses 两条入口，未通过不给普通请求选中
+
+此流程必须同时更新 Manager、代理管理 API/前端，以及要授权的卡片的 CPA 镜像。旧 CPA 会被明确拒绝，不回退到删旧凭据的流程。已有卡片不会因为更新 Manager 自动换镜像。卡片删除后的同账号指纹迁移不带旧 RT 或浏览器 Cookie；删除授权任务历史不等于忘记已验证的登录资料
+
 ## OAuth 续期保存保护
 
 继续使用 CPA 原有临期刷新调度，不新增 Manager/LiteLLM 定时器，也不修改默认提前量。自动刷新、显式刷新和 401 恢复共用单认证锁；等待期间重新检查凭据，管理接口携带失败请求使用的 Token，避免旧请求再次轮换

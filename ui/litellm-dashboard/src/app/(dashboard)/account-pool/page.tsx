@@ -272,7 +272,7 @@ export default function AccountPoolPage() {
     [updateEnvironment],
   );
   const handleAuthorize = useCallback(
-    (environment: AccountPoolEnvironment) => authorizeEnvironment(environment),
+    (environment: AccountPoolEnvironment, manual = false) => authorizeEnvironment({ environment, manual }),
     [authorizeEnvironment],
   );
   const handleManageKey = useCallback(

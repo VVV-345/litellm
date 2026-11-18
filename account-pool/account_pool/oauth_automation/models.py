@@ -86,6 +86,8 @@ class ProfileView(ProfileInput):
     bound_environment_id: UUID | None = None
     location: ProxyLocation | None = None
     matched_locale: str | None = None
+    reservation: bool = False
+    login_saved: bool = False
 
 
 class StoredProfile(BaseModel):
@@ -93,6 +95,13 @@ class StoredProfile(BaseModel):
     item: ProfileView
     data: dict[str, JsonValue] = Field(repr=False)
     account_digest: str | None = Field(default=None, repr=False)
+    login_ciphertext: str | None = Field(default=None, repr=False)
+
+
+class AutomationDraft(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    name: str = Field(min_length=1, max_length=80, pattern=r".*\S.*")
+    proxy_profile_id: str = Field(min_length=1, max_length=120)
 
 
 class JobInput(BaseModel):
@@ -101,6 +110,8 @@ class JobInput(BaseModel):
     environment_id: UUID
     credentials: str = Field(min_length=1, max_length=8192, repr=False)
     model: str | None = Field(default=None, min_length=1, max_length=256)
+    draft: AutomationDraft | None = None
+    reuse_profile_id: UUID | None = None
 
 
 class JobView(BaseModel):
@@ -115,6 +126,8 @@ class JobView(BaseModel):
     browser_session_id: UUID | None = None
     callback_consumed: bool = False
     credentials_saved: bool = False
+    draft_pending: bool = False
+    cleanup_pending: bool = False
     model: str | None = None
     chat_verified: bool = False
     responses_verified: bool = False
@@ -131,8 +144,11 @@ class StoredJob(BaseModel):
     item: JobView
     account_digest: str = Field(repr=False)
     credential_ciphertext: str = Field(repr=False)
+    draft: AutomationDraft | None = None
     session_ciphertext: str | None = Field(default=None, repr=False)
     cleanup_pending: bool = False
+    browser_fenced: bool = False
+    cleanup_retry_at: datetime | None = None
     login_submitted: bool = False
     verification_started: bool = False
 
@@ -203,7 +219,7 @@ class SettingsUpdate(BaseModel):
 
 class JobAction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    action: Literal["cancel", "retry", "takeover", "resume"]
+    action: Literal["cancel", "retry", "takeover", "resume", "cleanup"]
     model: str | None = Field(default=None, min_length=1, max_length=256)
 
     @model_validator(mode="after")

@@ -36,6 +36,8 @@ const job: AutomationJob = {
   browser_session_id: null,
   callback_consumed: true,
   credentials_saved: true,
+  draft_pending: false,
+  cleanup_pending: false,
   model: "available-model",
   chat_verified: false,
   responses_verified: false,
@@ -88,6 +90,8 @@ const orphanProfile: AutomationView["profiles"][number] = {
   os: "linux",
   digest: "a".repeat(64),
   bound_environment_id: "deleted-card",
+  login_saved: false,
+  reservation: false,
 };
 
 it.each([
@@ -374,7 +378,7 @@ it("confirms and removes a finished job without acting on its card", async () =>
   expect(post).not.toHaveBeenCalled();
 });
 
-it("creates a named Codex card with the selected proxy and enqueues the original 2FA workflow", async () => {
+it("submits one durable operation for the new Codex card and its authorization", async () => {
   const credentials = "fixture@example.test----test-password----GEZDGNBVGY3TQOJQ";
   get.mockImplementation(async (path: string) => {
     if (path.endsWith("/oauth-automation")) return view;
@@ -383,25 +387,33 @@ it("creates a named Codex card with the selected proxy and enqueues the original
     if (path.endsWith("/settings")) return { values: {} };
     return [];
   });
-  post.mockImplementation(async (path: string) =>
-    path.endsWith("/environments") ? { environment: { id: "new-card", status: "awaiting_authorization" } } : job,
-  );
   mount();
   const user = userEvent.setup();
   await user.selectOptions(await screen.findByLabelText("空白 Codex 卡片"), "__new__");
   fireEvent.change(screen.getByLabelText("单账号资料"), { target: { value: credentials } });
   await user.selectOptions(await screen.findByLabelText("OAuth 出站代理"), "proxy-001");
   await user.click(screen.getByRole("button", { name: "创建卡片并加入队列" }));
-  await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
-  expect(post.mock.calls[0][0]).toBe("/account_pool/environments");
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+  expect(post.mock.calls[0][0]).toBe("/account_pool/oauth-automation/jobs");
   expect(post.mock.calls[0][1].body).toMatchObject({
-    name: "Codex-套餐待识别-fixture@example.test",
-    supplier: "openai_codex",
-    proxy_profile_id: "proxy-001",
+    environment_id: post.mock.calls[0][1].body.id,
+    credentials,
+    draft: { name: "Codex-套餐待识别-fixture@example.test", proxy_profile_id: "proxy-001" },
   });
-  expect(post.mock.calls[1][0]).toBe("/account_pool/oauth-automation/jobs");
-  expect(post.mock.calls[1][1].body).toMatchObject({ environment_id: "new-card", credentials });
   expect(screen.getByLabelText("单账号资料")).toHaveValue("");
+});
+
+it("offers a readback retry rather than model-only retry when no credential was confirmed", async () => {
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation") ? { ...view, jobs: [{ ...job, credentials_saved: false, draft_pending: true }] } : [],
+  );
+  mount();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "核对凭据后重试" }));
+  expect(post).toHaveBeenCalledWith("/account_pool/oauth-automation/jobs/job-001/action", {
+    accessToken: "test-admin", body: { action: "retry" },
+  });
+  expect(screen.queryByRole("button", { name: "仅重试验收" })).not.toBeInTheDocument();
 });
 
 it.each([

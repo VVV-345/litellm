@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 import re
 from dataclasses import dataclass, field
@@ -13,7 +12,7 @@ from uuid import UUID, uuid4
 from pydantic import JsonValue, TypeAdapter
 
 from account_pool.application.authorization import saved_login_can_replace
-from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_ownership import CredentialOwnership, oauth_account_digest
 from account_pool.domain import AuthorizationFlow, EnvironmentStatus, SupplierKind, utc_now
 from account_pool.isp_probe import ProxyLocation, ProxyLocationProbe
 from account_pool.oauth_automation.login_scripts import LoginScriptStore
@@ -34,7 +33,7 @@ from account_pool.oauth_automation.models import (
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
 from account_pool.ports import EnvironmentRepository, ProxyProfileRepository
 from account_pool.shared.result import Failure, FailureCode, Result, Success
-from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
+from account_pool.shared.secrets import EnvironmentSecretDeriver, StateCipher
 
 
 class ProfileWorker(Protocol):
@@ -82,16 +81,19 @@ class AutomationRegistry:
     login_scripts: LoginScriptStore | None = None
 
     def identity(self, email: str) -> str:
-        key: Final = self.secrets.derive(UUID(int=0), SecretPurpose.CREDENTIAL_IDENTITY).encode()
-        return hmac.new(key, f"oauth-automation:codex:{email.casefold()}".encode(), hashlib.sha256).hexdigest()
+        return oauth_account_digest(email, self.secrets)
 
     async def view(self) -> AutomationView:
         state: Final = await self.repository.read()
         return AutomationView(
             version=state.version,
             settings=state.settings,
-            profiles=tuple(row.item for row in state.profiles),
-            jobs=tuple(row.item for row in state.jobs),
+            profiles=tuple(row.item.model_copy(update={"login_saved": bool(row.login_ciphertext) or any(
+                job.item.profile_id == row.item.id and job.item.environment_id == row.item.bound_environment_id
+                and job.account_digest == row.account_digest and bool(job.credential_ciphertext)
+                for job in state.jobs
+            )}) for row in state.profiles),
+            jobs=tuple(row.item.model_copy(update={"cleanup_pending": row.cleanup_pending}) for row in state.jobs),
             checked_at=state.checked_at,
             image_checked=state.checked_image is not None and state.checked_image == self.worker.image,
         )
@@ -196,6 +198,9 @@ class AutomationRegistry:
                 FailureCode.INVALID, "请选择一条 email----password----TOTPBase32 登录资料，不接收多账号混合记录"
             )
         identity: Final = self.identity(email)
+        draft: Final = request.draft
+        if draft is not None and request.environment_id != request.id:
+            return Failure(FailureCode.INVALID, "新卡片和授权任务必须使用同一个操作标识")
         async with self.ownership.operation(request.environment_id), self.repository.transaction() as tx:
             state: Final = tx.snapshot
             existing: Final = next((job for job in state.jobs if job.item.id == request.id), None)
@@ -203,40 +208,57 @@ class AutomationRegistry:
                 return (
                     Success(existing.item)
                     if existing.account_digest == identity and existing.item.environment_id == request.environment_id
+                    and existing.draft == draft
+                    and (request.reuse_profile_id is None or existing.item.profile_id == request.reuse_profile_id)
                     else Failure(FailureCode.CONFLICT, "任务标识已被其他输入使用")
                 )
             record: Final = await self.environments.get(request.environment_id)
-            if record is None or record.status is EnvironmentStatus.DELETING:
-                return Failure(FailureCode.NOT_FOUND, "请选择已有的空白 Codex 测试卡片")
-            if (
-                record.supplier is not SupplierKind.OPENAI_CODEX
-                or record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH
-            ):
-                return Failure(FailureCode.INVALID, "首版仅支持 Codex 浏览器 OAuth")
-            if record.auth_file_name or record.credential_fingerprints or not record.enabled or record.manual_cooldown:
-                return Failure(FailureCode.CONFLICT, "卡片已有凭据、停用或处于手动冷却，不覆盖现有认证")
-            if (
-                record.proxy_profile_id is None
-                or record.configuration_pending
-                or record.desired_configuration_version != record.observed_configuration_version
-            ):
-                return Failure(FailureCode.CONFLICT, "请先保存并同步卡片的普通出口代理配置")
+            if draft is not None:
+                if record is not None:
+                    return Failure(FailureCode.CONFLICT, "新卡片操作标识已占用")
+                if await self.proxy_profiles.get_url(draft.proxy_profile_id) is None:
+                    return Failure(FailureCode.INVALID, "所选出口代理不可用，未创建卡片")
+                proxy_id, config_version = draft.proxy_profile_id, 0
+            else:
+                if record is None or record.status is EnvironmentStatus.DELETING:
+                    return Failure(FailureCode.NOT_FOUND, "请选择已有的空白 Codex 卡片")
+                if (
+                    record.supplier is not SupplierKind.OPENAI_CODEX
+                    or record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH
+                ):
+                    return Failure(FailureCode.INVALID, "仅支持 Codex 浏览器 OAuth")
+                if record.auth_file_name or record.credential_fingerprints or not record.enabled or record.manual_cooldown:
+                    return Failure(FailureCode.CONFLICT, "卡片已有凭据、停用或处于手动冷却，不覆盖现有认证")
+                if (
+                    record.proxy_profile_id is None
+                    or record.configuration_pending
+                    or record.desired_configuration_version != record.observed_configuration_version
+                ):
+                    return Failure(FailureCode.CONFLICT, "请先保存并同步卡片的普通出口代理配置")
+                proxy_id, config_version = record.proxy_profile_id, record.observed_configuration_version
+            environment_id: Final = request.environment_id
             if any(
-                job.item.environment_id == record.id and job.item.stage in ACTIVE | {"queued"} for job in state.jobs
+                job.item.environment_id == environment_id and (
+                    job.item.stage in ACTIVE | {"queued"} or job.cleanup_pending
+                ) for job in state.jobs
             ):
                 return Failure(FailureCode.CONFLICT, "这张卡片已有排队或运行中的任务")
-            if any(p.item.bound_environment_id == record.id and p.account_digest != identity for p in state.profiles):
-                return Failure(FailureCode.CONFLICT, "这张卡片已绑定其他登录身份，请使用新的空白卡片")
+            if any(p.item.bound_environment_id == environment_id and p.account_digest != identity for p in state.profiles):
+                return Failure(FailureCode.CONFLICT, "卡片已有其他账号的指纹；若从未登录，先释放未登录预留")
             bound: Final = next((p for p in state.profiles if p.account_digest == identity), None)
-            if bound is not None and bound.item.bound_environment_id != record.id:
-                if (
-                    bound.item.bound_environment_id is not None
-                    and await self.environments.get(bound.item.bound_environment_id) is None
-                ):
-                    return Failure(
-                        FailureCode.CONFLICT, "原卡片已删除，请到指纹配置确认删除失效绑定后再提交；新建指纹不会覆盖旧绑定"
-                    )
-                return Failure(FailureCode.CONFLICT, "此账号的指纹已经绑定另一张卡片")
+            if request.reuse_profile_id is not None and (bound is None or bound.item.id != request.reuse_profile_id):
+                return Failure(FailureCode.CONFLICT, "只能迁移与提交资料为同一账号的原指纹")
+            transfer: Final = bound is not None and bound.item.bound_environment_id != environment_id
+            if transfer and bound is not None:
+                prior_id: Final = bound.item.bound_environment_id
+                if prior_id is None or await self.environments.get(prior_id) is not None:
+                    return Failure(FailureCode.CONFLICT, "原卡片仍存在，不允许把同一账号分给两张卡")
+                if request.reuse_profile_id is None:
+                    return Failure(FailureCode.CONFLICT, "原卡片已删除，请显式选择迁移原指纹或删除失效绑定")
+                if any(job.item.profile_id == bound.item.id and (
+                    job.cleanup_pending or job.item.stage in ACTIVE | {"queued"}
+                ) for job in state.jobs):
+                    return Failure(FailureCode.CONFLICT, "原指纹还有未停止或未清理的任务")
             profile: Final = bound or next(
                 (p for p in state.profiles if p.item.enabled and p.account_digest is None), None
             )
@@ -244,31 +266,36 @@ class AutomationRegistry:
                 return Failure(FailureCode.CONFLICT, "没有可用的未绑定指纹，请添加或启用该账号原有指纹")
             if len(state.jobs) >= 200:
                 return Failure(FailureCode.CONFLICT, "任务记录已达到 200 条上限，暂不能继续添加")
-            matched: Final = await self._match_profile(profile, record.proxy_profile_id) if bound is None else Success(profile)
+            matched: Final = await self._match_profile(profile, proxy_id) if bound is None else Success(profile)
             if isinstance(matched, Failure):
                 return matched
             now: Final = utc_now()
             item: Final = JobView(
                 id=request.id,
-                environment_id=record.id,
+                environment_id=environment_id,
                 profile_id=profile.item.id,
-                proxy_profile_id=record.proxy_profile_id,
-                configuration_version=record.observed_configuration_version,
+                proxy_profile_id=proxy_id,
+                configuration_version=config_version,
                 model=request.model,
+                draft_pending=draft is not None,
+                message="待创建卡片；已保存授权任务" if draft is not None else "等待开启自动化后串行执行",
                 created_at=now,
                 updated_at=now,
             )
             job: Final = StoredJob(
                 item=item,
                 account_digest=identity,
-                credential_ciphertext=StateCipher(self.secrets).seal(record.id, request.credentials),
+                credential_ciphertext=StateCipher(self.secrets).seal(environment_id, request.credentials),
+                draft=draft,
             )
             assigned: Final = matched.value.model_copy(
                 update={
                     "account_digest": identity,
+                    **({"login_ciphertext": None} if transfer else {}),
                     "item": matched.value.item.model_copy(
                         update={
-                            "bound_environment_id": record.id,
+                            "bound_environment_id": environment_id,
+                            "reservation": bound is None or profile.item.reservation,
                             "version": profile.item.version + 1,
                         }
                     ),
@@ -300,16 +327,29 @@ class AutomationRegistry:
             )
             if existing is not None:
                 return Success(existing.item)
+            if record.oauth_state_consumed_at and (record.oauth_staged or record.oauth_verification_pending):
+                recovery: Final = next((
+                    job for job in reversed(state.jobs) if job.item.environment_id == environment_id
+                    and job.item.stage == "verification_failed"
+                ), None)
+                if recovery is not None:
+                    return Success(recovery.item.model_copy(update={"cleanup_pending": recovery.cleanup_pending}))
             saved: Final = next(
                 (row for row in reversed(state.jobs) if row.item.environment_id == environment_id
                  and row.credential_ciphertext), None,
             )
-            if saved is None:
+            profile: Final = next((row for row in state.profiles if row.item.bound_environment_id == environment_id), None)
+            ciphertext: Final = (
+                profile.login_ciphertext if profile and profile.login_ciphertext
+                else saved.credential_ciphertext if saved else None
+            )
+            if ciphertext is None:
                 return Success(None)
-            profile: Final = next((row for row in state.profiles if row.item.id == saved.item.profile_id), None)
             if (
-                profile is None or not profile.item.enabled or profile.item.bound_environment_id != environment_id
-                or profile.account_digest != saved.account_digest
+                profile is None or not profile.item.enabled or profile.account_digest is None
+                or (not profile.login_ciphertext and saved is not None and (
+                    profile.item.id != saved.item.profile_id or profile.account_digest != saved.account_digest
+                ))
             ):
                 return Failure(FailureCode.CONFLICT, "已保存的登录资料与当前指纹绑定不一致")
             if self.worker.image is None or not state.settings.enabled or state.checked_image != self.worker.image:
@@ -325,7 +365,7 @@ class AutomationRegistry:
             now: Final = utc_now()
             if record.auth_file_name or record.credential_fingerprints:
                 email: Final = record.credential_email
-                if email is None or self.identity(email) != saved.account_digest or not saved_login_can_replace(
+                if email is None or self.identity(email) != profile.account_digest or not saved_login_can_replace(
                     record, email, now,
                 ):
                     return Failure(FailureCode.CONFLICT, "卡片仍有可用凭据或账号无法确认，未启动重新授权")
@@ -339,10 +379,76 @@ class AutomationRegistry:
                 message="已复用加密登录资料，等待建立新的 OAuth 会话", created_at=now, updated_at=now,
             )
             job: Final = StoredJob(
-                item=item, account_digest=saved.account_digest, credential_ciphertext=saved.credential_ciphertext,
+                item=item, account_digest=profile.account_digest, credential_ciphertext=ciphertext,
             )
             await tx.save(state.model_copy(update={"jobs": (*state.jobs, job)}))
             return Success(item)
+
+    async def remember_login(self, job: StoredJob) -> None:
+        if not job.credential_ciphertext:
+            return
+        async with self.repository.transaction() as tx:
+            profiles: Final = tuple(
+                row.model_copy(update={
+                    "login_ciphertext": job.credential_ciphertext,
+                    "item": row.item.model_copy(update={"reservation": False}),
+                })
+                if row.item.id == job.item.profile_id and row.item.bound_environment_id == job.item.environment_id
+                and row.account_digest == job.account_digest else row
+                for row in tx.snapshot.profiles
+            )
+            if profiles != tx.snapshot.profiles:
+                await tx.save(tx.snapshot.model_copy(update={"profiles": profiles}))
+
+    async def forget_login(self, profile_id: UUID) -> Result[AutomationView]:
+        async with self.repository.worker_lock() as acquired:
+            if not acquired:
+                return Failure(FailureCode.CONFLICT, "任务正在推进，请稍后再忘记登录资料")
+            async with self.repository.transaction() as tx:
+                profile: Final = next((row for row in tx.snapshot.profiles if row.item.id == profile_id), None)
+                if profile is None:
+                    return Failure(FailureCode.NOT_FOUND, "指纹配置不存在")
+                related: Final = tuple(job for job in tx.snapshot.jobs if job.item.profile_id == profile_id)
+                if any(job.item.stage in ACTIVE | {"queued"} or job.cleanup_pending for job in related):
+                    return Failure(FailureCode.CONFLICT, "先结束并清理授权任务，再忘记登录资料")
+                await tx.save(tx.snapshot.model_copy(update={
+                    "profiles": tuple(row.model_copy(update={"login_ciphertext": None}) if row == profile else row
+                                      for row in tx.snapshot.profiles),
+                    "jobs": tuple(job.model_copy(update={"credential_ciphertext": ""}) if job in related else job
+                                  for job in tx.snapshot.jobs),
+                }))
+        return Success(await self.view())
+
+    async def release_reservation(self, profile_id: UUID) -> Result[AutomationView]:
+        async with self.repository.worker_lock() as acquired:
+            if not acquired:
+                return Failure(FailureCode.CONFLICT, "任务正在推进，请稍后再释放预留")
+            async with self.repository.transaction() as tx:
+                profile: Final = next((row for row in tx.snapshot.profiles if row.item.id == profile_id), None)
+                if profile is None:
+                    return Failure(FailureCode.NOT_FOUND, "指纹配置不存在")
+                environment_id: Final = profile.item.bound_environment_id
+                if not profile.item.reservation or environment_id is None or profile.login_ciphertext:
+                    return Failure(FailureCode.CONFLICT, "已确认的指纹不能作为未登录预留释放")
+                card: Final = await self.environments.get(environment_id)
+                related: Final = tuple(job for job in tx.snapshot.jobs
+                                       if job.item.profile_id == profile_id and job.item.environment_id == environment_id)
+                if (card and (card.oauth_automation_operation or card.auth_file_name or card.oauth_state_consumed_at
+                              or card.credential_fingerprints)) or any(
+                    job.item.stage in ACTIVE | {"queued"} or job.cleanup_pending or job.login_submitted
+                    or job.item.callback_consumed or (job.item.browser_session_id and not job.browser_fenced)
+                    for job in related
+                ):
+                    return Failure(FailureCode.CONFLICT, "登录已开始或尚未清理，不能把指纹给其他账号")
+                updated: Final = profile.model_copy(update={"account_digest": None, "item": profile.item.model_copy(
+                    update={"reservation": False, "bound_environment_id": None, "version": profile.item.version + 1},
+                )})
+                await tx.save(tx.snapshot.model_copy(update={
+                    "profiles": tuple(updated if row.item.id == profile_id else row for row in tx.snapshot.profiles),
+                    "jobs": tuple(job.model_copy(update={"credential_ciphertext": ""}) if job in related else job
+                                  for job in tx.snapshot.jobs),
+                }))
+        return Success(await self.view())
 
     async def _match_profile(self, profile: StoredProfile, proxy_id: str) -> Result[StoredProfile]:
         if not profile.item.auto_match_proxy:
@@ -406,8 +512,16 @@ class AutomationRegistry:
                     return Failure(FailureCode.NOT_FOUND, "任务不存在")
                 if row.item.stage in ACTIVE | {"queued"} or row.cleanup_pending:
                     return Failure(FailureCode.CONFLICT, "只能删除已结束且清理完成的任务记录")
+                profiles: Final = tuple(
+                    profile.model_copy(update={"login_ciphertext": row.credential_ciphertext})
+                    if row.item.stage == "completed" and row.credential_ciphertext and not profile.login_ciphertext
+                    and profile.item.id == row.item.profile_id
+                    and profile.item.bound_environment_id == row.item.environment_id
+                    and profile.account_digest == row.account_digest else profile
+                    for profile in tx.snapshot.profiles
+                )
                 await tx.save(tx.snapshot.model_copy(
-                    update={"jobs": tuple(job for job in tx.snapshot.jobs if job.item.id != job_id)}
+                    update={"profiles": profiles, "jobs": tuple(job for job in tx.snapshot.jobs if job.item.id != job_id)}
                 ))
         return Success(await self.view())
 

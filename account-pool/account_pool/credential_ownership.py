@@ -102,6 +102,11 @@ def credential_identity(content: bytes, supplier: str, secrets: EnvironmentSecre
     )
 
 
+def oauth_account_digest(email: str, secrets: EnvironmentSecretDeriver) -> str:
+    key: Final = secrets.derive(UUID(int=0), SecretPurpose.CREDENTIAL_IDENTITY).encode()
+    return hmac.new(key, f"oauth-automation:codex:{email.casefold()}".encode(), hashlib.sha256).hexdigest()
+
+
 class CredentialOwnership:
     """测试使用内存存储，生产注入数据库地址以获得持久归属和跨进程互斥。"""
 

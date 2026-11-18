@@ -33,9 +33,11 @@ from account_pool.application.environments.contracts import (
     StartAuthorizationOperation,
 )
 from account_pool.application.environments.contracts import AuthorizationConflict as _AuthorizationConflict
+from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+from account_pool.channels.cliproxyapi.protocol import StagedOAuthProbeFailure
 from account_pool.channels.registry import ChannelRegistry
 from account_pool.config import Settings
-from account_pool.credential_ownership import CredentialOwnership
+from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, oauth_account_digest
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationView,
@@ -44,6 +46,7 @@ from account_pool.domain import (
     EnvironmentStatus,
     EnvironmentView,
     OAuthCallback,
+    SupplierKind,
     configuration_from_record,
     to_view,
     utc_now,
@@ -73,7 +76,9 @@ class EnvironmentAuthorization:
 
     def _authorization_routable(self, record: EnvironmentRecord) -> bool:
         # 授权落盘可先完成；自动化占用仍由公共网关拦截，等待账号与推理验收。
-        return self._gateway_environment(record.model_copy(update={"oauth_automation_operation": None})).routable
+        return self._gateway_environment(record.model_copy(update={
+            "oauth_automation_operation": None, "oauth_verification_pending": False,
+        })).routable
 
     async def authorize_environment(
         self,
@@ -82,6 +87,8 @@ class EnvironmentAuthorization:
         *,
         require_empty: bool = False,
         reauthorize_email: str | None = None,
+        expected_account: str | None = None,
+        verification_model: str | None = None,
     ) -> Result[AuthorizationView]:
         """为已有 Compose 环境创建新的、一次性的 OAuth state，不重建可复用资源。"""
         lock: Final = await self._lock_for(environment_id)
@@ -103,6 +110,8 @@ class EnvironmentAuthorization:
                 return Failure(FailureCode.CONFLICT, "卡片已有凭据，仅允许同账号的失效凭据重新授权")
             if record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL:
                 return Failure(FailureCode.INVALID, "direct credential cards do not use OAuth authorization")
+            if record.credential_refresh.save_pending:
+                return Failure(FailureCode.CONFLICT, "新刷新凭据尚未确认保存，不能覆盖")
             if (
                 operation_id is not None
                 and record.operation_id == operation_id
@@ -117,17 +126,28 @@ class EnvironmentAuthorization:
             # 在锁内保护已经验证的降级凭据，避免旧页面请求清掉仍可用的绑定。
             if any(fallback.usable_for(model, now) for model in record.enabled_models):
                 return Failure(FailureCode.CONFLICT, "访问令牌降级仍可用，未启动重新授权")
+            if record.oauth_staged and record.oauth_provider_state and record.oauth_state_consumed_at:
+                return Failure(FailureCode.CONFLICT, "已有回调结果待核对，请先恢复原卡授权")
+            codex: Final = record.supplier is SupplierKind.OPENAI_CODEX
+            account: Final = expected_account or (
+                oauth_account_digest(record.credential_email, self._secrets) if codex and record.credential_email else None
+            )
             blocked: Final = record.model_copy(
                 update={
                     "version": record.version + 1,
                     "status": EnvironmentStatus.AWAITING_AUTHORIZATION,
                     "desired_state": EnvironmentStatus.AWAITING_AUTHORIZATION,
                     "configuration_pending": False,
-                    "auth_file_name": None,
-                    "auth_index": None,
-                    "credential_fingerprints": (),
-                    "credential_email": None,
-                    "credential_account_id": None,
+                    **({} if codex else {
+                        "auth_file_name": None, "auth_index": None, "credential_fingerprints": (),
+                        "credential_email": None, "credential_account_id": None,
+                    }),
+                    "oauth_previous_status": (record.oauth_previous_status or record.status) if codex else None,
+                    "oauth_expected_account": account,
+                    "oauth_requested_model": verification_model,
+                    **({"credential_refresh": record.credential_refresh.model_copy(update={
+                        "schedule_reason": "reauthorization_required",
+                    })} if codex and record.last_error == "上游认证失效，请重新认证" else {}),
                     "oauth_state": None,
                     "oauth_expires_at": None,
                     "oauth_state_consumed_at": None,
@@ -157,7 +177,7 @@ class EnvironmentAuthorization:
             channel: Final = self._channel(record)
             await channel.ensure_control_plane_connections(record.id)
             result: Final = await self._start_authorization(record)
-            provider_state, callback_state, callback_url, flow, user_code, expires_in = result
+            provider_state, callback_state, callback_url, flow, user_code, expires_in, staged = result
             _HTTP_URL_ADAPTER.validate_python(callback_url)
         except Exception as error:
             await self.persist_authorization_failure(record, str(error))
@@ -174,6 +194,7 @@ class EnvironmentAuthorization:
                 "oauth_state_consumed_at": None,
                 "oauth_state_signature": callback_state.rpartition(".")[2],
                 "oauth_provider_state": provider_state,
+                "oauth_staged": staged,
                 "oauth_authorization_url": callback_url,
                 "authorization_flow": flow,
                 "authorization_user_code": user_code,
@@ -203,7 +224,7 @@ class EnvironmentAuthorization:
                 await self._log_event(record, "authorization", error)
                 return Failure(FailureCode.UPSTREAM, "OAuth session cancellation failed")
             restored_status: Final = (
-                EnvironmentStatus.READY
+                (record.oauth_previous_status or EnvironmentStatus.READY)
                 if record.auth_file_name is not None and record.enabled and not record.manual_cooldown
                 else EnvironmentStatus.COOLING_DOWN
                 if record.manual_cooldown
@@ -220,6 +241,10 @@ class EnvironmentAuthorization:
                     "oauth_expires_at": None,
                     "oauth_state_signature": None,
                     "oauth_provider_state": None,
+                    "oauth_staged": False,
+                    "oauth_expected_account": None,
+                    "oauth_requested_model": None,
+                    "oauth_previous_status": None,
                     "oauth_authorization_url": None,
                     "authorization_user_code": None,
                     "last_error": None,
@@ -286,23 +311,16 @@ class EnvironmentAuthorization:
             channel: Final = self._channel(consumed)
             await channel.submit_callback(consumed, provider_callback)
         except Exception as error:
-            await self.persist_authorization_failure(consumed, str(error))
-            return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
-        validating: Final = consumed.model_copy(
-            update={
-                "version": consumed.version + 1,
-                "status": EnvironmentStatus.VALIDATING,
-                "desired_state": EnvironmentStatus.VALIDATING,
-                "oauth_expires_at": None,
-                "oauth_provider_state": None,
-                "oauth_authorization_url": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        claimed: Final = await self._repository.save_if_version(validating, consumed.version)
+            if not consumed.oauth_staged:
+                await self.persist_authorization_failure(consumed, str(error))
+                return Failure(FailureCode.UPSTREAM, "OAuth callback failed")
+            # 已消费，通知 CPA 的请求结果未知；只查询暂存结果，不重新转发授权码。
+            await self._log_event(consumed, "authorization", RuntimeError("OAuth callback result is unconfirmed"))
+        claimed: Final = await self._begin_validation(consumed)
         if claimed is None:
             return Failure(FailureCode.CONFLICT, "environment was changed by another request")
+        if claimed.oauth_staged:
+            return Success(to_view(claimed))
         try:
             validation: Final = await self.complete_authorization(claimed)
         except _AuthorizationConflict:
@@ -313,6 +331,21 @@ class EnvironmentAuthorization:
         if validated.status is EnvironmentStatus.READY and not self._authorization_routable(validated):
             return Failure(FailureCode.CONFLICT, "environment authorization is still being reconciled")
         return Success(to_view(validated))
+
+    async def _begin_validation(self, consumed: EnvironmentRecord) -> EnvironmentRecord | None:
+        validating: Final = consumed.model_copy(
+            update={
+                "version": consumed.version + 1,
+                "status": EnvironmentStatus.VALIDATING,
+                "desired_state": EnvironmentStatus.VALIDATING,
+                "oauth_expires_at": None,
+                "oauth_provider_state": consumed.oauth_provider_state if consumed.oauth_staged else None,
+                "oauth_authorization_url": None,
+                "last_error": None,
+                "updated_at": utc_now(),
+            }
+        )
+        return await self._repository.save_if_version(validating, consumed.version)
 
     async def find_by_operation_id(self, operation_id: str) -> EnvironmentRecord | None:
         return await self._repository.find_by_operation_id(operation_id)
@@ -325,16 +358,24 @@ class EnvironmentAuthorization:
         record: EnvironmentRecord,
         message: str,
     ) -> EnvironmentRecord:
+        status: Final = (
+            record.oauth_previous_status if record.auth_file_name and record.oauth_previous_status in {
+                EnvironmentStatus.READY, EnvironmentStatus.COOLING_DOWN, EnvironmentStatus.ERROR,
+            } else EnvironmentStatus.ERROR
+        )
         failed: Final = record.model_copy(
             update={
                 "version": record.version + 1,
-                "status": EnvironmentStatus.ERROR,
-                "desired_state": EnvironmentStatus.ERROR,
+                "status": status,
+                "desired_state": status,
                 "last_error": _safe_error(RuntimeError(message)),
                 "oauth_state": None,
                 "oauth_expires_at": None,
                 "oauth_state_signature": None,
                 "oauth_provider_state": None,
+                "oauth_staged": False,
+                "oauth_expected_account": None,
+                "oauth_requested_model": None,
                 "oauth_authorization_url": None,
                 "updated_at": utc_now(),
             }
@@ -386,14 +427,20 @@ class EnvironmentAuthorization:
             expires_at=record.oauth_expires_at,
         )
 
-    async def validate_authorized(self, record: EnvironmentRecord) -> EnvironmentRecord:
+    async def validate_authorized(
+        self, record: EnvironmentRecord, *, recovery_content: bytes | None = None,
+    ) -> EnvironmentRecord:
         started_at: Final = record.oauth_state_consumed_at or record.created_at
         remaining: Final = (started_at + _AUTHORIZATION_VALIDATION_TIMEOUT - utc_now()).total_seconds()
-        if remaining <= 0:
+        if remaining <= 0 and recovery_content is None:
             return await self.persist_validation_retry(record, "Account channel did not become ready")
+        if record.oauth_staged and record.oauth_provider_state:
+            staged: Final = await self._activate_codex_stage(record, recovery_content)
+            if staged is not None:
+                return staged
         try:
             # 限制包含底层连接退避在内的总耗时，避免 SDK 重试长期占住环境锁。
-            async with asyncio.timeout(min(15.0, remaining)):
+            async with asyncio.timeout(15.0 if record.oauth_staged else min(15.0, remaining)):
                 channel: Final = self._channel(record)
                 observed: Final = await channel.read_account(record)
                 healthy: Final = await channel.data_plane_health_check(observed)
@@ -402,6 +449,99 @@ class EnvironmentAuthorization:
         if not healthy:
             return await self.persist_validation_retry(record, "Account channel data plane validation failed")
         return observed
+
+    async def _activate_codex_stage(
+        self, record: EnvironmentRecord, content: bytes | None,
+    ) -> EnvironmentRecord | None:
+        channel: Final = self._channels.channel(record.channel)
+        if not isinstance(channel, CLIProxyAPIChannel):
+            return await self._stage_failure(record, "卡片运行时不支持暂存授权")
+        try:
+            async with asyncio.timeout(8):
+                candidate: Final = content if content is not None else await channel.staged_oauth_content(record)
+                status: Final = (
+                    await channel.authorization_status(record, record.oauth_provider_state or "")
+                    if candidate is None else None
+                )
+            if candidate is None:
+                if status and status.startswith("error:"):
+                    return await self._stage_failure(record, _safe_error(RuntimeError(status.removeprefix("error:"))))
+                return await self.persist_validation_retry(record, "等待 CPA 保存暂存凭据")
+            async with asyncio.timeout(53):
+                await channel.activate_staged_oauth(record, candidate)
+        except CredentialConflict as error:
+            # 尚未发布候选凭据。确认屏蔽旧会话后，允许在原卡修正资料再试。
+            try:
+                async with asyncio.timeout(8):
+                    await channel.cancel_oauth_session(record, record.oauth_provider_state or "")
+                    await self._ownership.retain(record.id, record.credential_fingerprints)
+            except Exception:
+                return await self._stage_failure(record, "凭据归属冲突，等待清理暂存文件")
+            return await self._stage_failure(record, str(error), discarded=True)
+        except StagedOAuthProbeFailure as error:
+            if error.reason == "authentication_failed":
+                try:
+                    async with asyncio.timeout(10):
+                        safe: Final = await self._fence_unchanged_oauth(record, channel)
+                except Exception:
+                    return await self._stage_failure(record, "候选凭据被拒绝，暂不能确认旧会话已停止")
+                return await self._stage_failure(
+                    record, "候选凭据被拒绝，已隔离，可以原卡重新授权" if safe else "凭据状态已改变，请先核对",
+                    discarded=safe,
+                )
+            return await self._stage_failure(record, str(error))
+        except Exception:
+            return await self._stage_failure(record, "CPA 尚未确认暂存凭据验收和切换，请在原卡核对后重试")
+        return None
+
+    async def _stage_failure(
+        self, record: EnvironmentRecord, message: str, *, discarded: bool = False,
+    ) -> EnvironmentRecord:
+        failed: Final = record.model_copy(update={
+            "version": record.version + 1, "status": EnvironmentStatus.ERROR,
+            "desired_state": EnvironmentStatus.ERROR, "last_error": message, "updated_at": utc_now(),
+            **({"oauth_provider_state": None} if discarded else {}),
+        })
+        saved: Final = await self._repository.save_if_version(failed, record.version)
+        if saved is None:
+            raise _AuthorizationConflict
+        await self._log_event(saved, "validation", RuntimeError(message), retryable=True)
+        return saved
+
+    async def _fence_unchanged_oauth(self, record: EnvironmentRecord, channel: CLIProxyAPIChannel) -> bool:
+        if not await channel.oauth_runtime_matches(record):
+            return False
+        if record.oauth_provider_state is not None:
+            await channel.cancel_oauth_session(record, record.oauth_provider_state)
+            if not await channel.oauth_runtime_matches(record):
+                return False
+        await self._ownership.retain(record.id, record.credential_fingerprints)
+        return True
+
+    async def recover_oauth_for_retry(
+        self, record: EnvironmentRecord, model: str | None = None,
+    ) -> Result[EnvironmentRecord]:
+        """调用者持同卡凭据锁；只对账并隔离旧会话，不再次提交回调。"""
+        channel: Final = self._channels.channel(record.channel)
+        if not isinstance(channel, CLIProxyAPIChannel):
+            return Failure(FailureCode.CONFLICT, "卡片运行时无法核对 OAuth 结果")
+        try:
+            async with asyncio.timeout(10):
+                candidate: Final = await channel.staged_oauth_content(record) if record.oauth_staged else None
+                if candidate is None and not await self._fence_unchanged_oauth(record, channel):
+                    return Failure(FailureCode.CONFLICT, "运行时存在未确认凭据，未再次登录或覆盖")
+            if candidate is not None:
+                selected: Final = record.model_copy(update={"oauth_requested_model": model or record.oauth_requested_model})
+                return await self.complete_authorization(selected, recovery_content=candidate)
+            updated: Final = record.model_copy(update={
+                "version": record.version + 1, "oauth_provider_state": None, "oauth_staged": False,
+                "oauth_state": None, "oauth_expires_at": None, "oauth_state_signature": None,
+                "oauth_state_consumed_at": None, "oauth_authorization_url": None, "updated_at": utc_now(),
+            })
+            saved: Final = await self._repository.save_if_version(updated, record.version)
+            return Success(saved) if saved is not None else Failure(FailureCode.CONFLICT, "卡片状态已改变，请刷新后重试")
+        except Exception:
+            return Failure(FailureCode.CONFLICT, "无法确认旧会话或凭据状态，未再次登录")
 
     async def persist_validation_retry(self, record: EnvironmentRecord, message: str) -> EnvironmentRecord:
         now: Final = utc_now()
@@ -428,8 +568,10 @@ class EnvironmentAuthorization:
         await self._log_event(saved, "validation", RuntimeError(message), retryable=not expired)
         return saved
 
-    async def complete_authorization(self, record: EnvironmentRecord) -> Result[EnvironmentRecord]:
-        validated: Final = await self.validate_authorized(record)
+    async def complete_authorization(
+        self, record: EnvironmentRecord, *, recovery_content: bytes | None = None,
+    ) -> Result[EnvironmentRecord]:
+        validated: Final = await self.validate_authorized(record, recovery_content=recovery_content)
         if validated.status is EnvironmentStatus.VALIDATING:
             return Failure(FailureCode.CONFLICT, "Account authorization received; waiting for channel startup")
         if validated.status not in _AUTHORIZATION_COMPLETE_STATUSES:
@@ -441,6 +583,12 @@ class EnvironmentAuthorization:
                 "desired_state": validated.status,
                 "oauth_expires_at": None,
                 "oauth_provider_state": None,
+                "oauth_staged": False,
+                "oauth_expected_account": None,
+                "oauth_requested_model": None,
+                "oauth_previous_status": None,
+                "oauth_verification_pending": record.supplier is SupplierKind.OPENAI_CODEX
+                and (record.oauth_automation_operation is not None or recovery_content is not None),
                 "oauth_authorization_url": None,
                 "last_error": None,
                 "updated_at": utc_now(),
@@ -457,6 +605,7 @@ class EnvironmentAuthorization:
             saved_completed: Final = await self._repository.save_if_version(normalized, record.version)
             if saved_completed is None:
                 raise _AuthorizationConflict
+            await self._discard_confirmed_stage(record)
             return Success(saved_completed)
         initial_desired: Final = completed.desired_configuration or configuration_from_record(completed)
         desired: Final = (
@@ -475,6 +624,7 @@ class EnvironmentAuthorization:
         claimed: Final = await self._repository.save_if_version(pending, record.version)
         if claimed is None:
             raise _AuthorizationConflict
+        await self._discard_confirmed_stage(record)
         reconciled: Final = await self._apply_and_persist_configuration(claimed, desired)
         if isinstance(reconciled, Failure):
             return reconciled
@@ -484,6 +634,14 @@ class EnvironmentAuthorization:
         if persisted.status is EnvironmentStatus.READY and not self._authorization_routable(persisted):
             raise _AuthorizationConflict
         return Success(persisted)
+
+    async def _discard_confirmed_stage(self, record: EnvironmentRecord) -> None:
+        if record.oauth_staged and record.oauth_provider_state:
+            try:
+                async with asyncio.timeout(5):
+                    await self._channel(record).cancel_oauth_session(record, record.oauth_provider_state)
+            except Exception:
+                await self._log_event(record, "cleanup", RuntimeError("OAuth 暂存文件清理失败"), retryable=True)
 
     async def persist_cleanup_progress(
         self,
@@ -517,6 +675,9 @@ class EnvironmentAuthorization:
         return saved or await self._repository.get(record.id) or record
 
     async def refresh_authorization(self, record: EnvironmentRecord) -> EnvironmentRecord:
+        if record.oauth_staged and record.oauth_state_consumed_at is not None:
+            resuming: Final = await self._begin_validation(record)
+            return resuming or await self._repository.get(record.id) or record
         if record.oauth_state is None or record.oauth_expires_at is None:
             return record
         if record.oauth_expires_at <= utc_now():
@@ -548,19 +709,7 @@ class EnvironmentAuthorization:
             return await self._repository.get(record.id) or record
         if consumed.oauth_state_signature is None or not self.valid_state_signature(consumed, record.oauth_state):
             return await self.persist_authorization_failure(consumed, "invalid OAuth state")
-        validating: Final = consumed.model_copy(
-            update={
-                "version": consumed.version + 1,
-                "status": EnvironmentStatus.VALIDATING,
-                "desired_state": EnvironmentStatus.VALIDATING,
-                "oauth_expires_at": None,
-                "oauth_authorization_url": None,
-                "oauth_provider_state": None,
-                "last_error": None,
-                "updated_at": utc_now(),
-            }
-        )
-        claimed: Final = await self._repository.save_if_version(validating, consumed.version)
+        claimed: Final = await self._begin_validation(consumed)
         if claimed is None:
             return await self._repository.get(record.id) or record
         try:
