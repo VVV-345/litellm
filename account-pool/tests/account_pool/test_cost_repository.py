@@ -103,3 +103,79 @@ async def test_automatic_renewal_catchup_concurrency_stop_void_and_legacy_json(d
         await connection.execute("DELETE FROM account_pool_environments WHERE id = %s", (account.id,))
     await store.renew_due(date(2026, 7, 1))
     assert len(await store.list()) == 5
+
+
+@pytest.mark.asyncio
+async def test_replacement_is_atomic_audited_idempotent_and_used_by_reports_and_renewal(database):
+    from account_pool.cost_models import PoolCostQuery
+    from account_pool.costs import cost_report
+
+    url, environments, _ = database
+    store = PostgresCostRepository(url)
+    await store.initialize()
+    _, account, _, _ = setup_service()
+    await environments.save(account)
+    original = PoolCostCreate(id=uuid4(), category="subscription", account_id=account.id, name="月费",
+        amount_cents=19900, paid_on="2026-01-01", starts_on="2026-01-01", ends_on="2026-01-31",
+        cycle_months=1, auto_renew=True)
+    await store.create(original, "admin")
+    correction = original.model_copy(update={"id": uuid4(), "amount_cents": 9900, "note": "更正实付金额"})
+    changed_scope = await store.replace(original.id, correction.model_copy(update={"account_id": uuid4()}), "editor")
+    assert isinstance(changed_scope, CostFailure) and changed_scope.status == 422
+    assert len(await store.list()) == 1 and (await store.list())[0].auto_renew
+    first, retry = await asyncio.gather(store.replace(original.id, correction, "editor"),
+        PostgresCostRepository(url).replace(original.id, correction, "editor"))
+    assert first == retry and not isinstance(first, CostFailure)
+    assert first.created_by == "editor" and first.auto_renew and first.note == correction.note
+    records = await store.list()
+    assert len(records) == 2
+    old = next(r for r in records if r.id == original.id)
+    assert old.voided_by == "editor" and old.voided_at and not old.auto_renew
+    assert str(correction.id) in old.void_reason
+    report = cost_report(records, {account.id: account.name},
+        PoolCostQuery(starts_on="2026-01-01", ends_on="2026-01-31"), date(2026, 1, 10))
+    assert report.paid.total_cents == report.period.total_cents == 9900
+    assert report.accounts[0].latest.id == correction.id
+    conflict = await store.replace(original.id, correction.model_copy(update={"id": uuid4()}), "editor")
+    assert isinstance(conflict, CostFailure) and conflict.status == 409
+    await store.renew_due(date(2026, 2, 1))
+    active = [r for r in await store.list() if not r.voided_at]
+    assert len(active) == 2 and all(r.amount_cents == 9900 for r in active)
+    stale = await store.replace(correction.id, correction.model_copy(update={"id": uuid4()}), "editor")
+    assert isinstance(stale, CostFailure) and stale.status == 409
+    assert len(await store.list()) == 3
+
+
+@pytest.mark.asyncio
+async def test_replacement_failure_preserves_original_and_existing_unrelated_record(database):
+    url, environments, _ = database
+    store = PostgresCostRepository(url)
+    await store.initialize()
+    _, account, _, _ = setup_service()
+    await environments.save(account)
+    original = PoolCostCreate(id=uuid4(), category="subscription", account_id=account.id, name="月费",
+        amount_cents=19900, paid_on="2026-01-01", starts_on="2026-01-01", ends_on="2026-01-31")
+    saved = await store.create(original, "admin")
+    other = original.model_copy(update={"id": uuid4(), "category": "server", "account_id": None})
+    await store.create(other, "admin")
+    collision = await store.replace(original.id, original.model_copy(update={"id": other.id}), "editor")
+    assert isinstance(collision, CostFailure) and collision.status == 409
+    async with database_connection(url) as connection:
+        await connection.execute("DELETE FROM account_pool_environments WHERE id = %s", (account.id,))
+    missing = await store.replace(original.id, original.model_copy(update={"id": uuid4()}), "editor")
+    assert isinstance(missing, CostFailure) and missing.status == 404
+    assert next(r for r in await store.list() if r.id == original.id) == saved
+    assert len(await store.list()) == 2
+
+    await environments.save(account)
+    async with database_connection(url) as connection:
+        await connection.execute("""CREATE FUNCTION reject_cost_update() RETURNS trigger LANGUAGE plpgsql AS
+            $$ BEGIN RAISE EXCEPTION 'simulated update failure'; END $$""")
+        await connection.execute("CREATE TRIGGER reject_cost_update BEFORE UPDATE ON account_pool_cost_records "
+                                 "FOR EACH ROW EXECUTE FUNCTION reject_cost_update()")
+    import psycopg
+
+    with pytest.raises(psycopg.errors.RaiseException, match="simulated update failure"):
+        await store.replace(original.id, original.model_copy(update={"id": uuid4(), "auto_renew": True, "cycle_months": 1}), "editor")
+    assert len(await store.list()) == 2
+    assert next(r for r in await store.list() if r.id == original.id) == saved

@@ -61,6 +61,18 @@ def create_cost_router(
             TypeAdapter(PoolCostRecord),
         )
 
+    async def replace(
+        record_id: UUID, request: PoolCostCreate, identity: Annotated[str, Depends(admin)]
+    ) -> PoolCostRecord:
+        return parse(
+            await request_manager(
+                "POST",
+                f"/api/costs/{record_id}/replace?" + urlencode((("actor", identity),)),
+                request.model_dump_json().encode(),
+            ),
+            TypeAdapter(PoolCostRecord),
+        )
+
     async def void(record_id: UUID, request: PoolCostVoid, identity: Annotated[str, Depends(admin)]) -> PoolCostRecord:
         return parse(
             await request_manager(
@@ -77,6 +89,7 @@ def create_cost_router(
             TypeAdapter(PoolCostRecord),
         )
 
+    router.post("/{record_id}/replace", response_model=PoolCostRecord)(replace)
     router.post("/{record_id}/stop-renewal", response_model=PoolCostRecord)(stop_renewal)
     router.get("", response_model=PoolCostReport)(report)
     router.post("", response_model=PoolCostRecord)(create)

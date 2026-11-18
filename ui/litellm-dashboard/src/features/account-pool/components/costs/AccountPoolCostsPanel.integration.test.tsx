@@ -12,6 +12,7 @@ vi.mock("../../api/AccountPoolCostsApi", () => ({
   voidCost: vi.fn(),
   stopCostRenewal: vi.fn(),
   createCost: vi.fn(),
+  replaceCost: vi.fn(),
 }));
 it("switches totals, keeps missing costs visible, and refreshes after an explicit void", async () => {
   await i18n.changeLanguage("zh-CN");
@@ -60,7 +61,7 @@ it("switches totals, keeps missing costs visible, and refreshes after an explici
   );
   expect(await screen.findByText("真实账号")).toBeInTheDocument();
   expect(screen.getAllByText("¥10.00")).toHaveLength(2);
-  expect(screen.getAllByText("未录入")).toHaveLength(4);
+  expect(screen.getAllByText("未录入")).toHaveLength(3);
   await userEvent.click(screen.getByRole("button", { name: "实际付款" }));
   expect(screen.queryByText("¥10.00")).not.toBeInTheDocument();
   expect(screen.getAllByText("¥31.00")).toHaveLength(3);
@@ -127,6 +128,15 @@ it("displays automatic renewal and stops it through the account action", async (
     </QueryClientProvider>,
   );
   expect(await screen.findByText("自动续期已开启")).toBeInTheDocument();
+  expect(screen.queryByRole("columnheader", { name: "期间成本" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "录入" })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "重新录入" }));
+  expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("118.00");
+  expect(screen.getByLabelText("付款日期")).toHaveValue("2026-11-01");
+  expect(screen.getByLabelText("服务开始日期")).toHaveValue("2026-11-01");
+  expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-11-30");
+  expect(screen.getByRole("switch", { name: "到期后自动续期" })).toBeChecked();
+  await userEvent.click(screen.getByRole("button", { name: "取消" }));
   await userEvent.click(screen.getByRole("button", { name: "关闭续期" }));
   await waitFor(() => expect(stopCostRenewal).toHaveBeenCalledWith("admin", "subscription"));
 });

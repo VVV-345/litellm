@@ -15,12 +15,42 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/lib/toast";
-import { createCost, type CostCategory, type CostCreate, type CostRecord } from "../../api/AccountPoolCostsApi";
+import {
+  createCost,
+  replaceCost,
+  type CostCategory,
+  type CostCreate,
+  type CostRecord,
+} from "../../api/AccountPoolCostsApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { chinaToday, costLabels, cycleEnd, nextDate, parseCents } from "./costForm";
 import { CodingPlanPresetPicker } from "./CodingPlanPresetPicker";
 
-export type CostEntryTarget = { category: CostCategory; account?: { id: string; name: string }; renewal?: CostRecord };
+export type CostEntryTarget = {
+  category: CostCategory;
+  account?: { id: string; name: string };
+  renewal?: CostRecord;
+  editing?: CostRecord;
+};
+function initialValues(target: CostEntryTarget, today: string) {
+  const previous = target.editing ?? target.renewal;
+  const startsOn = target.editing?.starts_on ?? (target.renewal ? nextDate(target.renewal.ends_on) : today);
+  const cycleMonths = previous?.cycle_months ?? null;
+  const calculatedEnd = cycleMonths ? cycleEnd(startsOn, cycleMonths) : "";
+  const endsOn = target.editing?.ends_on ?? calculatedEnd;
+  return {
+    name: previous?.name ?? (target.account ? `${target.account.name} 订阅` : ""),
+    amount: previous ? (previous.amount_cents / 100).toFixed(2) : "",
+    paidOn: target.editing?.paid_on ?? today,
+    startsOn,
+    cycleMonths,
+    autoRenew: target.editing?.auto_renew === true,
+    endsOn,
+    automaticEnd: !target.editing || calculatedEnd === endsOn,
+    note: target.editing?.note ?? "",
+  };
+}
+
 export function CostEntryDialog({
   accessToken,
   target,
@@ -32,24 +62,26 @@ export function CostEntryDialog({
 }) {
   const cache = useQueryClient();
   const today = chinaToday();
-  const [name, setName] = useState(target.renewal?.name ?? (target.account ? `${target.account.name} 订阅` : ""));
-  const [amount, setAmount] = useState(target.renewal ? (target.renewal.amount_cents / 100).toFixed(2) : "");
-  const [paidOn, setPaidOn] = useState(today);
-  const [startsOn, setStartsOn] = useState(target.renewal ? nextDate(target.renewal.ends_on) : today);
-  const [cycleMonths, setCycleMonths] = useState<1 | 3 | 12 | null>(target.renewal?.cycle_months ?? null);
-  const [autoRenew, setAutoRenew] = useState(false);
-  const [endsOn, setEndsOn] = useState(
-    target.renewal?.cycle_months ? cycleEnd(nextDate(target.renewal.ends_on), target.renewal.cycle_months) : "",
-  );
-  const [automaticEnd, setAutomaticEnd] = useState(true);
-  const [note, setNote] = useState("");
+  const [initial] = useState(() => initialValues(target, today));
+  const [name, setName] = useState(initial.name);
+  const [amount, setAmount] = useState(initial.amount);
+  const [paidOn, setPaidOn] = useState(initial.paidOn);
+  const [startsOn, setStartsOn] = useState(initial.startsOn);
+  const [cycleMonths, setCycleMonths] = useState(initial.cycleMonths);
+  const [autoRenew, setAutoRenew] = useState(initial.autoRenew);
+  const [endsOn, setEndsOn] = useState(initial.endsOn);
+  const [automaticEnd, setAutomaticEnd] = useState(initial.automaticEnd);
+  const [note, setNote] = useState(initial.note);
+  const entryTitle = target.renewal ? "记录续费" : "录入费用";
+  const title = target.editing ? "重新录入费用" : entryTitle;
   const [error, setError] = useState<string | null>(null);
   const attempt = useRef<{ payload: string; id: string } | null>(null);
   const mutation = useMutation({
-    mutationFn: (body: CostCreate) => createCost(accessToken, body),
+    mutationFn: (body: CostCreate) =>
+      target.editing ? replaceCost(accessToken, target.editing.id, body) : createCost(accessToken, body),
     onSuccess: async () => {
       await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.costsRoot(accessToken) });
-      toast.success("费用已录入");
+      toast.success(target.editing ? "费用已更新" : "费用已录入");
       onClose();
     },
     onError: (cause: Error) => setError(cause.message || "保存失败，请重试"),
@@ -112,10 +144,11 @@ export function CostEntryDialog({
       <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            {target.renewal ? "记录续费" : "录入费用"} · {costLabels[target.category]}
+            {title} · {costLabels[target.category]}
           </DialogTitle>
           <DialogDescription>
-            {target.account ? `关联账号：${target.account.name}` : "独立记录资源费用，不分摊到账号"}。仅录入已确认付款
+            {target.account ? `关联账号：${target.account.name}` : "独立记录资源费用，不分摊到账号"}。
+            {target.editing ? "保存后替换原费用，旧记录保留且不重复计费" : "仅录入已确认付款"}
           </DialogDescription>
         </DialogHeader>
         <form

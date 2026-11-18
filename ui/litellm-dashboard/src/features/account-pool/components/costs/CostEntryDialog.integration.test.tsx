@@ -4,10 +4,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
-import { createCost, type CostRecord } from "../../api/AccountPoolCostsApi";
+import { createCost, replaceCost, type CostRecord } from "../../api/AccountPoolCostsApi";
 import { CostEntryDialog } from "./CostEntryDialog";
 
-vi.mock("../../api/AccountPoolCostsApi", () => ({ createCost: vi.fn() }));
+vi.mock("../../api/AccountPoolCostsApi", () => ({ createCost: vi.fn(), replaceCost: vi.fn() }));
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}>
     {children}
@@ -162,4 +162,56 @@ it("applies monthly dates, follows start edits until manually overridden and sav
       expect.objectContaining({ auto_renew: true, cycle_months: 1, ends_on: "2026-02-28" }),
     ),
   );
+});
+
+it("edits the existing period and retries its replacement without creating a duplicate payment", async () => {
+  const editing: CostRecord = {
+    id: "original",
+    category: "subscription",
+    account_id: account.id,
+    name: "原月费",
+    amount_cents: 11800,
+    currency: "CNY",
+    paid_on: "2026-01-03",
+    starts_on: "2026-01-01",
+    ends_on: "2026-01-31",
+    note: "原备注",
+    cycle_months: 1,
+    auto_renew: true,
+    created_at: "2026-01-03T00:00:00Z",
+    created_by: "admin",
+  };
+  const close = vi.fn();
+  vi.mocked(replaceCost).mockRejectedValueOnce(new Error("网络中断"));
+  render(
+    <CostEntryDialog accessToken="admin" target={{ category: "subscription", account, editing }} onClose={close} />,
+    { wrapper },
+  );
+  expect(screen.getByLabelText("套餐 / 费用名称")).toHaveValue("原月费");
+  expect(screen.getByLabelText("付款日期")).toHaveValue("2026-01-03");
+  expect(screen.getByLabelText("服务开始日期")).toHaveValue("2026-01-01");
+  expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-01-31");
+  expect(screen.getByLabelText("备注（选填）")).toHaveValue("原备注");
+  expect(screen.getByRole("switch", { name: "到期后自动续期" })).toBeChecked();
+  fireEvent.change(screen.getByLabelText("付款金额（人民币 ¥）"), { target: { value: "99" } });
+  fireEvent.change(screen.getByLabelText("备注（选填）"), { target: { value: "修正金额" } });
+  await userEvent.click(screen.getByRole("button", { name: "保存费用" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("网络中断");
+  const body = vi.mocked(replaceCost).mock.calls[0][2];
+  const expectedCorrection = {
+    account_id: account.id,
+    amount_cents: 9900,
+    paid_on: "2026-01-03",
+    starts_on: "2026-01-01",
+    ends_on: "2026-01-31",
+    note: "修正金额",
+    cycle_months: 1,
+    auto_renew: true,
+  };
+  expect(body).toMatchObject(expectedCorrection);
+  vi.mocked(replaceCost).mockResolvedValueOnce({ ...editing, ...body });
+  await userEvent.click(screen.getByRole("button", { name: "保存费用" }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(replaceCost).toHaveBeenLastCalledWith("admin", "original", body);
+  expect(createCost).not.toHaveBeenCalled();
 });

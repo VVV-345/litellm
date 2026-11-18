@@ -61,6 +61,13 @@ def create_cost_router(
             raise HTTPException(422, "付款日期不能晚于今天，未付款续费不能记为实际支出")
         return expose(await repository.create(request, actor))
 
+    async def replace(
+        record_id: UUID, request: PoolCostCreate, actor: Annotated[str, Query(max_length=256)] = "administrator"
+    ) -> PoolCostRecord:
+        if request.paid_on > datetime.now(ZoneInfo("Asia/Shanghai")).date():
+            raise HTTPException(422, "付款日期不能晚于今天，未付款续费不能记为实际支出")
+        return expose(await repository.replace(record_id, request, actor))
+
     async def void(
         record_id: UUID, request: PoolCostVoid, actor: Annotated[str, Query(max_length=256)] = "administrator"
     ) -> PoolCostRecord:
@@ -69,6 +76,7 @@ def create_cost_router(
     async def stop_renewal(record_id: UUID) -> PoolCostRecord:
         return expose(await repository.stop_renewal(record_id))
 
+    router.post("/{record_id}/replace", response_model=PoolCostRecord)(replace)
     router.post("/{record_id}/stop-renewal", response_model=PoolCostRecord)(stop_renewal)
     router.get("", response_model=PoolCostReport)(report)
     router.post("", response_model=PoolCostRecord)(create)

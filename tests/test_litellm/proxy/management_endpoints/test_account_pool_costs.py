@@ -53,6 +53,7 @@ def test_all_cost_routes_require_admin():
     assert client.post("/account_pool/costs", json=payload()).status_code == 403
     assert client.post(f"/account_pool/costs/{uuid4()}/void", json={"reason": "误录"}).status_code == 403
     assert client.post(f"/account_pool/costs/{uuid4()}/stop-renewal").status_code == 403
+    assert client.post(f"/account_pool/costs/{uuid4()}/replace", json=payload()).status_code == 403
     assert not seen
 
 
@@ -91,3 +92,13 @@ def test_stop_renewal_forwards_fixed_uuid_path_and_validates_response():
     response = TestClient(app).post(f"/account_pool/costs/{record_id}/stop-renewal")
     assert response.status_code == 200 and response.json()["auto_renew"] is False
     assert seen == [("POST", f"/api/costs/{record_id}/stop-renewal", None)]
+
+
+def test_replacement_forwards_original_id_payload_and_authenticated_actor():
+    client, seen = client_for()
+    original_id = uuid4()
+    body = payload()
+    response = client.post(f"/account_pool/costs/{original_id}/replace?actor=attacker", json=body)
+    assert response.status_code == 200
+    assert response.json()["id"] == body["id"]
+    assert seen == [("POST", f"/api/costs/{original_id}/replace?actor=admin%3Atester")]

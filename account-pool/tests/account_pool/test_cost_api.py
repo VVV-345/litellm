@@ -21,6 +21,9 @@ class UnavailableCosts:
     async def create(self, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure:
         raise psycopg.OperationalError("private-db-password-do-not-expose")
 
+    async def replace(self, record_id: UUID, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure:
+        raise psycopg.OperationalError("private-db-password-do-not-expose")
+
     async def stop_renewal(self, record_id: UUID) -> PoolCostRecord | CostFailure:
         return CostFailure(404, "费用记录不存在")
 
@@ -40,6 +43,7 @@ def test_manager_auth_future_payment_report_and_safe_storage_error():
     client: Final = TestClient(app)
     query: Final = "/api/costs?starts_on=2026-01-01&ends_on=2026-01-31"
     assert client.get(query).status_code == 401
+    assert client.post(f"/api/costs/{uuid4()}/replace", json={}).status_code == 401
     headers: Final = {"Authorization": "Bearer test-private-token"}
     report: Final = client.get(query, headers=headers)
     assert report.status_code == 200
@@ -66,3 +70,16 @@ def test_manager_auth_future_payment_report_and_safe_storage_error():
     missing: Final = client.post(f"/api/costs/{uuid4()}/void", json={"reason": "误录"}, headers=headers)
     assert missing.status_code == 404
     assert client.get("/api/costs?starts_on=2026-02-01&ends_on=2026-01-01", headers=headers).status_code == 422
+
+
+def test_replacement_uses_same_auth_validation_and_safe_error_boundary():
+    app = FastAPI()
+    app.include_router(create_cost_router(UnavailableCosts(), MemoryRepository(setup_service()[1]), lambda: None))
+    client = TestClient(app)
+    body = {"id": str(uuid4()), "category": "server", "name": "服务器", "amount_cents": 100,
+            "paid_on": "2026-01-01", "starts_on": "2026-01-01", "ends_on": "2026-01-31"}
+    path = f"/api/costs/{uuid4()}/replace"
+    assert client.post(path, json={**body, "paid_on": "2099-01-01"}).status_code == 422
+    response = client.post(path, json=body)
+    assert response.status_code == 503
+    assert "private-db-password" not in response.text

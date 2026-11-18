@@ -28,7 +28,6 @@ function accountExpiry(account: CostAccount): string {
 }
 function AccountCostRow({
   a,
-  mode,
   setTarget,
   stopRenewal,
   stopping,
@@ -36,7 +35,6 @@ function AccountCostRow({
   a: CostAccount;
   stopRenewal: (id: string) => void;
   stopping: boolean;
-  mode: "period" | "paid";
   setTarget: (target: CostEntryTarget) => void;
 }) {
   return (
@@ -63,9 +61,6 @@ function AccountCostRow({
         )}
       </TableCell>
       <TableCell className="text-right tabular-nums">{a.latest ? money(a.latest.amount_cents) : "未录入"}</TableCell>
-      <TableCell className="text-right tabular-nums">
-        {a.recorded ? money(mode === "period" ? a.period_cents : a.paid_cents) : "未录入"}
-      </TableCell>
       <TableCell>{accountExpiry(a)}</TableCell>
       <TableCell>
         {!a.archived && (
@@ -77,10 +72,11 @@ function AccountCostRow({
                 setTarget({
                   category: "subscription",
                   account: { id: a.account_id, name: a.account_name },
+                  editing: a.latest ?? undefined,
                 })
               }
             >
-              录入
+              {a.latest ? "重新录入" : "录入"}
             </Button>
             {a.latest?.auto_renew && (
               <Button size="sm" variant="ghost" disabled={stopping} onClick={() => stopRenewal(a.latest!.id)}>
@@ -219,7 +215,6 @@ export function AccountPoolCostsPanel({ accessToken, active = true }: { accessTo
           <CostSummary data={data} mode={mode} />
           <AccountCosts
             accounts={accounts}
-            mode={mode}
             setTarget={setTarget}
             search={search}
             setSearch={setSearch}
@@ -428,7 +423,6 @@ function VoidCostDialog({
 
 function AccountCosts({
   accounts,
-  mode,
   setTarget,
   search,
   setSearch,
@@ -436,7 +430,6 @@ function AccountCosts({
   stopping,
 }: {
   accounts: CostAccount[];
-  mode: "period" | "paid";
   setTarget: (target: CostEntryTarget) => void;
   search: string;
   setSearch: (value: string) => void;
@@ -462,7 +455,6 @@ function AccountCosts({
               <TableHead>账号</TableHead>
               <TableHead>最近服务期 / 套餐</TableHead>
               <TableHead className="text-right">最近一笔订阅金额</TableHead>
-              <TableHead className="text-right">{mode === "period" ? "期间成本" : "实际付款"}</TableHead>
               <TableHead>到期提醒</TableHead>
               <TableHead>操作</TableHead>
             </TableRow>
@@ -472,7 +464,6 @@ function AccountCosts({
               <AccountCostRow
                 key={a.account_id}
                 a={a}
-                mode={mode}
                 setTarget={setTarget}
                 stopRenewal={stopRenewal}
                 stopping={stopping}
@@ -480,7 +471,7 @@ function AccountCosts({
             ))}
             {!accounts.length && (
               <TableRow>
-                <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                <TableCell colSpan={5} className="py-8 text-center text-muted-foreground">
                   {search ? "没有匹配的账号" : "暂无账号，请先在号池添加真实账号，再录入订阅费用"}
                 </TableCell>
               </TableRow>

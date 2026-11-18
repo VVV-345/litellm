@@ -42,6 +42,7 @@ class CostFailure:
 class CostRepository(Protocol):
     async def list(self) -> tuple[PoolCostRecord, ...]: ...
     async def create(self, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure: ...
+    async def replace(self, record_id: UUID, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure: ...
     async def void(self, record_id: UUID, reason: str, actor: str) -> PoolCostRecord | CostFailure: ...
     async def stop_renewal(self, record_id: UUID) -> PoolCostRecord | CostFailure: ...
 
@@ -78,55 +79,97 @@ class PostgresCostRepository:
     async def create(self, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure:
         async with database_connection(self._database_url) as connection:
             await connection.execute("SELECT pg_advisory_xact_lock(741935802)")
-            previous: Final = await connection.execute(_RECORD_QUERY + "WHERE c.id = %s", (request.id,))
-            previous_row: Final = await previous.fetchone()
-            if previous_row is not None:
-                return replay(PoolCostRecord.model_validate(previous_row["payload"]), request)
-            account: Final = await connection.execute(
-                "SELECT payload->>'name' AS name FROM account_pool_environments WHERE id = %s "
-                "AND payload->>'status' <> 'deleting' FOR SHARE",
-                (request.account_id,),
-            )
-            account_row: Final = await account.fetchone()
-            if request.account_id is not None and account_row is None:
-                return CostFailure(404, "账号不存在或正在删除，无法录入订阅费用")
-            record: Final = PoolCostRecord(
-                id=request.id,
-                category=request.category,
-                account_id=request.account_id,
-                name=request.name,
-                amount_cents=request.amount_cents,
-                currency=request.currency,
-                paid_on=request.paid_on,
-                starts_on=request.starts_on,
-                ends_on=request.ends_on,
-                note=request.note,
-                auto_renew=request.auto_renew,
-                cycle_months=request.cycle_months,
-                account_name=str(account_row["name"]) if account_row else None,
-                created_at=datetime.now(timezone.utc),
-                created_by=actor,
-            )
-            if request.account_id is not None:
-                await connection.execute(
-                    "UPDATE account_pool_cost_renewals SET auto_renew = false WHERE id IN "
-                    "(SELECT id FROM account_pool_cost_records WHERE payload->>'account_id' = %s)",
-                    (str(request.account_id),),
-                )
+            return await self._create(connection, request, actor)
+
+    async def _create(
+        self, connection: AsyncConnection[Mapping[str, object]], request: PoolCostCreate, actor: str
+    ) -> PoolCostRecord | CostFailure:
+        previous: Final = await connection.execute(_RECORD_QUERY + "WHERE c.id = %s", (request.id,))
+        previous_row: Final = await previous.fetchone()
+        if previous_row is not None:
+            return replay(PoolCostRecord.model_validate(previous_row["payload"]), request)
+        account: Final = await connection.execute(
+            "SELECT payload->>'name' AS name FROM account_pool_environments WHERE id = %s "
+            "AND payload->>'status' <> 'deleting' FOR SHARE",
+            (request.account_id,),
+        )
+        account_row: Final = await account.fetchone()
+        if request.account_id is not None and account_row is None:
+            return CostFailure(404, "账号不存在或正在删除，无法录入订阅费用")
+        record: Final = PoolCostRecord(
+            id=request.id,
+            category=request.category,
+            account_id=request.account_id,
+            name=request.name,
+            amount_cents=request.amount_cents,
+            currency=request.currency,
+            paid_on=request.paid_on,
+            starts_on=request.starts_on,
+            ends_on=request.ends_on,
+            note=request.note,
+            auto_renew=request.auto_renew,
+            cycle_months=request.cycle_months,
+            account_name=str(account_row["name"]) if account_row else None,
+            created_at=datetime.now(timezone.utc),
+            created_by=actor,
+        )
+        if request.account_id is not None:
             await connection.execute(
-                "INSERT INTO account_pool_cost_records (id, payload) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
-                (record.id, Jsonb(record.model_dump(mode="json", exclude=_METADATA_FIELDS))),
+                "UPDATE account_pool_cost_renewals SET auto_renew = false WHERE id IN "
+                "(SELECT id FROM account_pool_cost_records WHERE payload->>'account_id' = %s)",
+                (str(request.account_id),),
             )
-            await connection.execute(
-                "INSERT INTO account_pool_cost_renewals (id, auto_renew, cycle_months) VALUES (%s, %s, %s) "
-                "ON CONFLICT (id) DO NOTHING",
-                (record.id, record.auto_renew, record.cycle_months),
-            )
-            saved: Final = await connection.execute(_RECORD_QUERY + "WHERE c.id = %s", (record.id,))
-            row: Final = await saved.fetchone()
+        await connection.execute(
+            "INSERT INTO account_pool_cost_records (id, payload) VALUES (%s, %s) ON CONFLICT (id) DO NOTHING",
+            (record.id, Jsonb(record.model_dump(mode="json", exclude=_METADATA_FIELDS))),
+        )
+        await connection.execute(
+            "INSERT INTO account_pool_cost_renewals (id, auto_renew, cycle_months) VALUES (%s, %s, %s) "
+            "ON CONFLICT (id) DO NOTHING",
+            (record.id, record.auto_renew, record.cycle_months),
+        )
+        saved: Final = await connection.execute(_RECORD_QUERY + "WHERE c.id = %s", (record.id,))
+        row: Final = await saved.fetchone()
+        if row is None:
+            return CostFailure(503, "费用保存失败，请重试")
+        return replay(PoolCostRecord.model_validate(row["payload"]), request)
+
+    async def replace(self, record_id: UUID, request: PoolCostCreate, actor: str) -> PoolCostRecord | CostFailure:
+        async with database_connection(self._database_url) as connection:
+            # 更正、续期及作废共享事务锁，新记录与旧记录作废同时提交，避免费用重复或丢失。
+            await connection.execute("SELECT pg_advisory_xact_lock(741935802)")
+            cursor: Final = await connection.execute(_RECORD_QUERY + "WHERE c.id = %s FOR UPDATE OF c", (record_id,))
+            row: Final = await cursor.fetchone()
             if row is None:
-                return CostFailure(503, "费用保存失败，请重试")
-            return replay(PoolCostRecord.model_validate(row["payload"]), request)
+                return CostFailure(404, "费用记录不存在")
+            original: Final = PoolCostRecord.model_validate(row["payload"])
+            reason: Final = f"重新录入：{request.id}"
+            if original.voided_at is not None:
+                saved: Final = await connection.execute(_RECORD_QUERY + "WHERE c.id = %s", (request.id,))
+                saved_row: Final = await saved.fetchone()
+                if original.void_reason == reason and saved_row is not None:
+                    return replay(PoolCostRecord.model_validate(saved_row["payload"]), request)
+                return CostFailure(409, "原费用已更正或作废，请刷新后重试")
+            if request.id == record_id or (request.category, request.account_id) != (
+                original.category,
+                original.account_id,
+            ):
+                return CostFailure(422, "重新录入不能更改费用归属或复用原编号")
+            duplicate: Final = await connection.execute(
+                "SELECT id FROM account_pool_cost_records WHERE id = %s", (request.id,)
+            )
+            if await duplicate.fetchone() is not None:
+                return CostFailure(409, "该录入编号已用于其他费用，请刷新后重试")
+            child: Final = await connection.execute(
+                "SELECT id FROM account_pool_cost_renewals WHERE renewal_of = %s", (record_id,)
+            )
+            if await child.fetchone() is not None:
+                return CostFailure(409, "该费用已生成下一期，请刷新后重新录入最近一期")
+            replacement: Final = await self._create(connection, request, actor)
+            if isinstance(replacement, CostFailure):
+                return replacement
+            await self._void(connection, original, reason, actor)
+            return replacement
 
     async def void(self, record_id: UUID, reason: str, actor: str) -> PoolCostRecord | CostFailure:
         async with database_connection(self._database_url) as connection:
@@ -138,25 +181,30 @@ class PostgresCostRepository:
             record: Final = PoolCostRecord.model_validate(row["payload"])
             if record.voided_at is not None:
                 return record
-            updated: Final = record.model_copy(
-                update={
-                    "voided_at": datetime.now(timezone.utc),
-                    "voided_by": actor,
-                    "void_reason": reason,
-                    "auto_renew": False,
-                }
-            )
-            await connection.execute(
-                "UPDATE account_pool_cost_records SET payload = %s WHERE id = %s",
-                (Jsonb(updated.model_dump(mode="json", exclude=_METADATA_FIELDS)), record_id),
-            )
-            await connection.execute(
-                "WITH RECURSIVE chain AS (SELECT id FROM account_pool_cost_renewals WHERE id = %s "
-                "UNION ALL SELECT r.id FROM account_pool_cost_renewals r JOIN chain ON r.renewal_of = chain.id) "
-                "UPDATE account_pool_cost_renewals SET auto_renew = false WHERE id IN (SELECT id FROM chain)",
-                (record_id,),
-            )
-            return updated
+            return await self._void(connection, record, reason, actor)
+
+    async def _void(
+        self, connection: AsyncConnection[Mapping[str, object]], record: PoolCostRecord, reason: str, actor: str
+    ) -> PoolCostRecord:
+        updated: Final = record.model_copy(
+            update={
+                "voided_at": datetime.now(timezone.utc),
+                "voided_by": actor,
+                "void_reason": reason,
+                "auto_renew": False,
+            }
+        )
+        await connection.execute(
+            "UPDATE account_pool_cost_records SET payload = %s WHERE id = %s",
+            (Jsonb(updated.model_dump(mode="json", exclude=_METADATA_FIELDS)), record.id),
+        )
+        await connection.execute(
+            "WITH RECURSIVE chain AS (SELECT id FROM account_pool_cost_renewals WHERE id = %s "
+            "UNION ALL SELECT r.id FROM account_pool_cost_renewals r JOIN chain ON r.renewal_of = chain.id) "
+            "UPDATE account_pool_cost_renewals SET auto_renew = false WHERE id IN (SELECT id FROM chain)",
+            (record.id,),
+        )
+        return updated
 
     async def stop_renewal(self, record_id: UUID) -> PoolCostRecord | CostFailure:
         async with database_connection(self._database_url) as connection:
