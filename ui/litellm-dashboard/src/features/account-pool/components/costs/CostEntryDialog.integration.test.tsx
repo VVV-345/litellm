@@ -84,3 +84,55 @@ it("prefills a renewal but records a new period with a new id", async () => {
   };
   expect(createCost).toHaveBeenCalledWith("admin", expect.objectContaining(expectedRenewal));
 });
+
+it("applies the annual total only on request and saves the edited real payment for the existing account", async () => {
+  const close = vi.fn();
+  render(<CostEntryDialog accessToken="admin" target={{ category: "subscription", account }} onClose={close} />, {
+    wrapper,
+  });
+  fireEvent.change(screen.getByLabelText("付款金额（人民币 ¥）"), { target: { value: "12.34" } });
+  fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-01-01" } });
+  fireEvent.change(screen.getByLabelText("服务结束日期"), { target: { value: "2026-12-31" } });
+  fireEvent.change(screen.getByLabelText("备注（选填）"), { target: { value: "真实订单备注" } });
+  fireEvent.change(screen.getByLabelText("Coding Plan 预设（选填）"), { target: { value: "kimi" } });
+  fireEvent.change(screen.getByLabelText("套餐与计费周期"), { target: { value: "4" } });
+  expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("12.34");
+  await userEvent.click(screen.getByRole("button", { name: "套用名称和金额" }));
+  expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("948.00");
+  expect(screen.getByLabelText("套餐 / 费用名称")).toHaveValue("Kimi 会员（含 Code） Plus（年付）");
+  expect(screen.getByLabelText("服务开始日期")).toHaveValue("2026-01-01");
+  expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-12-31");
+  expect(screen.getByLabelText("备注（选填）")).toHaveValue("真实订单备注");
+  expect(createCost).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByLabelText("付款金额（人民币 ¥）"), { target: { value: "900.50" } });
+  await userEvent.click(screen.getByRole("button", { name: "保存费用" }));
+  await waitFor(() => expect(close).toHaveBeenCalledOnce());
+  expect(createCost).toHaveBeenCalledWith(
+    "admin",
+    expect.objectContaining({ account_id: account.id, amount_cents: 90050, currency: "CNY" }),
+  );
+});
+
+it("clears the previous price when applying a plan without a verified quote and resets the tier on provider change", async () => {
+  render(<CostEntryDialog accessToken="admin" target={{ category: "subscription", account }} onClose={vi.fn()} />, {
+    wrapper,
+  });
+  fireEvent.change(screen.getByLabelText("付款金额（人民币 ¥）"), { target: { value: "118" } });
+  fireEvent.change(screen.getByLabelText("Coding Plan 预设（选填）"), { target: { value: "volcengine" } });
+  fireEvent.change(screen.getByLabelText("套餐与计费周期"), { target: { value: "0" } });
+  expect(screen.getByRole("link", { name: "官方价格来源" })).toHaveAttribute(
+    "href",
+    "https://www.volcengine.com/activity/codingplan",
+  );
+  await userEvent.click(screen.getByRole("button", { name: "套用名称和金额" }));
+  expect(screen.getByLabelText("付款金额（人民币 ¥）")).toHaveValue("");
+  fireEvent.change(screen.getByLabelText("Coding Plan 预设（选填）"), { target: { value: "glm" } });
+  expect(screen.getByLabelText("套餐与计费周期")).toHaveValue("");
+  expect(screen.getByRole("button", { name: "套用名称和金额" })).toBeDisabled();
+  expect(createCost).not.toHaveBeenCalled();
+});
+
+it("keeps coding presets out of independent server and proxy entries", () => {
+  render(<CostEntryDialog accessToken="admin" target={{ category: "server" }} onClose={vi.fn()} />, { wrapper });
+  expect(screen.queryByLabelText("Coding Plan 预设（选填）")).not.toBeInTheDocument();
+});

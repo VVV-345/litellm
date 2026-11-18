@@ -17,6 +17,7 @@ import { toast } from "@/lib/toast";
 import { createCost, type CostCategory, type CostCreate, type CostRecord } from "../../api/AccountPoolCostsApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { chinaToday, costLabels, nextDate, parseCents } from "./costForm";
+import { CodingPlanPresetPicker } from "./CodingPlanPresetPicker";
 
 export type CostEntryTarget = { category: CostCategory; account?: { id: string; name: string }; renewal?: CostRecord };
 export function CostEntryDialog({
@@ -96,6 +97,14 @@ export function CostEntryDialog({
           className="space-y-4"
         >
           <fieldset disabled={mutation.isPending} className="space-y-4">
+            {target.category === "subscription" && target.account && (
+              <CodingPlanPresetPicker
+                onApply={(presetName, presetAmount) => {
+                  setName(presetName);
+                  setAmount(presetAmount);
+                }}
+              />
+            )}
             <div className="space-y-2">
               <Label htmlFor="cost-name">{target.category === "subscription" ? "套餐 / 费用名称" : "资源名称"}</Label>
               <Input id="cost-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={160} required />

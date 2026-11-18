@@ -12,6 +12,30 @@
 
 费用记录展示付款日或服务期与所选日期相交的条目，每页 20 条。账号可以按名称搜索。账号列表的最近一笔订阅与到期提醒按全部有效订阅计算，不受历史查询期间限制；该行的期间成本和实际付款仍受日期筛选限制
 
+## Coding Plan 价格预设（2026-11-18 核验）
+
+已有账号的订阅录入和续费弹窗支持选择厂商、套餐与计费周期，再点击“套用名称和金额”。选择本身不会覆盖表单；套用只替换名称和金额，保留实际付款日期、服务期和备注。金额可改为真实实付，只有保存费用后才入账。续费仍优先预填上一笔真实费用，不自动套用官网价格
+
+下表均为人民币月付金额；除百度明确标为活动展示价外，使用官方目录价或连续包月价。不是按量 API 报价，也不代表这些套餐支持任意网关转售或共享，具体使用范围见各厂商条款
+
+| 厂商 / 官方来源 | 当前月付套餐与参考价 | 价格口径与限制 |
+| --- | --- | --- |
+| [智谱](https://bigmodel.cn/glm-coding) | Lite 118；Pro 538；Max 1078 | 连续包月，包季、包年折扣不当成月付价 |
+| [MiniMax](https://www.minimax.cn/m-plan) | Go 49；Explore 119；Build 469 | 当前 M Plan，使用新套餐名 |
+| [Kimi](https://www.kimi.com/help/membership/membership-pricing) | Plus 99；Pro 199；Max 699；Ultra 1399 | 新套餐 Go 49 不含 Code，因此不作为 Coding 预设 |
+| [阿里云 Token Plan](https://help.aliyun.com/zh/model-studio/token-plan-personal-overview) | Lite 39；Essential 79；Standard 139；Pro 312 | Lite、Essential 新客价 19.50、39.50 截止 2026-11-30，未自动套用 |
+| [阿里云旧 Coding Plan](https://help.aliyun.com/zh/model-studio/coding-plan) | Pro 200 | Lite 已停售且停止续费；Pro 首月 39.90 需核对资格 |
+| [火山方舟](https://www.volcengine.com/activity/codingplan) | Lite、Pro，金额待核实 | 本次官方页面价格接口持续显示“价格查询中”，不沿用网络旧价。套用名称会清空原金额，要求手填 |
+| [腾讯云](https://cloud.tencent.com/document/product/1772/128947) | Lite 40；Pro 200 | 官方原价，已结束的首购价不作为预设 |
+| [百度千帆](https://cloud.baidu.com/product/qianfan_home/token_plan_personal.html) | Mini 4.90；Lite 19.90；Standard 49.90；Pro 99.90；Max 299.90 | 采用积分制当前展示价，Mini、Lite、Pro、Max 带限时或首月促销，不推断续费原价 |
+| [小米 MiMo](https://mimo.mi.com/docs/zh-CN/tokenplan/Token%20Plan/subscription) | Lite 39；Standard 99；Pro 329；Max 659 | 使用官方人民币价，不从美元换算 |
+| [华为云](https://support.huaweicloud.com/price-maas/price-maas-0035.html) | Lite 59；Standard 149；Pro 399；Max 799 | 个人版常规价格，每日限量发售 |
+| [讯飞星辰](https://static.xfyun.cn/doc/spark/CodingPlan.html) | 高效版 199；速通版 999 | 无忧版、专业版已下线。速通版首月 699 为限时活动 |
+
+已核实的年付预设按一次付款总额保存：MiniMax Go / Explore / Build 为 490 / 1190 / 4690；Kimi Plus / Pro / Max / Ultra 为 948 / 1908 / 6708 / 13428；MiMo Lite / Standard / Pro / Max 为 408 / 1044 / 3468 / 6948。讯飞季付高效版 538、速通版 2997，限时速通版首季 2697 仅作活动说明
+
+预设数据与来源位于 `codingPlanPresets.ts`，核验日期展示在弹窗内。它是人工核验的静态快照，不会自动跟随官网调价、变更已有账单或为账号生成费用。未加入未核实金额、已下线套餐与历史套餐别名；有历史订单时仍可手动输入
+
 ## 续费、纠错和历史
 
 点击“续费”预填最近一笔名称、金额和服务结束后的次日，核对实际服务日期后保存新的付款记录。它不会修改旧费用，也不会自动续订或扣款。允许实际存在的重叠服务，但会累加成本，录入时需避免重复登记。界面重试同一失败请求沿用唯一编号，后台并发重复请求也只产生一条记录；修改表单后保存会使用新编号
@@ -41,3 +65,9 @@ Dashboard 使用显式路径运行 `npx vitest run src/features/account-pool/com
 完整 `make check` 未通过：GitHub 基线拉取发生网络超时，且全仓库已有 142 项 complexity 告警超过 140 的预算。在临时源码目录对起始提交运行相同 ESLint，结果同样为 142 项，本次没有增加该计数。没有提高预算或降低门禁
 
 在临时源码目录、Node 24.19.0 下执行 `next build --webpack`，起始提交和最终源码均在既有 `public/assets/logos/zai.svg` 导入处失败。未修改该图标，不能将完整生产构建记为通过。未进行浏览器端到端验收或真实供应商调用；此功能不调用推理供应商，现有本地实例保持原版本
+
+## 套餐预设验证（2026-11-18）
+
+新增 10 家厂商、11 组产品、47 个计费周期选项，其中火山方舟两档金额待核实。Node 24.19.0 下定向执行 `vitest run src/features/account-pool/components/costs`，3 个文件共 19 项通过；`tsc --noEmit --incremental false` 源码及测试类型检查通过，4 个修改/新增前端文件的 ESLint 通过
+
+在独立临时目录执行 `next build --webpack`，完整静态生产构建通过。表单测试验证年付总额、手改实付金额、既有账号归属、选择不写入、套用保留日期和备注、未核实报价清空旧金额及切换厂商清空套餐选择。本次只改前端预设与文档，未修改后端契约或数据库结构，未重跑全仓库 `make check`。本地部署和浏览器实际验收另记于运行目录的 `coding-presets-deployment-verification.json`
