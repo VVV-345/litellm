@@ -27295,6 +27295,8 @@ export interface components {
             image_checked: boolean;
             /** Jobs */
             jobs: components["schemas"]["JobView"][];
+            /** Locale Presets */
+            locale_presets?: string[] | null;
             /** Profiles */
             profiles: components["schemas"]["ProfileView"][];
             settings: components["schemas"]["AutomationSettings"];
@@ -39332,9 +39334,8 @@ export interface components {
             /**
              * Locale
              * @default en-US
-             * @enum {string}
              */
-            locale: "en-US" | "en-GB" | "zh-CN";
+            locale: string;
             /** Name */
             name: string;
             /**
@@ -39359,9 +39360,8 @@ export interface components {
             /**
              * Locale
              * @default en-US
-             * @enum {string}
              */
-            locale: "en-US" | "en-GB" | "zh-CN";
+            locale: string;
             /** Name */
             name: string;
             /**
@@ -39397,9 +39397,8 @@ export interface components {
             /**
              * Locale
              * @default en-US
-             * @enum {string}
              */
-            locale: "en-US" | "en-GB" | "zh-CN";
+            locale: string;
             location?: components["schemas"]["ProxyLocation"] | null;
             /** Matched Locale */
             matched_locale?: string | null;

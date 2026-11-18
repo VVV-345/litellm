@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, SecretStr, model_validator
 
-Locale = Literal["en-US", "en-GB", "zh-CN"]
+Locale = Annotated[str, Field(pattern=r"^[a-z]{2,3}-[A-Z]{2}$")]
 
 
 Stage = Literal[
@@ -113,6 +113,7 @@ class AutomationView(BaseModel):
     jobs: tuple[JobView, ...]
     checked_at: datetime | None
     image_checked: bool
+    locale_presets: tuple[Locale, ...] | None = None
 
 
 class SettingsUpdate(BaseModel):

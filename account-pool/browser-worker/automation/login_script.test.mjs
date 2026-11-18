@@ -65,6 +65,10 @@ test("classifies localized manual checks without forwarding page text or input v
     ["ja-JP", "en", "Enter your code", "", trusted, "/step", 200, "login", "unrecognized_route"],
     ["ja-JP", "", "メールアドレスを確認してください", "", trusted, "/verify-email", 429, "email_verification", "navigation_http_error"],
     ["pt-BR", "", "Verifique seu e-mail", "", trusted, "/pt-BR/mfa-challenge/totp", 200, "authenticator", "form_or_transition_not_confirmed"],
+    ["ru-RU", "ru-RU", "", "", trusted, "/ru-RU/log-in/password", 200, "password", "form_or_transition_not_confirmed"],
+    ["tr-TR", "tr-TR", "", "", trusted, "/tr-TR/mfa-challenge/totp", 200, "authenticator", "form_or_transition_not_confirmed"],
+    ["uk-UA", "uk-UA", "", "", trusted, "/uk-UA/log-in", 200, "email", "form_or_transition_not_confirmed"],
+    ["ru-RU", "", "", "", trusted, "/api/log-in", 200, "login", "unrecognized_route"],
     ["ja-JP", "", "メールアドレスを確認してください", "Just a moment", "https://other.test", "/verify-email", 200, "login", "unexpected_origin"],
   ];
   for (const [profile, lang, heading, title, origin, path, code, step, reason] of cases) {

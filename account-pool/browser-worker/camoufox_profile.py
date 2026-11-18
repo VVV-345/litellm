@@ -12,12 +12,11 @@ from pathlib import Path
 from typing import Final, cast
 from zoneinfo import ZoneInfo
 
-LOCALES: Final = ("en-US", "en-GB", "zh-CN")
 BINARY: Final = Path("/opt/camoufox/camoufox-bin")
 
 
 def generate(locale: str, os_name: str = "linux") -> dict[str, object]:
-    if locale not in LOCALES and re.fullmatch(r"[A-Z]{2}", locale) is None:
+    if re.fullmatch(r"(?:[a-z]{2,3}-)?[A-Z]{2}", locale) is None:
         raise ValueError("unsupported locale")
     if os_name not in {"linux", "windows", "macos"}:
         raise ValueError("unsupported browser OS")

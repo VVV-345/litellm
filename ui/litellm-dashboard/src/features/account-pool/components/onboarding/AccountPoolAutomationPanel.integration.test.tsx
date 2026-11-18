@@ -308,6 +308,28 @@ it.each(["linux", "windows", "macos"])(
   },
 );
 
+it("populates language choices from the Manager and sends the selected code without rewriting it", async () => {
+  get.mockImplementation(async (path: string) =>
+    path.endsWith("/oauth-automation")
+      ? { ...view, image_checked: true, locale_presets: ["en-US", "ja-JP", "uk-UA", "es-AR", "it-IT"] }
+      : [],
+  );
+  const user = userEvent.setup();
+  mount();
+  await user.click(await screen.findByRole("tab", { name: /指纹配置/ }));
+  const language = screen.getByRole("combobox", { name: "浏览器语言" });
+  expect(screen.getAllByRole("option").some((option) => option.getAttribute("value") === "es-AR")).toBe(true);
+  await user.selectOptions(language, "it-IT");
+  await user.type(screen.getByRole("textbox", { name: "配置名称" }), "locale fixture");
+  await user.click(screen.getByRole("button", { name: "生成并验证" }));
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith("/account_pool/oauth-automation/profiles", {
+      accessToken: "test-admin",
+      body: { name: "locale fixture", locale: "it-IT", enabled: true, auto_match_proxy: false, os: "linux" },
+    }),
+  );
+});
+
 it("offers verification-only retry for saved credentials, never a new-login retry", async () => {
   get.mockImplementation(async (path: string) =>
     path.endsWith("/oauth-automation") ? { ...view, jobs: [job] } : [{ id: job.environment_id }],

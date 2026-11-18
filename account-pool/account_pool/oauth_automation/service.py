@@ -19,6 +19,7 @@ from account_pool.isp_probe import ProxyLocation, ProxyLocationProbe
 from account_pool.oauth_automation.login_scripts import LoginScriptStore
 from account_pool.oauth_automation.models import (
     ACTIVE,
+    BROWSER_LOCALE_BY_COUNTRY,
     AutomationSettings,
     AutomationView,
     BrowserOS,
@@ -351,7 +352,8 @@ class AutomationRegistry:
             if not proxy_url:
                 return Failure(FailureCode.CONFLICT, "所选出口代理不可用，未绑定指纹或启动登录")
             location: Final = await self.location_probe.locate(proxy_url)
-            generated: Final = await self.worker.generate(location.country_code, profile.item.os)
+            preferred_locale: Final = BROWSER_LOCALE_BY_COUNTRY.get(location.country_code, location.country_code)
+            generated: Final = await self.worker.generate(preferred_locale, profile.item.os)
             locale: Final = TypeAdapter(str).validate_python(generated.get("locale"))
             data: Final = {**generated, "timezone": location.timezone}
             encoded: Final = json.dumps(data, sort_keys=True, separators=(",", ":"))

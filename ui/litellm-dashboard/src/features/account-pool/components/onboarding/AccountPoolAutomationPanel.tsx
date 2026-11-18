@@ -61,6 +61,7 @@ const labels: Record<AutomationJob["stage"], string> = {
 };
 type Operation = (action: () => Promise<unknown>) => Promise<void>;
 const systemLabels = { linux: "Linux", windows: "Windows", macos: "macOS" };
+const localeNames = new Intl.DisplayNames("zh-CN", { type: "language" });
 const screenUnavailableAfterTakeover = new Error("已接管，但画面未能打开。请点「查看画面」重开，无需重新授权");
 
 function ProfileRow({
@@ -438,10 +439,11 @@ export function AccountPoolAutomationPanel({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const locale = form.get("locale");
+    if (typeof locale !== "string") return;
     const os = form.get("os");
     const body: Parameters<typeof createAutomationProfile>[1] = {
       name: String(form.get("name")),
-      locale: locale === "en-GB" || locale === "zh-CN" ? locale : "en-US",
+      locale: locale === "auto" ? "en-US" : locale,
       enabled: true,
       auto_match_proxy: locale === "auto",
       os: os === "windows" || os === "macos" ? os : "linux",
@@ -668,9 +670,11 @@ export function AccountPoolAutomationPanel({
             defaultValue="auto"
           >
             <option value="auto">按代理出口自动匹配</option>
-            <option>en-US</option>
-            <option>en-GB</option>
-            <option>zh-CN</option>
+            {(state.locale_presets ?? ["en-US", "en-GB", "zh-CN"]).map((locale) => (
+              <option key={locale} value={locale}>
+                {localeNames.of(locale)} ({locale})
+              </option>
+            ))}
           </select>
         </div>
         <Button type="submit" disabled={busy || !state.image_checked}>

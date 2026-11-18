@@ -64,6 +64,31 @@ def test_proxy_matching_defaults_and_matched_location_survive_gateway_forwarding
     assert json.loads(manager.await_args.args[2])["auto_match_proxy"] is True
 
 
+def test_profile_language_presets_and_manual_input_survive_gateway_forwarding() -> None:
+    profile = {
+        "id": str(uuid4()), "name": "fixed", "locale": "uk-UA", "auto_match_proxy": False, "digest": "a" * 64,
+    }
+    view = {
+        "version": 1, "settings": {}, "profiles": [profile], "jobs": [], "checked_at": None,
+        "image_checked": True, "locale_presets": ["en-US", "uk-UA", "it-IT"],
+    }
+    manager = AsyncMock(side_effect=[httpx.Response(200, json=view), httpx.Response(201, json=profile)])
+    app = FastAPI()
+    app.include_router(create_automation_router(manager, lambda user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+
+    with TestClient(app) as client:
+        loaded = client.get("/account_pool/oauth-automation")
+        created = client.post("/account_pool/oauth-automation/profiles", json={
+            "name": "fixed", "locale": "uk-UA", "auto_match_proxy": False,
+        })
+        invalid = client.post("/account_pool/oauth-automation/profiles", json={"name": "invalid", "locale": "uk_UA"})
+    assert loaded.status_code == 200
+    assert loaded.json()["locale_presets"] == ["en-US", "uk-UA", "it-IT"]
+    assert created.status_code == 201 and created.json()["locale"] == "uk-UA"
+    assert invalid.status_code == 422 and manager.await_count == 2
+
+
 @pytest.mark.parametrize("admin", [False, True])
 def test_automation_job_delete_is_admin_only_and_targets_the_same_record(admin):
     manager = AsyncMock(return_value=httpx.Response(409, json={"detail": "private job data"}))

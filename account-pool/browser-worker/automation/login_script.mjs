@@ -62,7 +62,7 @@ export function observeLoginPage(page, profileLocale = "en-US") {
   const location = () => {
     const url = new URL(page.url());
     const origin = url.origin === trustedAuth ? "openai_auth" : "other";
-    const path = url.pathname.replace(/^\/(?:en|zh|ja|ko|fr|de|es|pt)(?:-[a-z]{2,4}){0,2}\//i, "/");
+    const path = url.pathname.replace(/^\/[a-z]{2}(?:-[a-z]{2,4}){0,2}\//i, "/");
     const route = origin !== "openai_auth" ? "other" : routes.has(path) ? path
       : path.startsWith("/mfa-challenge/") ? "authenticator"
       : /(?:^|\/)(?:email-verification|verify-email)(?:\/|$)/.test(path) ? "email_verification" : "other";

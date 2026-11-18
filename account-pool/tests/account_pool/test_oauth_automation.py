@@ -197,7 +197,14 @@ async def test_retries_keep_the_account_fingerprint_and_never_take_another_accou
 
 
 @pytest.mark.asyncio
-async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(registry) -> None:
+@pytest.mark.parametrize(("country", "locale", "timezone"), [
+    ("US", "en-US", "America/Los_Angeles"),
+    ("DE", "de-DE", "Europe/Berlin"),
+    ("HK", "zh-HK", "Asia/Hong_Kong"),
+    ("UA", "uk-UA", "Europe/Kyiv"),
+    ("NZ", "NZ", "Pacific/Auckland"),
+])
+async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(registry, country, locale, timezone) -> None:
     from account_pool.isp_probe import ProxyLocation
     from test_account_pool import StaticProfiles
 
@@ -208,7 +215,7 @@ async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(regi
         async def locate(self, proxy_url):
             lookups.append(proxy_url)
             return ProxyLocation(
-                exit_ip="8.8.8.8", country_code="US", country="United States", timezone="America/Los_Angeles",
+                exit_ip="8.8.8.8", country_code=country, country=country, timezone=timezone,
             )
 
     configured = replace(
@@ -218,9 +225,9 @@ async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(regi
     first = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
     assert isinstance(first, Success)
     profile = (await configured.view()).profiles[0]
-    assert profile.location.country_code == "US"
-    assert profile.location.timezone == "America/Los_Angeles"
-    assert profile.matched_locale == "en-US"
+    assert profile.location.country_code == country
+    assert profile.location.timezone == timezone
+    assert profile.matched_locale == locale
     digest = profile.digest
     await configured.cancel(first.value.id)
     again = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
@@ -228,8 +235,26 @@ async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(regi
     assert (await configured.view()).profiles[0].digest == digest
     assert lookups == ["http://selected-proxy.test:8080"]
     saved = (await configured.repository.read()).profiles[0].data
-    assert saved["locale"] == "en-US"
-    assert saved["timezone"] == "America/Los_Angeles"
+    assert saved["locale"] == locale
+    assert saved["timezone"] == timezone
+
+
+@pytest.mark.asyncio
+async def test_profile_language_presets_and_manual_locale_use_one_contract(deletion_registry) -> None:
+    from pydantic import ValidationError
+
+    service, _ = deletion_registry
+    presets = (await service.view()).locale_presets
+    assert set(presets) == {
+        "en-US", "en-GB", "zh-CN", "ja-JP", "pt-BR", "es-AR", "en-AU", "en-CA",
+        "zh-TW", "zh-HK", "de-DE", "fr-FR", "ru-RU", "ko-KR", "en-SG", "tr-TR", "uk-UA",
+    }
+    for locale in (*presets, "it-IT"):
+        created = await service.create_profile(ProfileInput(name=locale, locale=locale, auto_match_proxy=False))
+        assert isinstance(created, Success) and created.value.locale == locale
+    for invalid in ("DE", "uk-ua", "de_DE", "ja-JP/extra"):
+        with pytest.raises(ValidationError):
+            ProfileInput(name="invalid", locale=invalid, auto_match_proxy=False)
 
 
 @pytest.mark.asyncio
