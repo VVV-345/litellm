@@ -508,6 +508,7 @@ export const modelCostMap = async () => {
         "Content-Type": "application/json",
       },
     });
+    if (!response.ok) throw new Error(`Failed to load model cost map (HTTP ${response.status})`);
     const jsonData = await response.json();
     return jsonData;
   } catch (error) {

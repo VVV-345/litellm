@@ -1,5 +1,35 @@
 import { transformModelData } from "./modelDataTransformer";
+import { deploymentPriceModel } from "./modelPriceCatalog";
 import { describe, it, expect } from "vitest";
+
+it("preserves explicit deployment prices and looks up only an unambiguous regional reference", () => {
+  const raw = {
+    data: [
+      {
+        model_name: "my-alias",
+        model_info: { input_cost_per_token: 0.00001 },
+        litellm_params: { model: "openai/glm-5.3", input_cost_per_token: 0, output_cost_per_token: 0.000002 },
+      },
+    ],
+  };
+  const [row] = transformModelData(raw, () => "openai").data;
+  expect([row.input_cost, row.output_cost]).toEqual(["0.00", "2.00"]);
+  expect(raw.data[0].model_info.input_cost_per_token).toBe(0.00001);
+  expect(deploymentPriceModel(row.litellm_model_name, "https://open.bigmodel.cn/api/paas/v4/")).toBe(
+    "bigmodel.cn/glm-5.3",
+  );
+  expect(deploymentPriceModel(row.litellm_model_name, "https://api.z.ai/api/paas/v4")).toBe("zai/glm-5.3");
+  expect(
+    deploymentPriceModel(row.litellm_model_name, "https://open.bigmodel.cn/api/coding/paas/v4", "zai/glm-5.3"),
+  ).toBeNull();
+  expect(deploymentPriceModel(row.litellm_model_name, "https://unrelated.example")).toBeNull();
+  expect(deploymentPriceModel("unqualified-alias")).toBeNull();
+  const [invalid] = transformModelData(
+    { data: [{ model_info: { input_cost_per_token: "", output_cost_per_token: 1e-9 } }] },
+    () => "",
+  ).data;
+  expect([invalid.input_cost, invalid.output_cost]).toEqual([null, "0.001"]);
+});
 describe("transformModelData", () => {
   const mockGetProviderFromModel = (model: string) => {
     if (model.includes("gpt")) return "openai";

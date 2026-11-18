@@ -145,6 +145,18 @@ describe("AllModelsTab", () => {
     expect(screen.getByTestId("pagination-range")).toHaveTextContent("Showing 1-50 of 137");
   });
 
+  it.each(["Admin", "Internal User"])("only links the reference price tab when accessible to %s", async (userRole) => {
+    vi.mocked(useAuthorizedModule.default).mockReturnValue({ ...MOCK_AUTHORIZED, userRole });
+    render(<AllModelsTab {...defaultProps} />);
+    expect(await screen.findByText("gpt-4")).toBeInTheDocument();
+    const link = screen.queryByRole("link", { name: "Look up reference prices" });
+    if (userRole === "Admin") {
+      expect(link).toHaveAttribute("href", expect.stringContaining("price_model=openai%2Fgpt-4"));
+    } else {
+      expect(link).not.toBeInTheDocument();
+    }
+  });
+
   it("does not re-query after the mount-time debounced search settles unchanged", async () => {
     render(<AllModelsTab {...defaultProps} />);
     const callsAfterMount = modelsInfoCalls.length;

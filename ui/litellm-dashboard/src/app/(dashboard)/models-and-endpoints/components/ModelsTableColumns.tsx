@@ -1,6 +1,7 @@
 "use client";
 
 import { ColumnDef } from "@tanstack/react-table";
+import Link from "next/link";
 import { Copy, Info, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
 
 import { ProviderLogo } from "@/components/molecules/models/ProviderLogo";
@@ -13,7 +14,9 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/h
 import { Switch } from "@/components/ui/switch";
 import { getDisplayModelName } from "@/components/view_model/model_name_display";
 import { copyToClipboard } from "@/utils/dataUtils";
+import { isAdminRole } from "@/utils/roles";
 import { useTranslation } from "react-i18next";
+import { deploymentPriceModel } from "../utils/modelPriceCatalog";
 
 export const MODEL_ID_COLUMN_ID = "model_info_id";
 export const MODEL_NAME_COLUMN_ID = "model_name";
@@ -186,34 +189,54 @@ function CreatedByCell({ model }: { model: ModelData }) {
   );
 }
 
-function CostsCell({ model }: { model: ModelData }) {
+function CostsCell({ model, canViewCatalog }: { model: ModelData; canViewCatalog: boolean }) {
   const { t } = useTranslation();
   const { input_cost: inputCost, output_cost: outputCost } = model;
 
-  if (inputCost == null && outputCost == null) {
-    return <span className="text-sm text-muted-foreground">-</span>;
-  }
+  const params = model.litellm_params;
+  const reference = deploymentPriceModel(
+    params?.model || model.model_name,
+    params?.api_base,
+    model.model_info?.base_model,
+  );
+  const source = params?.input_cost_per_token != null || params?.output_cost_per_token != null ? "custom" : "effective";
+  const query = reference ?? (params?.model || model.model_name).split("/").pop();
 
   return (
-    <CellTooltip
-      content={t("ui.Cost per 1M tokens")}
-      trigger={
-        <div className="flex flex-col gap-0.5 whitespace-nowrap">
-          {inputCost != null && (
-            <span className="flex items-baseline gap-1.5">
-              <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">{t("ui.IN")}</span>
-              <span className="text-xs font-medium tabular-nums text-foreground">${inputCost}</span>
-            </span>
-          )}
-          {outputCost != null && (
-            <span className="flex items-baseline gap-1.5">
-              <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">{t("ui.OUT")}</span>
-              <span className="text-xs font-medium tabular-nums text-foreground">${outputCost}</span>
-            </span>
-          )}
-        </div>
-      }
-    />
+    <div className="space-y-1">
+      {inputCost == null && outputCost == null ? (
+        <span>{t("models.catalog.unknown")}</span>
+      ) : (
+        <CellTooltip
+          content={t("ui.Cost per 1M tokens")}
+          trigger={
+            <div className="flex flex-col gap-0.5 whitespace-nowrap">
+              <span className="text-[10px] text-muted-foreground">{t(`models.catalog.${source}`)} · USD / 1M</span>
+              {inputCost != null && (
+                <span className="flex items-baseline gap-1.5">
+                  <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">{t("ui.IN")}</span>
+                  <span className="text-xs font-medium tabular-nums text-foreground">${inputCost}</span>
+                </span>
+              )}
+              {outputCost != null && (
+                <span className="flex items-baseline gap-1.5">
+                  <span className="text-[10px] font-semibold tracking-wider text-muted-foreground">{t("ui.OUT")}</span>
+                  <span className="text-xs font-medium tabular-nums text-foreground">${outputCost}</span>
+                </span>
+              )}
+            </div>
+          }
+        />
+      )}
+      {canViewCatalog && (
+        <Link
+          className="block text-xs underline"
+          href={{ pathname: "/models-and-endpoints", query: { tab: "price-data", price_model: query } }}
+        >
+          {t("models.catalog.lookup")}
+        </Link>
+      )}
+    </div>
   );
 }
 
@@ -434,7 +457,7 @@ export const getModelsTableColumns = ({
     enableSorting: true,
     size: 130,
     minSize: 90,
-    cell: ({ row }) => <CostsCell model={row.original} />,
+    cell: ({ row }) => <CostsCell model={row.original} canViewCatalog={isAdminRole(userRole)} />,
   },
   {
     id: TEAM_ID_COLUMN_ID,

@@ -7925,7 +7925,30 @@
     "lastRefreshed": "Last Refreshed: {{time}}",
     "refresh": "Refresh models",
     "accessGroupBudgets": "Model Access Group Budgets",
-    "priceDataReload": "Price Data Reload"
+    "priceDataReload": "Price Data Reload",
+    "catalog": {
+      "title": "Model prices",
+      "note": "Token prices are per million tokens in the stated currency. Runtime catalog and official reference prices do not override deployment billing. Other rates retain the catalog field’s unit.",
+      "search": "Search by model, alias or region",
+      "model": "Model / aliases",
+      "source": "Price source / region",
+      "unit": "Currency / tokens",
+      "input": "Input",
+      "cache": "Cached input",
+      "output": "Output",
+      "tier": "Tier / other rates",
+      "details": "Rate details",
+      "unknown": "Unknown",
+      "catalog": "Runtime catalog",
+      "deployment": "Deployment entry",
+      "official": "Official reference",
+      "effective": "Deployment rate",
+      "custom": "Custom rate",
+      "lookup": "Look up reference prices",
+      "loadFailed": "Runtime pricing could not be loaded. Only the bundled reference prices are available.",
+      "noMatches": "No matching price entry",
+      "more": "Show more prices"
+    }
   },
   "nativeWorkspace": {
     "endpoints": "Endpoints",

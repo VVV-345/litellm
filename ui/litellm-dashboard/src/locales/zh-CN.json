@@ -7925,7 +7925,30 @@
     "lastRefreshed": "上次刷新：{{time}}",
     "refresh": "刷新模型",
     "accessGroupBudgets": "模型访问组预算",
-    "priceDataReload": "重新加载价格数据"
+    "priceDataReload": "重新加载价格数据",
+    "catalog": {
+      "title": "模型价格",
+      "note": "Token 价格按所列币种、每百万 Token 展示。运行时目录和官方参考价不会覆盖部署计费；其他费率沿用目录字段标明的单位。",
+      "search": "按模型、别名或地区查价",
+      "model": "模型 / 别名",
+      "source": "价格来源 / 地区",
+      "unit": "币种 / Token",
+      "input": "输入",
+      "cache": "缓存命中",
+      "output": "输出",
+      "tier": "档位 / 其他费率",
+      "details": "费率明细",
+      "unknown": "未知",
+      "catalog": "运行时目录",
+      "deployment": "部署条目",
+      "official": "官方参考价",
+      "effective": "部署有效费率",
+      "custom": "自定义费率",
+      "lookup": "查询目录参考价",
+      "loadFailed": "未能加载运行时价目，当前仅显示随版本提供的参考价。",
+      "noMatches": "没有匹配的价目",
+      "more": "显示更多价目"
+    }
   },
   "nativeWorkspace": {
     "endpoints": "端点",
