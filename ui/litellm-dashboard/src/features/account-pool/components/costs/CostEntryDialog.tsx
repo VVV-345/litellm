@@ -80,7 +80,7 @@ export function CostEntryDialog({
         if (!open && !mutation.isPending) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {target.renewal ? "记录续费" : "录入费用"} · {costLabels[target.category]}
