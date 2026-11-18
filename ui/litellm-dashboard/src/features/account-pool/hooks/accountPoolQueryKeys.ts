@@ -7,6 +7,8 @@ export const accountPoolQueryKeys = {
   runtimeCards: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "runtime-cards", accessToken] as const,
   quotaReset: (accessToken: string, id: string) => [...ACCOUNT_POOL_ROOT, "quota-reset", accessToken, id] as const,
   all: ACCOUNT_POOL_ROOT,
+  costsRoot: (token: string) => [...ACCOUNT_POOL_ROOT, "costs", token] as const,
+  costs: (token: string, start: string, end: string) => [...ACCOUNT_POOL_ROOT, "costs", token, start, end] as const,
   feedbackRoot: (accessToken: string) => [...ACCOUNT_POOL_ROOT, "feedback", accessToken] as const,
   feedback: (accessToken: string, filter: { status: string; q: string; limit: number; offset: number }) =>
     [...ACCOUNT_POOL_ROOT, "feedback", accessToken, filter] as const,

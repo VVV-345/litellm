@@ -23,6 +23,7 @@
 | [请求分配与结算](modules/routing.md) | 鉴权范围、模型准入、租约、粘性、限流与安全重试 | 在 Manager 转发推理正文 |
 | [额度、冷却与恢复](modules/quota.md) | 供应商解析、调度、兑换身份、验证及调用证据 | 看到 0% 就无条件重置或解锁整卡 |
 | [出站代理与 ISP](modules/proxies.md) | Clash 网关、代理目录、可选前置、订阅和探测 | 把入站路由与出站代理混用 |
+| [成本台账](modules/costs.md) | 真实账号订阅、独立代理及服务器支出、期间计算和到期提示 | Token 单位成本、自动付款、资源分摊或调度 |
 | [设置、策略与插件](modules/settings-plugins.md) | 默认值、命名配置、单卡策略、运行时同步、插件清单 | 用全局保存覆盖单卡独立设置 |
 | [日志与共享反馈](modules/observability-feedback.md) | 请求归属、错误及完整日志、反馈 token 和 revision | 自动执行反馈正文或自动部署、关单 |
 | [两类上游同步](modules/upstream-sync.md) | 分析、审阅、晋升、固定源码及适配补丁 | 直接更换线上每张卡的容器 |

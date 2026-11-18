@@ -804,6 +804,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/costs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Report */
+        get: operations["report_account_pool_costs_get"];
+        put?: never;
+        /** Create */
+        post: operations["create_account_pool_costs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/costs/{record_id}/void": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Void */
+        post: operations["void_account_pool_costs__record_id__void_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/credentials": {
         parameters: {
             query?: never;
@@ -3203,6 +3238,9 @@ export interface paths {
          * @description Get all audit logs with filtering and pagination.
          *
          *     Returns a paginated response of audit logs matching the specified filters.
+         *
+         *     Note: object_team_id and object_key_hash use Prisma JSON path filtering,
+         *     which requires PostgreSQL.
          */
         get: operations["get_audit_logs_audit_get"];
         put?: never;
@@ -13706,6 +13744,240 @@ export interface paths {
          *     ```
          */
         post: operations["validate_policy_policy_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Project
+         * @description Delete projects
+         *
+         *     Parameters:
+         *     - project_ids: *List[str]* - List of project ids to delete
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location --request DELETE 'http://0.0.0.0:4000/project/delete' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_ids": ["project-123", "project-456"]
+         *     }'
+         *     ```
+         */
+        delete: operations["delete_project_project_delete_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/info": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Project Info
+         * @description Get information about a specific project
+         *
+         *     Parameters:
+         *     - project_id: *str* - The project id to fetch info for
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/info?project_id=project-123' \
+         *     --header 'Authorization: Bearer sk-1234'
+         *     ```
+         */
+        get: operations["project_info_project_info_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/list": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Projects
+         * @description List all projects that the user has access to
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/list' \
+         *     --header 'Authorization: Bearer sk-1234'
+         *     ```
+         */
+        get: operations["list_projects_project_list_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/new": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * New Project
+         * @description Create a new project. Projects sit between teams and keys in the hierarchy.
+         *
+         *     Only admins or team admins can create projects.
+         *
+         *     # Parameters
+         *
+         *     - project_alias: *Optional[str]* - The name of the project.
+         *     - description: *Optional[str]* - Description of the project's purpose and use case.
+         *     - team_id: *str* - The team id that this project belongs to. Required.
+         *     - models: *List* - The models the project has access to.
+         *     - budget_id: *Optional[str]* - The id for a budget (tpm/rpm/max budget) for the project.
+         *     ### IF NO BUDGET ID - CREATE ONE WITH THESE PARAMS ###
+         *     - max_budget: *Optional[float]* - Max budget for project
+         *     - tpm_limit: *Optional[int]* - Max tpm limit for project
+         *     - rpm_limit: *Optional[int]* - Max rpm limit for project
+         *     - max_parallel_requests: *Optional[int]* - Max parallel requests for project
+         *     - soft_budget: *Optional[float]* - Get a slack alert when this soft budget is reached. Don't block requests.
+         *     - model_max_budget: *Optional[dict]* - Max budget for a specific model. Example: {"gpt-4": 100.0, "gpt-3.5-turbo": 50.0}
+         *     - model_rpm_limit: *Optional[dict]* - RPM limits per model. Example: {"gpt-4": 1000, "gpt-3.5-turbo": 5000}
+         *     - model_tpm_limit: *Optional[dict]* - TPM limits per model. Example: {"gpt-4": 50000, "gpt-3.5-turbo": 100000}
+         *     - budget_duration: *Optional[str]* - Frequency of reseting project budget
+         *     - metadata: *Optional[dict]* - Metadata for project, store information for project. Example metadata - {"use_case_id": "SNOW-12345", "responsible_ai_id": "RAI-67890"}
+         *     - tags: *Optional[list]* - Tags for the project. Example: ["production", "api"]
+         *     - blocked: *bool* - Flag indicating if the project is blocked or not - will stop all calls from keys with this project_id.
+         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - project-specific object permission. Example - {"vector_stores": ["vector_store_1", "vector_store_2"]}. IF null or {} then no object permission.
+         *
+         *     Example 1: Create new project **without** a budget_id, with model-specific limits
+         *
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/new' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_alias": "flight-search-assistant",
+         *         "description": "AI-powered flight search and booking assistant",
+         *         "team_id": "team-123",
+         *         "models": ["gpt-4", "gpt-3.5-turbo"],
+         *         "max_budget": 100,
+         *         "model_rpm_limit": {
+         *             "gpt-4": 1000,
+         *             "gpt-3.5-turbo": 5000
+         *         },
+         *         "model_tpm_limit": {
+         *             "gpt-4": 50000,
+         *             "gpt-3.5-turbo": 100000
+         *         },
+         *         "metadata": {
+         *             "use_case_id": "SNOW-12345",
+         *             "responsible_ai_id": "RAI-67890"
+         *         }
+         *     }'
+         *     ```
+         *
+         *     Example 2: Create new project **with** a budget_id
+         *
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/new' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_alias": "hotel-recommendations",
+         *         "description": "Personalized hotel recommendation engine",
+         *         "team_id": "team-123",
+         *         "models": ["claude-3-sonnet"],
+         *         "budget_id": "428eeaa8-f3ac-4e85-a8fb-7dc8d7aa8689",
+         *         "metadata": {
+         *             "use_case_id": "SNOW-54321"
+         *         }
+         *     }'
+         *     ```
+         */
+        post: operations["new_project_project_new_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/project/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update Project
+         * @description Update a project
+         *
+         *     Parameters:
+         *     - project_id: *str* - The project id to update. Required.
+         *     - project_alias: *Optional[str]* - Updated name for the project
+         *     - description: *Optional[str]* - Updated description for the project
+         *     - team_id: *Optional[str]* - Updated team_id for the project
+         *     - metadata: *Optional[dict]* - Updated metadata for project
+         *     - models: *Optional[list]* - Updated list of models for the project
+         *     - blocked: *Optional[bool]* - Updated blocked status
+         *     - max_budget: *Optional[float]* - Updated max budget
+         *     - tpm_limit: *Optional[int]* - Updated tpm limit
+         *     - rpm_limit: *Optional[int]* - Updated rpm limit
+         *     - model_rpm_limit: *Optional[dict]* - Updated RPM limits per model
+         *     - model_tpm_limit: *Optional[dict]* - Updated TPM limits per model
+         *     - budget_duration: *Optional[str]* - Updated budget duration
+         *     - tags: *Optional[list]* - Updated list of tags for the project
+         *     - object_permission: Optional[LiteLLM_ObjectPermissionBase] - Updated object permission
+         *
+         *     Example:
+         *     ```bash
+         *     curl --location 'http://0.0.0.0:4000/project/update' \
+         *     --header 'Authorization: Bearer sk-1234' \
+         *     --header 'Content-Type: application/json' \
+         *     --data '{
+         *         "project_id": "project-123",
+         *         "description": "Updated flight search system with enhanced capabilities",
+         *         "max_budget": 200,
+         *         "model_rpm_limit": {
+         *             "gpt-4": 2000,
+         *             "gpt-3.5-turbo": 10000
+         *         },
+         *         "metadata": {
+         *             "use_case_id": "SNOW-12345",
+         *             "status": "active"
+         *         }
+         *     }'
+         *     ```
+         */
+        post: operations["update_project_project_update_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -30665,6 +30937,14 @@ export interface components {
             organization_ids: string[];
         };
         /**
+         * DeleteProjectRequest
+         * @description Request model for DELETE /project/delete
+         */
+        DeleteProjectRequest: {
+            /** Project Ids */
+            project_ids: string[];
+        };
+        /**
          * DeleteSkillResponse
          * @description Response from deleting a skill
          */
@@ -34480,6 +34760,65 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * LiteLLM_ProjectTable
+         * @description Database model representation for project
+         */
+        LiteLLM_ProjectTable: {
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Created At */
+            created_at?: string | null;
+            /** Created By */
+            created_by?: string | null;
+            /** Description */
+            description?: string | null;
+            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Spend */
+            model_spend?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
+            /** Object Permission Id */
+            object_permission_id?: string | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Spend
+             * @default 0
+             */
+            spend: number;
+            /** Team Id */
+            team_id?: string | null;
+            /** Updated At */
+            updated_at?: string | null;
+            /** Updated By */
+            updated_by?: string | null;
+        };
         /** LiteLLM_ProxyModelTable */
         LiteLLM_ProxyModelTable: {
             /**
@@ -36991,6 +37330,142 @@ export interface components {
             /** Users */
             users?: components["schemas"]["LiteLLM_UserTable"][] | null;
         };
+        /**
+         * NewProjectRequest
+         * @description Request model for POST /project/new
+         */
+        NewProjectRequest: {
+            /** Allowed Models */
+            allowed_models?: string[] | null;
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Duration */
+            budget_duration?: string | null;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Guardrails */
+            guardrails?: string[] | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Max Parallel Requests */
+            max_parallel_requests?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Itpm Limit */
+            model_itpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Max Budget */
+            model_max_budget?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Otpm Limit */
+            model_otpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
+            /** Policies */
+            policies?: string[] | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id?: string | null;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Soft Budget */
+            soft_budget?: number | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Team Id */
+            team_id: string;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
+        };
+        /**
+         * NewProjectResponse
+         * @description Response model for POST /project/new
+         */
+        NewProjectResponse: {
+            /**
+             * Blocked
+             * @default false
+             */
+            blocked: boolean;
+            /** Budget Id */
+            budget_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by?: string | null;
+            /** Description */
+            description?: string | null;
+            litellm_budget_table?: components["schemas"]["LiteLLM_BudgetTable"] | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Spend */
+            model_spend?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Models
+             * @default []
+             */
+            models: string[];
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionTable"] | null;
+            /** Object Permission Id */
+            object_permission_id?: string | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /**
+             * Spend
+             * @default 0
+             */
+            spend: number;
+            /** Team Id */
+            team_id?: string | null;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Updated By */
+            updated_by?: string | null;
+        };
         /** NewTeamRequest */
         NewTeamRequest: {
             /** Access Group Ids */
@@ -39189,6 +39664,196 @@ export interface components {
              * @default 0
              */
             version: number;
+        };
+        /** PoolCostAccount */
+        PoolCostAccount: {
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Account Name */
+            account_name: string;
+            /** Archived */
+            archived: boolean;
+            /** Days Until Expiry */
+            days_until_expiry?: number | null;
+            latest?: components["schemas"]["PoolCostRecord"] | null;
+            /** Paid Cents */
+            paid_cents: number;
+            /** Period Cents */
+            period_cents: number;
+            /** Recorded */
+            recorded: boolean;
+        };
+        /** PoolCostCreate */
+        PoolCostCreate: {
+            /** Account Id */
+            account_id?: string | null;
+            /** Amount Cents */
+            amount_cents: number;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "subscription" | "proxy" | "server";
+            /**
+             * Currency
+             * @default CNY
+             * @constant
+             */
+            currency: "CNY";
+            /**
+             * Ends On
+             * Format: date
+             */
+            ends_on: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * Starts On
+             * Format: date
+             */
+            starts_on: string;
+        };
+        /** PoolCostRecord */
+        PoolCostRecord: {
+            /** Account Id */
+            account_id?: string | null;
+            /** Account Name */
+            account_name?: string | null;
+            /** Amount Cents */
+            amount_cents: number;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "subscription" | "proxy" | "server";
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created By */
+            created_by: string;
+            /**
+             * Currency
+             * @default CNY
+             * @constant
+             */
+            currency: "CNY";
+            /**
+             * Ends On
+             * Format: date
+             */
+            ends_on: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Paid On
+             * Format: date
+             */
+            paid_on: string;
+            /**
+             * Starts On
+             * Format: date
+             */
+            starts_on: string;
+            /** Void Reason */
+            void_reason?: string | null;
+            /** Voided At */
+            voided_at?: string | null;
+            /** Voided By */
+            voided_by?: string | null;
+        };
+        /** PoolCostReport */
+        PoolCostReport: {
+            /** Accounts */
+            accounts: components["schemas"]["PoolCostAccount"][];
+            /**
+             * Currency
+             * @default CNY
+             * @constant
+             */
+            currency: "CNY";
+            /**
+             * Ends On
+             * Format: date
+             */
+            ends_on: string;
+            /** Expiring Count */
+            expiring_count: number;
+            /** Overdue Count */
+            overdue_count: number;
+            paid: components["schemas"]["PoolCostTotals"];
+            period: components["schemas"]["PoolCostTotals"];
+            /** Record Count */
+            record_count: number;
+            /** Records */
+            records: components["schemas"]["PoolCostRecord"][];
+            /**
+             * Starts On
+             * Format: date
+             */
+            starts_on: string;
+            /**
+             * Today
+             * Format: date
+             */
+            today: string;
+        };
+        /** PoolCostTotals */
+        PoolCostTotals: {
+            /**
+             * Proxy Cents
+             * @default 0
+             */
+            proxy_cents: number;
+            /**
+             * Server Cents
+             * @default 0
+             */
+            server_cents: number;
+            /**
+             * Subscription Cents
+             * @default 0
+             */
+            subscription_cents: number;
+            /**
+             * Total Cents
+             * @default 0
+             */
+            total_cents: number;
+        };
+        /** PoolCostVoid */
+        PoolCostVoid: {
+            /** Reason */
+            reason: string;
         };
         /** ProfileInput */
         ProfileInput: {
@@ -43640,6 +44305,71 @@ export interface components {
             version?: string | null;
         };
         /**
+         * UpdateProjectRequest
+         * @description Request model for POST /project/update
+         */
+        UpdateProjectRequest: {
+            /** Allowed Models */
+            allowed_models?: string[] | null;
+            /** Blocked */
+            blocked?: boolean | null;
+            /** Budget Duration */
+            budget_duration?: string | null;
+            /** Budget Id */
+            budget_id?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Guardrails */
+            guardrails?: string[] | null;
+            /** Max Budget */
+            max_budget?: number | null;
+            /** Max Parallel Requests */
+            max_parallel_requests?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Itpm Limit */
+            model_itpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Max Budget */
+            model_max_budget?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Otpm Limit */
+            model_otpm_limit?: {
+                [key: string]: number;
+            } | null;
+            /** Model Rpm Limit */
+            model_rpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Model Tpm Limit */
+            model_tpm_limit?: {
+                [key: string]: unknown;
+            } | null;
+            /** Models */
+            models?: string[] | null;
+            object_permission?: components["schemas"]["LiteLLM_ObjectPermissionBase"] | null;
+            /** Policies */
+            policies?: string[] | null;
+            /** Project Alias */
+            project_alias?: string | null;
+            /** Project Id */
+            project_id: string;
+            /** Rpm Limit */
+            rpm_limit?: number | null;
+            /** Soft Budget */
+            soft_budget?: number | null;
+            /** Tags */
+            tags?: string[] | null;
+            /** Team Id */
+            team_id?: string | null;
+            /** Tpm Limit */
+            tpm_limit?: number | null;
+        };
+        /**
          * UpdatePublicModelGroupsRequest
          * @description Request model for updating public model groups
          */
@@ -46430,6 +47160,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BatchJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    report_account_pool_costs_get: {
+        parameters: {
+            query: {
+                starts_on: string;
+                ends_on: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolCostReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_account_pool_costs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolCostCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolCostRecord"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    void_account_pool_costs__record_id__void_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolCostVoid"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolCostRecord"];
                 };
             };
             /** @description Validation Error */
@@ -51227,6 +52057,10 @@ export interface operations {
                 start_date?: string | null;
                 /** @description Filter logs before this date */
                 end_date?: string | null;
+                /** @description Filter by team_id present in before_value or updated_values JSON (PostgreSQL only) */
+                object_team_id?: string | null;
+                /** @description Filter by token (key hash) present in before_value or updated_values JSON (PostgreSQL only) */
+                object_key_hash?: string | null;
                 /** @description Column to sort by (e.g. 'updated_at', 'action', 'table_name') */
                 sort_by?: string | null;
                 /** @description Sort order ('asc' or 'desc') */
@@ -64935,6 +65769,156 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyValidationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_project_project_delete_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    project_info_project_info_get: {
+        parameters: {
+            query: {
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_projects_project_list_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"][];
+                };
+            };
+        };
+    };
+    new_project_project_new_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NewProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NewProjectResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_project_project_update_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiteLLM_ProjectTable"];
                 };
             };
             /** @description Validation Error */

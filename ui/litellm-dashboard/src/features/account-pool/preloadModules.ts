@@ -50,3 +50,6 @@ export const ACCOUNT_POOL_MODULE_LOADERS = [
 ];
 
 export const preloadAccountPoolModules = () => Promise.all(ACCOUNT_POOL_MODULE_LOADERS.map((load) => load()));
+
+export const loadAccountPoolCostsPanel = () =>
+  import("./components/costs/AccountPoolCostsPanel").then((module) => module.AccountPoolCostsPanel);

@@ -34,6 +34,10 @@ class OAuthBrowserSchemaEvidence:
     startup: str
 
 
+COST_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_cost_records ( id uuid PRIMARY KEY, payload jsonb NOT NULL )",
+)
+
 STARTUP_SOURCES: Final = ("proxy_cli.py", "utils.py", "prod_entrypoint.sh", "migration-history")
 
 # 仅绑定已审阅的 5b76f5170d -> 0813fb86f0 非 release_* 源码树，不接受目标镜像自报允许范围。
@@ -287,6 +291,7 @@ def additive_manager_schema_upgrade(
         ),
     )
     if additions not in (
+        COST_SCHEMA_ADDITIONS,
         RUNTIME_ROLLOUT_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
             QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
