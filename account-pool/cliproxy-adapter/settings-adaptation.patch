@@ -3129,7 +3129,7 @@ index 0000000000000000000000000000000000000000..753b574eb1998a636b4f157ed5a52e99
 +	}
 +}
 diff --git a/sdk/cliproxy/auth/auto_refresh_loop.go b/sdk/cliproxy/auth/auto_refresh_loop.go
-index b4217b3..d33488e 100644
+index b4217b3..e6e74d5 100644
 --- a/sdk/cliproxy/auth/auto_refresh_loop.go
 +++ b/sdk/cliproxy/auth/auto_refresh_loop.go
 @@ -339,6 +339,15 @@
@@ -3145,7 +3145,8 @@ index b4217b3..d33488e 100644
 +	if auth.refreshLastResult == "pending" || auth.refreshLastResult == "unknown_outcome" {
 +		return time.Time{}, false
 +	}
- 	if hasUnauthorizedAuthFailure(auth) {
+-	if hasUnauthorizedAuthFailure(auth) {
++	if hasUnauthorizedAuthFailure(auth) || (accessFallbackBound(auth) && auth.AccessFallback.RefreshRejected) {
  		return time.Time{}, false
  	}
 diff --git a/sdk/cliproxy/auth/conductor.go b/sdk/cliproxy/auth/conductor.go
@@ -4332,7 +4333,7 @@ index 830a2e6e91e0cc2c389e9fdc6ca9c800e142383c..460748332c98646a6f415e08d4cc9f0e
  // CooldownStateStore persists runtime cooldown state independently from auth tokens.
 diff --git a/sdk/cliproxy/auth/credential_refresh.go b/sdk/cliproxy/auth/credential_refresh.go
 new file mode 100644
-index 0000000..d0c294e
+index 0000000..f75261c
 --- /dev/null
 +++ b/sdk/cliproxy/auth/credential_refresh.go
 @@ -0,0 +1,149 @@
@@ -4456,7 +4457,7 @@ index 0000000..d0c294e
 +		view.ScheduleReason = "running"
 +	case a.refreshLastResult == "unknown_outcome" && !view.SavePending:
 +		view.ScheduleReason = "refresh_outcome_unknown"
-+	case hasUnauthorizedAuthFailure(a) && !view.SavePending:
++	case !view.SavePending && (hasUnauthorizedAuthFailure(a) || (accessFallbackBound(a) && a.AccessFallback.RefreshRejected)):
 +		view.ScheduleReason = "reauthorization_required"
 +	case !authHasRefreshCredential(a) && !view.SavePending:
 +		view.ScheduleReason = "no_refresh_token"
@@ -4487,10 +4488,10 @@ index 0000000..d0c294e
 +}
 diff --git a/sdk/cliproxy/auth/credential_refresh_test.go b/sdk/cliproxy/auth/credential_refresh_test.go
 new file mode 100644
-index 0000000..cb43789
+index 0000000..ae6a3c8
 --- /dev/null
 +++ b/sdk/cliproxy/auth/credential_refresh_test.go
-@@ -0,0 +1,403 @@
+@@ -0,0 +1,409 @@
 +// 验证手动刷新去重、待保存补偿和重启后的调度状态。
 +package auth
 +
@@ -4773,8 +4774,14 @@ index 0000000..cb43789
 +	a.StatusMessage = ""
 +	a.Status = StatusActive
 +	a.Unavailable = false
++	a.Metadata["refresh_interval_seconds"] = 3600
 +	_, _ = m.Update(context.Background(), a)
 +	current, _ := m.GetByID(a.ID)
++	m.refreshLoop = newAuthAutoRefreshLoop(m, time.Second, 1)
++	m.refreshLoop.rebuild(time.Now())
++	if st := m.CredentialRefreshStatus(a.ID); st.ScheduleReason != "reauthorization_required" || st.NextRefreshAt != nil {
++		t.Fatalf("rejected refresh advertised: %+v", st)
++	}
 +	if _, ok := nextRefreshCheckAt(time.Now(), current, time.Second); ok {
 +		t.Fatal("rejected refresh scheduled after request state changed")
 +	}

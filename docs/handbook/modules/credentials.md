@@ -78,6 +78,8 @@ Manager 的 `ACCOUNT_POOL_OAUTH_BROWSER_IMAGE` 必须使用 digest。“自动�
 
 新策略默认允许 access 降级，已保存的手动关闭值仍为关闭，不批量改写旧卡。未绑定凭据时只保存策略意图，绑定后同步需通过运行时能力检查。刷新仍使用现有单卡协调器，锁内重读凭据，轮换成功但保存失败时只重试保存，不重复兑换旧 refresh token。上游拒绝首次即分类为需要重新授权，不承诺撤销凭据能被刷新成功
 
+同一份刷新凭据已被拒绝时，后续模型请求即使改变卡片的运行状态，也不再为这份凭据排期刷新。凭据面板显示需要重新授权，不显示下次刷新时间。这不等同于账号封禁，也不撤销仍有效的同模型访问验证。
+
 access 降级只接受同卡同模型的完整推理验证，手动关闭、归属冲突、配置未同步、冷却、耗尽额度和访问令牌到期仍阻止使用。纯 access 的 CPA 和 Sub2API 文件可导入并保留独占归属。缺少 refresh、刷新被拒绝或刷新结果未知时统一验证现有 access。额度查询失败或过期观测不等于认证失效，未到期的真实耗尽仍拦截；有效同模型证明按凭据、代理、配置代际和到期时间复用，普通模型测试仍走该卡的正常 Chat/Responses 路由，不以管理接口成功代替普通调用。模型测试计时包含前置验证和路由同步，冷启动比已有证明多一次验证请求
 
 设计核对了 [CLIProxyAPI 并发刷新讨论](https://github.com/router-for-me/CLIProxyAPI/issues/3783) 和 [sub2api OAuth 刷新协调器](https://github.com/Wei-Shaw/sub2api/blob/4a4a83ee5ec86b19d3a2dd9b6471de5128963bec/backend/internal/service/oauth_refresh_api.go)，沿用已有锁和重读机制，没有另外添加一套刷新调度。单进程协调不代表同一 refresh token 在其他服务中并发刷新也安全
