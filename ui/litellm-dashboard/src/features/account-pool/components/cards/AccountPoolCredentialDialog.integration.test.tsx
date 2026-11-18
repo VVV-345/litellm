@@ -63,3 +63,19 @@ it("submits only once during a pending request and redacts uncertain errors", as
   expect(await screen.findByRole("status")).not.toHaveTextContent("synthetic-secret-must-not-render");
   expect(apiClient.post).toHaveBeenCalledTimes(1);
 });
+
+it.each([
+  ["save_pending", /只重试写入，不再次请求刷新/],
+  ["binding_unconfirmed", /未核对到完整凭据/],
+  ["reauthorization_required", /请重新授权/],
+  ["unrecognized-secret", /未确认凭据已保存/],
+])("explains %s without exposing machine codes", async (reason, message) => {
+  vi.mocked(apiClient.post).mockResolvedValue({ saved: false, reason, status: {} });
+  open();
+  fireEvent.click(screen.getByRole("checkbox"));
+  fireEvent.click(screen.getByRole("button", { name: "刷新凭据" }));
+  const result = await screen.findByRole("status");
+  expect(result).toHaveTextContent(message);
+  expect(result).not.toHaveTextContent(reason);
+  expect(screen.getByRole("button", { name: "刷新凭据" })).toBeDisabled();
+});

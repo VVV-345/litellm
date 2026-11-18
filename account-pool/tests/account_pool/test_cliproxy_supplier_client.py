@@ -2198,6 +2198,36 @@ async def test_verified_single_credential_releases_stale_ownership_only_after_su
 
 
 @pytest.mark.asyncio
+async def test_account_poll_does_not_replace_a_binding_when_refresh_readback_is_incomplete() -> None:
+    from account_pool.credential_ownership import CredentialOwnership, credential_identity
+    from account_pool.domain import CredentialRefreshStatus
+
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    ownership: Final = CredentialOwnership()
+    original: Final = credential_identity(
+        b'{"access_token":"fixture-before","refresh_token":"fixture-refresh"}', "openai_codex", secrets
+    )
+    record: Final = _record().model_copy(update={
+        "auth_file_name": "card.json", "auth_index": "1", "credential_fingerprints": original.fingerprints,
+        "credential_refresh": CredentialRefreshStatus(last_result="binding_unconfirmed"),
+    })
+    await ownership.claim(record.id, original.fingerprints)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/download"):
+            return httpx.Response(200, json={"access_token": "fixture-after"})
+        if request.url.path.endswith("/auth-files"):
+            return httpx.Response(200, json={"files": [{"name": "card.json", "provider": "codex", "auth_index": "1"}]})
+        return httpx.Response(200, json={"models": [{"id": "model-a"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        proxy: Final = HttpCLIProxyClient(secrets, http, ownership)
+        with pytest.raises(ValueError, match="完整凭据"):
+            await proxy.read_account(record)
+    assert await ownership.owns(record.id, original.fingerprints)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("verified", [False, True])
 async def test_refresh_failure_without_model_proof_is_not_ready(verified):
     from datetime import timedelta

@@ -46,6 +46,7 @@ from account_pool.credential_ownership import (
     CredentialOwnership,
     credential_identity,
 )
+from account_pool.credential_refresh import require_refreshed_pair
 from account_pool.domain import (
     AuthorizationFlow,
     EnvironmentConfiguration,
@@ -226,6 +227,12 @@ class HttpCLIProxyClient:
                     )
                 else:
                     content, _ = await self.download_auth_file(record, auth_file.name)
+                    if (
+                        selected_supplier.kind is SupplierKind.OPENAI_CODEX
+                        and record.auth_file_name is not None
+                        and record.credential_refresh.last_result == "binding_unconfirmed"
+                    ):
+                        require_refreshed_pair(content)
                     credential = credential_identity(content, record.supplier.value, self._secrets)
                 await self._ownership.claim(record.id, credential.fingerprints)
             except CredentialConflict as conflict:

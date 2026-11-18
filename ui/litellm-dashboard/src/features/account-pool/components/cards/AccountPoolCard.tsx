@@ -309,7 +309,7 @@ const AccountPoolCardComponent = ({
           </p>
         )}
         {environment.credential_refresh &&
-          ["failed", "rejected", "unknown_outcome", "save_pending"].includes(
+          ["failed", "rejected", "unknown_outcome", "save_pending", "binding_unconfirmed"].includes(
             environment.credential_refresh.last_result ?? "",
           ) && (
             <p role="status" className="text-xs text-destructive">

@@ -90,7 +90,8 @@ async def test_refresh_commits_rotated_identity_without_reenabling_card():
 
 
 @pytest.mark.asyncio
-async def test_refresh_transport_rebinds_rotated_file_and_allows_next_identity_check():
+@pytest.mark.parametrize("rotated_refresh", ["fixture-refresh-new", None, " "])
+async def test_refresh_transport_rebinds_only_a_complete_rotated_file(rotated_refresh):
     import json
     import httpx
     from account_pool.credential_ownership import CredentialOwnership, credential_identity
@@ -108,7 +109,7 @@ async def test_refresh_transport_rebinds_rotated_file_and_allows_next_identity_c
         if request.url.path.endswith("/download"):
             return httpx.Response(200,json=files[-1])
         assert request.method == "POST" and request.url.path.endswith("/credential-refresh")
-        files.append({**files[-1],"access_token":"fixture-access-new","refresh_token":"fixture-refresh-new"})
+        files.append({**files[-1], "access_token": "fixture-access-new", "refresh_token": rotated_refresh})
         return httpx.Response(200,json={"saved":True,"reason":"saved","status":{"last_result":"saved"}})
     ownership = CredentialOwnership()
     card = _record().model_copy(update={"auth_file_name":"fixture.json","auth_index":"fixture"})
@@ -119,8 +120,34 @@ async def test_refresh_transport_rebinds_rotated_file_and_allows_next_identity_c
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         upstream = CodexResetClient(http,secrets)
         result = await CredentialRefreshService(env,ownership,upstream).refresh(card.id,card.version)
-        assert result.saved
-        _,credential = await upstream._credential(env.record,CLIProxyTransport(http,secrets))
-        assert credential.access_token == "fixture-access-new"
+        if rotated_refresh == "fixture-refresh-new":
+            assert result.saved
+            _, credential = await upstream._credential(env.record, CLIProxyTransport(http, secrets))
+            assert credential.access_token == "fixture-access-new"
+            assert env.record.credential_fingerprints != identity.fingerprints
+        else:
+            assert not result.saved and result.reason == "binding_unconfirmed"
+            assert env.record.credential_refresh.last_result == "binding_unconfirmed"
+            assert env.record.credential_fingerprints == identity.fingerprints
+            assert await ownership.owns(card.id, identity.fingerprints)
     assert sum(method=="POST" for method,_ in calls)==1
-    assert env.record.credential_fingerprints != identity.fingerprints
+
+
+@pytest.mark.asyncio
+async def test_refresh_readback_timeout_keeps_current_binding_and_reports_unconfirmed():
+    from account_pool.credential_ownership import CredentialOwnership
+    from account_pool.credential_refresh import CredentialRefreshService
+
+    class Unreadable(Upstream):
+        async def read_credential_identity(self, record):
+            raise TimeoutError("fixture readback timeout")
+
+    card = _record().model_copy(
+        update={"auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",)}
+    )
+    env, up, ownership = FallbackEnvironments(card), Unreadable(), CredentialOwnership()
+    await ownership.claim(card.id, card.credential_fingerprints)
+    result = await CredentialRefreshService(env, ownership, up).refresh(card.id, card.version)
+    assert not result.saved and result.reason == "binding_unconfirmed" and up.calls == 1
+    assert await ownership.owns(card.id, card.credential_fingerprints)
+    assert env.record.credential_fingerprints == card.credential_fingerprints

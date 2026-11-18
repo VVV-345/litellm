@@ -63,7 +63,11 @@ class Environments:
 
 class Upstream:
     def __init__(self):
-        self.observation = ResetObservation(available=2, credit_id="fixture-credit", eligible=True)
+        self.observation = ResetObservation(
+            available=2, credit_id="fixture-credit", eligible=True, quota=QuotaSnapshot(
+                windows=(QuotaWindow(name="5h", remaining_percent=95, used_percent=5, window_minutes=300),)
+            )
+        )
         self.calls = []
         self.reply = ResetReply(code="reset", windows_reset=1)
         self.timeout = False
@@ -252,6 +256,28 @@ async def test_failed_quota_recheck_does_not_report_manager_recovery():
     assert result.passed and not result.restored
     assert result.reason == "quota_check_failed"
     assert service.environments.record == record
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_scope", [False, True])
+async def test_probe_does_not_recover_when_a_live_exhausted_window_is_missing_from_recheck(model_scope):
+    service, record, _, _ = setup_service()
+    blocked = QuotaSnapshot(windows=(
+        QuotaWindow(
+            name="7d", remaining_percent=0, used_percent=100, window_minutes=10080,
+            resets_at=utc_now() + timedelta(hours=12),
+        ),
+    ))
+    before = record.model_copy(update={
+        "status": EnvironmentStatus.COOLING_DOWN,
+        **({"model_quotas": (ModelQuotaSnapshot(model="model-a", quota=blocked),)} if model_scope else {"quota": blocked}),
+    })
+    service.environments.record = before
+
+    result = await service.verify(record.id, "model-a", True)
+
+    assert result.passed and not result.restored and result.reason == "quota_observation_incomplete"
+    assert service.environments.record == before
 
 
 def test_recovery_projection_clears_only_verified_model_rate_limit_cooldown():

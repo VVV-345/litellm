@@ -14,6 +14,21 @@ from account_pool.domain import CredentialRefreshStatus, EnvironmentRecord, Envi
 from account_pool.ports import EnvironmentRepository
 
 
+class _RefreshedCredential(BaseModel):
+    model_config = ConfigDict(hide_input_in_errors=True)
+    access_token: str = Field(min_length=1, repr=False)
+    refresh_token: str = Field(min_length=1, repr=False)
+
+
+def require_refreshed_pair(content: bytes) -> None:
+    try:
+        pair: Final = _RefreshedCredential.model_validate_json(content)
+    except ValueError:
+        raise ValueError("刷新后尚未读回完整凭据") from None
+    if any(not token.strip() or "$TOKEN$" in token for token in (pair.access_token, pair.refresh_token)):
+        raise ValueError("刷新后尚未读回完整凭据")
+
+
 class CredentialRefreshResult(BaseModel):
     model_config = ConfigDict(frozen=True)
     saved: bool
@@ -63,10 +78,22 @@ class CredentialRefreshService:
             )
             if claimed is None:
                 return CredentialRefreshResult(saved=False, reason="state_changed")
-            result: Final = await self.upstream.refresh_credentials(claimed)
-            identity: Final = await self.upstream.read_credential_identity(claimed) if result.saved else None
-            if identity is not None:
-                await self.ownership.claim(environment_id, identity.fingerprints)
+            reported: Final = await self.upstream.refresh_credentials(claimed)
+            identity: Final = (
+                await self._confirm_saved_identity(claimed)
+                if reported.saved and not reported.status.save_pending else None
+            )
+            result: Final = (
+                reported if not reported.saved or identity is not None
+                else CredentialRefreshResult(
+                    saved=False,
+                    reason="save_pending" if reported.status.save_pending else "binding_unconfirmed",
+                    status=reported.status.model_copy(update={
+                        "last_result": "save_pending" if reported.status.save_pending else "binding_unconfirmed",
+                        "last_success_at": claimed.credential_refresh.last_success_at,
+                    }),
+                )
+            )
             saved: Final = await self.environments.save_if_version(
                 claimed.model_copy(
                     update={
@@ -90,6 +117,15 @@ class CredentialRefreshService:
             return (
                 result if saved is not None else result.model_copy(update={"saved": False, "reason": "state_changed"})
             )
+
+    async def _confirm_saved_identity(self, record: EnvironmentRecord) -> CredentialIdentity | None:
+        # 失败时保留原绑定；运行时可能已完成轮换，这里不能重放旧刷新令牌。
+        try:
+            identity: Final = await self.upstream.read_credential_identity(record)
+            await self.ownership.claim(record.id, identity.fingerprints)
+        except (ValueError, httpx.HTTPError, TimeoutError):
+            return None
+        return identity
 
 
 def create_credential_refresh_router(

@@ -13,6 +13,7 @@ from account_pool.domain import (
     EnvironmentStatus,
     ModelQuotaSnapshot,
     QuotaSnapshot,
+    QuotaWindow,
     SupplierKind,
     utc_now,
 )
@@ -50,6 +51,10 @@ class ResetUpstream(Protocol):
     async def observe(self, record: EnvironmentRecord) -> ResetObservation: ...
     async def consume(self, record: EnvironmentRecord, operation: ResetOperation) -> ResetReply: ...
     async def verify(self, record: EnvironmentRecord, model: str, recover: bool) -> ResetVerification: ...
+
+
+def _model_windows(model_quotas: tuple[ModelQuotaSnapshot, ...], model: str) -> tuple[QuotaWindow, ...]:
+    return tuple(window for item in model_quotas if item.model == model for window in item.quota.windows)
 
 
 def recovered_record(
@@ -178,12 +183,21 @@ class QuotaResetService:
             observation: Final = await self.upstream.observe(record)
         except (ValueError, httpx.HTTPError, TimeoutError):
             return ResetVerification(passed=True, restored=False, reason="quota_check_failed")
-        if any(
-            window.remaining_percent <= 0
-            for snapshot in (observation.quota, *(item.quota for item in observation.model_quotas if item.model == model))
-            for window in snapshot.windows
-        ):
+        fresh_model_windows: Final = _model_windows(observation.model_quotas, model)
+        if any(window.remaining_percent <= 0 for window in (*observation.quota.windows, *fresh_model_windows)):
             return ResetVerification(passed=True, restored=False, reason="quota_not_recovered")
+        now: Final = utc_now()
+        if not observation.quota.windows or any(
+            window.remaining_percent <= 0
+            and (window.resets_at is None or window.resets_at > now)
+            and not any(current.name == window.name for current in fresh)
+            for previous, fresh in (
+                (record.quota.windows, observation.quota.windows),
+                (_model_windows(record.model_quotas, model), fresh_model_windows),
+            )
+            for window in previous
+        ):
+            return ResetVerification(passed=True, restored=False, reason="quota_observation_incomplete")
         # CPA 成功不等于号池恢复；数据库必须仍为验证前快照，且没有独立运行时阻断。
         restored: Final = await self.environments.restore_verified(
             record, model, observation.quota, observation.model_quotas

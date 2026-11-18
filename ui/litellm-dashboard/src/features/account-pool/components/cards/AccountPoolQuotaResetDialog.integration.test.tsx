@@ -135,3 +135,34 @@ it("shows failed quota observation without losing the uncertain redemption ident
   expect(screen.queryByText(/无适用次数/)).not.toBeInTheDocument();
   expect(apiClient.post).not.toHaveBeenCalled();
 });
+
+it("keeps a confirmed redemption visible and offers verification only when the probe times out", async () => {
+  vi.mocked(apiClient.post)
+    .mockResolvedValueOnce(operation)
+    .mockResolvedValueOnce({ ...operation, status: "reset", windows_reset: 1 })
+    .mockRejectedValueOnce(new Error("fixture verify timeout"))
+    .mockResolvedValueOnce({ passed: true, restored: false, reason: "quota_observation_incomplete" });
+  open();
+  fireEvent.click(await screen.findByRole("checkbox", { name: /我确认仅操作/ }));
+  fireEvent.click(screen.getByRole("button", { name: "重置额度" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(/兑换已记录.*只重试验证/);
+  expect(screen.getByText(/已重置 1 个额度窗口/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "重置额度" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "验证调用" }));
+  expect(await screen.findByText(/仍有额度窗口未核实/)).toBeInTheDocument();
+  expect(vi.mocked(apiClient.post).mock.calls.filter(([url]) => url.endsWith("/consume"))).toHaveLength(1);
+});
+
+it("does not consume again when prepare returns a previously completed operation", async () => {
+  vi.mocked(apiClient.post)
+    .mockResolvedValueOnce({ ...operation, status: "reset", windows_reset: 1 })
+    .mockResolvedValue({ ...operation, status: "reset", windows_reset: 1 });
+  open();
+  await screen.findByText("可用重置次数：2");
+  fireEvent.click(screen.getByRole("checkbox", { name: /我确认仅操作/ }));
+  fireEvent.click(screen.getByRole("button", { name: "重置额度" }));
+  expect(await screen.findByText(/已重置 1 个额度窗口/)).toBeInTheDocument();
+  expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
+    "/account_pool/environments/first/quota-reset/prepare", expect.anything(),
+  );
+});

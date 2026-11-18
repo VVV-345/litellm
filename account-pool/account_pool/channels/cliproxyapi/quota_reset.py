@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from account_pool.channels.cliproxyapi.protocol import APICallResponse, AuthFile, AuthFilesResponse
 from account_pool.channels.cliproxyapi.transport import CLIProxyTransport
 from account_pool.credential_ownership import CredentialIdentity, credential_identity
-from account_pool.credential_refresh import CredentialRefreshResult
+from account_pool.credential_refresh import CredentialRefreshResult, require_refreshed_pair
 from account_pool.domain import (
     AccessTokenFallbackStatus,
     AccessTokenFallbackVerification,
@@ -137,6 +137,7 @@ class CodexResetClient:
 
     async def read_credential_identity(self, record: EnvironmentRecord) -> CredentialIdentity:
         _, content = await self._download_credential(record, CLIProxyTransport(self.http, self.secrets))
+        require_refreshed_pair(content)
         return credential_identity(content, record.supplier.value, self.secrets)
 
     async def _download_credential(

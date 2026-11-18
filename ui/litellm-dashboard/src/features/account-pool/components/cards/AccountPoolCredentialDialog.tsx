@@ -43,9 +43,11 @@ export function AccountPoolCredentialDialog({ accessToken, mode, environment, on
       if (mode === "refresh") {
         const result = await refreshCardCredentials(accessToken, environment.id, environment.version);
         setMessage(
-          t(result.saved ? "accountPool.credential.saved" : "accountPool.credential.notSaved", {
-            reason: result.reason,
-          }),
+          result.saved
+            ? t("accountPool.credential.saved")
+            : t(`accountPool.credential.refreshResult.${result.reason}`, {
+                defaultValue: t("accountPool.credential.notSaved"),
+              }),
         );
       } else {
         const result = await verifyCardAccess(accessToken, environment.id, model);
@@ -92,13 +94,13 @@ export function AccountPoolCredentialDialog({ accessToken, mode, environment, on
           {t("accountPool.credential.confirm", { name: environment.name })}
         </Label>
         {message && (
-          <p role="status" className="break-words text-sm">
+          <p role="status" className="break-words rounded-md border bg-muted/40 p-3 text-sm">
             {message}
           </p>
         )}
         <DialogFooter>
           <Button variant="outline" disabled={pending} onClick={onClose}>
-            {t("accountPool.cancel")}
+            {t(submitted ? "common.close" : "accountPool.cancel")}
           </Button>
           <Button
             disabled={pending || submitted || !confirmed || (mode === "verify" && !model)}

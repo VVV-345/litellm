@@ -28,6 +28,8 @@
 
 不自动兑换，不因暂时网络超时把运行时判成必须升级，不把一次模型成功变成整卡解锁。管理/能力接口可用、模型列表、额度有余量都不是完整推理成功证据；no_credit、uncertain 与未运行验证不能写成已恢复
 
+兑换与模型验证分别显示。兑换已确认但验证请求失败时，只重试「验证调用」，不重新兑换；后端返回已结束的旧操作时，页面只展示该记录，不再自动兑换或探测。回查漏掉仍生效的已耗尽窗口时，即使同卡所选模型探针成功，也不写入路由恢复；卡片级和模型级窗口分别核对，并保留手动和独立阻断
+
 ## 测试与通过标准
 
 [解析及窗口](../../../account-pool/tests/account_pool/test_quota.py)、[兑换与恢复](../../../account-pool/tests/account_pool/test_quota_reset.py)、[API](../../../account-pool/tests/account_pool/test_quota_reset_api.py)、[自然恢复](../../../account-pool/tests/account_pool/test_quota_recovery_scheduler.py)、[PostgreSQL](../../../account-pool/tests/account_pool/test_quota_reset_postgres.py)。要求原兑换身份可续查，结果可追溯，并发状态不被覆盖，模型范围不扩大

@@ -800,7 +800,7 @@ index 8eb33721ff8f0c209353046c843f2c2220887463..f480637cf3a007e4dcc6c68d23e7e541
  	t.Setenv("MANAGEMENT_PASSWORD", "test-management-key")
  
 diff --git a/internal/auth/codex/openai_auth.go b/internal/auth/codex/openai_auth.go
-index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f4776ac0e8dd 100644
+index 074146ffdfc51234eb6a59aae72b1b17af7c4215..504d0902c66c300a3d8b716ef8cb56a492388331 100644
 --- a/internal/auth/codex/openai_auth.go
 +++ b/internal/auth/codex/openai_auth.go
 @@ -7,8 +7,10 @@ package codex
@@ -842,7 +842,7 @@ index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f477
  	}
  	defer func() {
  		if errClose := resp.Body.Close(); errClose != nil {
-@@ -240,11 +254,14 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+@@ -240,23 +254,37 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
  
  	body, errRead := io.ReadAll(resp.Body)
  	if errRead != nil {
@@ -859,7 +859,16 @@ index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f477
  	}
  
  	var tokenResp struct {
-@@ -256,7 +273,11 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+-		AccessToken  string `json:"access_token"`
+-		RefreshToken string `json:"refresh_token"`
+-		IDToken      string `json:"id_token"`
+-		TokenType    string `json:"token_type"`
+-		ExpiresIn    int    `json:"expires_in"`
++		AccessToken  string          `json:"access_token"`
++		RefreshToken json.RawMessage `json:"refresh_token"`
++		IDToken      string          `json:"id_token"`
++		TokenType    string          `json:"token_type"`
++		ExpiresIn    int             `json:"expires_in"`
  	}
  
  	if errUnmarshal := json.Unmarshal(body, &tokenResp); errUnmarshal != nil {
@@ -869,10 +878,25 @@ index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f477
 +
 +	if strings.TrimSpace(tokenResp.AccessToken) == "" {
 +		return nil, &RefreshOutcomeUnknownError{Stage: "access token missing"}
++	}
++
++	var replacement string
++	if tokenResp.RefreshToken != nil {
++		if err := json.Unmarshal(tokenResp.RefreshToken, &replacement); err != nil || strings.TrimSpace(replacement) == "" {
++			return nil, &RefreshOutcomeUnknownError{Stage: "refresh token invalid"}
++		}
  	}
  
  	// Extract account ID from ID token
-@@ -282,6 +303,27 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+@@ -275,13 +303,34 @@ func (o *CodexAuth) refreshTokensSingleFlight(ctx context.Context, refreshToken
+ 	return &CodexTokenData{
+ 		IDToken:      tokenResp.IDToken,
+ 		AccessToken:  tokenResp.AccessToken,
+-		RefreshToken: tokenResp.RefreshToken,
++		RefreshToken: replacement,
+ 		AccountID:    accountID,
+ 		Email:        email,
+ 		Expire:       time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).Format(time.RFC3339),
  	}, nil
  }
  
@@ -900,7 +924,7 @@ index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f477
  // CreateTokenStorage creates a new CodexTokenStorage from a CodexAuthBundle.
  // It populates the storage struct with token data, user information, and timestamps.
  func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStorage {
-@@ -334,8 +376,14 @@ func isNonRetryableRefreshErr(err error) bool {
+@@ -334,8 +383,14 @@ func isNonRetryableRefreshErr(err error) bool {
  	if err == nil {
  		return false
  	}
@@ -917,7 +941,7 @@ index 074146ffdfc51234eb6a59aae72b1b17af7c4215..2bf689ee8638272a4cca4e547546f477
  
  // UpdateTokenStorage updates an existing CodexTokenStorage with new token data.
 diff --git a/internal/auth/codex/openai_auth_test.go b/internal/auth/codex/openai_auth_test.go
-index 6144f0e53821b34054ee55669c149c38808a53f2..77385cabe8cbc884595e998f21bf82bf43c69816 100644
+index 6144f0e53821b34054ee55669c149c38808a53f2..d538bc9ba0a6e7507fe9ea68b527f0d7ea3cbbb5 100644
 --- a/internal/auth/codex/openai_auth_test.go
 +++ b/internal/auth/codex/openai_auth_test.go
 @@ -2,7 +2,9 @@ package codex
@@ -930,7 +954,7 @@ index 6144f0e53821b34054ee55669c149c38808a53f2..77385cabe8cbc884595e998f21bf82bf
  	"net/http"
  	"net/url"
  	"strings"
-@@ -223,3 +225,85 @@ func TestNewCodexAuthWithProxyURL_OverrideProxyTakesPrecedence(t *testing.T) {
+@@ -223,3 +225,115 @@ func TestNewCodexAuthWithProxyURL_OverrideProxyTakesPrecedence(t *testing.T) {
  		t.Fatalf("proxy URL = %v, want http://override.example.com:8081", proxyURL)
  	}
  }
@@ -1012,6 +1036,36 @@ index 6144f0e53821b34054ee55669c149c38808a53f2..77385cabe8cbc884595e998f21bf82bf
 +			unknown := errors.As(err, &outcome) && outcome.RefreshOutcomeUnknown()
 +			if err == nil || unknown != tc.unknown || isNonRetryableRefreshErr(err) != tc.unknown || calls != 1 {
 +				t.Fatalf("unknown=%t want=%t; posts=%d; error=%v", unknown, tc.unknown, calls, err)
++			}
++		})
++	}
++}
++
++func TestRefreshRejectsMalformedReplacementButAcceptsOmission(t *testing.T) {
++	for _, tc := range []struct {
++		name, body, replacement string
++		unknown                 bool
++	}{
++		{"blank", `{"access_token":"synthetic-access","refresh_token":"  "}`, "", true},
++		{"empty", `{"access_token":"synthetic-access","refresh_token":""}`, "", true},
++		{"null", `{"access_token":"synthetic-access","refresh_token":null}`, "", true},
++		{"omitted", `{"access_token":"synthetic-access"}`, "", false},
++		{"valid", `{"access_token":"synthetic-access","refresh_token":"synthetic-refresh"}`, "synthetic-refresh", false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			calls := 0
++			auth := &CodexAuth{httpClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
++				calls++
++				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(tc.body)), Header: make(http.Header), Request: req}, nil
++			})}}
++			data, err := auth.RefreshTokensWithRetry(context.Background(), "synthetic-initial-"+tc.name, 2)
++			var unknown *RefreshOutcomeUnknownError
++			if tc.unknown {
++				if !errors.As(err, &unknown) || data != nil || calls != 1 {
++					t.Fatalf("untrusted token response: accepted=%t unknown=%t requests=%d", data != nil, unknown != nil, calls)
++				}
++			} else if err != nil || data == nil || data.RefreshToken != tc.replacement || calls != 1 {
++				t.Fatalf("valid refresh response not accepted; requests=%d", calls)
 +			}
 +		})
 +	}

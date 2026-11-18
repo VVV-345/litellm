@@ -29,6 +29,8 @@ interface Props {
   onClose: () => void;
 }
 
+type Step = "reset" | "verify";
+
 export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose }: Props) {
   const { t } = useTranslation();
   const cache = useQueryClient();
@@ -45,8 +47,9 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const [confirmed, setConfirmed] = useState(false);
   const [recover, setRecover] = useState(false);
   const [model, setModel] = useState(environment.enabled_models[0] ?? "");
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [pending, setPending] = useState<Step | null>(null);
+  const inProgress = pending !== null;
+  const [failed, setFailed] = useState<Step | null>(null);
   const [verification, setVerification] = useState<QuotaResetVerification | null>(null);
   const busy = useRef(false);
   const reconcile = operation?.status === "uncertain";
@@ -55,30 +58,34 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const displayedCall = !failed && !pending && !verification && savedCall?.model === model
     && savedCall.verification_at === savedVerification?.observed_at ? savedCall : null;
   const displayedVerification = failed || pending ? null : verification ?? (savedVerification?.model === model ? savedVerification.result : null);
-  const run = async (action: "reset" | "verify") => {
+  const run = async (action: Step) => {
     if (busy.current || (action === "reset" && !confirmed)) return;
+    let step = action;
     busy.current = true;
-    setPending(true);
-    setFailed(false);
+    setPending(step);
+    setFailed(null);
     setVerification(null);
     try {
       if (action === "reset") {
+        setConfirmed(false);
+        setRecover(false);
         const prepared =
           operation?.status === "prepared" || operation?.status === "uncertain"
             ? operation
             : await prepareQuotaReset(accessToken, environment.id, operation?.request_id);
         // 即使随后 HTTP 响应丢失，也保留服务器给出的原兑换身份。
         cache.setQueryData(key, { observation, operation: prepared });
+        if (prepared.status !== "prepared" && prepared.status !== "uncertain") return;
         const result = await consumeQuotaReset(accessToken, environment.id, prepared.request_id);
         cache.setQueryData(key, { observation: result.after ?? observation, operation: result });
-        setConfirmed(false);
-        // HTTP 成功不代表兑换成功；不明确结果不能触发恢复或再次兑换。
-        setRecover(result.status === "reset" && result.windows_reset > 0);
-        if (result.status === "reset" && result.windows_reset > 0 && model) {
-          const checked = await verifyQuotaReset(accessToken, environment.id, model, true);
-          setVerification(checked);
-          await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
-        }
+        const resetApplied = result.status === "reset" && result.windows_reset > 0;
+        if (prepared.status !== "prepared" || !resetApplied || !model) return;
+        step = "verify";
+        setRecover(true);
+        setPending(step);
+        const checked = await verifyQuotaReset(accessToken, environment.id, model, true);
+        setVerification(checked);
+        await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
       } else {
         const result = await verifyQuotaReset(accessToken, environment.id, model, recover);
         setVerification(result);
@@ -87,15 +94,17 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
           await cache.invalidateQueries({ queryKey: accountPoolQueryKeys.environments(accessToken) });
       }
     } catch {
-      setFailed(true);
-      if (action === "reset") await cache.invalidateQueries({ queryKey: key });
+      setFailed(step);
+      if (step === "reset") await cache.invalidateQueries({ queryKey: key });
     } finally {
       busy.current = false;
-      setPending(false);
+      setPending(null);
     }
   };
-  const canReset =
-    reconcile || operation?.status === "prepared" || Boolean(observation?.eligible && observation.available > 0);
+  const hasCredit = Boolean(observation?.eligible && observation.available > 0);
+  const canReset = reconcile || (!status.isFetching && !queryFailed && hasCredit);
+  const eligibility = observation?.eligible ? "accountPool.quotaReset.eligible" : "accountPool.quotaReset.ineligible";
+  const resetAction = reconcile ? "accountPool.quotaReset.reconcile" : "accountPool.quotaReset.reset";
   const verificationLabel = () => {
     if (displayedVerification?.restored) return "accountPool.quotaReset.restored";
     if (displayedVerification?.passed) return "accountPool.quotaReset.passed";
@@ -109,29 +118,34 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
           <DialogDescription>{t("accountPool.quotaReset.notice")}</DialogDescription>
         </DialogHeader>
         <section className="grid gap-3 rounded-md border p-3">
+          <h3 className="text-sm font-medium">{t("accountPool.quotaReset.redemption")}</h3>
           <p>{t("accountPool.quotaReset.available", { count: observation?.available ?? "?" })}</p>
           {queryFailed ? <p role="alert">{t("accountPool.quotaReset.queryFailed")}</p> : (
             <p className="text-sm text-muted-foreground">
-              {t(observation?.eligible ? "accountPool.quotaReset.eligible" : "accountPool.quotaReset.ineligible")}
+              {t(status.isPending ? "accountPool.quotaReset.querying" : eligibility)}
             </p>
           )}
-          <Button variant="outline" disabled={pending || status.isFetching} onClick={() => void status.refetch()}>
+          <Button variant="outline" disabled={inProgress || status.isFetching} onClick={() => void status.refetch()}>
             {t("accountPool.quotaReset.query")}
           </Button>
           <Label className="flex items-start gap-2">
             <Checkbox
               checked={confirmed}
-              disabled={pending}
+              disabled={inProgress}
               onCheckedChange={(value) => setConfirmed(value === true)}
             />
-            {t("accountPool.quotaReset.confirm", { name: environment.name })}
+            {t(reconcile ? "accountPool.quotaReset.confirmReconcile" : "accountPool.quotaReset.confirm", {
+              name: environment.name,
+            })}
           </Label>
-          <Button disabled={pending || !confirmed || !canReset} onClick={() => void run("reset")}>
-            {t(reconcile ? "accountPool.quotaReset.reconcile" : "accountPool.quotaReset.reset")}
+          <Button disabled={inProgress || !confirmed || !canReset} onClick={() => void run("reset")}>
+            {t(pending === "reset" ? "accountPool.quotaReset.redeeming" : resetAction)}
           </Button>
           {operation && (
             <div role="status" className="grid gap-1 text-sm">
-              <p>{t(`accountPool.quotaReset.result.${operation.status}`, { count: operation.windows_reset })}</p>
+              <p>{t(operation.status === "reset" && operation.windows_reset === 0
+                ? "accountPool.quotaReset.noWindowConfirmed" : `accountPool.quotaReset.result.${operation.status}`,
+              { count: operation.windows_reset })}</p>
               <p className="break-all text-muted-foreground">
                 {t("accountPool.quotaReset.identity")}: {operation.request_id}
               </p>
@@ -139,12 +153,14 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
               {operation.message && <p>{operation.message}</p>}
             </div>
           )}
+          {failed === "reset" && <p role="alert">{t("accountPool.quotaReset.error")}</p>}
         </section>
         <section className="grid gap-3 rounded-md border p-3">
+          <h3 className="text-sm font-medium">{t("accountPool.quotaReset.verification")}</h3>
           <p className="text-sm text-muted-foreground">{t("accountPool.quotaReset.verifyNotice")}</p>
           <Select
             value={model}
-            disabled={pending}
+            disabled={inProgress}
             onValueChange={(value) => {
               if (value) {
                 setModel(value);
@@ -164,12 +180,16 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
             </SelectContent>
           </Select>
           <Label className="flex items-start gap-2">
-            <Checkbox checked={recover} disabled={pending} onCheckedChange={(value) => setRecover(value === true)} />
+            <Checkbox checked={recover} disabled={inProgress} onCheckedChange={(value) => setRecover(value === true)} />
             {t("accountPool.quotaReset.recover")}
           </Label>
-          <Button disabled={pending || !model} onClick={() => void run("verify")}>
-            {t("accountPool.quotaReset.verify")}
+          <Button disabled={inProgress || !model} onClick={() => void run("verify")}>
+            {t(pending === "verify" ? "accountPool.quotaReset.verifying" : "accountPool.quotaReset.verify")}
           </Button>
+          {failed === "verify" && (
+            <p role="alert">{t(operation?.status === "reset"
+              ? "accountPool.quotaReset.verifyAfterResetError" : "accountPool.quotaReset.verifyError")}</p>
+          )}
           {displayedCall ? (
             <p role="status">
               {t("accountPool.quotaReset.apiVerified")} · {displayedCall.model} · {displayedCall.endpoint}
@@ -177,14 +197,20 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
             </p>
           ) : displayedVerification && (
             <p role="status">
-              {t(verificationLabel())} ({displayedVerification.reason})
+              {t(verificationLabel())}
+              {!displayedVerification.restored && displayedVerification.reason !== "verified" && (
+                <span className="block text-sm text-muted-foreground">
+                  {t(`accountPool.quotaReset.reason.${displayedVerification.reason}`, {
+                    defaultValue: t("accountPool.quotaReset.checkStatus"),
+                  })}
+                </span>
+              )}
               {savedVerification && !verification && ` · ${new Date(savedVerification.observed_at).toLocaleString()}`}
             </p>
           )}
         </section>
-        {failed && <p role="alert">{t("accountPool.quotaReset.error")}</p>}
         <DialogFooter>
-          <Button variant="outline" disabled={pending} onClick={onClose}>
+          <Button variant="outline" disabled={inProgress} onClick={onClose}>
             {t("accountPool.quotaReset.close")}
           </Button>
         </DialogFooter>
