@@ -95,6 +95,7 @@ class OAuthBrowserAutomation(BaseModel):
     worker_token: str = Field(min_length=32, max_length=128, repr=False)
     expires_at: datetime
     human_timeout_seconds: int = Field(default=300, ge=30, le=300)
+    login_script_package: str | None = Field(default=None, max_length=120_000, repr=False)
 
 
 class OAuthBrowserSessionRepository(Protocol):

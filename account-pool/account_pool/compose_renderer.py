@@ -139,6 +139,8 @@ def render_oauth_browser_compose(
                     "OAUTH_CALLBACK_LISTEN_PORT": str(callback_port),
                     "OAUTH_CALLBACK_LISTEN_PATH": callback_path,
                     "OAUTH_BROWSER_EXPIRES_AT": min(session.expires_at, automation.expires_at).isoformat() if automation else session.expires_at.isoformat(),
+                    **({"OAUTH_LOGIN_SCRIPT_PACKAGE": automation.login_script_package.replace("$", "$$")}
+                       if automation and automation.login_script_package is not None else {}),
                     **({
                         "OAUTH_AUTOMATION": "true",
                         "OAUTH_AUTOMATION_TOKEN": automation.worker_token,

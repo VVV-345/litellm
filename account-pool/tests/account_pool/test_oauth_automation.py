@@ -425,6 +425,11 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
         if action == "start":
             assert payload["credentials"] == CREDENTIAL
         commands.append(action)
+        if action == "script_check":
+            assert set(payload) == {"action", "sha256"}
+            if "reject-script" in commands:
+                return httpx.Response(409, json={"error": "unverified"})
+            return httpx.Response(200, json={"sha256": payload["sha256"]})
         return httpx.Response(200, json={"status": "manual" if action == "takeover" else "running", "reason": None, "expires_at": "2099-01-01T00:00:00Z"})
 
     await registry_service.create_profile(ProfileInput(name="test Linux"))
@@ -446,6 +451,67 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
 async def memory_execution(deletion_registry, tmp_path: Path, authorized_email: str):
     async with _execution(deletion_registry, tmp_path, authorized_email) as case:
         yield case
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified_worker", [False, True])
+async def test_publish_login_folder_and_attest_before_sending_login(memory_execution, tmp_path, verified_worker):
+    from base64 import b64encode
+    from account_pool.oauth_automation.api import create_automation_router
+    from account_pool.oauth_automation.login_scripts import LoginScriptStore
+    from account_pool.oauth_automation.models import AutomationSettings
+    from fastapi import FastAPI, Header, HTTPException
+
+    registry, _, _, runner, _, commands, _, _, _ = memory_execution
+    key = "fixture-operator-only-" * 2
+    store = LoginScriptStore(tmp_path / "scripts.json", key)
+    registry = replace(registry, login_scripts=store)
+    runner = replace(runner, registry=registry)
+    app = FastAPI()
+
+    def authorize(authorization: str = Header(default="")):
+        if authorization != "Bearer local-admin":
+            raise HTTPException(403)
+
+    app.include_router(create_automation_router(runner, authorize))
+    url = "/api/oauth-automation/login-script"
+    headers = {"Authorization": "Bearer local-admin"}
+    bundle = {
+        "entrypoint": "nested/entry.mjs",
+        "files": [
+            {"path": "nested/entry.mjs", "data": b64encode(b"export function automateLogin() {}").decode()},
+            {"path": "nested/new_helper.mjs", "data": b64encode(b"export const value = 1;").decode()},
+            {"path": "extra.json", "data": "e30="},
+        ],
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager.test") as client:
+        unauthorized = await client.put(url, json={"publisher_key": key, "package": bundle})
+        assert unauthorized.status_code == 403
+        rejected = await client.put(url, headers=headers, json={"publisher_key": "x" * 40, "package": bundle})
+        assert rejected.status_code == 409 and not store.path.exists()
+        uploaded = await client.put(url, headers=headers, json={"publisher_key": key, "package": bundle})
+        assert uploaded.status_code == 200 and uploaded.headers["cache-control"] == "no-store"
+        active = uploaded.json()["active"]
+        assert active["entrypoint"] == "nested/entry.mjs" and active["file_count"] == 3
+        assert key not in uploaded.text and "extra.json" not in uploaded.text and "data" not in uploaded.text
+        traversal = dict(bundle, files=[*bundle["files"], {"path": "../escape", "data": "e30="}])
+        malformed = await client.put(url, headers=headers, json={"publisher_key": key, "package": traversal})
+        assert malformed.status_code == 422
+        assert (await client.get(url, headers=headers)).json()["active"] == active
+
+        await registry.self_check()
+        await registry.save_settings(AutomationSettings(enabled=True), (await registry.view()).version)
+        if not verified_worker:
+            commands.append("reject-script")
+        await runner.run_once()
+        job = (await registry.view()).jobs[0]
+        assert "script_check" in commands
+        if verified_worker:
+            assert commands.index("script_check") < commands.index("start") and job.stage == "running"
+        else:
+            assert "start" not in commands and not job.credentials_saved and job.stage == "failed"
+        reset = await client.put(url, headers=headers, json={"publisher_key": key, "package": None})
+        assert reset.status_code == 200 and reset.json()["active"] is None and not store.path.exists()
 
 
 @pytest.mark.asyncio

@@ -86,6 +86,12 @@ class AutomationRunner:
                 await self._launch(queued)
 
     async def _launch(self, row: StoredJob) -> None:
+        scripts: Final = self.registry.login_scripts
+        script: Final = Success(None) if scripts is None else scripts.read()
+        if isinstance(script, Failure):
+            await self._finish(row, "failed", script.message)
+            return
+        bundle: Final = script.value
         state: Final = await self.registry.repository.read()
         profile: Final = next((profile for profile in state.profiles if profile.item.id == row.item.profile_id), None)
         async with (
@@ -196,6 +202,7 @@ class AutomationRunner:
                         worker_token=token,
                         expires_at=claimed.item.expires_at,
                         human_timeout_seconds=state.settings.human_timeout_seconds,
+                        login_script_package=bundle.payload if bundle else None,
                     ),
                 )
                 durable: Final = next(
@@ -206,6 +213,9 @@ class AutomationRunner:
                     return
                 if durable.item.cancel_requested:
                     await self._finish(durable, "cancelled", "任务已取消")
+                    return
+                if bundle and not await self.worker.confirm_login_script(started.value.session.id, token, bundle.info.sha256):
+                    await self._finish(durable, "failed", "Worker 未确认已加载发布的登录脚本；未发送登录资料")
                     return
                 # 发送前落盘；进程崩溃后只查询 worker，不重复发送登录资料。
                 await self._save(

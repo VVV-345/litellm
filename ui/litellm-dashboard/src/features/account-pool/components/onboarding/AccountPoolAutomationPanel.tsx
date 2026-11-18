@@ -32,12 +32,12 @@ import {
   updateAutomationProfile,
   type AutomationJob,
   type AutomationProfile,
-  type AutomationSettings,
 } from "../../api/AccountPoolAutomationApi";
 import { createAccountPoolEnvironment } from "../../api/AccountPoolApi";
 import { parseMailboxAccounts } from "../../api/AccountPoolOnboardingApi";
 import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
+import { AccountPoolLoginScriptSettings, SettingsForm } from "./AccountPoolLoginScriptSettings";
 import { createAccountPoolJobId, getAccountPoolOAuthBrowserUrl } from "../../api/AccountPoolManagementApi";
 import { accountPoolEnvironmentOptions } from "../../hooks/accountPoolOptions";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
@@ -61,69 +61,6 @@ const labels: Record<AutomationJob["stage"], string> = {
 };
 type Operation = (action: () => Promise<unknown>) => Promise<void>;
 const systemLabels = { linux: "Linux", windows: "Windows", macos: "macOS" };
-
-function SettingsForm({
-  settings,
-  disabled,
-  save,
-}: {
-  settings: AutomationSettings;
-  disabled: boolean;
-  save: (settings: AutomationSettings) => Promise<void>;
-}) {
-  const [enabled, setEnabled] = useState(settings.enabled ?? false);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void save({
-      enabled,
-      total_timeout_seconds: Number(form.get("total")),
-      human_timeout_seconds: Number(form.get("human")),
-    });
-  };
-  return (
-    <form className="grid max-w-xl gap-4" onSubmit={submit}>
-      <p className="text-sm text-muted-foreground">
-        默认关闭。先自检固定镜像，再开启。全局同时只运行一个账号，人工等待计入总时限
-      </p>
-      <Label>
-        <Checkbox checked={enabled} onCheckedChange={(value) => setEnabled(value === true)} disabled={disabled} />
-        开启授权自动化
-      </Label>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor="automation-total">总时限（秒）</Label>
-          <Input
-            id="automation-total"
-            name="total"
-            type="number"
-            min={60}
-            max={600}
-            defaultValue={settings.total_timeout_seconds ?? 600}
-            required
-            disabled={disabled}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="automation-human">人工处理时限（秒）</Label>
-          <Input
-            id="automation-human"
-            name="human"
-            type="number"
-            min={30}
-            max={300}
-            defaultValue={settings.human_timeout_seconds ?? 300}
-            required
-            disabled={disabled}
-          />
-        </div>
-      </div>
-      <Button className="w-fit" type="submit" disabled={disabled}>
-        保存运行设置
-      </Button>
-    </form>
-  );
-}
 
 function ProfileRow({
   profile,
@@ -791,6 +728,7 @@ export function AccountPoolAutomationPanel({
                   disabled={busy}
                   save={(settings) => run(() => saveAutomationSettings(accessToken, state.version, settings))}
                 />
+                <AccountPoolLoginScriptSettings accessToken={accessToken} />
               </div>
             ),
           },

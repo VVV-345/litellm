@@ -63,7 +63,7 @@ class _BrowserContainerState(BaseModel):
 
 class _BrowserStartupEvent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
-    stage: Literal["profile", "browser_launch", "page_navigation", "control_listener", "driver"]
+    stage: Literal["login_script", "profile", "browser_launch", "page_navigation", "control_listener", "driver"]
     status: Literal["started", "ready", "failed"]
     elapsed_ms: int = Field(ge=0, le=3_600_000, strict=True)
     reason: Literal["timeout", "proxy_error", "tls_error", "process_error"] | None = None

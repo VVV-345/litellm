@@ -1631,6 +1631,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/oauth-automation/login-script": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Login Script */
+        get: operations["login_script_account_pool_oauth_automation_login_script_get"];
+        /** Update Login Script */
+        put: operations["update_login_script_account_pool_oauth_automation_login_script_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-automation/profiles": {
         parameters: {
             query?: never;
@@ -35939,6 +35957,52 @@ export interface components {
              */
             status?: "healthy" | "unhealthy";
         };
+        /** LoginScriptFile */
+        LoginScriptFile: {
+            /** Data */
+            data: string;
+            /** Path */
+            path: string;
+        };
+        /** LoginScriptInfo */
+        LoginScriptInfo: {
+            /** Entrypoint */
+            entrypoint: string;
+            /** File Count */
+            file_count: number;
+            /** Sha256 */
+            sha256: string;
+        };
+        /** LoginScriptPackage */
+        LoginScriptPackage: {
+            /** Entrypoint */
+            entrypoint: string;
+            /** Files */
+            files: components["schemas"]["LoginScriptFile"][];
+        };
+        /** LoginScriptStatus */
+        LoginScriptStatus: {
+            active?: components["schemas"]["LoginScriptInfo"] | null;
+            /**
+             * Invalid
+             * @default false
+             */
+            invalid: boolean;
+            /**
+             * Upload Enabled
+             * @default false
+             */
+            upload_enabled: boolean;
+        };
+        /** LoginScriptUpdate */
+        LoginScriptUpdate: {
+            package: components["schemas"]["LoginScriptPackage"] | null;
+            /**
+             * Publisher Key
+             * Format: password
+             */
+            publisher_key: string;
+        };
         /** MCPConnectorEntry */
         MCPConnectorEntry: {
             /** Args */
@@ -48354,6 +48418,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutomationScreen"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_script_account_pool_oauth_automation_login_script_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginScriptStatus"];
+                };
+            };
+        };
+    };
+    update_login_script_account_pool_oauth_automation_login_script_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginScriptUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginScriptStatus"];
                 };
             };
             /** @description Validation Error */

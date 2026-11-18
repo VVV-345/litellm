@@ -92,7 +92,7 @@ export class BrowserControl {
   }
 }
 
-export function createControlServer({ token, createController }) {
+export function createControlServer({ token, createController, loginScriptDigest = null }) {
   if (typeof token !== "string" || token.length < 32) throw new Error("job_token");
   const expected = Buffer.from(`Bearer ${token}`);
   let controller = null;
@@ -119,6 +119,14 @@ export function createControlServer({ token, createController }) {
         chunks.push(chunk);
       }
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (body?.action === "script_check") {
+        if (Object.keys(body).length !== 2 || loginScriptDigest === null || body.sha256 !== loginScriptDigest) {
+          reply(409, { error: "login_script_mismatch" });
+          return;
+        }
+        reply(200, { sha256: loginScriptDigest });
+        return;
+      }
       if (!body || Array.isArray(body) || typeof body !== "object" ||
           !["start", "status", "takeover", "resume", "cancel"].includes(body.action) ||
           Object.keys(body).some((key) => key !== "action" && !(key === "credentials" && body.action === "start"))) {

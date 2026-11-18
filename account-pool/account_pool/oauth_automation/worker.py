@@ -87,6 +87,16 @@ class AutomationWorker:
         result: Final = ImageCheck.model_validate_json(await self.runtime.oauth_worker_check(("self-check",)))
         return result.healthy and result.sdk == "0.5.9" and bool(result.browser)
 
+    async def confirm_login_script(self, session_id: UUID, token: str, sha256: str) -> bool:
+        response: Final = await self.http.post(
+            f"http://{oauth_browser_control_host(session_id)}:8092/control",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"action": "script_check", "sha256": sha256},
+            timeout=20,
+            follow_redirects=False,
+        )
+        return response.status_code == 200 and len(response.content) <= 256 and response.json() == {"sha256": sha256}
+
     async def command(
         self,
         session_id: UUID,

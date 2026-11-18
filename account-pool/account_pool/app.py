@@ -41,6 +41,7 @@ from account_pool.management_repository import (
     initialize_management_schema,
 )
 from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
+from account_pool.oauth_automation.login_scripts import LoginScriptStore
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
 from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_automation.service import AutomationRegistry
@@ -160,7 +161,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     automation_worker: Final = AutomationWorker(browser_runtime, automation_http)
     browser_controller: Final = ControlledOAuthBrowser(environments, profiles, browser_sessions, browser_runtime, service, ownership)
     automation: Final = AutomationRunner(
-        AutomationRegistry(automation_repository, environments, automation_worker, secrets, ownership, profiles),
+        AutomationRegistry(
+            automation_repository, environments, automation_worker, secrets, ownership, profiles,
+            login_scripts=LoginScriptStore(
+                resolved.data_root / ".oauth-login-package.json", resolved.oauth_login_script_publish_key,
+            ),
+        ),
         browser_controller, automation_worker,
     )
     quota_scheduler: Final = QuotaRefreshScheduler(

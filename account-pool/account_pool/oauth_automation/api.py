@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 
+from account_pool.oauth_automation.login_scripts import LoginScriptStatus, LoginScriptUpdate
 from account_pool.oauth_automation.models import (
     AutomationScreen,
     AutomationView,
@@ -70,6 +71,14 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
     async def self_check() -> AutomationView:
         return _unwrap(await registry.self_check())
 
+    async def login_script() -> LoginScriptStatus:
+        return LoginScriptStatus() if registry.login_scripts is None else registry.login_scripts.status()
+
+    async def update_login_script(request: LoginScriptUpdate) -> LoginScriptStatus:
+        if registry.login_scripts is None:
+            raise HTTPException(409, "脚本发布未配置")
+        return _unwrap(registry.login_scripts.update(request))
+
     async def settings(request: SettingsUpdate) -> AutomationView:
         return _unwrap(await registry.save_settings(request.settings, request.version))
 
@@ -103,6 +112,8 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
     router.add_api_route("", view, methods=["GET"])
     router.add_api_route("/self-check", self_check, methods=["POST"])
     router.add_api_route("/settings", settings, methods=["PUT"])
+    router.add_api_route("/login-script", login_script, methods=["GET"])
+    router.add_api_route("/login-script", update_login_script, methods=["PUT"])
     router.add_api_route("/profiles", create_profile, methods=["POST"], status_code=201)
     router.add_api_route("/profiles/{profile_id}", update_profile, methods=["PUT"])
     router.add_api_route("/profiles/{profile_id}", delete_profile, methods=["DELETE"])

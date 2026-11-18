@@ -16,6 +16,7 @@ from account_pool.application.authorization import saved_login_can_replace
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import AuthorizationFlow, EnvironmentStatus, SupplierKind, utc_now
 from account_pool.isp_probe import ProxyLocation, ProxyLocationProbe
+from account_pool.oauth_automation.login_scripts import LoginScriptStore
 from account_pool.oauth_automation.models import (
     ACTIVE,
     AutomationSettings,
@@ -77,6 +78,7 @@ class AutomationRegistry:
     ownership: CredentialOwnership
     proxy_profiles: ProxyProfileRepository
     location_probe: LocationProbe = field(default_factory=ProxyLocationProbe)
+    login_scripts: LoginScriptStore | None = None
 
     def identity(self, email: str) -> str:
         key: Final = self.secrets.derive(UUID(int=0), SecretPurpose.CREDENTIAL_IDENTITY).encode()

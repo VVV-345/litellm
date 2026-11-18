@@ -4,7 +4,8 @@ import { writeFileSync, rmSync } from "node:fs";
 import { promisify } from "node:util";
 import { setTimeout } from "node:timers/promises";
 import { firefox } from "playwright-core";
-import { automateLogin, parseCredential, verifyResumableAccount } from "./login.mjs";
+import { parseCredential } from "./login.mjs";
+import { loadLoginScript, observeLoginPage } from "./login_script.mjs";
 import { openAuthorizationPage, runStartupStage, validateAuthorization } from "./core.mjs";
 import { BrowserControl, createControlServer } from "./control.mjs";
 
@@ -22,6 +23,7 @@ async function main() {
   let browser = null;
   let controller = null;
   let server = null;
+  let loginScript = null;
   const stop = new AbortController();
   process.once("SIGTERM", () => stop.abort());
   process.once("SIGINT", () => stop.abort());
@@ -30,6 +32,9 @@ async function main() {
       if (process.env.CHROME_PROXY !== "http://egress-relay:8080") throw new Error("proxy");
       const authorization = process.env.OAUTH_AUTHORIZATION_URL;
       const trusted = automatic ? validateAuthorization(authorization) : null;
+      if (automatic) {
+        loginScript = await runStartupStage("login_script", () => loadLoginScript(process.env.OAUTH_LOGIN_SCRIPT_PACKAGE));
+      }
       const options = await runStartupStage("profile", async () => JSON.parse(execFileSync(
         "python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 },
       )));
@@ -37,6 +42,7 @@ async function main() {
       browser = await runStartupStage("browser_launch", () => firefox.launch(options));
       const context = await browser.newContext({ viewport: null });
       const page = await context.newPage();
+      const loginDiagnostics = automatic ? observeLoginPage(page) : null;
       if (automatic) await input(false);
       await openAuthorizationPage(page, authorization, process.env.OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS);
       if (automatic) {
@@ -47,20 +53,20 @@ async function main() {
         callback.searchParams.set("state", trusted.url.searchParams.get("state"));
         server = createControlServer({
           token: process.env.OAUTH_AUTOMATION_TOKEN,
+          loginScriptDigest: loginScript.digest,
           createController: async (text) => {
             const credential = parseCredential(text);
             const submitted = new Set();
             controller = new BrowserControl({
               login: async (signal) => {
-                const result = await automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
+                const result = await loginScript.automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
                 if (result.status === "verification_required") {
-                  const route = (path) => ["/log-in", "/log-in/password", "/oauth/authorize", "/authorize", "/sign-in-with-chatgpt/codex/consent"].includes(path) ? path : path.startsWith("/mfa-challenge/") ? "authenticator" : "other";
-                  const state = await page.evaluate(() => ({ path: location.pathname, inputs: document.querySelectorAll("input").length }));
-                  process.stderr.write(`OAuth form state: ${JSON.stringify({ route: route(new URL(page.url()).pathname), documentRoute: route(state.path), inputs: state.inputs, labelled: await page.getByLabel("Email address", { exact: true }).count(), typed: await page.locator('input[type="email"]').count(), text: await page.locator('input[type="text"]').count(), frames: page.frames().length })}\n`);
+                  const status = await loginDiagnostics().catch(() => ({ reason: "page_observation_failed" }));
+                  process.stderr.write(`OAuth form state: ${JSON.stringify(status)}\n`);
                 }
                 return result;
               },
-              verifyAccount: () => verifyResumableAccount(page, credential, { locale }),
+              verifyAccount: () => loginScript.verifyResumableAccount(page, credential, { locale }),
               enableInput: input, close: () => context.close(),
               totalDeadline: deadline, humanMs: Number(process.env.OAUTH_HUMAN_TIMEOUT_SECONDS ?? "300") * 1000,
             });
@@ -87,6 +93,7 @@ async function main() {
     if (server) await new Promise((resolve) => server.close(resolve));
     if (controller) await controller.command("cancel").catch(() => {});
     if (browser) await browser.close();
+    await loginScript?.cleanup();
   }
 }
 

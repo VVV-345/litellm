@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, model_validator
+from pydantic import BaseModel, ConfigDict, Field, IPvAnyAddress, SecretStr, model_validator
 
 Locale = Literal["en-US", "en-GB", "zh-CN"]
 
@@ -141,3 +141,35 @@ class AutomationScreen(BaseModel):
     created_at: datetime
     expires_at: datetime
     ticket: str = Field(repr=False)
+
+
+class LoginScriptFile(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    path: str = Field(min_length=1, max_length=160)
+    data: str = Field(max_length=87_384, repr=False)
+
+
+class LoginScriptPackage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    entrypoint: str = Field(min_length=1, max_length=160)
+    files: tuple[LoginScriptFile, ...] = Field(min_length=1, max_length=64, repr=False)
+
+
+class LoginScriptUpdate(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    publisher_key: SecretStr = Field(min_length=32, max_length=128)
+    package: LoginScriptPackage | None = Field(repr=False)
+
+
+class LoginScriptInfo(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    entrypoint: str
+    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    file_count: int
+
+
+class LoginScriptStatus(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    upload_enabled: bool = False
+    active: LoginScriptInfo | None = None
+    invalid: bool = False
