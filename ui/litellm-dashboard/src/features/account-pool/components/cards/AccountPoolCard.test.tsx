@@ -359,6 +359,45 @@ it("offers only the official OpenCode workspace billing link, without a zero bal
   expect(screen.queryByRole("meter")).not.toBeInTheDocument();
 });
 
+it("shows the three OpenCode Go plan windows and reset times, not a wallet balance", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({
+    supplier: "openai_compatible",
+    provider_family: "opencode",
+    display_quota: {
+      plan_type: "OpenCode Go",
+      refresh_status: "complete",
+      windows: [
+        { name: "5 hour", used_percent: 10, remaining_percent: 90, window_minutes: 300, resets_at: "2090-01-01T01:00:00Z" },
+        { name: "Weekly", used_percent: 100, remaining_percent: 0, window_minutes: 10080, resets_at: "2090-01-02T00:00:00Z" },
+        { name: "Monthly", used_percent: 24, remaining_percent: 76, window_minutes: 43200, resets_at: "2090-01-31T00:00:00Z" },
+      ],
+      balances: [],
+    },
+  });
+  for (const [label, value] of [["5 小时额度", "90"], ["周额度", "0"], ["月额度", "76"]]) {
+    const window = within(screen.getByRole("group", { name: label }));
+    expect(window.getByRole("meter")).toHaveAttribute("aria-valuenow", value);
+    expect(window.getByText(/^重置时间 (?!-$)/)).toBeVisible();
+  }
+  expect(screen.getByRole("link", { name: "打开 OpenCode 账单" })).toBeVisible();
+  expect(screen.queryByText("工作区余额未获取")).not.toBeInTheDocument();
+});
+
+it("labels the optional GLM monthly window as MCP, not model quota", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({
+    supplier: "openai_compatible",
+    provider_family: "glm",
+    display_quota: {
+      windows: [{ name: "MCP Monthly", used_percent: 20, remaining_percent: 80, window_minutes: 43200 }],
+      balances: [],
+    },
+  });
+  expect(screen.getByRole("meter", { name: "MCP 月额度" })).toBeVisible();
+  expect(screen.queryByRole("meter", { name: "月额度" })).not.toBeInTheDocument();
+});
+
 it("shows an uncertain refresh as paused without claiming the access token was rejected", async () => {
   await i18n.changeLanguage("zh-CN");
   renderCard({

@@ -75,6 +75,7 @@ export const quotaWindowLabel = (t: TFunction, name: string): string => {
     "7 day Fable": t("accountPool.quotas.window.sevenDayFable"),
     "Extra usage": t("accountPool.quotas.window.extraUsage"),
     Monthly: t("accountPool.quotas.window.monthly"),
+    "MCP Monthly": t("accountPool.quotas.window.mcpMonthly"),
     "On-demand": t("accountPool.quotas.window.onDemand"),
     "Tasks: Frequent": t("accountPool.quotas.window.frequentTasks"),
     "Tasks: Occasional": t("accountPool.quotas.window.occasionalTasks"),

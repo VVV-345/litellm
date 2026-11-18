@@ -12,23 +12,30 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
   const { t, i18n } = useTranslation();
   const now = useAccountPoolClock();
   const family = accountPoolFamilyKind(environment);
-  if (family === "opencode") {
+  const quota = displayedQuota(environment);
+  const goQuota = family === "opencode" && quota.plan_type === "OpenCode Go";
+  const isPlanQuota = family === "glm" || goQuota;
+  const billingLink = family === "opencode" ? (
+    <div className="grid gap-1 text-xs">
+      <a
+        className="w-fit font-medium underline underline-offset-4"
+        href="https://opencode.ai/console/login"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {t("accountPool.quotas.openCodeBilling")}
+      </a>
+      <span className="text-muted-foreground">{t("accountPool.quotas.openCodeBillingHint")}</span>
+    </div>
+  ) : null;
+  if (family === "opencode" && !goQuota) {
     return (
       <div className="grid gap-1 rounded-lg border bg-muted/20 p-2.5 text-xs">
         <span className="text-muted-foreground">{t("accountPool.quotas.workspaceNotFetched")}</span>
-        <a
-          className="w-fit font-medium underline underline-offset-4"
-          href="https://opencode.ai/console/login"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          {t("accountPool.quotas.openCodeBilling")}
-        </a>
-        <span className="text-muted-foreground">{t("accountPool.quotas.openCodeBillingHint")}</span>
+        {billingLink}
       </div>
     );
   }
-  const quota = displayedQuota(environment);
   const plan =
     environment.supplier === "openai_codex"
       ? accountPoolPlanLabel(quota.plan_type, quota.auth_file_plan_type)
@@ -56,7 +63,7 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
           <span className="text-muted-foreground">{t("accountPool.quotas.plan")}</span>
           <span>{planLabel}</span>
         </Badge>
-        {family === "glm" ? (
+        {isPlanQuota ? (
           <span className="text-muted-foreground">{t("accountPool.quotas.codingPlanQuota")}</span>
         ) : (
           <span className="tabular-nums text-muted-foreground">
@@ -74,7 +81,7 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
       </div>
       {quota.windows.length === 0 && (
         <p className="text-xs text-muted-foreground">
-          {t(family === "glm" ? "accountPool.quotas.codingPlanNotFetched" : "accountPool.config.notObserved")}
+          {t(isPlanQuota ? "accountPool.quotas.codingPlanNotFetched" : "accountPool.config.notObserved")}
         </p>
       )}
       <div className="grid gap-2 @sm/quota:grid-cols-2">
@@ -126,6 +133,7 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
           {quota.refresh_error}
         </p>
       )}
+      {billingLink}
       {(environment.model_cooldowns ?? []).map((cooldown) => (
         <p key={cooldown.model} role="status" className="break-words text-xs text-amber-700 dark:text-amber-400">
           {t("accountPool.quotas.modelCooldown", {

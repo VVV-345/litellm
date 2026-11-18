@@ -32,6 +32,7 @@ from account_pool.secrets import EnvironmentSecretDeriver, StateCipher
 from account_pool.service import EnvironmentService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import JsonValue
 from test_account_pool import EmptyProfiles, FakeCLIProxy, FakeRuntime, MemoryRepository, _record, _settings
 
 
@@ -75,6 +76,7 @@ def test_glm_coding_plan_quota_is_read_only_in_manager(tmp_path: Path, issuer: s
             "code": 200, "success": True, "data": {"level": "pro", "limits": [
                 {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 100, "nextResetTime": 2_000_000_000_000},
                 {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 25},
+                {"type": "TIME_LIMIT", "unit": 5, "number": 1, "percentage": 10, "nextResetTime": 2_000_000_060_000},
             ]},
         })
 
@@ -99,6 +101,8 @@ def test_glm_coding_plan_quota_is_read_only_in_manager(tmp_path: Path, issuer: s
         shown: Final = {window["window_minutes"]: window for window in value["display_quota"]["windows"]}
         assert shown[10080]["remaining_percent"] == 0 and shown[10080]["resets_at"] == "2033-05-18T03:33:20Z"
         assert shown[300]["remaining_percent"] == 75 and shown[300]["resets_at"] is None
+        assert shown[43200]["name"] == "MCP Monthly" and shown[43200]["unit"] == "tasks"
+        assert shown[43200]["remaining_percent"] == 90 and shown[43200]["resets_at"] == "2033-05-18T03:34:20Z"
         listed: Final = client.get("/api/environments").json()
         assert listed[0]["display_quota"] == value["display_quota"]
         bulk: Final = client.post("/api/quotas/refresh").json()
@@ -106,6 +110,88 @@ def test_glm_coding_plan_quota_is_read_only_in_manager(tmp_path: Path, issuer: s
         assert bulk["refreshed"][0]["status"] == "ready"
         assert bulk["refreshed"][0]["display_quota"]["windows"] == []
     assert repository.records[record.id].quota == record.quota
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base", [
+    "https://opencode.ai/inference/go/openai/v1/",
+    "https://opencode.ai/inference/go/v1",
+    "https://opencode.ai/zen/go/v1",
+])
+async def test_opencode_go_reads_three_windows_without_altering_routing(base: str) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card(base, secrets)
+    requests: Final[list[str]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        assert request.method == "GET"
+        assert request.headers["Authorization"] == "Bearer synthetic-glm-key"
+        return httpx.Response(200, json={"usage": {
+            "rolling": {"status": "ok", "percent": 19.5, "resetsAt": "2090-01-01T17:00:00Z"},
+            "weekly": {"status": "rate-limited", "percent": 100, "resetsAt": "2090-01-02T00:00:00Z"},
+            "monthly": {"status": "ok", "percent": 24, "resetsAt": "2090-01-31T12:30:00Z"},
+        }})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        channel: Final = OpenAICompatibleChannel(secrets, http, public_resolver)
+        observed: Final = await channel.read_account(record, refresh_quota=True)
+        assert channel.gateway(observed) == channel.gateway(record)
+    assert requests == ["https://opencode.ai/zen/go/v1/usage"]
+    quota: Final = observed.display_quota
+    assert quota is not None and quota.refresh_status == "complete" and quota.plan_type == "OpenCode Go"
+    assert [(w.name, w.remaining_percent, w.resets_at) for w in quota.windows] == [
+        ("5 hour", 80.5, datetime(2090, 1, 1, 17, tzinfo=timezone.utc)),
+        ("Weekly", 0, datetime(2090, 1, 2, tzinfo=timezone.utc)),
+        ("Monthly", 76, datetime(2090, 1, 31, 12, 30, tzinfo=timezone.utc)),
+    ]
+    assert not quota.balances and quota.prepaid_balance is None
+    assert observed.model_copy(update={"display_quota": None}) == record
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("status", "payload", "expected_status", "window_names"), [
+    (403, {"error": {"message": "fixture-upstream-private"}}, "failed", ()),
+    (302, {}, "failed", ()),
+    (200, {"usage": {}}, "failed", ()),
+    (200, {"usage": {"weekly": {"percent": 35}, "monthly": {"percent": "NaN"}}}, "partial", ("Weekly",)),
+])
+async def test_opencode_go_does_not_fill_missing_windows_or_follow_redirects(
+    status: int, payload: dict[str, JsonValue], expected_status: str, window_names: tuple[str, ...],
+) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card("https://opencode.ai/inference/go/openai/v1", secrets)
+    requests: Final[list[str]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(status, headers={"Location": "https://never-follow.example/"}, json=payload)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream), follow_redirects=True) as http:
+        observed: Final = await OpenAICompatibleChannel(secrets, http, public_resolver).read_account(record, refresh_quota=True)
+    assert requests == ["https://opencode.ai/zen/go/v1/usage"]
+    quota: Final = observed.display_quota
+    assert quota is not None and quota.refresh_status == expected_status
+    assert tuple(w.name for w in quota.windows) == window_names
+    assert all(w.resets_at is None for w in quota.windows)
+    assert "fixture-upstream-private" not in (quota.refresh_error or "")
+    assert observed.model_copy(update={"display_quota": None}) == record
+
+
+@pytest.mark.asyncio
+async def test_glm_reports_no_recognized_coding_plan_without_treating_it_as_zero() -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    record: Final = _compatible_card("https://api.z.ai/api/coding/paas/v4", secrets)
+
+    def upstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"code": 500, "success": False, "msg": "当前用户不存在coding plan"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        observed: Final = await OpenAICompatibleChannel(secrets, http, public_resolver).read_account(record, refresh_quota=True)
+    quota: Final = observed.display_quota
+    assert quota is not None and quota.refresh_status == "unsupported" and not quota.windows
+    assert "个人套餐" in (quota.refresh_error or "")
+    assert observed.model_copy(update={"display_quota": None}) == record
 
 
 @pytest.mark.asyncio
@@ -144,7 +230,6 @@ async def test_glm_quota_failures_are_unknown_and_do_not_destabilize_the_card(
     "https://open.bigmodel.cn/api/paas/v4",
     "https://api.z.ai/api/paas/v4",
     "https://opencode.ai/inference/openai/v1",
-    "https://opencode.ai/inference/go/openai/v1",
     "https://opencode.ai/zen/v1",
 ])
 async def test_billing_offers_no_upstream_probe_for_paygo_glm_or_opencode(base_url: str) -> None:

@@ -120,6 +120,7 @@ _GLM_BASES: Final = frozenset(
     (*GLM_CODING_PLAN_QUOTA_URLS, *(f"{issuer}/api/paas/v4" for issuer in _GLM_ISSUERS))
 )
 OPENCODE_GO_CATALOG_BASE: Final = "https://opencode.ai/inference/go/v1"
+OPENCODE_GO_QUOTA_URL: Final = "https://opencode.ai/zen/go/v1/usage"
 OPENCODE_GO_BASES: Final = frozenset(
     (OPENCODE_GO_CATALOG_BASE, "https://opencode.ai/inference/go/openai/v1", "https://opencode.ai/zen/go/v1")
 )

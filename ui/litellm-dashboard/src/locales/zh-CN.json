@@ -7197,6 +7197,7 @@
         "sevenDayFable": "Fable 7 天额度",
         "extraUsage": "额外用量",
         "monthly": "月额度",
+        "mcpMonthly": "MCP 月额度",
         "onDemand": "按量额度",
         "frequentTasks": "高频任务额度",
         "occasionalTasks": "低频任务额度",

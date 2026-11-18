@@ -12,9 +12,11 @@
 
 上游观测包含来源、观测时间、窗口和每模型额度；解析后供页面及路由使用。未知额度不能当成 0，也不能当成已恢复；新鲜观测不能被旧缓存覆盖
 
-GLM Coding Plan 的国内站和国际站在「刷新额度」时查询对应发行方的套餐用量，页面显示供应商确实返回的 5 小时和周窗口，以及有值的重置时间。只匹配官方 Coding Plan 接入地址，不按模型名称猜测发行方，不把普通按量 GLM 当成套餐。观测单独存为 `display_quota`，不参与排序、选卡、冷却或恢复；查询失败时显示未获取，不填 0。端点、凭据格式参见 [GLM 官方查询脚本](https://github.com/zai-org/zai-coding-plugins/blob/main/plugins/glm-plan-usage/skills/usage-query-skill/scripts/query-usage.mjs)
+GLM Coding Plan 的国内站和国际站在「刷新额度」时查询对应发行方的套餐用量。模型额度显示上游返回的 5 小时和周窗口；如果另有 MCP 月窗口，单独标为 MCP，不当成模型月额度。只匹配官方 Coding Plan 接入地址，不按模型名称猜测发行方，不把普通按量 GLM 当成套餐。上游明确未识别到套餐时提示核对个人套餐和接入站点。端点、凭据格式参见 [GLM 官方查询脚本](https://github.com/zai-org/zai-coding-plugins/blob/main/plugins/glm-plan-usage/skills/usage-query-skill/scripts/query-usage.mjs)
 
-OpenCode Go / Console 卡片提供官方账单入口。登录后选择发行 Key 的工作区，在「设置 → 账单」看工作区余额，在工作区看 Go 用量。号池不拿推理 Key 查询工作区账单，不将通过 OpenCode 调用的 GLM 模型按智谱额度显示。具体可见范围按 [OpenCode 工作区账单说明](https://opencode.ai/docs/console/billing/)
+OpenCode Go 卡片用同卡 Key 访问官方 `/zen/go/v1/usage`，按实际返回显示 5 小时、周、月剩余比例和重置时间。不发送模型请求，也不从套餐额度推算充值余额。普通 Console / Zen 卡片只提供账单入口。通过 OpenCode 调用 GLM 使用 OpenCode 的额度，不使用智谱的额度。参见 [OpenCode Go 限额](https://opencode.ai/docs/console/go/#usage-limits)和[工作区账单](https://opencode.ai/docs/console/billing/)
+
+以上结果单独存为 `display_quota`，不参与排序、选卡、冷却或恢复。缺少窗口、查询失败或未返回重置时间不补算，只有供应商明确返回耗尽时才显示剩余 0%
 
 兑换先 prepare 固定 request_id，显式 consume 后保存结果；超时或 uncertain 时查询原操作，不能创建新身份重试。验证使用指定模型，是否恢复路由与验证是否成功分别返回；独立模型冷却和其他阻断不能被一张卡的成功验证无条件清掉
 
