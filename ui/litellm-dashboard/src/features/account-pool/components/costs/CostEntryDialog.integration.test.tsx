@@ -215,3 +215,36 @@ it("edits the existing period and retries its replacement without creating a dup
   expect(replaceCost).toHaveBeenLastCalledWith("admin", "original", body);
   expect(createCost).not.toHaveBeenCalled();
 });
+
+it.each(["proxy", "server"] as const)(
+  "calculates monthly and annual service dates for %s and saves the selected cycle",
+  async (category) => {
+    const close = vi.fn();
+    render(<CostEntryDialog accessToken="admin" target={{ category }} onClose={close} />, { wrapper });
+    expect(screen.queryByRole("switch", { name: "到期后自动续期" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "季付" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("资源名称"), { target: { value: "资源费用" } });
+    fireEvent.change(screen.getByLabelText("付款金额（人民币 ¥）"), { target: { value: "120" } });
+    fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-11-18" } });
+    fireEvent.change(screen.getByLabelText("计费周期"), { target: { value: "1" } });
+    expect(screen.getByLabelText("服务结束日期")).toHaveValue("2026-12-17");
+    fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-12-18" } });
+    expect(screen.getByLabelText("服务结束日期")).toHaveValue("2027-01-17");
+    fireEvent.change(screen.getByLabelText("计费周期"), { target: { value: "12" } });
+    expect(screen.getByLabelText("服务结束日期")).toHaveValue("2027-12-17");
+    fireEvent.change(screen.getByLabelText("服务结束日期"), { target: { value: "2027-12-31" } });
+    fireEvent.change(screen.getByLabelText("服务开始日期"), { target: { value: "2026-12-20" } });
+    expect(screen.getByLabelText("服务结束日期")).toHaveValue("2027-12-31");
+    await userEvent.click(screen.getByRole("button", { name: "保存费用" }));
+    await waitFor(() => expect(close).toHaveBeenCalledOnce());
+    const expectedResource = {
+      category,
+      account_id: null,
+      starts_on: "2026-12-20",
+      ends_on: "2027-12-31",
+      cycle_months: 12,
+      auto_renew: false,
+    };
+    expect(createCost).toHaveBeenCalledWith("admin", expect.objectContaining(expectedResource));
+  },
+);

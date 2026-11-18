@@ -212,34 +212,36 @@ export function CostEntryDialog({
                 />
               </div>
             </div>
-            {target.category === "subscription" && (
-              <div className="space-y-3 rounded-lg border p-3">
-                <Label htmlFor="cost-cycle">计费周期</Label>
-                <select
-                  id="cost-cycle"
-                  className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-                  value={cycleMonths ?? ""}
-                  onChange={(event) => changeCycle(event.target.value)}
-                >
-                  <option value="">自定义服务期</option>
-                  <option value="1">月付</option>
-                  <option value="3">季付</option>
-                  <option value="12">年付</option>
-                </select>
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="cost-auto-renew">到期后自动续期</Label>
-                  <Switch
-                    id="cost-auto-renew"
-                    checked={autoRenew}
-                    disabled={!cycleMonths}
-                    onCheckedChange={setAutoRenew}
-                  />
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  默认不续期。开启后按本次金额和周期自动生成下一期成本，续期日视为付款日，不向厂商扣款。可在账号行关闭
-                </p>
-              </div>
-            )}
+            <div className="space-y-3 rounded-lg border p-3">
+              <Label htmlFor="cost-cycle">计费周期</Label>
+              <select
+                id="cost-cycle"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={cycleMonths ?? ""}
+                onChange={(event) => changeCycle(event.target.value)}
+              >
+                <option value="">自定义服务期</option>
+                <option value="1">月付</option>
+                {target.category === "subscription" && <option value="3">季付</option>}
+                <option value="12">年付</option>
+              </select>
+              {target.category === "subscription" && (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <Label htmlFor="cost-auto-renew">到期后自动续期</Label>
+                    <Switch
+                      id="cost-auto-renew"
+                      checked={autoRenew}
+                      disabled={!cycleMonths}
+                      onCheckedChange={setAutoRenew}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    默认不续期。开启后按本次金额和周期自动生成下一期成本，续期日视为付款日，不向厂商扣款。可在账号行关闭
+                  </p>
+                </>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               结束日默认取下一周期开始日的前一天，月末按目标月最后一天对齐，可手改。服务首尾两天均计入成本。续费会新增记录，请核对日期，避免与已有订阅重复
             </p>
