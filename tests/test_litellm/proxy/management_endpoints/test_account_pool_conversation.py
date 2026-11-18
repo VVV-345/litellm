@@ -106,6 +106,52 @@ def chosen(kwargs):
 
 
 @pytest.mark.asyncio
+async def test_foreign_response_requires_explicit_client_resend_then_continues_on_local_id(pool, monkeypatch):
+    import json
+    from unittest.mock import AsyncMock
+
+    from starlette.requests import Request
+
+    from litellm.proxy._types import ProxyException, UserAPIKeyAuth
+    from litellm.proxy.common_request_processing import ProxyBaseLLMRequestProcessing
+    from litellm.proxy.proxy_server import openai_exception_handler
+
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1")
+    router, (local, _) = pool
+    foreign = response(uuid4()).id
+    history = [{"role": "user", "content": "First"}, {"role": "assistant", "content": "Answer"},
+               {"role": "user", "content": "Next"}]
+    calls = []
+
+    async def provider(**kwargs):
+        calls.append((kwargs["input"], kwargs.get("previous_response_id")))
+        return response(local)
+
+    async def send(value, **extra):
+        return await router._aresponses_with_streaming_fallbacks(original_function=provider, model="shared", input=value, **extra)
+
+    for value in ("Next", history):
+        with pytest.raises(ProxyException) as exc:
+            await send(value, previous_response_id=foreign)
+        assert exc.value.code == "400"
+        assert exc.value.to_dict()["code"] == "previous_response_not_found"
+        assert exc.value.param == "previous_response_id" and foreign not in exc.value.message
+        logging = AsyncMock()
+        logging.post_call_failure_hook.return_value = None
+        logging.post_call_response_headers_hook.return_value = {}
+        with pytest.raises(ProxyException) as public:
+            await ProxyBaseLLMRequestProcessing(data={})._handle_llm_api_exception(exc.value, UserAPIKeyAuth(), logging)
+        request = Request({"type": "http", "method": "POST", "path": "/v1/responses", "headers": []})
+        result = await openai_exception_handler(request, public.value)
+        assert result.status_code == 400
+        assert json.loads(result.body)["error"] == exc.value.to_dict()
+    assert not calls
+    fresh = await send(history)
+    assert (await send("Next again", previous_response_id=fresh.id)).status == "completed"
+    assert calls == [(history, None), ("Next again", fresh.id)]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("updated_snapshot", [False, True])
 async def test_gateway_quota_503_rebuilds_saved_history_despite_failed_deployment(pool, updated_snapshot):
     import httpx
@@ -1340,6 +1386,7 @@ async def test_old_response_id_retries_on_the_same_card_only_once(pool, has_hist
     import httpx
 
     from litellm.exceptions import BadRequestError
+    from litellm.proxy._types import ProxyException
 
     router, (first, _) = pool
     attempts = []
@@ -1364,8 +1411,10 @@ async def test_old_response_id_retries_on_the_same_card_only_once(pool, has_hist
     attempts.clear()
     kwargs = dict(original_function=provider, model="shared", input="Repeat it", previous_response_id=initial.id)
     if not has_history or reject_twice:
-        with pytest.raises(BadRequestError):
+        with pytest.raises(BadRequestError if has_history else ProxyException) as rejected:
             await router._aresponses_with_streaming_fallbacks(**kwargs)
+        if not has_history:
+            assert rejected.value.to_dict()["code"] == "previous_response_not_found"
     else:
         result = await router._aresponses_with_streaming_fallbacks(**kwargs)
         assert result.status == "completed"

@@ -87,7 +87,12 @@ class ConversationRecord(BaseModel):
     context: dict[str, JsonValue] = Field(default_factory=dict)
 
 
-class ConversationUnavailableError(ProxyException):
+class _ConversationError(ProxyException):
+    def to_dict(self) -> dict[str, object]:
+        return {"message": self.message, "type": self.type, "param": self.param, "code": self.openai_code}
+
+
+class ConversationUnavailableError(_ConversationError):
     def __init__(self) -> None:
         super().__init__(  # pyright: ignore[reportUnknownMemberType]  # The existing ProxyException constructor has an untyped optional field.
             message="原账号暂不可用，无法安全重建完整对话历史；请重新发送完整历史或开启新会话。",
@@ -95,8 +100,13 @@ class ConversationUnavailableError(ProxyException):
             openai_code="account_pool_conversation_unavailable",
         )
 
-    def to_dict(self) -> dict[str, object]:
-        return {"message": self.message, "type": self.type, "param": self.param, "code": self.openai_code}
+
+class _PreviousResponseNotFound(_ConversationError):
+    def __init__(self) -> None:
+        super().__init__(
+            message="当前站点无法使用这个 previous_response_id。请去掉旧 ID 并重发完整的可见历史；没有完整历史时请开启新会话。",
+            type="invalid_request_error", param="previous_response_id", code=400, openai_code="previous_response_not_found",
+        )
 
 
 class ConversationStore:
@@ -329,6 +339,19 @@ class Conversation:
         return self._history_replayable()
 
     def preempt(self, router: Router, payload: Mapping[str, object]) -> Mapping[str, object] | None:
+        # 缓存未命中不能判断跨站。只有 ID 明确指向本站未配置的部署，才在选卡前结束。
+        if (
+            self.identity.card_id is None
+            and not self.complete_history
+            and self.origin is not None
+            and isinstance(payload.get("previous_response_id"), str)
+            and router.get_deployment(self.origin) is None
+            and any(
+                snapshot_for(item, quota_snapshots.values) is not None
+                for item in router.get_model_list(model_name=self.model) or ()
+            )
+        ):
+            raise _PreviousResponseNotFound()
         if not self.relaxed or self.origin is None:
             return None
         if payload.get("disable_fallbacks") or payload.get("max_fallbacks", router.max_fallbacks) == 0:
@@ -529,14 +552,16 @@ class Conversation:
         if migrated and isinstance(excluded_before, (tuple, list)) and failed in excluded_before:
             raise error
         budget: Final = min(remaining, self.identity.attempt_limit) - used
+        missing: Final = (
+            not migrated and isinstance(payload.get("previous_response_id"), str) and exception_previous_response_missing(error)
+        )
+        if missing and (
+            self.history is None or not self._history_replayable() or has_server_reference(list(self.history))
+        ):
+            raise _PreviousResponseNotFound() from error
         if budget <= 0 or time.time() >= self.identity.retry_deadline:
             raise error
-        if (
-            not migrated and isinstance(payload.get("previous_response_id"), str)
-            and exception_previous_response_missing(error)
-            and self.history is not None and self._history_replayable()
-            and not has_server_reference(list(self.history))
-        ):
+        if missing and self.history is not None:
             deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
             eligible: Final = next((item for item in deployments if deployment_id(item) == failed), None)
             if (
