@@ -15,6 +15,21 @@ test('generates six digit SHA1 TOTP from RFC 6238 vectors', () => {
   assert.equal(totp(secret, 1111111109_000), '081804');
   assert.equal(totp(secret, 1111111111_000), '050471');
 });
+test('hands a persistent Cloudflare challenge back to manual takeover instead of retrying forever', async () => {
+  const page = {
+    url: () => 'https://auth.openai.com/log-in',
+    isClosed: () => false,
+    title: async () => 'Just a moment...',
+    evaluate: async () => true,
+    getByRole: () => ({ isVisible: async () => false }),
+    getByLabel: () => ({ isVisible: async () => false }),
+    locator: () => ({ isVisible: async () => false }),
+    getByText: () => ({ waitFor: async () => { throw new Error('absent'); } }),
+  };
+  const started = Date.now();
+  assert.deepEqual(await automateLogin(page, credential, { timeoutMs: 30_000, challengeMs: 500 }), { status: 'verification_required' });
+  assert.ok(Date.now() - started < 5_000);
+});
 function pageFixture(stages) {
   let position = 0;
   const filled = [];

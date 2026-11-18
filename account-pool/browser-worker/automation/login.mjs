@@ -58,12 +58,26 @@ async function loginInput(page, field, labels) {
 }
 
 export async function automateLogin(page, credential, {
-  signal, allowConsent = true, callback, locale = "en-US", now = Date.now, timeoutMs = 45_000, submitted = new Set(),
+  signal, allowConsent = true, callback, locale = "en-US", now = Date.now, timeoutMs = 45_000,
+  challengeMs = 8000, submitted = new Set(),
 } = {}) {
   const deadline = Date.now() + timeoutMs;
   const labels = labelsFor(locale);
   const stopped = () => signal?.aborted || page.isClosed();
   const visible = async (locator) => locator.isVisible();
+  // OpenAI 登录页由 Cloudflare Turnstile 拦截，自动挑战不放行时必须交回人工接管。
+  const challengePending = async () => {
+    try {
+      return await page.evaluate(() => {
+        const frame = document.querySelector('iframe[src*="challenges.cloudflare.com"]');
+        const text = document.body ? document.body.innerText : "";
+        return Boolean(frame) || /安全验证|Just a moment|请稍候|Verify you are human/i.test(text);
+      });
+    } catch {
+      return false;
+    }
+  };
+  let challengeAt = 0;
   const heading = (name) => page.getByRole("heading", { name, exact: true });
   const accountMatches = async () => {
     try {
@@ -86,6 +100,13 @@ export async function automateLogin(page, credential, {
         }
       }
       if (current.origin !== "https://auth.openai.com") return result("verification_required");
+      if (await challengePending()) {
+        challengeAt ||= Date.now();
+        if (Date.now() - challengeAt > challengeMs) return result("verification_required");
+        await setTimeout(250, undefined, { signal });
+        continue;
+      }
+      challengeAt = 0;
       const path = current.pathname;
       const unchanged = () => !stopped() && page.url() === current.href;
       if (path === "/sign-in-with-chatgpt/codex/consent" && !submitted.has(path)) {

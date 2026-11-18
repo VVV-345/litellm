@@ -48,7 +48,8 @@ export async function runStartupStage(stage, operation, {
 export async function openAuthorizationPage(page, authorization, seconds = "60", diagnostics) {
   const timeout = Number(seconds) * 1000;
   if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 120_000) throw new Error("invalid navigation timeout");
+  // Cloudflare 挑战页会长时间不触发 domcontentloaded，只等响应头落地即可交回控制层处理挑战。
   return runStartupStage("page_navigation", () => page.goto(authorization, {
-    waitUntil: "domcontentloaded", timeout,
+    waitUntil: "commit", timeout,
   }), diagnostics);
 }

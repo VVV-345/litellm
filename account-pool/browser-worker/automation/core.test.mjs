@@ -37,14 +37,14 @@ test("untrusted authorization cannot receive credentials", () => {
   }
 });
 
-test("slow authorization navigation uses the shared 60 second budget without retries", async () => {
+test("slow authorization navigation waits only for commit so a challenge page cannot block startup", async () => {
   const events = [];
   let calls = 0;
   let now = 0;
   const page = { goto: async (url, options) => {
     calls += 1;
     assert.equal(url, valid().href);
-    assert.equal(options.waitUntil, "domcontentloaded");
+    assert.equal(options.waitUntil, "commit");
     assert.equal(options.timeout, 60_000);
     now = 50_000;
   } };
