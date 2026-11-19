@@ -51,6 +51,7 @@ from account_pool.feedback.api import create_feedback_router
 from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.isp_probe import GatewayISPProbeResult, ISPProbeResult
 from account_pool.management_api import create_management_router
+from account_pool.manager_logs import ManagerLogs, create_manager_logs_router
 from account_pool.oauth_automation.api import create_automation_router
 from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_browser import (
@@ -361,6 +362,7 @@ def create_router(
     access_token_fallback: AccessTokenFallbackService | None = None,
     credential_refresh: CredentialRefreshService | None = None,
     ownership: CredentialOwnership | None = None,
+    manager_logs: ManagerLogs | None = None,
 ) -> APIRouter:
     router: Final = APIRouter()
     browser_operations: Final = ownership or CredentialOwnership()
@@ -380,6 +382,8 @@ def create_router(
         router.include_router(create_credential_refresh_router(credential_refresh, require_manager))
     if automation is not None:
         router.include_router(create_automation_router(automation, require_manager))
+    if manager_logs is not None:
+        router.include_router(create_manager_logs_router(manager_logs, require_manager))
 
     if quota_reset is not None:
         router.include_router(create_quota_reset_router(quota_reset, require_manager))

@@ -49,6 +49,7 @@ interface SelectFieldProps {
   description: string;
   value: string;
   options: readonly string[];
+  disabledOption?: string;
   onChange: (next: string) => void;
 }
 
@@ -97,7 +98,7 @@ export function AccountPoolProviderPolicyFields({
       </div>
     </FieldCard>
   );
-  const selectField = ({ label, description, value, options, onChange }: SelectFieldProps) => (
+  const selectField = ({ label, description, value, options, disabledOption, onChange }: SelectFieldProps) => (
     <FieldCard>
       <div className="grid min-w-0 gap-2">
         <div className="space-y-1">
@@ -110,7 +111,7 @@ export function AccountPoolProviderPolicyFields({
           </SelectTrigger>
           <SelectContent>
             {options.map((option) => (
-              <SelectItem key={option} value={option}>
+              <SelectItem key={option} value={option} disabled={option === disabledOption}>
                 {t(`accountPool.policy.options.${option}`)}
               </SelectItem>
             ))}
@@ -150,7 +151,20 @@ export function AccountPoolProviderPolicyFields({
   );
 
   switch (environment.supplier) {
-    case "openai_codex":
+    case "openai_codex": {
+      const authFileBound = environment.auth_file_bound ?? environment.configured_models != null;
+      const identityModeField: SelectFieldProps = {
+        label: t("accountPool.policy.identity_fingerprint_mode"),
+        description: t(
+          authFileBound
+            ? "accountPool.policy.identityFingerprintModeDescription"
+            : "accountPool.policy.managedRequiresAuth",
+        ),
+        value: codex.identity_fingerprint_mode,
+        options: ["off", "managed", "device", "session", "full"],
+        disabledOption: authFileBound ? undefined : "managed",
+        onChange: (next) => onCodexChange("identity_fingerprint_mode", next as Codex["identity_fingerprint_mode"]),
+      };
       return (
         <>
           {summary}
@@ -160,13 +174,7 @@ export function AccountPoolProviderPolicyFields({
             checked: codex.allow_valid_access_after_refresh_failure ?? true,
             onChange: (next) => onCodexChange("allow_valid_access_after_refresh_failure", next),
           })}
-          {selectField({
-            label: t("accountPool.policy.identity_fingerprint_mode"),
-            description: t("accountPool.policy.identityFingerprintModeDescription"),
-            value: codex.identity_fingerprint_mode,
-            options: ["off", "managed", "device", "session", "full"],
-            onChange: (next) => onCodexChange("identity_fingerprint_mode", next as Codex["identity_fingerprint_mode"]),
-          })}
+          {selectField(identityModeField)}
           {toggleField({
             label: t("accountPool.policy.cli_only"),
             description: t("accountPool.policy.cliOnlyDescription"),
@@ -210,6 +218,7 @@ export function AccountPoolProviderPolicyFields({
           })}
         </>
       );
+    }
     case "anthropic_claude":
       return (
         <>

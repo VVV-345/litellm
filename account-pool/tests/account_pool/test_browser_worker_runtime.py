@@ -13,13 +13,14 @@ from pathlib import Path
 from types import ModuleType
 from typing import Final
 from urllib.request import Request
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import yaml
 from account_pool.compose_renderer import render_oauth_browser_compose
 from account_pool.compose_runtime import ComposeRuntime, DockerProcess
 from account_pool.config import Settings
+from account_pool.manager_logs import ManagerDiagnostic
 from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionStatus
 from account_pool.shared.secrets import EnvironmentSecretDeriver
 
@@ -359,8 +360,17 @@ async def test_browser_startup_diagnostics_are_safe_bounded_and_precede_cleanup(
         return Process(0)
 
     settings: Final = _settings(tmp_path, f"registry.example/browser@sha256:{'d' * 64}")
-    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver(settings.secret_seed), runner=runner)
     session: Final = _session()
+    recorded: Final[list[ManagerDiagnostic]] = []
+
+    async def record(card_id: UUID, session_id: UUID | None, diagnostic: ManagerDiagnostic) -> None:
+        assert card_id == session.environment_id and session_id == session.id
+        assert all("down" not in call for call in calls)
+        recorded.append(diagnostic)
+
+    runtime: Final = ComposeRuntime(
+        settings, EnvironmentSecretDeriver(settings.secret_seed), runner=runner, record_diagnostic=record,
+    )
     with pytest.raises(RuntimeError, match="unhealthy"):
         await runtime.start_oauth_browser(
             session,
@@ -381,9 +391,18 @@ async def test_browser_startup_diagnostics_are_safe_bounded_and_precede_cleanup(
     assert "DO_NOT_LOG" not in caplog.text
     assert str(session.id) in caplog.text
     assert "compose_failed" in caplog.text
+    assert recorded[:2] == [
+        ManagerDiagnostic(step="compose", state="started"),
+        ManagerDiagnostic(step="compose", state="failed", reason="compose_failed"),
+    ]
     if diagnostics_result == "ok":
         assert "page_navigation" in caplog.text and "60001" in caplog.text
         assert "unhealthy" in caplog.text
+        assert recorded[2:] == [
+            ManagerDiagnostic(step="page_navigation", state="failed", reason="timeout", duration_ms=60_001),
+        ]
+    else:
+        assert len(recorded) == 2
     assert not runtime.oauth_browser_dir(session.id).exists()
 
 

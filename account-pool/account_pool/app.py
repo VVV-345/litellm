@@ -42,6 +42,8 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
+from account_pool.manager_logs import ManagerLogs
+from account_pool.oauth_automation.login_scripts import LoginScriptStore
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
 from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_automation.service import AutomationRegistry
@@ -95,9 +97,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings_repository: Final = PostgresAccountPoolSettingsRepository(resolved.database_url)
     plugin_repository: Final = PostgresPluginRepository(resolved.database_url)
     plugin_service: Final = PluginService(plugin_repository, parse_plugin_registry(resolved.plugin_registry_json))
-    logs: Final = ErrorLogService(
-        PostgresErrorLogRepository(resolved.database_url), resolved.log_retention_days, settings_repository
-    )
+    log_repository: Final = PostgresErrorLogRepository(resolved.database_url)
+    logs: Final = ErrorLogService(log_repository, resolved.log_retention_days, settings_repository)
+    manager_logs: Final = ManagerLogs(log_repository, environments)
     upstream_sync: Final = GitHubUpstreamSyncService(resolved)
     litellm_upstream_sync: Final = GitHubUpstreamSyncService(resolved, target="litellm")
     secrets: Final = EnvironmentSecretDeriver(resolved.secret_seed)
@@ -114,7 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
     cli_proxy: Final = channel
     runtime: Final = channel
-    browser_runtime: Final = ComposeRuntime(resolved, secrets)
+    browser_runtime: Final = ComposeRuntime(resolved, secrets, record_diagnostic=manager_logs.record)
     controller: Final = (
         ClashController(resolved.clash_controller_url, resolved.clash_secret) if resolved.clash_controller_url else None
     )
@@ -163,8 +165,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     automation_worker: Final = AutomationWorker(browser_runtime, automation_http)
     browser_controller: Final = ControlledOAuthBrowser(environments, profiles, browser_sessions, browser_runtime, service, ownership)
     automation: Final = AutomationRunner(
-        AutomationRegistry(automation_repository, environments, automation_worker, secrets, ownership, profiles),
-        browser_controller, automation_worker,
+        AutomationRegistry(
+            automation_repository, environments, automation_worker, secrets, ownership, profiles,
+            login_scripts=LoginScriptStore(
+                resolved.data_root / ".oauth-login-package.json", resolved.oauth_login_script_publish_key,
+            ),
+        ),
+        browser_controller, automation_worker, record_diagnostic=manager_logs.record,
     )
     quota_scheduler: Final = QuotaRefreshScheduler(
         settings_repository,
@@ -354,6 +361,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_runtime=browser_runtime,
             browser_controller=browser_controller,
             automation=automation,
+            manager_logs=manager_logs,
             feedback=feedback,
             costs=costs,
             quota_reset=quota_reset,

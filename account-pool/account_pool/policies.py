@@ -333,6 +333,8 @@ async def policy_validation_error(
 ) -> str | None:
     if policy.codex is not None and card.supplier is not SupplierKind.OPENAI_CODEX:
         return "Codex settings apply only to Codex accounts"
+    if policy.codex is not None and policy.codex.identity_fingerprint_mode == "managed" and not card.auth_file_name:
+        return "策略未保存：请先完成这张卡片的 Codex 授权，再启用托管安装 ID"
     provider_policies: Final = (
         (SupplierKind.ANTHROPIC_CLAUDE, policy.claude),
         (SupplierKind.KIMI, policy.kimi),

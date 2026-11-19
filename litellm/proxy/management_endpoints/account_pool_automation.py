@@ -1,5 +1,6 @@
 """代理授权自动化管理，复用管理员鉴权和浏览器票据，不进入模型请求链路。"""
 
+import json
 from collections.abc import Callable, Coroutine
 from typing import Annotated, Final, Literal, TypeVar
 from uuid import UUID
@@ -17,6 +18,8 @@ from litellm.proxy.management_endpoints.account_pool_automation_models import (
     JobAction,
     JobInput,
     JobView,
+    LoginScriptStatus,
+    LoginScriptUpdate,
     ProfileInput,
     ProfileUpdate,
     ProfileView,
@@ -72,6 +75,17 @@ def create_automation_router(
     async def self_check() -> AutomationView:
         return await call("POST", "/self-check", TypeAdapter(AutomationView))
 
+    async def login_script() -> LoginScriptStatus:
+        return await call("GET", "/login-script", TypeAdapter(LoginScriptStatus))
+
+    async def update_login_script(request: LoginScriptUpdate) -> LoginScriptStatus:
+        package: Final = request.package
+        body: Final = json.dumps({
+            "publisher_key": request.publisher_key.get_secret_value(),
+            "package": package.model_dump(mode="json") if package else None,
+        }).encode()
+        return await call("PUT", "/login-script", TypeAdapter(LoginScriptStatus), body)
+
     async def settings(request: SettingsUpdate) -> AutomationView:
         return await call("PUT", "/settings", TypeAdapter(AutomationView), request.model_dump_json().encode())
 
@@ -104,6 +118,8 @@ def create_automation_router(
     router.add_api_route("", view, methods=["GET"])
     router.add_api_route("/self-check", self_check, methods=["POST"])
     router.add_api_route("/settings", settings, methods=["PUT"])
+    router.add_api_route("/login-script", login_script, methods=["GET"])
+    router.add_api_route("/login-script", update_login_script, methods=["PUT"])
     router.add_api_route("/profiles", create_profile, methods=["POST"], status_code=201)
     router.add_api_route("/profiles/{profile_id}", update_profile, methods=["PUT"])
     router.add_api_route("/profiles/{profile_id}", delete_profile, methods=["DELETE"])

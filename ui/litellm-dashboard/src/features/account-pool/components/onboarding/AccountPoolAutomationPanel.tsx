@@ -32,12 +32,12 @@ import {
   updateAutomationProfile,
   type AutomationJob,
   type AutomationProfile,
-  type AutomationSettings,
 } from "../../api/AccountPoolAutomationApi";
 import { createAccountPoolEnvironment } from "../../api/AccountPoolApi";
 import { parseMailboxAccounts } from "../../api/AccountPoolOnboardingApi";
 import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
+import { AccountPoolLoginScriptSettings, SettingsForm } from "./AccountPoolLoginScriptSettings";
 import { createAccountPoolJobId, getAccountPoolOAuthBrowserUrl } from "../../api/AccountPoolManagementApi";
 import { accountPoolEnvironmentOptions } from "../../hooks/accountPoolOptions";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
@@ -61,69 +61,8 @@ const labels: Record<AutomationJob["stage"], string> = {
 };
 type Operation = (action: () => Promise<unknown>) => Promise<void>;
 const systemLabels = { linux: "Linux", windows: "Windows", macos: "macOS" };
-
-function SettingsForm({
-  settings,
-  disabled,
-  save,
-}: {
-  settings: AutomationSettings;
-  disabled: boolean;
-  save: (settings: AutomationSettings) => Promise<void>;
-}) {
-  const [enabled, setEnabled] = useState(settings.enabled ?? false);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    void save({
-      enabled,
-      total_timeout_seconds: Number(form.get("total")),
-      human_timeout_seconds: Number(form.get("human")),
-    });
-  };
-  return (
-    <form className="grid max-w-xl gap-4" onSubmit={submit}>
-      <p className="text-sm text-muted-foreground">
-        默认关闭。先自检固定镜像，再开启。全局同时只运行一个账号，人工等待计入总时限
-      </p>
-      <Label>
-        <Checkbox checked={enabled} onCheckedChange={(value) => setEnabled(value === true)} disabled={disabled} />
-        开启授权自动化
-      </Label>
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <Label htmlFor="automation-total">总时限（秒）</Label>
-          <Input
-            id="automation-total"
-            name="total"
-            type="number"
-            min={60}
-            max={600}
-            defaultValue={settings.total_timeout_seconds ?? 600}
-            required
-            disabled={disabled}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="automation-human">人工处理时限（秒）</Label>
-          <Input
-            id="automation-human"
-            name="human"
-            type="number"
-            min={30}
-            max={300}
-            defaultValue={settings.human_timeout_seconds ?? 300}
-            required
-            disabled={disabled}
-          />
-        </div>
-      </div>
-      <Button className="w-fit" type="submit" disabled={disabled}>
-        保存运行设置
-      </Button>
-    </form>
-  );
-}
+const localeNames = new Intl.DisplayNames("zh-CN", { type: "language" });
+const screenUnavailableAfterTakeover = new Error("已接管，但画面未能打开。请点「查看画面」重开，无需重新授权");
 
 function ProfileRow({
   profile,
@@ -232,6 +171,7 @@ const remainingJobSeconds = (job: AutomationJob, now: number): number | null => 
 
 function JobRow({
   job,
+  profile,
   cardMissing,
   now,
   disabled,
@@ -240,6 +180,7 @@ function JobRow({
   view,
 }: {
   job: AutomationJob;
+  profile?: AutomationProfile;
   cardMissing: boolean;
   now: number;
   disabled: boolean;
@@ -252,6 +193,8 @@ function JobRow({
   const finished = !active.has(job.stage) && job.stage !== "queued";
   const remaining = remainingJobSeconds(job, now);
   const interactive = ["running", "waiting", "manual"].includes(job.stage);
+  const locale = profile?.auto_match_proxy ? profile.matched_locale : profile?.locale;
+  const unverified = job.credentials_saved ? "未确认通过" : "未验收";
   return (
     <article className="space-y-3 rounded-lg border bg-background p-3" aria-label={`任务 ${job.id.slice(0, 8)}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -259,6 +202,7 @@ function JobRow({
           <strong>{labels[job.stage]}</strong>
           <span>卡片 {job.environment_id.slice(0, 8)}</span>
           <span>出口 {job.proxy_profile_id}</span>
+          {locale && <span>配置语言 {locale}</span>}
           {active.has(job.stage) && remaining !== null && <span className="tabular-nums">剩余 {remaining} 秒</span>}
         </div>
         <fieldset className="flex flex-wrap gap-2" disabled={disabled}>
@@ -273,7 +217,17 @@ function JobRow({
               variant="outline"
               disabled={disabled}
               onClick={() =>
-                void run(() => actOnAutomation(accessToken, job.id, job.stage === "manual" ? "resume" : "takeover"))
+                void run(async () => {
+                  const action = job.stage === "manual" ? "resume" : "takeover";
+                  const ack = await actOnAutomation(accessToken, job.id, action);
+                  if (action === "takeover" && ack.stage === "manual") {
+                    try {
+                      await view(job.id);
+                    } catch {
+                      throw screenUnavailableAfterTakeover;
+                    }
+                  }
+                })
               }
             >
               {job.stage === "manual" ? "交回自动化" : "停止脚本并接管"}
@@ -348,8 +302,8 @@ function JobRow({
         />
       )}
       <p className="text-xs text-muted-foreground">
-        凭据{job.credentials_saved ? "已保存" : "未确认"}，Chat {job.chat_verified ? "通过" : "未通过"}，Responses{" "}
-        {job.responses_verified ? "通过" : "未通过"}
+        凭据{job.credentials_saved ? "已保存" : "未确认"}，Chat {job.chat_verified ? "通过" : unverified}，Responses{" "}
+        {job.responses_verified ? "通过" : unverified}
         {job.model ? `，模型 ${job.model}` : ""}
       </p>
     </article>
@@ -399,12 +353,15 @@ export function AccountPoolAutomationPanel({
       await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
       toast.success("操作已完成");
     } catch (error) {
-      const message =
-        error instanceof ApiError && [404, 409].includes(error.status)
-          ? error.message
-          : "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
+      const knownError = error === screenUnavailableAfterTakeover || (error instanceof ApiError && [404, 409].includes(error.status));
+      const message = knownError && error instanceof Error
+        ? error.message
+        : "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
       setOperationError(message);
       toast.error(message);
+      if (error === screenUnavailableAfterTakeover) {
+        await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
+      }
     } finally {
       setBusy(false);
     }
@@ -482,10 +439,11 @@ export function AccountPoolAutomationPanel({
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const locale = form.get("locale");
+    if (typeof locale !== "string") return;
     const os = form.get("os");
     const body: Parameters<typeof createAutomationProfile>[1] = {
       name: String(form.get("name")),
-      locale: locale === "en-GB" || locale === "zh-CN" ? locale : "en-US",
+      locale: locale === "auto" ? "en-US" : locale,
       enabled: true,
       auto_match_proxy: locale === "auto",
       os: os === "windows" || os === "macos" ? os : "linux",
@@ -504,6 +462,7 @@ export function AccountPoolAutomationPanel({
     <JobRow
       key={job.id}
       job={job}
+      profile={query.data?.profiles.find((profile) => profile.id === job.profile_id)}
       cardMissing={cards.isSuccess && !cards.data.some((card) => card.id === job.environment_id)}
       now={now}
       disabled={busy}
@@ -521,7 +480,7 @@ export function AccountPoolAutomationPanel({
         <DialogHeader>
           <DialogTitle>临时授权浏览器</DialogTitle>
           <DialogDescription>
-            默认只能查看。请在任务操作中点击“停止脚本并接管”，确认成功后才能输入；不支持录屏或保留 Cookie
+            查看画面不会开启输入。接管成功后请在授权页完成验证；返回任务可交回自动化。不支持录屏或保留 Cookie
           </DialogDescription>
         </DialogHeader>
         {screen && (
@@ -711,9 +670,11 @@ export function AccountPoolAutomationPanel({
             defaultValue="auto"
           >
             <option value="auto">按代理出口自动匹配</option>
-            <option>en-US</option>
-            <option>en-GB</option>
-            <option>zh-CN</option>
+            {(state.locale_presets ?? ["en-US", "en-GB", "zh-CN"]).map((locale) => (
+              <option key={locale} value={locale}>
+                {localeNames.of(locale)} ({locale})
+              </option>
+            ))}
           </select>
         </div>
         <Button type="submit" disabled={busy || !state.image_checked}>
@@ -791,6 +752,7 @@ export function AccountPoolAutomationPanel({
                   disabled={busy}
                   save={(settings) => run(() => saveAutomationSettings(accessToken, state.version, settings))}
                 />
+                <AccountPoolLoginScriptSettings accessToken={accessToken} />
               </div>
             ),
           },

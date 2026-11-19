@@ -1598,6 +1598,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/manager-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Manager Logs */
+        get: operations["manager_logs_account_pool_manager_logs_get"];
+        put?: never;
+        post?: never;
+        /** Delete Manager Logs */
+        delete: operations["delete_manager_logs_account_pool_manager_logs_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/oauth-automation": {
         parameters: {
             query?: never;
@@ -1694,6 +1712,24 @@ export interface paths {
         put?: never;
         /** Screen */
         post: operations["screen_account_pool_oauth_automation_jobs__job_id__screen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/oauth-automation/login-script": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Login Script */
+        get: operations["login_script_account_pool_oauth_automation_login_script_get"];
+        /** Update Login Script */
+        put: operations["update_login_script_account_pool_oauth_automation_login_script_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -25287,6 +25323,8 @@ export interface components {
         /** AccountPoolEnvironment */
         AccountPoolEnvironment: {
             access_token_fallback?: components["schemas"]["AccountPoolAccessTokenFallbackStatus"];
+            /** Auth File Bound */
+            auth_file_bound?: boolean | null;
             /**
              * Authorization Flow
              * @default browser_oauth
@@ -27565,6 +27603,8 @@ export interface components {
             image_checked: boolean;
             /** Jobs */
             jobs: components["schemas"]["JobView"][];
+            /** Locale Presets */
+            locale_presets?: string[] | null;
             /** Profiles */
             profiles: components["schemas"]["ProfileView"][];
             settings: components["schemas"]["AutomationSettings"];
@@ -36312,6 +36352,52 @@ export interface components {
              */
             status?: "healthy" | "unhealthy";
         };
+        /** LoginScriptFile */
+        LoginScriptFile: {
+            /** Data */
+            data: string;
+            /** Path */
+            path: string;
+        };
+        /** LoginScriptInfo */
+        LoginScriptInfo: {
+            /** Entrypoint */
+            entrypoint: string;
+            /** File Count */
+            file_count: number;
+            /** Sha256 */
+            sha256: string;
+        };
+        /** LoginScriptPackage */
+        LoginScriptPackage: {
+            /** Entrypoint */
+            entrypoint: string;
+            /** Files */
+            files: components["schemas"]["LoginScriptFile"][];
+        };
+        /** LoginScriptStatus */
+        LoginScriptStatus: {
+            active?: components["schemas"]["LoginScriptInfo"] | null;
+            /**
+             * Invalid
+             * @default false
+             */
+            invalid: boolean;
+            /**
+             * Upload Enabled
+             * @default false
+             */
+            upload_enabled: boolean;
+        };
+        /** LoginScriptUpdate */
+        LoginScriptUpdate: {
+            package: components["schemas"]["LoginScriptPackage"] | null;
+            /**
+             * Publisher Key
+             * Format: password
+             */
+            publisher_key: string;
+        };
         /** MCPConnectorEntry */
         MCPConnectorEntry: {
             /** Args */
@@ -36679,6 +36765,51 @@ export interface components {
         MakeMCPServersPublicRequest: {
             /** Mcp Server Ids */
             mcp_server_ids: string[];
+        };
+        /** ManagerLogItem */
+        ManagerLogItem: {
+            /**
+             * Card Id
+             * Format: uuid
+             */
+            card_id: string;
+            /** Duration Ms */
+            duration_ms?: number | null;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Http Status */
+            http_status?: number | null;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Reason */
+            reason?: string | null;
+            /** Session Id */
+            session_id: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "info" | "warning" | "error";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "started" | "ready" | "running" | "waiting" | "manual" | "failed" | "expired" | "cancelled" | "completed";
+            /** Step */
+            step: string;
+        };
+        /** ManagerLogPage */
+        ManagerLogPage: {
+            /** Has More */
+            has_more: boolean;
+            /** Items */
+            items: components["schemas"]["ManagerLogItem"][];
         };
         /** Member */
         Member: {
@@ -39920,9 +40051,8 @@ export interface components {
             /**
              * Locale
              * @default en-US
-             * @enum {string}
              */
-            locale: "en-US" | "en-GB" | "zh-CN";
+            locale: string;
             /** Name */
             name: string;
             /**
@@ -39947,9 +40077,8 @@ export interface components {
             /**
              * Locale
              * @default en-US
-             * @enum {string}
              */
-            locale: "en-US" | "en-GB" | "zh-CN";
+            locale: string;
             /** Name */
             name: string;
             /**
@@ -39985,9 +40114,8 @@ export interface components {
             /**
              * Locale
              * @default en-US
-             * @enum {string}
              */
-            locale: "en-US" | "en-GB" | "zh-CN";
+            locale: string;
             location?: components["schemas"]["ProxyLocation"] | null;
             /** Matched Locale */
             matched_locale?: string | null;
@@ -49132,6 +49260,71 @@ export interface operations {
             };
         };
     };
+    manager_logs_account_pool_manager_logs_get: {
+        parameters: {
+            query?: {
+                session_id?: string | null;
+                card_id?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagerLogPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_manager_logs_account_pool_manager_logs_delete: {
+        parameters: {
+            query: {
+                older_than_days: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPoolLogClearResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     view_account_pool_oauth_automation_get: {
         parameters: {
             query?: never;
@@ -49300,6 +49493,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AutomationScreen"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    login_script_account_pool_oauth_automation_login_script_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginScriptStatus"];
+                };
+            };
+        };
+    };
+    update_login_script_account_pool_oauth_automation_login_script_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginScriptUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginScriptStatus"];
                 };
             };
             /** @description Validation Error */

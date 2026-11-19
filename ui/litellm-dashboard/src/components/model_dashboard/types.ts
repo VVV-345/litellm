@@ -1,4 +1,5 @@
 export interface ModelInfo {
+  base_model?: string;
   id: string;
   created_at: string;
   updated_at: string;

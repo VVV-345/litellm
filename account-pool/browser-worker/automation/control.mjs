@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 
 export class BrowserControl {
-  constructor({ login, enableInput, verifyAccount, close, totalDeadline, humanMs, now = Date.now }) {
+  constructor({ login, enableInput, verifyAccount, close, totalDeadline, humanMs, now = Date.now, observe = () => null }) {
     this.login = login;
     this.enableInput = enableInput;
     this.verifyAccount = verifyAccount;
@@ -11,8 +11,10 @@ export class BrowserControl {
     this.totalDeadline = totalDeadline;
     this.humanMs = humanMs;
     this.now = now;
+    this.observe = observe;
     this.status = "prepared";
     this.reason = null;
+    this.waitDiagnostic = null;
     this.humanDeadline = null;
     this.abort = null;
     this.pending = Promise.resolve();
@@ -30,6 +32,15 @@ export class BrowserControl {
       status: this.status, reason: this.reason,
       expires_at: new Date(Math.min(this.totalDeadline, this.humanDeadline ?? Infinity)).toISOString(),
     };
+  }
+
+  diagnosticView() {
+    if (!["running", "waiting", "manual", "failed", "expired"].includes(this.status)) return null;
+    try {
+      return (this.status === "waiting" ? this.waitDiagnostic : null) ?? this.observe();
+    } catch {
+      return null;
+    }
   }
 
   async execute(action) {
@@ -64,6 +75,7 @@ export class BrowserControl {
   wait(status, reason) {
     this.status = status;
     this.reason = reason;
+    this.waitDiagnostic = null;
     this.humanDeadline ??= Math.min(this.totalDeadline, this.now() + this.humanMs);
   }
 
@@ -71,11 +83,17 @@ export class BrowserControl {
     await this.enableInput(false);
     this.status = "running";
     this.reason = null;
+    this.waitDiagnostic = null;
     this.abort = new AbortController();
     this.pending = this.login(this.abort.signal).then((result) => {
       if (result.status === "stopped") return;
       if (result.status === "callback_received") this.status = "callback_received";
-      else this.wait("waiting", result.status);
+      else {
+        const reason = ["account_mismatch", "confirmation_required"].includes(result.status)
+          ? result.status : "verification_required";
+        this.wait("waiting", reason);
+        this.waitDiagnostic = result.diagnostic ?? null;
+      }
     }).catch(() => {
       this.status = "failed";
       this.reason = "browser_driver_failed";
@@ -92,7 +110,7 @@ export class BrowserControl {
   }
 }
 
-export function createControlServer({ token, createController }) {
+export function createControlServer({ token, createController, loginScriptDigest = null }) {
   if (typeof token !== "string" || token.length < 32) throw new Error("job_token");
   const expected = Buffer.from(`Bearer ${token}`);
   let controller = null;
@@ -119,6 +137,14 @@ export function createControlServer({ token, createController }) {
         chunks.push(chunk);
       }
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (body?.action === "script_check") {
+        if (Object.keys(body).length !== 2 || loginScriptDigest === null || body.sha256 !== loginScriptDigest) {
+          reply(409, { error: "login_script_mismatch" });
+          return;
+        }
+        reply(200, { sha256: loginScriptDigest });
+        return;
+      }
       if (!body || Array.isArray(body) || typeof body !== "object" ||
           !["start", "status", "takeover", "resume", "cancel"].includes(body.action) ||
           Object.keys(body).some((key) => key !== "action" && !(key === "credentials" && body.action === "start"))) {
@@ -133,7 +159,11 @@ export function createControlServer({ token, createController }) {
         controller = Promise.resolve().then(() => createController(body.credentials));
       }
       if (controller === null) { reply(409, { error: "not_started" }); return; }
-      reply(200, await (await controller).command(body.action));
+      const active = await controller;
+      const view = await active.command(body.action);
+      const diagnostic = body.action !== "start" && request.headers["x-oauth-diagnostics"] === "1"
+        ? active.diagnosticView() : null;
+      reply(200, diagnostic ? { ...view, diagnostic } : view);
     } catch {
       reply(400, { error: "job_command_failed" });
     }

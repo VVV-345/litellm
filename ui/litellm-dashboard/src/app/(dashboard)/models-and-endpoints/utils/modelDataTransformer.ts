@@ -1,3 +1,10 @@
+const formatPerMillion = (value: unknown): string | null => {
+  if (typeof value !== "number" && !(typeof value === "string" && value.trim())) return null;
+  const price = Number(value) * 1e6;
+  if (!Number.isFinite(price) || price < 0) return null;
+  return price > 0 && price < 0.005 ? price.toString() : price.toFixed(2);
+};
+
 /**
  * Utility function to transform raw model data into the format expected by UI components
  * This creates a new transformed data object without mutating the original
@@ -45,6 +52,8 @@ export const transformModelData = (rawModelData: any, getProviderFromModel: (mod
       max_tokens = model_info.max_tokens;
       max_input_tokens = model_info.max_input_tokens;
     }
+    input_cost = curr_model?.litellm_params?.input_cost_per_token ?? input_cost;
+    output_cost = curr_model?.litellm_params?.output_cost_per_token ?? output_cost;
 
     if (curr_model?.litellm_params) {
       cleanedLitellmParams = Object.fromEntries(
@@ -53,18 +62,9 @@ export const transformModelData = (rawModelData: any, getProviderFromModel: (mod
     }
 
     transformedData[i].provider = provider;
-    transformedData[i].input_cost = input_cost;
-    transformedData[i].output_cost = output_cost;
+    transformedData[i].input_cost = formatPerMillion(input_cost);
+    transformedData[i].output_cost = formatPerMillion(output_cost);
     transformedData[i].litellm_model_name = litellm_model_name;
-
-    // Convert Cost in terms of Cost per 1M tokens
-    if (transformedData[i].input_cost != null) {
-      transformedData[i].input_cost = (Number(transformedData[i].input_cost) * 1000000).toFixed(2);
-    }
-
-    if (transformedData[i].output_cost != null) {
-      transformedData[i].output_cost = (Number(transformedData[i].output_cost) * 1000000).toFixed(2);
-    }
 
     transformedData[i].max_tokens = max_tokens;
     transformedData[i].max_input_tokens = max_input_tokens;

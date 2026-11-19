@@ -11,6 +11,8 @@ type JobInput = components["schemas"]["JobInput"];
 type ProfileInput = components["schemas"]["ProfileInput"];
 type ProfileUpdate = components["schemas"]["ProfileUpdate"];
 type JobAction = components["schemas"]["JobAction"]["action"];
+export type LoginScriptStatus = components["schemas"]["LoginScriptStatus"];
+export type LoginScriptPackage = components["schemas"]["LoginScriptPackage"];
 const root = "/account_pool/oauth-automation";
 
 export const getAutomation = (accessToken: string) =>
@@ -19,6 +21,10 @@ export const checkAutomationImage = (accessToken: string) =>
   apiClient.post<AutomationView>(`${root}/self-check`, { accessToken });
 export const saveAutomationSettings = (accessToken: string, version: number, settings: AutomationSettings) =>
   apiClient.put<AutomationView>(`${root}/settings`, { accessToken, body: { version, settings } });
+export const getAutomationLoginScript = (accessToken: string) =>
+  apiClient.get<LoginScriptStatus>(`${root}/login-script`, { accessToken, cache: "no-store" });
+export const updateAutomationLoginScript = (accessToken: string, publisherKey: string, bundle: LoginScriptPackage | null) =>
+  apiClient.put<LoginScriptStatus>(`${root}/login-script`, { accessToken, body: { publisher_key: publisherKey, package: bundle } });
 export const createAutomationProfile = (accessToken: string, body: ProfileInput) =>
   apiClient.post<AutomationProfile>(`${root}/profiles`, { accessToken, body });
 export const updateAutomationProfile = (accessToken: string, id: string, body: ProfileUpdate) =>

@@ -115,3 +115,7 @@ Dashboard 使用显式路径运行 `npx vitest run src/features/account-pool/com
 批量录入基于 `2c9a54a64db`，未修改后端接口、表结构或续期规则。Node 24.19.0 下执行 `vitest run src/features/account-pool/components/costs src/features/account-pool/hooks/accountPoolQueryKeys src/features/account-pool/hooks/useAccountPoolMutations src/features/account-pool/preloadModules`，7 个文件共 48 项通过。覆盖独立日期、原费用更正、归档账号排除、非法金额和日期、逐项失败继续、同编号重试、报表缓存失效及请求期间禁止更改选择或关闭弹窗
 
 `tsc --noEmit --incremental false` 源码和测试类型检查通过，6 个变更前端文件的 ESLint 无错误或警告，Prettier 检查通过。临时源码副本的 `next build --webpack` 完整生产构建通过。`make check` 的全仓前端 complexity 仍为既有的 142 项，超过 140 的预算，因此整体门禁未通过，未提高预算。同日检查的后端定向回归含独立 PostgreSQL 共 135 项通过；本项没有新增后端改动
+
+提交上游前合入 `812e7fc0ef1`，保留新增登录脚本和 Manager 日志入口，重新生成 OpenAPI 快照及 Dashboard 类型。合并后的前端定向回归仍为 48 项通过，全量源码及测试 TypeScript、变更文件 ESLint 和隔离 webpack 生产构建通过。后端扩大到管理接口、Manager 路由和发布兼容，共 251 项通过；另为缺少专用库而跳过的 Manager 日志清理测试建立独立数据库，单独执行后通过，共验证 252 项
+
+对合并源码和上游 `812e7fc0ef1` 分别执行全仓 ESLint，两者均无错误，complexity 同为 144 项，超过 140 的预算；本项没有增加此计数。真实 Chrome 连接现有本地预览 API，验证账号选择、年付切换、服务结束日重算、合计金额及取消录入，未写入现有台账。上游基线在 GLM 图片导入处报错，候选页面正常加载，包含已有的最小 SVG 修复。截图见 [上游基线](../assets/costs-before.png)和[批量录入](../assets/costs-after.png)。这些结果不代表生产部署或真实厂商扣款验收

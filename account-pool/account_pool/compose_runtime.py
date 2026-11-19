@@ -27,6 +27,7 @@ from account_pool.compose_renderer import (
 )
 from account_pool.config import Settings
 from account_pool.domain import EnvironmentRecord, EnvironmentStatus
+from account_pool.manager_logs import BrowserStartupStep, ManagerDiagnostic, RecordManagerDiagnostic
 from account_pool.oauth_browser import (
     OAUTH_BROWSER_COMMAND_TIMEOUT_SECONDS,
     OAUTH_BROWSER_WAIT_TIMEOUT_SECONDS,
@@ -63,7 +64,7 @@ class _BrowserContainerState(BaseModel):
 
 class _BrowserStartupEvent(BaseModel):
     model_config = ConfigDict(frozen=True, extra="ignore")
-    stage: Literal["profile", "browser_launch", "page_navigation", "control_listener", "driver"]
+    stage: BrowserStartupStep
     status: Literal["started", "ready", "failed"]
     elapsed_ms: int = Field(ge=0, le=3_600_000, strict=True)
     reason: Literal["timeout", "proxy_error", "tls_error", "process_error"] | None = None
@@ -93,10 +94,12 @@ class ComposeRuntime:
         secrets: EnvironmentSecretDeriver,
         *,
         runner: DockerRunner = run_docker,
+        record_diagnostic: RecordManagerDiagnostic | None = None,
     ) -> None:
         self._settings: Final = settings
         self._secrets: Final = secrets
         self._runner: Final = runner
+        self._record_diagnostic: Final = record_diagnostic
 
     def environment_dir(self, environment_id: UUID) -> Path:
         return self._settings.data_root / environment_id.hex
@@ -451,6 +454,7 @@ class ComposeRuntime:
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         _write_private(directory / "compose.yaml", compose)
         try:
+            await self._record_browser(session, ManagerDiagnostic(step="compose", state="started"))
             await self._compose_at(
                 f"account-pool-oauth-browser-{session.id.hex}",
                 directory,
@@ -473,12 +477,21 @@ class ComposeRuntime:
             _LOGGER.warning("OAuth browser startup failed session=%s reason=%s", session.id, reason)
             try:
                 if isinstance(error, Exception):
-                    await self._log_oauth_browser_diagnostics(session.id, directory)
+                    await self._record_browser(session, ManagerDiagnostic(
+                        step="compose", state="failed", reason="docker_timeout" if reason == "docker_timeout" else "compose_failed",
+                    ))
+                    await self._log_oauth_browser_diagnostics(session, directory)
             finally:
                 await asyncio.shield(self.remove_oauth_browser(session.id))
             raise
+        await self._record_browser(session, ManagerDiagnostic(step="compose", state="ready"))
 
-    async def _log_oauth_browser_diagnostics(self, session_id: UUID, directory: Path) -> None:
+    async def _record_browser(self, session: OAuthBrowserSession, diagnostic: ManagerDiagnostic) -> None:
+        if self._record_diagnostic is not None:
+            await self._record_diagnostic(session.environment_id, session.id, diagnostic)
+
+    async def _log_oauth_browser_diagnostics(self, session: OAuthBrowserSession, directory: Path) -> None:
+        session_id: Final = session.id
         for action in (
             ("ps", "--all", "--format", "json"),
             ("logs", "--no-color", "--no-log-prefix", "--tail", "30", "browser"),
@@ -520,6 +533,9 @@ class ComposeRuntime:
                                 line.removeprefix("oauth_browser_startup ")
                             )
                             _LOGGER.warning("OAuth browser stage session=%s %s", session_id, event.model_dump_json())
+                            await self._record_browser(session, ManagerDiagnostic(
+                                step=event.stage, state=event.status, reason=event.reason, duration_ms=event.elapsed_ms,
+                            ))
                     except ValidationError:
                         continue
             except Exception:

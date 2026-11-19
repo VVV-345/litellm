@@ -8,7 +8,7 @@ import subprocess
 import sys
 from contextlib import asynccontextmanager
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Final
 from uuid import uuid4
@@ -197,7 +197,14 @@ async def test_retries_keep_the_account_fingerprint_and_never_take_another_accou
 
 
 @pytest.mark.asyncio
-async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(registry) -> None:
+@pytest.mark.parametrize(("country", "locale", "timezone"), [
+    ("US", "en-US", "America/Los_Angeles"),
+    ("DE", "de-DE", "Europe/Berlin"),
+    ("HK", "zh-HK", "Asia/Hong_Kong"),
+    ("UA", "uk-UA", "Europe/Kyiv"),
+    ("NZ", "NZ", "Pacific/Auckland"),
+])
+async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(registry, country, locale, timezone) -> None:
     from account_pool.isp_probe import ProxyLocation
     from test_account_pool import StaticProfiles
 
@@ -208,7 +215,7 @@ async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(regi
         async def locate(self, proxy_url):
             lookups.append(proxy_url)
             return ProxyLocation(
-                exit_ip="8.8.8.8", country_code="US", country="United States", timezone="America/Los_Angeles",
+                exit_ip="8.8.8.8", country_code=country, country=country, timezone=timezone,
             )
 
     configured = replace(
@@ -218,9 +225,9 @@ async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(regi
     first = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
     assert isinstance(first, Success)
     profile = (await configured.view()).profiles[0]
-    assert profile.location.country_code == "US"
-    assert profile.location.timezone == "America/Los_Angeles"
-    assert profile.matched_locale == "en-US"
+    assert profile.location.country_code == country
+    assert profile.location.timezone == timezone
+    assert profile.matched_locale == locale
     digest = profile.digest
     await configured.cancel(first.value.id)
     again = await configured.submit(JobInput(id=uuid4(), environment_id=card.id, credentials=CREDENTIAL))
@@ -228,8 +235,26 @@ async def test_new_accounts_match_proxy_once_and_keep_the_location_on_retry(regi
     assert (await configured.view()).profiles[0].digest == digest
     assert lookups == ["http://selected-proxy.test:8080"]
     saved = (await configured.repository.read()).profiles[0].data
-    assert saved["locale"] == "en-US"
-    assert saved["timezone"] == "America/Los_Angeles"
+    assert saved["locale"] == locale
+    assert saved["timezone"] == timezone
+
+
+@pytest.mark.asyncio
+async def test_profile_language_presets_and_manual_locale_use_one_contract(deletion_registry) -> None:
+    from pydantic import ValidationError
+
+    service, _ = deletion_registry
+    presets = (await service.view()).locale_presets
+    assert set(presets) == {
+        "en-US", "en-GB", "zh-CN", "ja-JP", "pt-BR", "es-AR", "en-AU", "en-CA",
+        "zh-TW", "zh-HK", "de-DE", "fr-FR", "ru-RU", "ko-KR", "en-SG", "tr-TR", "uk-UA",
+    }
+    for locale in (*presets, "it-IT"):
+        created = await service.create_profile(ProfileInput(name=locale, locale=locale, auto_match_proxy=False))
+        assert isinstance(created, Success) and created.value.locale == locale
+    for invalid in ("DE", "uk-ua", "de_DE", "ja-JP/extra"):
+        with pytest.raises(ValidationError):
+            ProfileInput(name="invalid", locale=invalid, auto_match_proxy=False)
 
 
 @pytest.mark.asyncio
@@ -425,6 +450,23 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str):
         if action == "start":
             assert payload["credentials"] == CREDENTIAL
         commands.append(action)
+        if action == "script_check":
+            assert set(payload) == {"action", "sha256"}
+            if "reject-script" in commands:
+                return httpx.Response(409, json={"error": "unverified"})
+            return httpx.Response(200, json={"sha256": payload["sha256"]})
+        if action == "status" and "fixture-waiting" in commands:
+            assert request.headers["X-OAuth-Diagnostics"] == "1"
+            return httpx.Response(200, json={
+                "status": "waiting", "reason": "verification_required", "expires_at": "2099-01-01T00:00:00Z",
+                "diagnostic": (
+                    {"step": "password", "reason": "fixture-secret-not-a-reason"}
+                    if "unsafe-diagnostic" in commands
+                    else {"step": "email_verification", "reason": "email_verification", "http_status": 200}
+                    if "email-verification" in commands
+                    else {"step": "password", "reason": "browser_security_challenge", "http_status": 403}
+                ),
+            })
         return httpx.Response(200, json={"status": "manual" if action == "takeover" else "running", "reason": None, "expires_at": "2099-01-01T00:00:00Z"})
 
     await registry_service.create_profile(ProfileInput(name="test Linux"))
@@ -446,6 +488,113 @@ async def execution(registry, tmp_path: Path, authorized_email: str):
 async def memory_execution(deletion_registry, tmp_path: Path, authorized_email: str):
     async with _execution(deletion_registry, tmp_path, authorized_email) as case:
         yield case
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("fixture", "expected", "hint"), [
+    ("email-verification", ("email_verification", "email_verification", 200), "邮箱验证码"),
+    ("security-challenge", ("password", "browser_security_challenge", 403), "人机验证"),
+    ("unsafe-diagnostic", ("login", "verification_required", None), "查看画面"),
+])
+async def test_runner_records_waiting_phase_once_without_raw_worker_text(memory_execution, fixture, expected, hint) -> None:
+    from account_pool.error_logs import ErrorLogRecord
+    from account_pool.manager_logs import ManagerLogQuery, ManagerLogs
+    from account_pool.oauth_automation.models import AutomationSettings
+
+    registry, card, _, runner, _, commands, starts, _, _ = memory_execution
+    class LogStore:
+        events: tuple[ErrorLogRecord, ...] = ()
+
+        async def append(self, event: ErrorLogRecord) -> None:
+            self.events += (event,)
+
+        async def query_browser_logs(self, query: ManagerLogQuery) -> tuple[ErrorLogRecord, ...]:
+            return tuple(
+                event for event in reversed(self.events)
+                if event.session_id == str(query.session_id) and event.card_id == query.card_id
+            )[: query.limit + 1]
+
+        async def delete_browser_logs(self, before: datetime) -> int:
+            raise AssertionError("recording should not prune events")
+
+    logs: Final = ManagerLogs(LogStore(), registry.environments)
+    checked: Final = await registry.self_check()
+    assert isinstance(checked, Success)
+    saved: Final = await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    assert isinstance(saved, Success)
+    observer: Final = replace(runner, record_diagnostic=logs.record)
+    await observer.run_once()
+    commands.extend(("fixture-waiting", fixture))
+    await observer.run_once()
+    await observer.run_once()
+    job = (await registry.view()).jobs[0]
+    assert job.stage == "waiting" and hint in job.message and "fixture-secret" not in job.message
+    assert not job.credentials_saved and not job.callback_consumed and not {"chat", "responses"}.intersection(commands)
+    result: Final = await logs.list(ManagerLogQuery(card_id=card.id, session_id=starts[0]))
+    waiting: Final = [(item.step, item.reason, item.http_status) for item in result.items if item.state == "waiting"]
+    assert waiting == [expected]
+    assert commands.count("start") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verified_worker", [False, True])
+async def test_publish_login_folder_and_attest_before_sending_login(memory_execution, tmp_path, verified_worker):
+    from base64 import b64encode
+    from account_pool.oauth_automation.api import create_automation_router
+    from account_pool.oauth_automation.login_scripts import LoginScriptStore
+    from account_pool.oauth_automation.models import AutomationSettings
+    from fastapi import FastAPI, Header, HTTPException
+
+    registry, _, _, runner, _, commands, _, _, _ = memory_execution
+    key = "fixture-operator-only-" * 2
+    store = LoginScriptStore(tmp_path / "scripts.json", key)
+    registry = replace(registry, login_scripts=store)
+    runner = replace(runner, registry=registry)
+    app = FastAPI()
+
+    def authorize(authorization: str = Header(default="")):
+        if authorization != "Bearer local-admin":
+            raise HTTPException(403)
+
+    app.include_router(create_automation_router(runner, authorize))
+    url = "/api/oauth-automation/login-script"
+    headers = {"Authorization": "Bearer local-admin"}
+    bundle = {
+        "entrypoint": "nested/entry.mjs",
+        "files": [
+            {"path": "nested/entry.mjs", "data": b64encode(b"export function automateLogin() {}").decode()},
+            {"path": "nested/new_helper.mjs", "data": b64encode(b"export const value = 1;").decode()},
+            {"path": "extra.json", "data": "e30="},
+        ],
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://manager.test") as client:
+        unauthorized = await client.put(url, json={"publisher_key": key, "package": bundle})
+        assert unauthorized.status_code == 403
+        rejected = await client.put(url, headers=headers, json={"publisher_key": "x" * 40, "package": bundle})
+        assert rejected.status_code == 409 and not store.path.exists()
+        uploaded = await client.put(url, headers=headers, json={"publisher_key": key, "package": bundle})
+        assert uploaded.status_code == 200 and uploaded.headers["cache-control"] == "no-store"
+        active = uploaded.json()["active"]
+        assert active["entrypoint"] == "nested/entry.mjs" and active["file_count"] == 3
+        assert key not in uploaded.text and "extra.json" not in uploaded.text and "data" not in uploaded.text
+        traversal = dict(bundle, files=[*bundle["files"], {"path": "../escape", "data": "e30="}])
+        malformed = await client.put(url, headers=headers, json={"publisher_key": key, "package": traversal})
+        assert malformed.status_code == 422
+        assert (await client.get(url, headers=headers)).json()["active"] == active
+
+        await registry.self_check()
+        await registry.save_settings(AutomationSettings(enabled=True), (await registry.view()).version)
+        if not verified_worker:
+            commands.append("reject-script")
+        await runner.run_once()
+        job = (await registry.view()).jobs[0]
+        assert "script_check" in commands
+        if verified_worker:
+            assert commands.index("script_check") < commands.index("start") and job.stage == "running"
+        else:
+            assert "start" not in commands and not job.credentials_saved and job.stage == "failed"
+        reset = await client.put(url, headers=headers, json={"publisher_key": key, "package": None})
+        assert reset.status_code == 200 and reset.json()["active"] is None and not store.path.exists()
 
 
 @pytest.mark.asyncio

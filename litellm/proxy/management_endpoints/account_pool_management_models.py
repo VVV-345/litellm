@@ -738,6 +738,34 @@ class AccountPoolLogClearResult(BaseModel):
     deleted: int = Field(ge=0)
 
 
+class ManagerLogQuery(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    session_id: UUID | None = None
+    card_id: UUID | None = None
+    limit: int = Field(default=50, ge=1, le=100)
+    offset: int = Field(default=0, ge=0, le=10_000)
+
+
+class ManagerLogItem(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    event_id: UUID
+    occurred_at: AwareDatetime
+    card_id: UUID
+    session_id: UUID | None
+    severity: Literal["info", "warning", "error"]
+    step: str = Field(pattern=r"^[a-z_]{1,48}$")
+    state: Literal["started", "ready", "running", "waiting", "manual", "failed", "expired", "cancelled", "completed"]
+    reason: str | None = Field(default=None, pattern=r"^[a-z_]{1,48}$")
+    http_status: int | None = Field(default=None, ge=100, le=599, strict=True)
+    duration_ms: int | None = Field(default=None, ge=0, le=3_600_000, strict=True)
+
+
+class ManagerLogPage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    items: tuple[ManagerLogItem, ...] = Field(max_length=100)
+    has_more: bool
+
+
 class AccountPoolPluginManifest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 

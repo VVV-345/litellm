@@ -307,6 +307,7 @@ class AccountPoolRefreshCredentialRequest(BaseModel):
 class AccountPoolEnvironment(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    auth_file_bound: bool | None = None
     access_token_fallback: AccountPoolAccessTokenFallbackStatus = Field(
         default_factory=AccountPoolAccessTokenFallbackStatus
     )

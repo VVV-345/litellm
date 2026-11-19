@@ -202,6 +202,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
 
     assert authorization.model_dump(mode="json") == {
         "environment": {
+            "auth_file_bound": False,
             "access_token_fallback": {
                 "enabled": False,
                 "active": False,

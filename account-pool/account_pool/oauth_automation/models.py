@@ -3,14 +3,35 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Final, Literal
+from types import MappingProxyType
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationError, field_validator, model_validator
 
 from account_pool.isp_probe import ProxyLocation
+from account_pool.manager_logs import BrowserPageDiagnostic
 
-Locale = Literal["en-US", "en-GB", "zh-CN"]
+Locale = Annotated[str, Field(pattern=r"^[a-z]{2,3}-[A-Z]{2}$")]
+BROWSER_LOCALE_BY_COUNTRY: Final = MappingProxyType({
+    "US": "en-US",
+    "GB": "en-GB",
+    "CN": "zh-CN",
+    "JP": "ja-JP",
+    "BR": "pt-BR",
+    "AR": "es-AR",
+    "AU": "en-AU",
+    "CA": "en-CA",
+    "TW": "zh-TW",
+    "HK": "zh-HK",
+    "DE": "de-DE",
+    "FR": "fr-FR",
+    "RU": "ru-RU",
+    "KR": "ko-KR",
+    "SG": "en-SG",
+    "TR": "tr-TR",
+    "UA": "uk-UA",
+})
 BrowserOS = Literal["linux", "windows", "macos"]
 Stage = Literal[
     "queued",
@@ -139,6 +160,17 @@ class WorkerView(BaseModel):
         | None
     ) = None
     expires_at: datetime
+    diagnostic: BrowserPageDiagnostic | None = None
+
+    @field_validator("diagnostic", mode="before")
+    @classmethod
+    def ignore_invalid_diagnostic(cls, value: object) -> BrowserPageDiagnostic | None:
+        if value is None:
+            return None
+        try:
+            return BrowserPageDiagnostic.model_validate(value)
+        except ValidationError:
+            return None
 
 
 class AutomationState(BaseModel):
@@ -159,6 +191,7 @@ class AutomationView(BaseModel):
     jobs: tuple[JobView, ...]
     checked_at: datetime | None
     image_checked: bool
+    locale_presets: tuple[Locale, ...] = tuple(BROWSER_LOCALE_BY_COUNTRY.values())
 
 
 class SettingsUpdate(BaseModel):
