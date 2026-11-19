@@ -480,7 +480,7 @@ async def forward(
         }
         await JSONResponse(
             failure,
-            status_code=error.status if isinstance(error, ControlError) else 503,
+            status_code=error.client_status if isinstance(error, ControlError) else 503,
         )(request.scope, request.receive, outbound)
         return
     if completed:

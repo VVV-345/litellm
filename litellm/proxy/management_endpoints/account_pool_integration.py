@@ -409,7 +409,7 @@ async def resolve_card_key(key: str, request: Request | None) -> CardScope:
         async with http_client() as client:
             resolution: Final = await manager_control(client).resolve(ResolveRequest(card_key=key))
     except ControlError as error:
-        raise HTTPException(error.status, "Card key is revoked or unavailable") from None
+        raise HTTPException(error.client_status, "Card key is revoked or unavailable") from None
     except httpx.HTTPError:
         raise HTTPException(503, "Account pool control plane is unavailable") from None
     if request is not None:

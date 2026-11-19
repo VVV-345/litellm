@@ -23,6 +23,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.websockets import WebSocket
 from typing_extensions import NotRequired, ReadOnly
 
+from litellm.proxy.management_endpoints.account_pool_control_health import ControlHealth
 from litellm.proxy.management_endpoints.account_pool_gateway_client import ControlError, GatewayControl, ManagerControl
 from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRejected,
@@ -139,8 +140,22 @@ class TrustedControl:
 def manager_control(client: httpx.AsyncClient) -> GatewayControl:
     token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
     if len(token) < 32:
-        raise ControlError(503)
+        raise ControlError(503, reason="configuration")
     return ManagerControl(client, os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091"), token)
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, ""))
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, ""))
+    except ValueError:
+        return default
 
 
 class AccountPoolGatewayMiddleware:
@@ -152,6 +167,7 @@ class AccountPoolGatewayMiddleware:
         websocket_dialer: WebSocketDialer | None = None,
         signature_lineage: SignatureLineage | None = None,
         resources: GatewayHTTPResources | None = None,
+        health: ControlHealth | None = None,
     ) -> None:
         self.app: Final = app
         self.control_factory: Final = control_factory
@@ -159,6 +175,15 @@ class AccountPoolGatewayMiddleware:
         self.websocket_dialer: Final = websocket_dialer or DefaultWebSocketDialer()
         self.signature_lineage: Final = signature_lineage or SignatureLineage()
         self.resources = resources
+        self.health: Final = health or ControlHealth(
+            failures=_env_int("ACCOUNT_POOL_CONTROL_BREAKER_FAILURES", 3),
+            open_seconds=_env_float("ACCOUNT_POOL_CONTROL_BREAKER_SECONDS", 30.0),
+        )
+
+    def _control(self, client: httpx.AsyncClient) -> GatewayControl:
+        control: Final = self.control_factory(client)
+        # TrustedControl 保留自身类型，内部转发路径的计数在构建 ticket 时完成。
+        return control if isinstance(control, TrustedControl) else self.health.wrap(control)
 
     @asynccontextmanager
     async def http_clients(self) -> AsyncIterator[GatewayHTTPResources]:
@@ -267,11 +292,12 @@ class AccountPoolGatewayMiddleware:
             }
             gateway: Final = AccountPoolGatewayMiddleware(
                 self.app,
-                lambda client: TrustedControl(self.control_factory(client), ticket),
+                lambda client: TrustedControl(self.health.wrap(self.control_factory(client)), ticket),
                 self.client_factory,
                 self.websocket_dialer,
                 self.signature_lineage,
-                self.resources,
+                resources=self.resources,
+                health=self.health,
             )
             if scope["type"] == "websocket":
                 await gateway._dispatch_websocket(forwarded_scope, receive, send, "internal-forward-key")
@@ -331,6 +357,9 @@ class AccountPoolGatewayMiddleware:
         if headers.get("content-type", "").split(";")[0].strip() != "application/json":
             await error_response(415, "Use application/json")(scope, receive, send)
             return
+        if not self.health.permits():
+            await self._control_unavailable(scope, receive, send)
+            return
         try:
             try:
                 async with asyncio.timeout(10):
@@ -346,7 +375,7 @@ class AccountPoolGatewayMiddleware:
                         await error_control.resolve(ResolveRequest(card_key=key))
                 raise
             async with self.http_clients() as clients:
-                control: Final = self.control_factory(clients.control)
+                control: Final = self._control(clients.control)
                 metadata: Final = payload.get("litellm_metadata")
                 degraded: Final = request.headers.get("x-account-pool-degraded-continuation") or (
                     metadata.get("account_pool_degraded_continuation") if isinstance(metadata, dict) else None
@@ -389,7 +418,11 @@ class AccountPoolGatewayMiddleware:
         except ClientDisconnect:
             return
         except ControlError as error:
-            await error_response(error.status, "Account pool key or control plane is unavailable")(scope, receive, send)
+            await error_response(
+                error.client_status,
+                "Account pool key or control plane is unavailable",
+                retry_after=self.health.retry_after_seconds(),
+            )(scope, receive, send)
         except ValueError:
             await error_response(400, "Invalid account pool request body")(scope, receive, send)
         except OverflowError:
@@ -407,9 +440,12 @@ class AccountPoolGatewayMiddleware:
         if not model or len(model) > 256:
             await websocket.close(code=1008, reason="A valid model query parameter is required")
             return
+        if not self.health.permits():
+            await websocket.close(code=1013, reason="Account pool control plane is unavailable")
+            return
         try:
             async with self.http_clients() as clients:
-                control: Final = self.control_factory(clients.control)
+                control: Final = self._control(clients.control)
                 session: Final = session_hash(websocket.headers, model)
                 resolution: Final = await control.resolve(ResolveRequest(card_key=key, session_hash=session))
                 selected: Final = routes(
@@ -438,9 +474,17 @@ class AccountPoolGatewayMiddleware:
             await websocket.close(code=1011, reason="Account pool WebSocket request failed")
 
     async def models(self, request: Request, key: str, send: Send) -> None:
+        if not self.health.permits():
+            await error_response(
+                503,
+                "Account pool model catalog is unavailable",
+                "control_plane_unavailable",
+                retry_after=self.health.retry_after_seconds(),
+            )(request.scope, request.receive, send)
+            return
         try:
             async with self.http_clients() as clients:
-                resolution: Final = await self.control_factory(clients.control).resolve(ResolveRequest(card_key=key))
+                resolution: Final = await self._control(clients.control).resolve(ResolveRequest(card_key=key))
             models: Final = tuple(model_entry(name) for name in model_names(resolution))
             content: Final[_ModelList] = {"object": "list", "data": models}
             response: Final = JSONResponse(
@@ -449,10 +493,18 @@ class AccountPoolGatewayMiddleware:
             )
             await response(request.scope, request.receive, send)
         except (ControlError, httpx.HTTPError, ValueError) as error:
-            status: Final = error.status if isinstance(error, ControlError) else 503
+            status: Final = error.client_status if isinstance(error, ControlError) else 503
             await error_response(status, "Account pool model catalog is unavailable")(
                 request.scope, request.receive, send
             )
+
+    async def _control_unavailable(self, scope: Scope, receive: Receive, send: Send) -> None:
+        await error_response(
+            503,
+            "Account pool control plane is unavailable",
+            "control_plane_unavailable",
+            retry_after=self.health.retry_after_seconds(),
+        )(scope, receive, send)
 
 
 async def read_payload(request: Request) -> dict[str, JsonValue]:
@@ -503,7 +555,14 @@ def model_entry(name: str) -> _ModelEntry:
     return entry
 
 
-def error_response(status: int, message: str, code: str | None = None, *, preflight: bool = False) -> JSONResponse:
+def error_response(
+    status: int,
+    message: str,
+    code: str | None = None,
+    *,
+    preflight: bool = False,
+    retry_after: int = 0,
+) -> JSONResponse:
     plain: Final[_ErrorDetail] = {"message": message, "type": "account_pool_error"}
     classified: Final[_ErrorDetail] = {"message": message, "type": "account_pool_error", "code": code or ""}
     content: Final[_ErrorEnvelope] = {"error": classified if code else plain}
@@ -512,6 +571,7 @@ def error_response(status: int, message: str, code: str | None = None, *, prefli
             **_NO_STORE_HEADERS,
             **({"x-account-pool-failure": code.removeprefix("account_pool_")} if code else {}),
             **({"x-account-pool-preflight": "rejected"} if preflight else {}),
+            **({"Retry-After": str(retry_after)} if retry_after > 0 else {}),
         }
     )
     return JSONResponse(

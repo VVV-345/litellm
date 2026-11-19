@@ -20,9 +20,18 @@ _ERROR_RESPONSE: Final = TypeAdapter(dict[str, object])
 
 
 class ControlError(Exception):
-    def __init__(self, status: int) -> None:
+    def __init__(self, status: int, *, reason: str = "") -> None:
         self.status: Final = status
+        self.reason: Final = reason
         super().__init__("Account pool control plane request failed")
+
+    @property
+    def client_status(self) -> int:
+        return self.status if self.status in (401, 403) else 503
+
+    @property
+    def counts_as_outage(self) -> bool:
+        return self.reason != "configuration" and (self.status == 0 or self.status >= 500)
 
 
 class GatewayControl(Protocol):
@@ -49,7 +58,7 @@ class ManagerControl:
     async def resolve(self, request: ResolveRequest) -> Resolution:
         response: Final = await self.call("resolve", request)
         if response.is_error:
-            raise ControlError(response.status_code if response.status_code in (401, 403) else 503)
+            raise ControlError(response.status_code)
         return Resolution.model_validate_json(response.content)
 
     async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected:
@@ -59,10 +68,10 @@ class ManagerControl:
             detail: Final = payload.get("detail")
             return AcquireRejected.model_validate(detail) if isinstance(detail, dict) else AcquireRejected(reason="configuration")
         if response.is_error:
-            raise ControlError(response.status_code if response.status_code in (401, 403) else 503)
+            raise ControlError(response.status_code)
         return Lease.model_validate_json(response.content)
 
     async def finish(self, request: FinishRequest) -> None:
         response: Final = await self.call("finish", request)
         if response.is_error:
-            raise ControlError(503)
+            raise ControlError(response.status_code)

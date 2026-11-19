@@ -163,6 +163,8 @@ jobs:
             tests/test_litellm/proxy/management_endpoints/test_account_pool_reconciler.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_full_logs.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_observability.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_control_health.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_releases.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_proxy_admin_can_manage_upstream_compatibility_workflow \
             tests/test_litellm/proxy/management_endpoints/test_deployment_version.py \
             account-pool/tests/test_account_pool.py \
