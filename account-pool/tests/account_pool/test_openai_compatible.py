@@ -32,7 +32,7 @@ from account_pool.secrets import EnvironmentSecretDeriver, StateCipher
 from account_pool.service import EnvironmentService
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from pydantic import JsonValue
+from pydantic import JsonValue, ValidationError
 from test_account_pool import EmptyProfiles, FakeCLIProxy, FakeRuntime, MemoryRepository, _record, _settings
 
 
@@ -825,3 +825,29 @@ async def test_missing_plan_windows_keep_previous_exhaustion_until_reset_or_new_
         assert quota is not None and quota.refresh_status == "complete" and quota.source == "provider_api"
         assert quota.observed_at is not None and quota.observed_at > observed_at
         assert next(window.remaining_percent for window in quota.windows if window.name == "5 hour") == 70
+
+
+
+def test_compatible_models_repr_hides_stored_secrets_without_changing_persistence() -> None:
+    credential: Final = OpenAICompatibleCredential(
+        api_key_ciphertext="fixture-key-ciphertext",
+        proxy_url="http://fixture-user:fixture-password@proxy.example.test:8080",
+        weight=2,
+    )
+    configuration: Final = OpenAICompatibleConfiguration(
+        base_url="https://api.example.test/v1", test_model="fixture-model",
+        credentials=(credential,), headers_ciphertext="fixture-headers-ciphertext",
+    )
+    for text in (repr(credential), str(credential), repr(configuration), str(configuration)):
+        assert "fixture-key-ciphertext" not in text
+        assert "fixture-password" not in text
+        assert "fixture-headers-ciphertext" not in text
+    assert credential.api_key_ciphertext == "fixture-key-ciphertext"
+    assert credential.proxy_url == "http://fixture-user:fixture-password@proxy.example.test:8080"
+    assert configuration.model_dump()["credentials"][0]["api_key_ciphertext"] == "fixture-key-ciphertext"
+    assert configuration.model_dump()["headers_ciphertext"] == "fixture-headers-ciphertext"
+    assert OpenAICompatibleConfiguration.model_validate_json(configuration.model_dump_json()) == configuration
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(credential, "api_key_ciphertext", "changed")
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(configuration, "credentials", ())

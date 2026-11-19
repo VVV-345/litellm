@@ -431,6 +431,9 @@ asyncio.run(main())
         if process.poll() is None:
             process.kill()
             await asyncio.to_thread(process.wait)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
 
 
 @pytest.mark.asyncio

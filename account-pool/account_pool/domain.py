@@ -422,23 +422,23 @@ class OpenAICompatibleModelDiscoveryRequest(BaseModel):
 
 
 class OpenAICompatibleCredential(BaseModel):
-    model_config = ConfigDict(frozen=True, repr=False)
+    model_config = ConfigDict(frozen=True)
 
-    api_key_ciphertext: str
+    api_key_ciphertext: str = Field(repr=False)
     proxy_profile_id: str | None = None
-    proxy_url: str | None = None
+    proxy_url: str | None = Field(default=None, repr=False)
     weight: int = Field(default=1, ge=1, le=10000)
 
 
 class OpenAICompatibleConfiguration(BaseModel):
-    model_config = ConfigDict(frozen=True, repr=False)
+    model_config = ConfigDict(frozen=True)
 
     base_url: str
     prefix: str = ""
     priority: int = 0
     test_model: str
-    credentials: tuple[OpenAICompatibleCredential, ...]
-    headers_ciphertext: str | None = None
+    credentials: tuple[OpenAICompatibleCredential, ...] = Field(repr=False)
+    headers_ciphertext: str | None = Field(default=None, repr=False)
     custom_models: tuple[str, ...] = ()
 
 
