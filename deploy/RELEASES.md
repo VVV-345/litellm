@@ -258,3 +258,8 @@ braces 尚无官方修复版，按用户选择保留开发工具，在 `ui/litel
 本轮完整及生产 npm 审计均为 0，但 registry audit 不审计本地包，必须同时运行 `node --test scripts/braces-security.test.mjs`。官方修复版可用后，先复跑相同用例，再撤销本地依赖和 override，不伪造上游版本或忽略告警
 
 Next 16.3 默认改用 TypeScript CLI，构建明确保留原 TypeScript API 检查方式（`experimental.useTypeScriptCli=false`），没有禁用源代码类型检查。全量 tsc 的既有测试诊断仍须独立记录，不能以生产构建通过代替测试类型检查。本地隔离 webpack 生产构建已生成 52 个静态页面，尚不代表 GHCR 镜像发布或服务器部署成功
+
+
+## 成本台账自动续期（2026-11-18）
+
+续期策略与父记录关联存储在独立的 `account_pool_cost_renewals` 表，默认关闭；原 `account_pool_cost_records.payload` 保持旧契约，新版对旧记录补默认值。兼容检查精确放行该表的前向新增及与初始费用表的组合，反向移除或任意字段变更仍拒绝。旧程序不执行续期，不能将费用正文可读等同于允许自动回退。升级须使用包含该规则的发布器，先按更新手册备份两库、试还原及核对实际运行配置。本地更新不代表远端发布器或生产实例已更新

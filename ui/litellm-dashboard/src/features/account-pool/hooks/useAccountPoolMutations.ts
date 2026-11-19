@@ -18,7 +18,9 @@ import { toUpdateRequest } from "../utils/AccountPoolTypes";
 import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import type { AccountPoolAuthorization, AccountPoolEnvironment } from "../utils/AccountPoolTypes";
 
-type AuthorizationResult = { job: AutomationJob } | { authorization: AccountPoolAuthorization; manualFallback: boolean };
+type AuthorizationResult =
+  | { job: AutomationJob }
+  | { authorization: AccountPoolAuthorization; manualFallback: boolean };
 
 const isSavedWithPendingReconcile = (error: unknown): boolean =>
   error instanceof ApiError &&
@@ -59,7 +61,10 @@ export const useAccountPoolMutations = (
 ) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
+    if (accessToken) void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.costsRoot(accessToken) });
+  };
   const updateMutation = useMutation({
     mutationFn: ({ environment, enabled }: { environment: AccountPoolEnvironment; enabled: boolean }) => {
       if (!accessToken) throw new Error("Access token required");
@@ -88,7 +93,8 @@ export const useAccountPoolMutations = (
       if (!canManage || !canAuthorizeEnvironment(environment)) {
         throw new Error(t("accountPool.mutation.reauthorizeUnavailable"));
       }
-      const supportsAutomation = environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth";
+      const supportsAutomation =
+        environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth";
       if (supportsAutomation) {
         const job = await reauthorizeAutomation(accessToken, environment.id);
         if (job !== null) return { job };
@@ -105,7 +111,11 @@ export const useAccountPoolMutations = (
         void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
       } else {
         toast.success(
-          t(result.manualFallback ? "accountPool.mutation.manualReauthorization" : "accountPool.mutation.authorizationGenerated"),
+          t(
+            result.manualFallback
+              ? "accountPool.mutation.manualReauthorization"
+              : "accountPool.mutation.authorizationGenerated",
+          ),
         );
       }
     },

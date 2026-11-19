@@ -27,19 +27,17 @@ from account_pool.card_keys import CardKeyService
 from account_pool.clash import ClashError
 from account_pool.contracts import AuthorizationView, EnvironmentView, GatewayEnvironment, ProxyProfile
 from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
+from account_pool.cost_api import create_cost_router
+from account_pool.cost_repository import CostRepository
 from account_pool.credential_import import is_two_factor_text
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService, create_credential_refresh_router
-from account_pool.oauth_automation.api import create_automation_router
-from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.domain import (
-    AuthorizationFlow,
     ChannelKind,
     CreateDirectCredentialEnvironmentRequest,
     CreateEnvironmentRequest,
     CreateVertexEnvironmentRequest,
     EnvironmentRecord,
-    EnvironmentStatus,
     OAuthCallback,
     OpenAICompatibleCredentialDeleteRequest,
     OpenAICompatibleCredentialRequest,
@@ -54,6 +52,8 @@ from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.isp_probe import GatewayISPProbeResult, ISPProbeResult
 from account_pool.management_api import create_management_router
 from account_pool.manager_logs import ManagerLogs, create_manager_logs_router
+from account_pool.oauth_automation.api import create_automation_router
+from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_browser import (
     OAuthBrowserCallback,
     OAuthBrowserRuntime,
@@ -357,6 +357,7 @@ def create_router(
     browser_controller: ControlledOAuthBrowser | None = None,
     automation: AutomationRunner | None = None,
     feedback: FeedbackService | None = None,
+    costs: CostRepository | None = None,
     quota_reset: QuotaResetService | None = None,
     access_token_fallback: AccessTokenFallbackService | None = None,
     credential_refresh: CredentialRefreshService | None = None,
@@ -373,6 +374,8 @@ def create_router(
         if not hmac.compare_digest(supplied, manager_token):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid manager token")
 
+    if costs is not None and environments is not None:
+        router.include_router(create_cost_router(costs, environments, require_manager))
     if access_token_fallback is not None:
         router.include_router(create_access_token_fallback_router(access_token_fallback, require_manager))
     if credential_refresh is not None:

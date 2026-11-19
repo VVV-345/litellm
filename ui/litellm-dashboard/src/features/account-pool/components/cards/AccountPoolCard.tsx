@@ -1,6 +1,6 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
-import { PlugZap, KeyRound, Trash2, Settings2 } from "lucide-react";
+import { PlugZap, KeyRound, Trash2, Settings2, Wallet } from "lucide-react";
 import Link from "next/link";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,6 +50,7 @@ interface AccountPoolCardProps {
   proxyName?: string;
   proxyDelay?: AccountPoolProxyGatewayDelay;
   ispProbe?: AccountPoolISPProbe | null;
+  onCost?: (environment: AccountPoolEnvironment) => void;
   onConfigure: (environment: AccountPoolEnvironment) => void;
   onEnabledChange: (environment: AccountPoolEnvironment, enabled: boolean) => void;
   onAuthorize: (environment: AccountPoolEnvironment) => void;
@@ -89,6 +90,7 @@ const AccountPoolCardComponent = ({
   proxyDelay,
   ispProbe,
   onConfigure,
+  onCost,
   onEnabledChange,
   onAuthorize,
   onDelete,
@@ -224,6 +226,19 @@ const AccountPoolCardComponent = ({
             />
           </div>
           <div className="flex flex-wrap justify-end gap-1">
+            {onCost && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onCost(environment)}
+                disabled={disabled}
+                aria-label={`记录 ${environment.name} 的成本`}
+                title="成本"
+              >
+                <Wallet />
+              </Button>
+            )}
             {onTest && (
               <Button
                 type="button"

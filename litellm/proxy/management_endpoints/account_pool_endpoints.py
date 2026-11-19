@@ -25,13 +25,14 @@ from litellm._logging import verbose_proxy_logger
 from litellm.proxy._types import UserAPIKeyAuth
 from litellm.proxy.auth.user_api_key_auth import user_api_key_auth
 from litellm.proxy.common_utils.resource_ownership import is_proxy_admin
+from litellm.proxy.management_endpoints.account_pool_automation import create_automation_router
+from litellm.proxy.management_endpoints.account_pool_costs import create_cost_router
 from litellm.proxy.management_endpoints.account_pool_feedback import create_feedback_router
 from litellm.proxy.management_endpoints.account_pool_management import create_management_router
 from litellm.proxy.management_endpoints.account_pool_management_models import AccountPoolRoutingStatus
 from litellm.proxy.management_endpoints.account_pool_model_test import create_model_test_router
 from litellm.proxy.management_endpoints.account_pool_observability import AccountPoolDashboardStats, standard_dashboard
 from litellm.proxy.management_endpoints.account_pool_onboarding import create_onboarding_router
-from litellm.proxy.management_endpoints.account_pool_automation import create_automation_router
 from litellm.proxy.management_endpoints.account_pool_proxy_catalog import create_proxy_catalog_router
 from litellm.proxy.management_endpoints.account_pool_reconciler import (
     ReconcilerStatus,
@@ -716,10 +717,7 @@ class AccountPoolManagerClient:
                     240.0
                     if path.endswith("/oauth-browser-sessions") and method == "POST"
                     else 120.0
-                    if (
-                        "/quota-reset" in path
-                        or path.endswith("/access-token-fallback/verify")
-                    )
+                    if ("/quota-reset" in path or path.endswith("/access-token-fallback/verify"))
                     else self._client.timeout
                 ),
             )
@@ -1083,7 +1081,10 @@ def create_account_pool_router(
     ) -> tuple[str, ...]:
         _require_proxy_admin(user_api_key_dict)
         response: Final = await _manager_request(
-            client_factory, "POST", "/api/openai-compatible/models", request.model_dump_json().encode("utf-8"),
+            client_factory,
+            "POST",
+            "/api/openai-compatible/models",
+            request.model_dump_json().encode("utf-8"),
         )
         return _validate_response(response, TypeAdapter(tuple[str, ...]))
 
@@ -1696,6 +1697,7 @@ def create_account_pool_router(
         response: Final = await _manager_request(client_factory, "POST", f"/api/proxy-gateways/{port}/probe")
         return _validate_response(response, _GATEWAY_ISP_PROBE)
 
+    router.include_router(create_cost_router(management_request, _require_proxy_admin))
     router.include_router(create_proxy_catalog_router(management_request, _require_proxy_admin))
     router.include_router(create_management_router(management_request, _require_proxy_admin))
     router.include_router(create_feedback_router(management_request, _require_proxy_admin, feedback_multipart))

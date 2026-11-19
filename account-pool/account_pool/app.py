@@ -27,11 +27,12 @@ from account_pool.clash import ClashController
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.config import Settings
 from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
+from account_pool.cost_renewal import CostRenewalScheduler
+from account_pool.cost_repository import PostgresCostRepository
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
-from account_pool.manager_logs import ManagerLogs
 from account_pool.feedback import FeedbackService
 from account_pool.feedback.repository import PostgresFeedbackRepository
 from account_pool.gateway_repository import PostgresLeaseRepository
@@ -41,12 +42,13 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
-from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
+from account_pool.manager_logs import ManagerLogs
 from account_pool.oauth_automation.login_scripts import LoginScriptStore
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
 from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.oauth_automation.worker import AutomationWorker
+from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
 from account_pool.onboarding.repository import PostgresOnboardingRepository
 from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
@@ -86,6 +88,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         fingerprint_key=resolved.secret_seed.encode("utf-8"),
     )
     keys: Final = CardKeyService(PostgresCardKeyRepository(resolved.database_url))
+    costs: Final = PostgresCostRepository(resolved.database_url)
     policies: Final = PostgresPolicyRepository(resolved.database_url)
     feedback_repository: Final = PostgresFeedbackRepository(resolved.database_url)
     feedback: Final = FeedbackService(feedback_repository)
@@ -213,6 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
+        await costs.initialize()
         await reset_store.initialize()
         await ownership.initialize()
         await initialize_management_schema(resolved.database_url)
@@ -248,6 +252,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _LOGGER.warning("Account pool startup settings sync failed: %s", error.__class__.__name__)
         # 启动后持续重试，Docker 或 CLIProxyAPI 短暂不可用时由后续轮次补偿。
         retry_stopped: Final = asyncio.Event()
+        cost_renewal_task: Final = asyncio.create_task(CostRenewalScheduler(costs).run_until_cancelled(retry_stopped))
         log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
         onboarding_task: Final = asyncio.create_task(onboarding_service.run_until_cancelled(retry_stopped))
         automation_task: Final = asyncio.create_task(automation.run_until_cancelled(retry_stopped))
@@ -284,6 +289,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             access_discovery_task.cancel()
             browser_cleanup_task.cancel()
             proxy_expiry_task.cancel()
+            cost_renewal_task.cancel()
             await asyncio.gather(log_retention_task, return_exceptions=True)
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
@@ -295,6 +301,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(access_discovery_task, return_exceptions=True)
             await asyncio.gather(browser_cleanup_task, return_exceptions=True)
             await asyncio.gather(proxy_expiry_task, return_exceptions=True)
+            await asyncio.gather(cost_renewal_task, return_exceptions=True)
             try:
                 await retry_task
             except asyncio.CancelledError:
@@ -356,6 +363,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             automation=automation,
             manager_logs=manager_logs,
             feedback=feedback,
+            costs=costs,
             quota_reset=quota_reset,
             access_token_fallback=access_fallback,
             ownership=ownership,

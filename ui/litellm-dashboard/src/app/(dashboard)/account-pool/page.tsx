@@ -7,6 +7,11 @@ import { getAccountPoolSettings } from "@/features/account-pool/api/AccountPoolM
 import dynamic from "next/dynamic";
 import ModuleLoading from "@/components/shared/ModuleLoading";
 
+const AccountPoolCostsPanel = dynamic(loadAccountPoolCostsPanel, { loading: ModuleLoading });
+const CostEntryDialog = dynamic(() =>
+  import("@/features/account-pool/components/costs/CostEntryDialog").then((module) => module.CostEntryDialog),
+);
+
 const AccountPoolAutomationPanel = dynamic(() =>
   import("@/features/account-pool/components/onboarding/AccountPoolAutomationPanel").then(
     (module) => module.AccountPoolAutomationPanel,
@@ -14,6 +19,7 @@ const AccountPoolAutomationPanel = dynamic(() =>
 );
 
 import {
+  loadAccountPoolCostsPanel,
   loadAccountPoolSettingsOverview,
   loadAccountPoolCredentialsPanel,
   loadAccountPoolOnboardingPanel,
@@ -120,8 +126,9 @@ const POOL_TABS = [
   "upstream-sync",
   "releases",
   "settings-overview",
+  "costs",
 ];
-const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "credentials", "releases"]);
+const ACCOUNT_POOL_DATA_TABS = new Set(["dashboard", "providers", "credentials", "releases", "costs"]);
 const ACCOUNT_POOL_CARD_TABS = new Set(["dashboard"]);
 export default function AccountPoolPage() {
   const { t } = useTranslation();
@@ -139,6 +146,7 @@ export default function AccountPoolPage() {
   const [resetEnvironment, setResetEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [refreshCredentialEnvironment, setRefreshCredentialEnvironment] = useState<AccountPoolEnvironment | null>(null);
   const [verifyAccessEnvironment, setVerifyAccessEnvironment] = useState<AccountPoolEnvironment | null>(null);
+  const [costAccount, setCostAccount] = useState<AccountPoolEnvironment | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [authorization, setAuthorization] = useState<AccountPoolAuthorization | null>(null);
   const [reauthorizingJob, setReauthorizingJob] = useState<AutomationJob | null>(null);
@@ -303,6 +311,7 @@ export default function AccountPoolPage() {
           proxyName={proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.name}
           proxyDelay={gatewayDelaysQuery.data?.find((delay) => delay.port === gateway?.port)}
           ispProbe={!gateway ? proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.last_probe : undefined}
+          onCost={setCostAccount}
           onConfigure={setConfigEnvironment}
           onEnabledChange={handleEnabledChange}
           onAuthorize={handleAuthorize}
@@ -416,6 +425,13 @@ export default function AccountPoolPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
+          {costAccount && (
+            <CostEntryDialog
+              accessToken={accessToken}
+              target={{ category: "subscription", account: costAccount }}
+              onClose={() => setCostAccount(null)}
+            />
+          )}
           <TabsList className="h-auto group-data-horizontal/tabs:h-auto w-full flex-wrap justify-start gap-2 rounded-xl border bg-muted/30 p-2 max-sm:flex-nowrap max-sm:overflow-x-auto">
             <TabsTrigger
               value="dashboard"
@@ -461,6 +477,9 @@ export default function AccountPoolPage() {
             >
               版本管理
             </TabsTrigger>
+            <TabsTrigger value="costs" className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2">
+              成本管理
+            </TabsTrigger>
             <TabsTrigger
               value="settings-overview"
               className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
@@ -468,6 +487,14 @@ export default function AccountPoolPage() {
               全局设置总览
             </TabsTrigger>
           </TabsList>
+          <DeferredTabPanel
+            value="costs"
+            className="pt-4"
+            active={activeTab === "costs"}
+            visited={isTabVisited("costs")}
+          >
+            <AccountPoolCostsPanel accessToken={accessToken} active={activeTab === "costs"} />
+          </DeferredTabPanel>
           <DeferredTabPanel
             value="dashboard"
             className="pt-4"

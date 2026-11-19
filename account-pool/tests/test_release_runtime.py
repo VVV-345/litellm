@@ -1403,3 +1403,25 @@ def test_native_rollout_updates_only_selected_card(tmp_path):
     configuration = runtime.product_configuration(runtime.selected, b'{"services":{"litellm":{},"account-pool":{}}}')
     runtime.rollout_cards(runtime.selected, configuration, lambda _: None, card_ids=(cards[1],))
     assert executed == [cards[1]]
+
+
+def test_cost_schema_upgrade_is_exact_and_cannot_be_reversed() -> None:
+    root: Final = Path(__file__).resolve().parents[1] / "account_pool"
+    baseline: Final = tuple(
+        (str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
+        if path.name != "cost_repository.py"
+    ) + (("schema.prisma", b"unchanged"),)
+    source: Final = (root / "cost_repository.py").read_bytes()
+    target: Final = (*baseline, ("cost_repository.py", source))
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    legacy: Final = source[:source.index(b'    """CREATE TABLE IF NOT EXISTS account_pool_cost_renewals')] + b")"
+    previous: Final = (*baseline, ("cost_repository.py", legacy))
+    assert additive_manager_schema_upgrade(previous, target)
+    assert not additive_manager_schema_upgrade(target, previous)
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, (
+        "cost_repository.py", source.replace(b"payload jsonb NOT NULL", b"payload text NOT NULL"),
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (*target, (
+        "extra.py", b'SQL="CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid)"',
+    )))

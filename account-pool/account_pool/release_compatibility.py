@@ -34,6 +34,17 @@ class OAuthBrowserSchemaEvidence:
     startup: str
 
 
+COST_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_cost_records ( id uuid PRIMARY KEY, payload jsonb NOT NULL )",
+)
+
+COST_RENEWAL_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_cost_renewals ( id uuid PRIMARY KEY REFERENCES "
+    b"account_pool_cost_records(id), auto_renew boolean NOT NULL DEFAULT false, "
+    b"cycle_months integer CHECK (cycle_months IN (1, 3, 12)), "
+    b"renewal_of uuid UNIQUE REFERENCES account_pool_cost_records(id) )",
+)
+
 STARTUP_SOURCES: Final = ("proxy_cli.py", "utils.py", "prod_entrypoint.sh", "migration-history")
 
 # 仅绑定已审阅的 5b76f5170d -> 0813fb86f0 非 release_* 源码树，不接受目标镜像自报允许范围。
@@ -287,6 +298,9 @@ def additive_manager_schema_upgrade(
         ),
     )
     if additions not in (
+        COST_SCHEMA_ADDITIONS,
+        COST_RENEWAL_SCHEMA_ADDITIONS,
+        tuple(sorted((*COST_SCHEMA_ADDITIONS, *COST_RENEWAL_SCHEMA_ADDITIONS))),
         RUNTIME_ROLLOUT_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
             QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
