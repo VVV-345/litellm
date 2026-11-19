@@ -51,6 +51,7 @@ class GatewayCredential(BaseModel):
 
 class CandidateQuotaWindow(BaseModel):
     model_config = ConfigDict(frozen=True)
+    name: str | None = None
     window_minutes: int | None = Field(default=None, ge=1)
     remaining_percent: float = Field(ge=0, le=100, allow_inf_nan=False)
     resets_at: AwareDatetime | None = None
@@ -62,6 +63,8 @@ class CandidateModelQuota(BaseModel):
     model: str
     remaining_percent: float | None = Field(default=None, ge=0, le=100)
     observed_at: AwareDatetime | None = None
+    refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
+    extra_usage_enabled: bool | None = None
     windows: tuple[CandidateQuotaWindow, ...] = ()
 
 
@@ -91,6 +94,8 @@ class Candidate(BaseModel):
     policy: AccountPolicy
     remaining_percent: float | None = None
     quota_observed_at: AwareDatetime | None = None
+    quota_refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
+    extra_usage_enabled: bool | None = None
     quota_windows: tuple[CandidateQuotaWindow, ...] = ()
     model_quotas: tuple[CandidateModelQuota, ...] = ()
     plan_type: str | None = None

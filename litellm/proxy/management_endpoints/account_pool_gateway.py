@@ -7,7 +7,8 @@ import hashlib
 import io
 import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
+from contextlib import asynccontextmanager
 from types import MappingProxyType
 from typing import Final, TypedDict, cast
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -32,6 +33,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     ResolveRequest,
 )
 from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources, http_client
 from litellm.proxy.management_endpoints.account_pool_integration import (
     CARD_KEY_PREFIXES,
     INTERNAL_PREFIX,
@@ -134,10 +136,6 @@ class TrustedControl:
         await self.control.finish(request)
 
 
-def http_client() -> httpx.AsyncClient:
-    return httpx.AsyncClient(timeout=120, trust_env=False, follow_redirects=False)
-
-
 def manager_control(client: httpx.AsyncClient) -> GatewayControl:
     token: Final = os.getenv("ACCOUNT_POOL_MANAGER_TOKEN", "")
     if len(token) < 32:
@@ -153,12 +151,39 @@ class AccountPoolGatewayMiddleware:
         client_factory: Callable[[], httpx.AsyncClient] = http_client,
         websocket_dialer: WebSocketDialer | None = None,
         signature_lineage: SignatureLineage | None = None,
+        resources: GatewayHTTPResources | None = None,
     ) -> None:
         self.app: Final = app
         self.control_factory: Final = control_factory
         self.client_factory: Final = client_factory
         self.websocket_dialer: Final = websocket_dialer or DefaultWebSocketDialer()
         self.signature_lineage: Final = signature_lineage or SignatureLineage()
+        self.resources = resources
+
+    @asynccontextmanager
+    async def http_clients(self) -> AsyncIterator[GatewayHTTPResources]:
+        if self.resources is not None:
+            async with self.resources.admission:
+                with self.resources.bind():
+                    yield self.resources
+            return
+        resources: Final = GatewayHTTPResources(self.client_factory)
+        try:
+            async with resources.admission:
+                with resources.bind():
+                    yield resources
+        finally:
+            await resources.aclose()
+
+    async def lifespan(self, scope: Scope, receive: Receive, send: Send) -> None:
+        resources: Final = GatewayHTTPResources(self.client_factory)
+        self.resources = resources
+        try:
+            with resources.bind():
+                await self.app(scope, receive, send)
+        finally:
+            await resources.aclose()
+            self.resources = None
 
     def _attach_signature_lineage(self, scope: Scope) -> None:
         state: Final[dict[str, object]] = cast(
@@ -167,6 +192,9 @@ class AccountPoolGatewayMiddleware:
         state.setdefault("account_pool_signature_lineage", self.signature_lineage)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            await self.lifespan(scope, receive, send)
+            return
         self._attach_signature_lineage(scope)
         ingress_started: Final = time.perf_counter()
         reset: Final = pool_identity.set(None)
@@ -243,6 +271,7 @@ class AccountPoolGatewayMiddleware:
                 self.client_factory,
                 self.websocket_dialer,
                 self.signature_lineage,
+                self.resources,
             )
             if scope["type"] == "websocket":
                 await gateway._dispatch_websocket(forwarded_scope, receive, send, "internal-forward-key")
@@ -258,6 +287,9 @@ class AccountPoolGatewayMiddleware:
                 )(scope, receive, send)
 
     async def dispatch_card(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "lifespan":
+            await self.lifespan(scope, receive, send)
+            return
         if scope["type"] not in ("http", "websocket"):
             await self.app(scope, receive, send)
             return
@@ -300,29 +332,30 @@ class AccountPoolGatewayMiddleware:
             await error_response(415, "Use application/json")(scope, receive, send)
             return
         try:
-            async with self.client_factory() as client:
-                control: Final = self.control_factory(client)
-                initial_resolution: Final = (
-                    None if isinstance(control, TrustedControl) else await control.resolve(ResolveRequest(card_key=key))
-                )
-                payload: Final = await read_payload(request)
+            try:
+                async with asyncio.timeout(10):
+                    payload: Final = await read_payload(request)
+                model: Final = payload.get("model")
+                if not isinstance(model, str) or not model.strip() or len(model) > 256:
+                    raise ValueError("Invalid model")
+                session: Final = session_hash(headers, model, payload)
+            except (ValueError, OverflowError, TimeoutError):
+                async with self.http_clients() as clients:
+                    error_control: Final = self.control_factory(clients.control)
+                    if not isinstance(error_control, TrustedControl):
+                        await error_control.resolve(ResolveRequest(card_key=key))
+                raise
+            async with self.http_clients() as clients:
+                control: Final = self.control_factory(clients.control)
                 metadata: Final = payload.get("litellm_metadata")
                 degraded: Final = request.headers.get("x-account-pool-degraded-continuation") or (
                     metadata.get("account_pool_degraded_continuation") if isinstance(metadata, dict) else None
                 )
                 if degraded:
                     request.state.account_pool_degraded_continuation = str(degraded)
-                model: Final = payload.get("model")
-                if not isinstance(model, str) or not model.strip() or len(model) > 256:
-                    raise ValueError("Invalid model")
-                session: Final = session_hash(headers, model, payload)
                 timing: Final = RequestTiming(getattr(request.state, "account_pool_request_id", None) or uuid4())
                 with timing.phase("resolve"):
-                    resolution: Final = (
-                        initial_resolution
-                        if initial_resolution is not None and session is None
-                        else await control.resolve(ResolveRequest(card_key=key, session_hash=session))
-                    )
+                    resolution: Final = await control.resolve(ResolveRequest(card_key=key, session_hash=session))
                 timing.report(200)
                 image_tools: Final = payload.get("tools")
                 has_images: Final = isinstance(image_tools, list) and any(
@@ -352,7 +385,7 @@ class AccountPoolGatewayMiddleware:
                         status, selected.message, selected.code, preflight=True
                     )(scope, receive, send)
                     return
-                await forward(request, payload, key, session, resolution, selected, control, client, send)
+                await forward(request, payload, key, session, resolution, selected, control, clients.direct, send)
         except ClientDisconnect:
             return
         except ControlError as error:
@@ -361,6 +394,8 @@ class AccountPoolGatewayMiddleware:
             await error_response(400, "Invalid account pool request body")(scope, receive, send)
         except OverflowError:
             await error_response(413, "Request body exceeds 16 MiB")(scope, receive, send)
+        except TimeoutError:
+            await error_response(408, "Account pool request body timed out")(scope, receive, send)
         except httpx.HTTPError:
             await error_response(503, "Account pool control plane is unavailable")(scope, receive, send)
 
@@ -373,15 +408,10 @@ class AccountPoolGatewayMiddleware:
             await websocket.close(code=1008, reason="A valid model query parameter is required")
             return
         try:
-            async with self.client_factory() as client:
-                control: Final = self.control_factory(client)
-                initial_resolution: Final = await control.resolve(ResolveRequest(card_key=key))
+            async with self.http_clients() as clients:
+                control: Final = self.control_factory(clients.control)
                 session: Final = session_hash(websocket.headers, model)
-                resolution: Final = (
-                    initial_resolution
-                    if session is None
-                    else await control.resolve(ResolveRequest(card_key=key, session_hash=session))
-                )
+                resolution: Final = await control.resolve(ResolveRequest(card_key=key, session_hash=session))
                 selected: Final = routes(
                     resolution,
                     model,
@@ -409,8 +439,8 @@ class AccountPoolGatewayMiddleware:
 
     async def models(self, request: Request, key: str, send: Send) -> None:
         try:
-            async with self.client_factory() as client:
-                resolution: Final = await self.control_factory(client).resolve(ResolveRequest(card_key=key))
+            async with self.http_clients() as clients:
+                resolution: Final = await self.control_factory(clients.control).resolve(ResolveRequest(card_key=key))
             models: Final = tuple(model_entry(name) for name in model_names(resolution))
             content: Final[_ModelList] = {"object": "list", "data": models}
             response: Final = JSONResponse(

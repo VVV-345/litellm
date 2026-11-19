@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
 from typing import Final
@@ -109,7 +109,8 @@ def test_glm_coding_plan_quota_is_read_only_in_manager(tmp_path: Path, issuer: s
         bulk: Final = client.post("/api/quotas/refresh").json()
         assert bulk["failed_card_ids"] == [str(record.id)]
         assert bulk["refreshed"][0]["status"] == "ready"
-        assert bulk["refreshed"][0]["display_quota"]["windows"] == []
+        assert bulk["refreshed"][0]["display_quota"]["windows"] == value["display_quota"]["windows"]
+        assert bulk["refreshed"][0]["display_quota"]["refresh_status"] == "failed"
     assert repository.records[record.id].quota == record.quota
 
 
@@ -690,3 +691,137 @@ async def test_custom_models_receive_the_prefix_once() -> None:
         await channel.close()
 
     assert observed.available_models == ("vendor/chat-model",)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_url", ["https://api.z.ai/api/coding/paas/v4", "https://opencode.ai/zen/go/v1"])
+@pytest.mark.parametrize("failure", ["http", "format", "timeout"])
+async def test_plan_quota_failure_retains_last_successful_windows(base_url: str, failure: str) -> None:
+    from account_pool.domain import QuotaWindow
+
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    observed_at: Final = datetime.now(timezone.utc) - timedelta(minutes=1)
+    previous: Final = QuotaSnapshot(
+        observed_at=observed_at, refresh_status="complete", source="provider_api", plan_type="fixture-plan",
+        windows=(QuotaWindow(name="5 hour", used_percent=100, remaining_percent=0, window_minutes=300),),
+    )
+    record: Final = _compatible_card(base_url, secrets).model_copy(update={"display_quota": previous})
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        if failure == "timeout":
+            raise httpx.ReadTimeout("fixture timeout", request=request)
+        return httpx.Response(401 if failure == "http" else 200, json={})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        refreshed: Final = await OpenAICompatibleChannel(secrets, http, public_resolver).read_account(record, refresh_quota=True)
+    quota: Final = refreshed.display_quota
+    assert quota is not None
+    assert quota.windows == previous.windows
+    assert quota.observed_at == previous.observed_at
+    assert quota.plan_type == previous.plan_type
+    assert quota.refresh_status == "failed" and quota.source == "stored_cache"
+    assert quota.refresh_attempted_at is not None and quota.refresh_attempted_at > observed_at
+    assert refreshed.quota == record.quota and refreshed.status == record.status
+
+
+@pytest.mark.parametrize("base_url", ["https://api.z.ai/api/coding/paas/v4", "https://opencode.ai/zen/go/v1"])
+def test_plan_windows_reach_routing_without_the_glm_mcp_tool_window(base_url: str) -> None:
+    from account_pool.application.quota_state import routing_quota
+    from account_pool.domain import QuotaWindow
+
+    record: Final = _compatible_card(base_url, EnvironmentSecretDeriver("s" * 32))
+    quota: Final = QuotaSnapshot(observed_at=datetime.now(timezone.utc), refresh_status="complete", windows=(
+        QuotaWindow(name="5 hour", used_percent=25, remaining_percent=75, window_minutes=300),
+        QuotaWindow(name="MCP Monthly", used_percent=100, remaining_percent=0, window_minutes=43200),
+    ))
+    observed: Final = routing_quota(record.model_copy(update={"display_quota": quota}))
+    assert observed.windows[0].remaining_percent == 75
+    assert tuple(w.name for w in observed.windows) == (("5 hour",) if "z.ai" in base_url else ("5 hour", "MCP Monthly"))
+    assert record.display_quota is None
+
+
+@pytest.mark.asyncio
+async def test_a_successful_plan_refresh_replaces_failed_cache_and_clears_the_error() -> None:
+    from account_pool.domain import QuotaWindow
+
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    previous: Final = QuotaSnapshot(
+        observed_at=datetime.now(timezone.utc) - timedelta(hours=1), source="stored_cache", refresh_status="failed",
+        refresh_error="fixture previous failure", windows=(
+            QuotaWindow(name="5 hour", used_percent=100, remaining_percent=0, window_minutes=300),
+        ),
+    )
+    record: Final = _compatible_card("https://api.z.ai/api/coding/paas/v4", secrets).model_copy(update={"display_quota": previous})
+
+    def upstream(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"code": 200, "data": {"limits": [
+            {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 25},
+        ]}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        refreshed: Final = await OpenAICompatibleChannel(secrets, http, public_resolver).read_account(record, refresh_quota=True)
+    quota: Final = refreshed.display_quota
+    assert quota is not None and quota.windows[0].remaining_percent == 75
+    assert quota.refresh_status == "complete" and quota.source == "provider_api"
+    assert quota.refresh_error is None
+    assert quota.observed_at is not None and previous.observed_at is not None
+    assert quota.observed_at > previous.observed_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_url", ["https://api.z.ai/api/coding/paas/v4", "https://opencode.ai/zen/go/v1"])
+@pytest.mark.parametrize("reset_seconds", [None, 3600, -1])
+async def test_missing_plan_windows_keep_previous_exhaustion_until_reset_or_new_observation(
+    base_url: str, reset_seconds: int | None,
+) -> None:
+    from account_pool.domain import QuotaWindow
+
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    now: Final = datetime.now(timezone.utc)
+    observed_at: Final = now - timedelta(minutes=15)
+    previous: Final = QuotaSnapshot(observed_at=observed_at, source="provider_api", refresh_status="complete", windows=(
+        QuotaWindow(name="5 hour", used_percent=100, remaining_percent=0, window_minutes=300,
+                    resets_at=None if reset_seconds is None else now + timedelta(seconds=reset_seconds)),
+        QuotaWindow(name="Weekly", used_percent=40, remaining_percent=60, window_minutes=10080),
+    ))
+    record: Final = _compatible_card(base_url, secrets).model_copy(update={"display_quota": previous})
+    reset_at: Final = (now + timedelta(days=1)).isoformat()
+    partial: Final = (
+        {"code": 200, "data": {"limits": [{"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 10}]}}
+        if "z.ai" in base_url else {"usage": {"weekly": {"percent": 10, "resetsAt": reset_at}}}
+    )
+    complete: Final = (
+        {"code": 200, "data": {"limits": [
+            {"type": "TOKENS_LIMIT", "unit": 3, "number": 5, "percentage": 30},
+            {"type": "CREDIT_LIMIT", "unit": 6, "number": 1, "percentage": 10},
+        ]}}
+        if "z.ai" in base_url else {"usage": {
+            "rolling": {"percent": 30, "resetsAt": reset_at}, "weekly": {"percent": 10, "resetsAt": reset_at},
+            "monthly": {"percent": 20, "resetsAt": reset_at},
+        }}
+    )
+    responses: Final = iter((partial, complete))
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        return httpx.Response(200, json=next(responses))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        channel: Final = OpenAICompatibleChannel(secrets, http, public_resolver)
+        refreshed: Final = await channel.read_account(record, refresh_quota=True)
+        shown: Final = refreshed.display_quota
+        assert shown is not None
+        windows: Final = {window.name: window for window in shown.windows}
+        assert windows["Weekly"].remaining_percent == 90
+        if reset_seconds == -1:
+            assert "5 hour" not in windows and shown.source == "provider_api"
+            assert shown.observed_at is not None and shown.observed_at > observed_at
+        else:
+            assert windows["5 hour"] == previous.windows[0]
+            assert shown.observed_at == observed_at
+            assert shown.refresh_status == "partial" and shown.source == "stored_cache"
+        recovered: Final = await channel.read_account(refreshed, refresh_quota=True)
+        quota: Final = recovered.display_quota
+        assert quota is not None and quota.refresh_status == "complete" and quota.source == "provider_api"
+        assert quota.observed_at is not None and quota.observed_at > observed_at
+        assert next(window.remaining_percent for window in quota.windows if window.name == "5 hour") == 70

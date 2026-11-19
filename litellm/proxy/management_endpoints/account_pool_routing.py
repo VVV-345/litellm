@@ -90,9 +90,12 @@ def quota_snapshot(account: Candidate, policy: AccountPolicy, model: str) -> Rou
     windows: Final = model_quota.windows if model_quota is not None else account.quota_windows
     remaining, observed = quota_state(account, model)
     return RoutingSnapshot(
-        quota=RoutingQuota(remaining_percent=remaining, observed_at=observed, windows=tuple(
-            RoutingQuotaWindow.model_validate(window.model_dump()) for window in windows
-        )),
+        quota=RoutingQuota(
+            remaining_percent=remaining, observed_at=observed,
+            refresh_status=model_quota.refresh_status if model_quota is not None else account.quota_refresh_status,
+            extra_usage_enabled=model_quota.extra_usage_enabled if model_quota is not None else account.extra_usage_enabled,
+            windows=tuple(RoutingQuotaWindow.model_validate(window.model_dump()) for window in windows),
+        ),
         quota_reserve_percent=max(policy.routing.quota_reserve_percent, account.policy.routing.quota_reserve_percent),
         quota_reserve_5h_percent=max(
             item.quota_reserve_5h_percent if item.quota_reserve_5h_percent is not None else item.quota_reserve_percent

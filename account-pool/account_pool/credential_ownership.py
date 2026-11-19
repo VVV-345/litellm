@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import JsonValue, TypeAdapter
 
-from account_pool.repository import database_connection
+from account_pool.repository import database_connection, database_operation_connection
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _JSON: Final = TypeAdapter(dict[str, JsonValue])
@@ -130,7 +130,7 @@ class CredentialOwnership:
             async with self._operations.setdefault(owner, asyncio.Lock()):
                 yield
             return
-        async with database_connection(self._database_url) as connection:
+        async with database_operation_connection(self._database_url) as connection:
             await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(owner),))
             yield
 
@@ -167,6 +167,33 @@ class CredentialOwnership:
                 (owner, list(fingerprints)),
             )
             return len(await cursor.fetchall()) == len(set(fingerprints))
+
+    async def owns_many(self, owners: Mapping[UUID, tuple[str, ...]]) -> frozenset[UUID]:
+        if not owners:
+            return frozenset()
+        if self._database_url is None:
+            return frozenset(
+                owner
+                for owner, values in owners.items()
+                if values and all(self._owners.get(value) == owner for value in values)
+            )
+        fingerprints: Final = tuple({fingerprint for values in owners.values() for fingerprint in values})
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT fingerprint, environment_id FROM account_pool_credential_owners "
+                "WHERE environment_id = ANY(%s) AND fingerprint = ANY(%s)",
+                (list(owners), list(fingerprints)),
+            )
+            rows: Final = await cursor.fetchall()
+        current: Final = {
+            TypeAdapter(str).validate_python(row["fingerprint"]): TypeAdapter(UUID).validate_python(
+                row["environment_id"]
+            )
+            for row in rows
+        }
+        return frozenset(
+            owner for owner, values in owners.items() if values and all(current.get(value) == owner for value in values)
+        )
 
     async def retain(self, owner: UUID, fingerprints: tuple[str, ...] = ()) -> None:
         if self._database_url is None:

@@ -703,6 +703,10 @@ class RecordingPolicies:
     async def get(self, card_id: UUID) -> PolicyView:
         return self.policy if self.policy.card_id == card_id else PolicyView(card_id=card_id)
 
+    async def get_many(self, card_ids: tuple[UUID, ...]) -> tuple[PolicyView, ...]:
+        return tuple(self.policy if self.policy.card_id == identifier else PolicyView(card_id=identifier)
+                     for identifier in card_ids)
+
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None:
         current: Final = await self.get(card_id)
         if request.version != current.version:

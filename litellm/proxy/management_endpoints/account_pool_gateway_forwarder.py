@@ -10,6 +10,7 @@ import math
 import re
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Iterable, Mapping, Sequence
+from contextlib import AsyncExitStack
 from functools import cache, reduce
 from types import MappingProxyType
 from typing import Final, Protocol, TypedDict, cast
@@ -51,6 +52,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     Resolution,
     RoutingReason,
 )
+from litellm.proxy.management_endpoints.account_pool_gateway_resources import managed_cleanup, upstream_client
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_retry import (
     RetryStream,
@@ -289,6 +291,12 @@ class Attempt:
             self.result = self.result.model_copy(update=MappingProxyType({"cost_usd": cost_usd}))
 
 
+async def close_upstream(resource: httpx.Response | AsyncExitStack) -> None:
+    with anyio.CancelScope(shield=True):
+        async with asyncio.timeout(5):
+            await resource.aclose()
+
+
 async def report(control: GatewayControl, result: FinishRequest) -> None:
     try:
         async with asyncio.timeout(10):
@@ -320,7 +328,11 @@ async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
                 detail=(detail + (f"; {attempt.result.detail}" if attempt.result.detail else ""))[:2000],
             )
         if attempt.log is not None:
-            attempt.result = await attempt.log.finish(attempt.result)
+            try:
+                async with asyncio.timeout(5):
+                    attempt.result = await attempt.log.finish(attempt.result)
+            except Exception:
+                verbose_proxy_logger.warning("Account pool log cleanup failed: lease=%s", attempt.result.lease_id)
     finally:
         await report(control, attempt.result)
 
@@ -584,6 +596,7 @@ async def forward_candidate(
         allow_session_rebind=route_index > 0 or sticky_unavailable,
     )
     acquisition_timing: Final = RequestTiming(request_id, attempt_number)
+    lease_deadline: Final = asyncio.get_running_loop().time() + seconds
     with acquisition_timing.phase("acquire"):
         lease: Final = await control.acquire(acquisition)
     acquisition_timing.report(409 if isinstance(lease, AcquireRejected) else 200)
@@ -678,6 +691,7 @@ async def forward_candidate(
                 next_id,
                 seconds,
                 deadline,
+                lease_deadline=lease_deadline,
                 alternate_id=alternate_id,
                 failover_ready=failover_ready,
             )
@@ -696,7 +710,7 @@ async def forward_candidate(
             )
     finally:
         with attempt.timing.phase("persist_and_release"):
-            await asyncio.shield(finish_attempt(control, attempt))
+            await managed_cleanup(finish_attempt(control, attempt))
         attempt.timing.report(attempt.result.http_status)
     if not completed:
         delay: Final = (
@@ -751,6 +765,7 @@ async def execute(
     signature_recovered: bool = False,
     alternate_id: UUID | None = None,
     failover_ready: bool = False,
+    lease_deadline: float | None = None,
 ) -> bool:
     read_seconds: Final = min(
         resolution.policy.transport.read_timeout_seconds or seconds,
@@ -805,24 +820,19 @@ async def execute(
         return await execute(
             request, filtered, route, resolution, client, attempt, next_id, seconds, deadline,
             signature_recovered=signature_recovered, alternate_id=alternate_id, failover_ready=failover_ready,
+            lease_deadline=lease_deadline,
         )
-    selected_client: Final = (
-        client
-        if credential.proxy_url is None
-        else httpx.AsyncClient(
-            proxy=credential.proxy_url,
-            timeout=seconds,
-            trust_env=False,
-            follow_redirects=False,
-        )
-    )
+    client_stack: Final = AsyncExitStack()
+    expires_at: Final = lease_deadline if lease_deadline is not None else asyncio.get_running_loop().time() + seconds
     try:
-        destination: Final = upstream_url(route.account, request.url.path)
-        validated_destination, host_header = (
-            await asyncio.to_thread(validate_url, destination)
-            if route.account.supplier == "openai_compatible"
-            else (destination, None)
-        )
+        async with asyncio.timeout_at(expires_at):
+            selected_client: Final = await client_stack.enter_async_context(upstream_client(client, credential.proxy_url))
+            destination: Final = upstream_url(route.account, request.url.path)
+            validated_destination, host_header = (
+                await asyncio.to_thread(validate_url, destination)
+                if route.account.supplier == "openai_compatible"
+                else (destination, None)
+            )
         provider_headers: Final = tuple(
             (name, value)
             for name, value in route.account.headers
@@ -850,7 +860,7 @@ async def execute(
             ("authorization", f"Bearer {credential.api_key}"),
             ("accept-encoding", "identity"),
         )
-        async with asyncio.timeout(seconds):
+        async with asyncio.timeout_at(expires_at):
             upstream: Final = selected_client.build_request(
                 "POST",
                 validated_destination,
@@ -860,6 +870,8 @@ async def execute(
                 timeout=httpx.Timeout(seconds, read=read_seconds),
             )
             with attempt.timing.phase("upstream_headers"):
+                if asyncio.get_running_loop().time() >= expires_at:
+                    raise TimeoutError
                 request.state.account_pool_upstream_attempted = True
                 if signature_recovered:
                     attempt.signature_retry_count = 1
@@ -875,7 +887,7 @@ async def execute(
                         response.status_code == 400 and recovery_payload is not None and signature_error(error_payload)
                         and asyncio.get_running_loop().time() < deadline
                     ):
-                        await response.aclose()
+                        await managed_cleanup(close_upstream(response))
                         return await execute(
                             request,
                             recovery_payload,
@@ -887,6 +899,7 @@ async def execute(
                             seconds,
                             deadline,
                             signature_recovered=True,
+                            lease_deadline=expires_at,
                             failover_ready=failover_ready,
                         )
                     if signature_error(error_payload):
@@ -1013,7 +1026,7 @@ async def execute(
                                 and asyncio.get_running_loop().time() < deadline
                             ):
                                 await bootstrap.close()
-                                await response.aclose()
+                                await managed_cleanup(close_upstream(response))
                                 return await execute(
                                     request,
                                     recovery_payload,
@@ -1025,6 +1038,7 @@ async def execute(
                                     seconds,
                                     deadline,
                                     signature_recovered=True,
+                                    lease_deadline=expires_at,
                                 )
                             completed_with_history: Final = await guarded_stream_response(
                                 request,
@@ -1091,7 +1105,7 @@ async def execute(
                     })
                 return True
             finally:
-                await response.aclose()
+                await managed_cleanup(close_upstream(response))
     except asyncio.CancelledError:
         with anyio.CancelScope(shield=True):
             cancelled_downstream: Final = (
@@ -1183,8 +1197,7 @@ async def execute(
             )
         return True
     finally:
-        if selected_client is not client:
-            await selected_client.aclose()
+        await managed_cleanup(close_upstream(client_stack))
 
 
 def select_gateway_credential(

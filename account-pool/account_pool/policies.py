@@ -309,6 +309,8 @@ class PolicyRepository(Protocol):
 
     async def get(self, card_id: UUID) -> PolicyView: ...
 
+    async def get_many(self, card_ids: tuple[UUID, ...]) -> tuple[PolicyView, ...]: ...
+
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None: ...
 
     async def delete(self, card_id: UUID, expected_version: int) -> PolicyView | None: ...
@@ -398,6 +400,17 @@ class PostgresPolicyRepository:
             cursor: Final = await connection.execute("SELECT * FROM account_pool_policies ORDER BY card_id")
             rows: Final = await cursor.fetchall()
         return tuple(PolicyView.model_validate(row) for row in rows)
+
+    async def get_many(self, card_ids: tuple[UUID, ...]) -> tuple[PolicyView, ...]:
+        if not card_ids:
+            return ()
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT * FROM account_pool_policies WHERE card_id = ANY(%s)", (list(card_ids),)
+            )
+            rows: Final = await cursor.fetchall()
+        policies: Final = {view.card_id: view for row in rows for view in (PolicyView.model_validate(row),)}
+        return tuple(policies.get(identifier, PolicyView(card_id=identifier)) for identifier in card_ids)
 
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None:
         async with database_connection(self._database_url) as connection:

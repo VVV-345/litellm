@@ -13,10 +13,12 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from io import BytesIO
+from pathlib import Path
 from typing import Final, cast
 from urllib.parse import urlsplit
-from uuid import UUID, NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
+import anyio
 import httpx
 import yaml
 
@@ -201,8 +203,7 @@ class ProxyGatewayService:
         if self._catalog is None or not self._settings.clash_config_path:
             return
         try:
-            with open(self._settings.clash_config_path, encoding="utf-8") as handle:
-                current: Final = handle.read()
+            current: Final = await asyncio.to_thread(Path(self._settings.clash_config_path).read_text, encoding="utf-8")
         except OSError:
             return
         await self._catalog.ensure_active_configuration("当前配置", current)
@@ -229,7 +230,7 @@ class ProxyGatewayService:
         source: Final = content if content is not None else await self._load_subscription(url)
         self._validate_configuration_content(source)
         try:
-            parsed: Final = yaml.safe_load(source)
+            parsed: Final = await asyncio.to_thread(yaml.safe_load, source)
         except yaml.YAMLError as error:
             raise ClashError("proxy configuration is invalid YAML") from error
         if not isinstance(parsed, dict):
@@ -253,16 +254,14 @@ class ProxyGatewayService:
             raise ClashError("clash config path is not configured")
         try:
             async with self._registry_lock:
-                with open(config_path, encoding="utf-8") as handle:
-                    original: Final = handle.read()
+                original: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
                 try:
                     await self._apply_configuration_source(profile.content)
                     await self._reconcile_isp_bindings_locked(date.today())
                     if not await self._catalog.activate_configuration(profile_id):
                         raise ClashError("proxy configuration activation failed")
                 except Exception:
-                    with open(config_path, encoding="utf-8") as handle:
-                        applied: Final = handle.read()
+                    applied: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
                     await self._write_and_reload(config_path, original, applied)
                     raise
         except ClashError:
@@ -287,17 +286,16 @@ class ProxyGatewayService:
         if not config_path:
             raise ClashError("clash config path is not configured")
         try:
-            with open(config_path, encoding="utf-8") as handle:
-                original: Final = handle.read()
-            original_config: Final = cast(object, yaml.safe_load(original))
-            parsed_value: Final = cast(object, yaml.safe_load(source))
+            original: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
+            original_config: Final = cast(object, await asyncio.to_thread(yaml.safe_load, original))
+            parsed_value: Final = cast(object, await asyncio.to_thread(yaml.safe_load, source))
         except (OSError, yaml.YAMLError) as error:
             raise ClashError("clash configuration update failed") from error
         if not isinstance(parsed_value, dict):
             raise ClashError("clash config must be a YAML object")
         parsed: Final = cast(dict[object, object], parsed_value)
         await self._preserve_registered_gateways(parsed, original_config)
-        updated: Final = yaml.safe_dump(parsed, allow_unicode=True, sort_keys=False)
+        updated: Final = await asyncio.to_thread(yaml.safe_dump, parsed, allow_unicode=True, sort_keys=False)
         await self._write_and_reload(config_path, updated, original)
 
     async def _load_subscription(self, url: str | None) -> str:
@@ -672,9 +670,8 @@ class ProxyGatewayService:
         if not config_path:
             raise ClashError("clash config path is not configured")
         try:
-            with open(config_path, encoding="utf-8") as handle:
-                original: Final = handle.read()
-            config_value: Final = cast(object, yaml.safe_load(original))
+            original: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
+            config_value: Final = cast(object, await asyncio.to_thread(yaml.safe_load, original))
         except (OSError, yaml.YAMLError) as error:
             raise ClashError("clash configuration is unavailable") from error
         if not isinstance(config_value, dict):
@@ -750,7 +747,7 @@ class ProxyGatewayService:
         )
         config["proxies"] = (*updated_proxies, *chain_proxy)
         config["proxy-groups"] = updated_groups
-        updated: Final = yaml.safe_dump(config, allow_unicode=True, sort_keys=False)
+        updated: Final = await asyncio.to_thread(yaml.safe_dump, config, allow_unicode=True, sort_keys=False)
         previous_gateway: Final = await self._selector_current_or_none(selector)
         previous_front: Final = await self._selector_current_or_none(front_selector)
         if profile_bound and not chain_active:
@@ -765,8 +762,7 @@ class ProxyGatewayService:
             await self._controller.switch_selector(selector, gateway_selection)
         except Exception as error:
             try:
-                with open(config_path, encoding="utf-8") as handle:
-                    applied: Final = handle.read()
+                applied: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
                 await self._write_and_reload(config_path, original, applied)
                 if previous_front is not None:
                     await self._controller.switch_selector(front_selector, previous_front)
@@ -786,26 +782,44 @@ class ProxyGatewayService:
         if node_name not in {node.name for node in await self.list_nodes()}:
             raise ClashError("proxy node is unavailable")
         config_path: Final = self._settings.clash_config_path
-        with open(config_path, encoding="utf-8") as handle:
-            original: Final = handle.read()
-        config: Final = yaml.safe_load(original)
+        original: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
+        config: Final = await asyncio.to_thread(yaml.safe_load, original)
         selector: Final = self._selector_name(port)
         config["proxy-groups"] = [
             {"name": selector, "type": "select", "proxies": [node_name, "REJECT"]}
             if isinstance(group, dict) and group.get("name") == selector else group
             for group in config.get("proxy-groups", [])
         ]
-        await self._write_and_reload(config_path, yaml.safe_dump(config, allow_unicode=True, sort_keys=False), original)
+        updated: Final = await asyncio.to_thread(yaml.safe_dump, config, allow_unicode=True, sort_keys=False)
+        await self._write_and_reload(config_path, updated, original)
 
     async def _write_and_reload(self, config_path: str, updated: str, original: str) -> None:
         if updated == original:
             return
+        # 取消请求不能让写线程脱离注册锁，必须等重载或补偿结束后再退出。
+        task: Final = asyncio.create_task(self._commit_configuration(config_path, updated, original))
+        cancelled = False  # rebind-ok: cancellation is deferred until the configuration transaction settles
+        with anyio.CancelScope(shield=True):
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    cancelled = True
+                except Exception:
+                    break
+            if cancelled:
+                if not task.cancelled():
+                    task.exception()
+                raise asyncio.CancelledError
+            task.result()
+
+    async def _commit_configuration(self, config_path: str, updated: str, original: str) -> None:
         directory: Final = os.path.dirname(config_path) or "."
         try:
-            self._replace_config(config_path, directory, updated)
+            await asyncio.to_thread(self._replace_config, config_path, directory, updated)
             await self._controller.reload_config(self._settings.clash_runtime_config_path)
         except Exception as error:
-            self._replace_config(config_path, directory, original)
+            await asyncio.to_thread(self._replace_config, config_path, directory, original)
             try:
                 await self._controller.reload_config(self._settings.clash_runtime_config_path)
             except Exception:
@@ -907,8 +921,7 @@ class ProxyGatewayService:
             if not config_path:
                 raise ClashError("clash config path is not configured")
             try:
-                with open(config_path, encoding="utf-8") as handle:
-                    original_config: Final = handle.read()
+                original_config: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
             except OSError as error:
                 raise ClashError("clash configuration is unavailable") from error
             isp_binding: Final = (
@@ -941,8 +954,7 @@ class ProxyGatewayService:
                 except Exception:
                     pass
                 try:
-                    with open(config_path, encoding="utf-8") as handle:
-                        removed_config: Final = handle.read()
+                    removed_config: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
                     await self._write_and_reload(config_path, original_config, removed_config)
                 except Exception:
                     pass
@@ -984,9 +996,8 @@ class ProxyGatewayService:
         config_path: Final = self._settings.clash_config_path
         if not config_path:
             raise ClashError("clash config path is not configured")
-        with open(config_path, encoding="utf-8") as handle:
-            original: Final = handle.read()
-        config_value: Final = cast(object, yaml.safe_load(original))
+        original: Final = await asyncio.to_thread(Path(config_path).read_text, encoding="utf-8")
+        config_value: Final = cast(object, await asyncio.to_thread(yaml.safe_load, original))
         if not isinstance(config_value, dict):
             raise ClashError("clash config must be a YAML object")
         config: Final = cast(dict[object, object], config_value)
@@ -1043,7 +1054,7 @@ class ProxyGatewayService:
                     and cast(str, item["name"]).startswith(f"account-pool-isp-{port}-")
                 )
             ]
-        updated: Final = yaml.safe_dump(config, allow_unicode=True, sort_keys=False)
+        updated: Final = await asyncio.to_thread(yaml.safe_dump, config, allow_unicode=True, sort_keys=False)
         await self._write_and_reload(config_path, updated, original)
 
     @staticmethod

@@ -6,6 +6,19 @@ from datetime import datetime
 from typing import Final
 
 from account_pool.domain import EnvironmentRecord, QuotaSnapshot
+from account_pool.provider_families import provider_family_kind
+
+
+def routing_quota(record: EnvironmentRecord) -> QuotaSnapshot:
+    family: Final = provider_family_kind(record)
+    quota: Final = (
+        record.display_quota
+        if family in ("glm", "opencode") and record.display_quota is not None
+        else record.quota
+    )
+    if family != "glm":
+        return quota
+    return quota.model_copy(update={"windows": tuple(w for w in quota.windows if w.name != "MCP Monthly")})
 
 
 def routing_quota_state(quota: QuotaSnapshot, now: datetime) -> tuple[float | None, datetime | None]:

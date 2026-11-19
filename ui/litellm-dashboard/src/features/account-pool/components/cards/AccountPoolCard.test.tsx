@@ -331,10 +331,17 @@ it("shows GLM plan quota on the card without offering Codex redemption", async (
     supplier: "openai_compatible",
     provider_family: "glm",
     display_quota: {
-      plan_type: "Pro", windows: [{
-        name: "5 hour", used_percent: 64, remaining_percent: 36, window_minutes: 300,
-        resets_at: "2090-01-01T00:00:00Z",
-      }], balances: [],
+      plan_type: "Pro",
+      windows: [
+        {
+          name: "5 hour",
+          used_percent: 64,
+          remaining_percent: 36,
+          window_minutes: 300,
+          resets_at: "2090-01-01T00:00:00Z",
+        },
+      ],
+      balances: [],
     },
   });
   expect(screen.getByText("套餐额度")).toBeVisible();
@@ -353,7 +360,8 @@ it("offers only the official OpenCode workspace billing link, without a zero bal
   await i18n.changeLanguage("zh-CN");
   renderCard({ supplier: "openai_compatible", provider_family: "opencode" });
   expect(screen.getByRole("link", { name: "打开 OpenCode 账单" })).toHaveAttribute(
-    "href", "https://opencode.ai/console/login",
+    "href",
+    "https://opencode.ai/console/login",
   );
   expect(screen.getByText("工作区余额未获取")).toBeVisible();
   expect(screen.queryByRole("meter")).not.toBeInTheDocument();
@@ -368,14 +376,36 @@ it("shows the three OpenCode Go plan windows and reset times, not a wallet balan
       plan_type: "OpenCode Go",
       refresh_status: "complete",
       windows: [
-        { name: "5 hour", used_percent: 10, remaining_percent: 90, window_minutes: 300, resets_at: "2090-01-01T01:00:00Z" },
-        { name: "Weekly", used_percent: 100, remaining_percent: 0, window_minutes: 10080, resets_at: "2090-01-02T00:00:00Z" },
-        { name: "Monthly", used_percent: 24, remaining_percent: 76, window_minutes: 43200, resets_at: "2090-01-31T00:00:00Z" },
+        {
+          name: "5 hour",
+          used_percent: 10,
+          remaining_percent: 90,
+          window_minutes: 300,
+          resets_at: "2090-01-01T01:00:00Z",
+        },
+        {
+          name: "Weekly",
+          used_percent: 100,
+          remaining_percent: 0,
+          window_minutes: 10080,
+          resets_at: "2090-01-02T00:00:00Z",
+        },
+        {
+          name: "Monthly",
+          used_percent: 24,
+          remaining_percent: 76,
+          window_minutes: 43200,
+          resets_at: "2090-01-31T00:00:00Z",
+        },
       ],
       balances: [],
     },
   });
-  for (const [label, value] of [["5 小时额度", "90"], ["周额度", "0"], ["月额度", "76"]]) {
+  for (const [label, value] of [
+    ["5 小时额度", "90"],
+    ["周额度", "0"],
+    ["月额度", "76"],
+  ]) {
     const window = within(screen.getByRole("group", { name: label }));
     expect(window.getByRole("meter")).toHaveAttribute("aria-valuenow", value);
     expect(window.getByText(/^重置时间 (?!-$)/)).toBeVisible();
@@ -394,7 +424,8 @@ it("shows a failed OpenCode quota query even before its plan has been identified
       refresh_attempted_at: "2090-01-01T00:00:00Z",
       refresh_status: "failed",
       refresh_error: "OpenCode Go 套餐额度未获取（HTTP 401）",
-      windows: [], balances: [],
+      windows: [],
+      balances: [],
     },
   });
   expect(screen.getByRole("status")).toHaveTextContent("OpenCode Go 套餐额度未获取（HTTP 401）");
@@ -453,4 +484,45 @@ it.each([false, true])("keeps the Codex policy summary when identity confusion i
   expect(
     screen.getByText(i18n.t(enabled ? "accountPool.policy.identity_confuse" : "accountPool.policy.options.disabled")),
   ).toBeVisible();
+});
+
+it.each([0, 700])("shows the provider prepaid balance %i on the card, retaining its unit", async (amount) => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({ supplier: "xai", quota: { windows: [], balances: [], prepaid_balance: amount } });
+  expect(screen.getByText("预付余额")).toBeVisible();
+  expect(screen.getByText(`${amount} 美分`)).toBeVisible();
+});
+
+it("shows a named zero credit balance and provider minimum without inventing another wallet", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({
+    supplier: "google_antigravity",
+    quota: {
+      windows: [],
+      balances: [{ name: "GOOGLE_ONE_AI", available: 0, minimum_required: 50, unit: "credits" }],
+    },
+  });
+  expect(screen.getByText("GOOGLE ONE AI 可用余额")).toBeVisible();
+  expect(screen.getByText("0 点数")).toBeVisible();
+  expect(screen.getByText("最低使用门槛：50")).toBeVisible();
+  expect(screen.queryByText("预付余额")).not.toBeInTheDocument();
+});
+
+it("keeps a failed plan snapshot visible with an explicit stale label", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({
+    supplier: "openai_compatible",
+    provider_family: "glm",
+    display_quota: {
+      observed_at: "2026-01-01T00:00:00Z",
+      source: "stored_cache",
+      refresh_status: "failed",
+      refresh_attempted_at: "2026-01-01T00:05:00Z",
+      windows: [{ name: "5 hour", used_percent: 100, remaining_percent: 0, window_minutes: 300 }],
+      balances: [],
+    },
+  });
+  expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "0");
+  expect(screen.getByText("快照已过期，等待刷新")).toBeVisible();
+  expect(screen.getByText("主动刷新失败，已回退缓存")).toBeVisible();
 });

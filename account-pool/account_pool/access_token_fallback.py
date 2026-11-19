@@ -2,7 +2,7 @@
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Final, Literal, Protocol
 from uuid import UUID
@@ -69,6 +69,9 @@ class AccessTokenFallbackService:
     upstream: AccessFallbackUpstream
     ownership: CredentialOwnership
     leases: LeaseRepository
+    _probe_slots: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(4), init=False, repr=False, compare=False
+    )
 
     async def discover(self) -> tuple[UUID, ...]:
         """按卡片串行验证已启用模型；失败不放行，也不删除用户配置。"""
@@ -126,10 +129,11 @@ class AccessTokenFallbackService:
                     passed=True, restored=True, reason="temporary_access",
                     expires_at=record.access_token_fallback.expires_at,
                 )
-            verified: Final = await self.upstream.verify_access_fallback(record, model)
-            if not verified.passed or not verified.restored:
-                return verified.model_copy(update={"restored": False})
-            state: Final = await self.upstream.access_fallback_status(record)
+            async with self._probe_slots:
+                verified: Final = await self.upstream.verify_access_fallback(record, model)
+                if not verified.passed or not verified.restored:
+                    return verified.model_copy(update={"restored": False})
+                state: Final = await self.upstream.access_fallback_status(record)
             current: Final = await self.environments.get(environment_id)
             if (
                 current != record

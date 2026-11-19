@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 class RoutingQuotaWindow(BaseModel):
     model_config = ConfigDict(frozen=True)
+    name: str | None = None
     window_minutes: int | None = Field(default=None, ge=1)
     remaining_percent: float = Field(ge=0, le=100, allow_inf_nan=False)
     resets_at: AwareDatetime | None = None
@@ -41,6 +42,8 @@ class RoutingQuota(BaseModel):
     model_config = ConfigDict(frozen=True)
     remaining_percent: float | None = Field(default=None, ge=0, le=100)
     observed_at: AwareDatetime | None = None
+    refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
+    extra_usage_enabled: bool | None = None
     windows: tuple[RoutingQuotaWindow, ...] = ()
 
     def effective(self, now: datetime) -> tuple[float | None, datetime | None]:
@@ -249,12 +252,20 @@ def window_reserve(snapshot: RoutingSnapshot, minutes: int | None) -> float:
 def quota_depleted(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
     quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(model, model), snapshot.quota)
     if quota.windows:
-        return any(
-            (window.resets_at is None or window.resets_at > now)
-            and window.remaining_percent <= window_reserve(snapshot, window.window_minutes)
-            for window in quota.windows
-        )
-    return quota.remaining_percent is not None and quota.remaining_percent <= snapshot.quota_reserve_percent
+        return any(_window_depleted(snapshot, quota, window, now) for window in quota.windows)
+    return (
+        quota.extra_usage_enabled is not True
+        and quota.remaining_percent is not None
+        and quota.remaining_percent <= snapshot.quota_reserve_percent
+    )
+
+
+def _window_depleted(snapshot: RoutingSnapshot, quota: RoutingQuota, window: RoutingQuotaWindow, now: datetime) -> bool:
+    return (
+        (window.resets_at is None or window.resets_at > now)
+        and (quota.extra_usage_enabled is not True or window.name == "Extra usage")
+        and window.remaining_percent <= window_reserve(snapshot, window.window_minutes)
+    )
 
 
 QuotaFreshness: TypeAlias = Literal["missing", "fresh", "stale", "expired"]
@@ -263,11 +274,12 @@ STALE_GRACE_FACTOR: Final = 3
 
 def quota_freshness(snapshot: RoutingSnapshot, model: str, now: datetime) -> QuotaFreshness:
     target: Final = snapshot.model_aliases.get(model, model)
-    observed: Final = snapshot.model_quotas.get(target, snapshot.quota).observed_at
+    quota: Final = snapshot.model_quotas.get(target, snapshot.quota)
+    observed: Final = quota.observed_at
     if observed is None:
         return "missing"
     age: Final = (now - observed).total_seconds()
-    if age <= snapshot.quota_snapshot_max_age:
+    if age <= snapshot.quota_snapshot_max_age and quota.refresh_status in (None, "complete"):
         return "fresh"
     if age <= snapshot.quota_snapshot_max_age * STALE_GRACE_FACTOR:
         return "stale"
@@ -303,8 +315,7 @@ def explain(card_id: UUID, snapshot: RoutingSnapshot, model: str, now: datetime)
             remaining_percent=window.remaining_percent,
             threshold_percent=window_reserve(snapshot, window.window_minutes),
             resets_at=window.resets_at,
-            tripped=(window.resets_at is None or window.resets_at > now)
-            and window.remaining_percent <= window_reserve(snapshot, window.window_minutes),
+            tripped=_window_depleted(snapshot, quota, window, now),
         )
         for window in quota.windows
     )
@@ -387,7 +398,10 @@ def eligible_deployments(
 def rank(snapshot: RoutingSnapshot, model: str, selection: str, now: datetime) -> tuple[float, float]:
     quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(model, model), snapshot.quota)
     remaining_percent, observed_at = quota.effective(now)
-    fresh: Final = observed_at is not None and (now - observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
+    fresh: Final = (
+        observed_at is not None and quota.refresh_status in (None, "complete")
+        and (now - observed_at).total_seconds() <= snapshot.quota_snapshot_max_age
+    )
     remaining: Final = -remaining_percent if fresh and remaining_percent is not None else float("inf")
     if selection == "plan":
         return (-float(snapshot.plan_rank) if snapshot.plan_rank is not None else float("inf"), remaining)

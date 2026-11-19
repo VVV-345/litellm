@@ -36,6 +36,7 @@ _MAX_INTERVAL_SECONDS: Final = 60.0
 
 
 class QuotaWindow(BaseModel):
+    name: str | None = None
     window_minutes: int | None = None
     remaining_percent: float
     resets_at: AwareDatetime | None = None
@@ -43,6 +44,8 @@ class QuotaWindow(BaseModel):
 
 class QuotaSnapshot(BaseModel):
     observed_at: AwareDatetime | None = None
+    refresh_status: Literal["complete", "partial", "failed", "unsupported"] | None = None
+    extra_usage_enabled: bool | None = None
     plan_type: str | None = None
     auth_file_plan_type: str | None = None
     subscription_active_until: AwareDatetime | None = None
@@ -52,9 +55,11 @@ class QuotaSnapshot(BaseModel):
         return RoutingQuota(
             remaining_percent=min((window.remaining_percent for window in self.windows), default=None),
             observed_at=self.observed_at,
+            refresh_status=self.refresh_status,
+            extra_usage_enabled=self.extra_usage_enabled,
             windows=tuple(
                 RoutingQuotaWindow(
-                    window_minutes=w.window_minutes, remaining_percent=w.remaining_percent, resets_at=w.resets_at
+                    name=w.name, window_minutes=w.window_minutes, remaining_percent=w.remaining_percent, resets_at=w.resets_at
                 )
                 for w in self.windows
             ),

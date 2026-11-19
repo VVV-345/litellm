@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
 from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import pytest
 from account_pool.card_keys import CardKeyService
+from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import (
     AccessTokenFallbackStatus,
+    ChannelKind,
     EnvironmentRecord,
     EnvironmentStatus,
     GatewayEnvironment,
     ModelCooldown,
     ModelQuotaSnapshot,
+    OpenAICompatibleConfiguration,
     QuotaSnapshot,
     QuotaWindow,
     SupplierKind,
@@ -1132,6 +1136,142 @@ async def test_finish_releases_lease_when_request_log_cannot_be_persisted() -> N
     assert lease.lease_id not in leases.leases
     assert card.id not in leases.cooled
     assert leases.model_cooldowns[(card.id, "gpt-5")] == 60
+
+
+@pytest.mark.asyncio
+async def test_slow_request_log_does_not_hold_lease_or_delay_budget_settlement() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY)
+    leases: Final = MemoryLeases()
+    entered: Final = asyncio.Event()
+    complete: Final = asyncio.Event()
+
+    class SlowLogs(MemoryLogs):
+        async def append(self, event: ErrorLogRecord) -> None:
+            entered.set()
+            await complete.wait()
+            await super().append(event)
+
+    logs: Final = SlowLogs()
+    service: Final = GatewayService(
+        CardKeyService(MemoryKeys()), MemoryRepository(card), MemoryPolicies(), leases,
+        ErrorLogService(logs), gateway,
+    )
+    lease: Final = Lease(
+        lease_id=uuid4(), card_id=card.id, key_id=uuid4(), account_id=card.id, request_id=uuid4(),
+        channel=card.channel, supplier=card.supplier, model="gpt-5", started_at=utc_now(),
+        budget_enabled=True, budget_window_seconds=3600, budget_window_started_at=utc_now(),
+    )
+    leases.leases[lease.lease_id] = lease
+    task: Final = asyncio.create_task(service.finish(FinishRequest(
+        lease_id=lease.lease_id, http_status=200, message="completed", endpoint="/v1/responses",
+        input_tokens=7, output_tokens=5,
+    )))
+    try:
+        await asyncio.wait_for(entered.wait(), 1)
+        assert not leases.leases
+        assert leases.settled_tokens[card.id] == 12
+        assert not task.done()
+    finally:
+        complete.set()
+        await task
+    assert len(logs.events) == 1
+
+
+@pytest.mark.asyncio
+async def test_resolve_batches_scoped_policies_and_exact_credential_ownership() -> None:
+    card: Final = _record(status=EnvironmentStatus.READY).model_copy(update={"credential_fingerprints": ("card",)})
+    owned: Final = card.model_copy(update={"id": uuid4(), "credential_fingerprints": ("owned", "second")})
+    stolen: Final = card.model_copy(update={"id": uuid4(), "credential_fingerprints": ("owned",)})
+    partial: Final = card.model_copy(update={"id": uuid4(), "credential_fingerprints": ("partial", "missing")})
+    disabled: Final = card.model_copy(update={"id": uuid4(), "enabled": False})
+    foreign: Final = card.model_copy(update={"id": uuid4(), "supplier": SupplierKind.ANTHROPIC_CLAUDE})
+
+    class BatchedPolicies(MemoryPolicies):
+        def __init__(self) -> None:
+            super().__init__()
+            self.single_reads: tuple[UUID, ...] = ()
+            self.batch_reads: tuple[tuple[UUID, ...], ...] = ()
+
+        async def get(self, card_id: UUID) -> PolicyView:
+            self.single_reads = (*self.single_reads, card_id)
+            return await super().get(card_id)
+
+        async def get_many(self, card_ids: tuple[UUID, ...]) -> tuple[PolicyView, ...]:
+            self.batch_reads = (*self.batch_reads, card_ids)
+            return tuple(self.records.get(identifier, PolicyView(card_id=identifier)) for identifier in card_ids)
+
+    class BatchedOwnership(CredentialOwnership):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batch_reads: tuple[tuple[UUID, ...], ...] = ()
+
+        async def owns(self, owner: UUID, fingerprints: tuple[str, ...]) -> bool:
+            raise AssertionError("candidate ownership must be read in one batch")
+
+        async def owns_many(self, owners) -> frozenset[UUID]:
+            self.batch_reads = (*self.batch_reads, tuple(owners))
+            return await super().owns_many(owners)
+
+    policies: Final = BatchedPolicies()
+    policies.records[card.id] = PolicyView(card_id=card.id, version=1,
+        policy=AccountPolicy(routing=RoutingPolicy(fallback_enabled=True)))
+    ownership: Final = BatchedOwnership()
+    await ownership.claim(card.id, card.credential_fingerprints)
+    await ownership.claim(owned.id, owned.credential_fingerprints)
+    await ownership.claim(partial.id, ("partial",))
+    keys: Final = CardKeyService(MemoryKeys())
+    issued: Final = await keys.issue(card.id)
+    assert isinstance(issued, Success)
+    environments: Final = MemoryRepository(card)
+    for record in (owned, stolen, partial, disabled, foreign):
+        await environments.save(record)
+    service: Final = GatewayService(keys, environments, policies, MemoryLeases(), ErrorLogService(MemoryLogs()),
+        gateway, ownership=ownership)
+    result: Final = await service.resolve(ResolveRequest(card_key=issued.value.key))
+    assert {item.id for item in result.candidates} == {card.id, owned.id}
+    assert policies.single_reads == (card.id,)
+    assert policies.batch_reads == ((owned.id,),)
+    assert ownership.batch_reads == ((card.id, owned.id, stolen.id, partial.id),)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("base_url,tool_window", (
+    ("https://api.z.ai/api/coding/paas/v4", True),
+    ("https://opencode.ai/inference/go/v1", False),
+))
+async def test_candidate_uses_provider_display_quota_and_preserves_refresh_extra_usage(
+    base_url: str, tool_window: bool,
+) -> None:
+    now: Final = utc_now()
+    display: Final = QuotaSnapshot(
+        observed_at=now, refresh_status="partial", extra_usage_enabled=True,
+        windows=(
+            QuotaWindow(name="5h", window_minutes=300, used_percent=23, remaining_percent=77),
+            QuotaWindow(name="weekly", window_minutes=10080, used_percent=55, remaining_percent=45),
+            QuotaWindow(name="MCP Monthly" if tool_window else "monthly", window_minutes=43200,
+                        used_percent=100, remaining_percent=0),
+        ),
+    )
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(update={
+        "channel": ChannelKind.OPENAI_COMPATIBLE,
+        "supplier": SupplierKind.OPENAI_COMPATIBLE,
+        "openai_compatible": OpenAICompatibleConfiguration(base_url=base_url, test_model="gpt-5", credentials=()),
+        "quota": QuotaSnapshot(observed_at=now, windows=(
+            QuotaWindow(name="ignored", window_minutes=300, used_percent=90, remaining_percent=10),)),
+        "display_quota": display,
+        "model_quotas": (ModelQuotaSnapshot(model="gpt-5", quota=display),),
+    })
+    service: Final = GatewayService(CardKeyService(MemoryKeys()), MemoryRepository(record), MemoryPolicies(),
+        MemoryLeases(), ErrorLogService(MemoryLogs()), gateway)
+    candidate: Final = await service.candidate(record)
+    assert candidate.remaining_percent == (45 if tool_window else 0)
+    assert candidate.quota_observed_at == now
+    assert tuple(window.name for window in candidate.quota_windows) == (
+        ("5h", "weekly") if tool_window else ("5h", "weekly", "monthly")
+    )
+    assert candidate.quota_refresh_status == "partial" and candidate.extra_usage_enabled is True
+    assert candidate.model_quotas[0].refresh_status == "partial"
+    assert candidate.model_quotas[0].extra_usage_enabled is True
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(

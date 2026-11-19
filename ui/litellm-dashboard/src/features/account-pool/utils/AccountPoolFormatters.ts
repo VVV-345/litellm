@@ -9,9 +9,10 @@ import type {
 import type { TFunction } from "i18next";
 
 export const formatCount = (value: number, compact = true): string =>
-  new Intl.NumberFormat("en-US", compact
-    ? { notation: "compact", maximumFractionDigits: 1 }
-    : { maximumFractionDigits: 0 }).format(value);
+  new Intl.NumberFormat(
+    "en-US",
+    compact ? { notation: "compact", maximumFractionDigits: 1 } : { maximumFractionDigits: 0 },
+  ).format(value);
 
 export const concurrencyLimitLabel = (t: TFunction): string => t("accountPool.config.concurrencyLimit");
 
@@ -26,6 +27,16 @@ export const statusVariant = (status: AccountPoolStatus): "default" | "secondary
 
 export const displayedQuota = (environment: AccountPoolEnvironment): AccountPoolQuotaSnapshot =>
   environment.display_quota ?? environment.quota;
+
+export const quotaSnapshotIsStale = (quota: AccountPoolQuotaSnapshot, now: number, maxAgeSeconds = 300): boolean => {
+  if (!quota.observed_at) return false;
+  const observed = new Date(quota.observed_at).getTime();
+  if (!Number.isFinite(observed) || observed > now || now - observed > maxAgeSeconds * 1000) return true;
+  return (
+    (quota.refresh_status != null && quota.refresh_status !== "complete") ||
+    quota.windows.some((window) => window.resets_at != null && new Date(window.resets_at).getTime() <= now)
+  );
+};
 
 export const mostConstrainedWindow = (environment: AccountPoolEnvironment): AccountPoolQuotaWindow | null => {
   const windows = [

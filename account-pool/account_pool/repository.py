@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -11,6 +12,7 @@ from uuid import UUID
 import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
+from psycopg_pool import AsyncConnectionPool, PoolTimeout
 from pydantic import TypeAdapter
 
 from account_pool.domain import EnvironmentRecord, ModelQuotaSnapshot, ProxyProfile, QuotaSnapshot
@@ -18,6 +20,13 @@ from account_pool.oauth_browser import OAuthBrowserSession, OAuthBrowserSessionS
 
 _RECORD_ADAPTER: Final = TypeAdapter(EnvironmentRecord)
 _OAUTH_BROWSER_SESSION_ADAPTER: Final = TypeAdapter(OAuthBrowserSession)
+_DATABASE_POOLS: Final[
+    dict[tuple[asyncio.AbstractEventLoop, str], AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]]]
+] = {}
+_DATABASE_OPERATION_POOLS: Final[
+    dict[tuple[asyncio.AbstractEventLoop, str], AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]]]
+] = {}
+_DATABASE_OPERATION_SLOTS: Final[dict[tuple[asyncio.AbstractEventLoop, str], asyncio.Semaphore]] = {}
 
 _CREATE_SCHEMA: Final = (
     """
@@ -53,8 +62,83 @@ _CREATE_SCHEMA: Final = (
 )
 
 
+async def _configure_database_connection(connection: psycopg.AsyncConnection[Mapping[str, object]]) -> None:
+    await connection.execute(
+        "SELECT set_config('statement_timeout', "
+        "CASE WHEN setting::bigint = 0 THEN '30000' ELSE LEAST(setting::bigint, 30000)::text END, false) "
+        "FROM pg_settings WHERE name = 'statement_timeout'"
+    )
+    await connection.commit()
+
+
+@asynccontextmanager
+async def database_pool(
+    database_url: str,
+    *,
+    max_size: int = 10,
+    timeout: float = 30.0,
+) -> AsyncGenerator[AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]], None]:
+    key: Final = (asyncio.get_running_loop(), database_url)
+    if key in _DATABASE_POOLS:
+        raise RuntimeError("Database pool already open for this database and event loop")
+    pool: Final = AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]](
+        database_url,
+        connection_class=psycopg.AsyncConnection[Mapping[str, object]],
+        kwargs={"row_factory": dict_row},
+        min_size=1,
+        max_size=max_size,
+        timeout=timeout,
+        open=False,
+        configure=_configure_database_connection,
+    )
+    operation_pool: Final = AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]](
+        database_url,
+        connection_class=psycopg.AsyncConnection[Mapping[str, object]],
+        kwargs={"row_factory": dict_row},
+        min_size=0,
+        max_size=6,
+        timeout=timeout,
+        open=False,
+        configure=_configure_database_connection,
+    )
+    async with pool, operation_pool:
+        # lifespan 与请求是不同任务，按事件循环和完整 DSN 绑定，避免临时库复用正式连接。
+        _DATABASE_POOLS[key] = pool
+        _DATABASE_OPERATION_POOLS[key] = operation_pool
+        _DATABASE_OPERATION_SLOTS[key] = asyncio.Semaphore(6)
+        try:
+            yield pool
+        finally:
+            del _DATABASE_OPERATION_SLOTS[key]
+            del _DATABASE_OPERATION_POOLS[key]
+            del _DATABASE_POOLS[key]
+
+
+@asynccontextmanager
+async def database_operation_connection(
+    database_url: str,
+) -> AsyncGenerator[psycopg.AsyncConnection[Mapping[str, object]], None]:
+    key: Final = (asyncio.get_running_loop(), database_url)
+    pool: Final = _DATABASE_OPERATION_POOLS.get(key)
+    if pool is None:
+        async with database_connection(database_url) as direct:
+            yield direct
+        return
+    slots: Final = _DATABASE_OPERATION_SLOTS[key]
+    # 已持本地或数据库锁时不能等待额外名额，否则会引入相反锁序；满载立即回滚并允许重试。
+    if slots.locked():
+        raise PoolTimeout("Account pool operation connection budget exhausted")
+    async with slots, pool.connection() as connection:
+        yield connection
+
+
 @asynccontextmanager
 async def database_connection(database_url: str) -> AsyncGenerator[psycopg.AsyncConnection[Mapping[str, object]], None]:
+    pool: Final = _DATABASE_POOLS.get((asyncio.get_running_loop(), database_url))
+    if pool is not None:
+        async with pool.connection() as pooled_connection:
+            yield pooled_connection
+        return
     connection: Final = await psycopg.AsyncConnection[Mapping[str, object]].connect(
         database_url,
         row_factory=dict_row,

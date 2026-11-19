@@ -13,7 +13,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from account_pool.application.effective_policy import effective_policy
-from account_pool.application.quota_state import routing_quota_state
+from account_pool.application.quota_state import routing_quota, routing_quota_state
 from account_pool.card_keys import CardKeyService
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import ChannelKind, EnvironmentRecord, GatewayEnvironment, ModelCooldown, utc_now
@@ -31,7 +31,7 @@ from account_pool.gateway_contracts import (
     ResolveRequest,
 )
 from account_pool.gateway_repository import LeaseRepository
-from account_pool.policies import CodexPolicy, PolicyRepository
+from account_pool.policies import CodexPolicy, PolicyRepository, PolicyView
 from account_pool.ports import EnvironmentRepository
 from account_pool.settings import (
     AccountPoolSettings,
@@ -104,19 +104,31 @@ class GatewayService:
             if effective_card_policy.routing.fallback_enabled and not trusted
             else (card,)
         )
+        eligible: Final = tuple(
+            member
+            for member in scope
+            if member.channel == card.channel
+            and member.supplier == card.supplier
+            and member.enabled
+            and not member.manual_cooldown
+            and not member.configuration_pending
+            and member.id not in cooling
+            and self.gateway(member).routable
+        )
+        owned: Final = (
+            await self.ownership.owns_many({member.id: member.credential_fingerprints for member in eligible})
+            if self.ownership is not None
+            else frozenset(member.id for member in eligible)
+        )
+        members: Final = tuple(member for member in eligible if member.id in owned)
+        other_card_ids: Final = tuple(member.id for member in members if member.id != card.id)
+        other_policies: Final = await self.policies.get_many(other_card_ids) if other_card_ids else ()
+        candidate_policies: Final = {
+            view.card_id: view
+            for view in (policy, *other_policies)
+        }
         candidates: Final = tuple(
-            [
-                await self.candidate(member, global_settings)
-                for member in scope
-                if member.channel == card.channel
-                and member.supplier == card.supplier
-                and member.enabled
-                and not member.manual_cooldown
-                and not member.configuration_pending
-                and member.id not in cooling
-                and self.gateway(member).routable
-                and (self.ownership is None or await self.ownership.owns(member.id, member.credential_fingerprints))
-            ]
+            [await self.candidate(member, global_settings, candidate_policies[member.id]) for member in members]
         )
         binding: Final = binding_hash(key_id, request.session_hash) if policy.policy.routing.session_affinity else None
         streaming_mode: Final = (
@@ -152,9 +164,10 @@ class GatewayService:
         self,
         record: EnvironmentRecord,
         global_settings: AccountPoolSettings | None = None,
+        policy_view: PolicyView | None = None,
     ) -> Candidate:
         endpoint: Final = self.gateway(record)
-        policy: Final = await self.policies.get(record.id)
+        policy: Final = policy_view if policy_view is not None else await self.policies.get(record.id)
         effective_settings: Final = (
             settings_for_card(global_settings, record.id) if global_settings is not None else None
         )
@@ -175,7 +188,8 @@ class GatewayService:
             else configured_policy
         )
         now: Final = utc_now()
-        remaining, observed = routing_quota_state(record.quota, now)
+        quota: Final = routing_quota(record)
+        remaining, observed = routing_quota_state(quota, now)
         return Candidate(
             id=record.id,
             channel=record.channel,
@@ -193,12 +207,16 @@ class GatewayService:
             policy=candidate_policy,
             remaining_percent=remaining,
             quota_observed_at=observed,
-            quota_windows=tuple(CandidateQuotaWindow.model_validate(w.model_dump()) for w in record.quota.windows),
+            quota_windows=tuple(CandidateQuotaWindow.model_validate(w.model_dump()) for w in quota.windows),
+            quota_refresh_status=quota.refresh_status,
+            extra_usage_enabled=quota.extra_usage_enabled,
             model_quotas=tuple(
                 CandidateModelQuota(
                     model=item.model,
                     remaining_percent=remaining,
                     observed_at=observed,
+                    refresh_status=item.quota.refresh_status,
+                    extra_usage_enabled=item.quota.extra_usage_enabled,
                     windows=tuple(CandidateQuotaWindow.model_validate(w.model_dump()) for w in item.quota.windows),
                 )
                 for item in record.model_quotas
@@ -351,35 +369,33 @@ class GatewayService:
             if lease.budget_enabled
             else None
         )
-        try:
-            await self.logs.repository.append(event)
-        finally:
-            # 日志故障不能占住并发租约，否则账号会持续误判为满载。
-            await self.leases.release(
-                lease,
-                cooldown,
-                actual_tokens,
-                model_cooldown_seconds=0
-                if request_scoped
-                else max(
-                    observed_delay,
-                    request.model_cooldown_seconds,
-                    request.retry_after_seconds,
-                    60
-                    if request.http_status == 429 and request.failure_reason is None
-                    else 5
-                    if request.failure_reason == "rate_limit"
-                    else 0,
-                ),
-                model_succeeded=not failed,
-                timeout_failure=request.http_status == 504,
-                clear_sessions=request.failure_reason in ("quota_exhausted", "account_unavailable"),
-            )
-            if request.failure_reason == "quota_exhausted" and self.on_quota_exhausted is not None:
-                try:
-                    self.on_quota_exhausted(lease.account_id)
-                except Exception as error:
-                    logging.getLogger(__name__).warning("Quota refresh enqueue failed: %s", type(error).__name__)
+        # 先原子结算预算和冷却再写日志，慢日志也不能占住并发租约。
+        await self.leases.release(
+            lease,
+            cooldown,
+            actual_tokens,
+            model_cooldown_seconds=0
+            if request_scoped
+            else max(
+                observed_delay,
+                request.model_cooldown_seconds,
+                request.retry_after_seconds,
+                60
+                if request.http_status == 429 and request.failure_reason is None
+                else 5
+                if request.failure_reason == "rate_limit"
+                else 0,
+            ),
+            model_succeeded=not failed,
+            timeout_failure=request.http_status == 504,
+            clear_sessions=request.failure_reason in ("quota_exhausted", "account_unavailable"),
+        )
+        if request.failure_reason == "quota_exhausted" and self.on_quota_exhausted is not None:
+            try:
+                self.on_quota_exhausted(lease.account_id)
+            except Exception as error:
+                logging.getLogger(__name__).warning("Quota refresh enqueue failed: %s", type(error).__name__)
+        await self.logs.repository.append(event)
 
         if request.completed_successfully and self.on_api_completed is not None:
             try:

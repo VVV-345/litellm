@@ -25,9 +25,10 @@ from account_pool.error_logs import (
     ErrorStats,
 )
 from account_pool.management_api import create_management_router
-from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView, RoutingPolicy
+from account_pool.policies import AccountPolicy, PolicyUpdate, PolicyView, PostgresPolicyRepository, RoutingPolicy
 from account_pool.quota import ProviderEndpointFailure, ProviderQuotaError
 from account_pool.quota_scheduler import QuotaRefreshScheduler
+from account_pool.repository import PostgresEnvironmentRepository
 from account_pool.result import Failure, Success
 from account_pool.secrets import EnvironmentSecretDeriver
 from account_pool.service import EnvironmentService, _plugin_store_approves
@@ -185,6 +186,9 @@ class MemoryPolicies:
 
     async def get(self, card_id: UUID) -> PolicyView:
         return self.records.get(card_id, PolicyView(card_id=card_id))
+
+    async def get_many(self, card_ids: tuple[UUID, ...]) -> tuple[PolicyView, ...]:
+        return tuple(self.records.get(identifier, PolicyView(card_id=identifier)) for identifier in card_ids)
 
     async def save(self, card_id: UUID, request: PolicyUpdate) -> PolicyView | None:
         current: Final = await self.get(card_id)
@@ -834,3 +838,26 @@ def test_policy_reset_reapplies_the_winning_policy_when_the_version_changes() ->
     assert racing.records[record.id].version == 4
     assert applied[0].routing.strategy == "auto"
     assert applied[-1].routing.strategy == "plan"
+
+@pytest.mark.asyncio
+async def test_postgres_policy_batch_preserves_scope_order_and_default_versions() -> None:
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    environments: Final = PostgresEnvironmentRepository(url)
+    await environments.initialize()
+    repository: Final = PostgresPolicyRepository(url)
+    await repository.initialize()
+    first: Final = _record(status=EnvironmentStatus.READY)
+    second: Final = first.model_copy(update={"id": uuid4()})
+    await environments.save(first)
+    await environments.save(second)
+    saved: Final = await repository.save(first.id, PolicyUpdate(version=0,
+        policy=AccountPolicy(routing=RoutingPolicy(priority=7))))
+    assert saved is not None
+    missing: Final = uuid4()
+    views: Final = await repository.get_many((second.id, first.id, missing, first.id))
+    assert tuple(view.card_id for view in views) == (second.id, first.id, missing, first.id)
+    assert tuple(view.version for view in views) == (0, 1, 0, 1)
+    assert views[1] == saved and views[3] == saved
+    assert await repository.get_many(()) == ()

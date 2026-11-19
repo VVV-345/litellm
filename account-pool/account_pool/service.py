@@ -36,6 +36,7 @@ from account_pool.application.plugin_validation import (
 from account_pool.application.profile_updates import (
     _ExplicitProfileUpdate,
 )
+from account_pool.application.quota_state import routing_quota
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashError, ClashProxyNode
 from account_pool.config import Settings, validate_proxy_profile_url
@@ -568,7 +569,7 @@ class EnvironmentService:
             endpoint.model_copy(
                 update={
                     "policy_version": stored.version,
-                    "quota": record.quota,
+                    "quota": routing_quota(record),
                     "model_quotas": record.model_quotas,
                     "model_cooldowns": record.model_cooldowns,
                     "model_aliases": {alias.alias: alias.target for alias in policy.model_aliases},

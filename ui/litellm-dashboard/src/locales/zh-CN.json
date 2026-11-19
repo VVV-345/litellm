@@ -7174,6 +7174,7 @@
         "cliproxyapi_cache": "CLIProxyAPI 缓存",
         "stored_cache": "已保存快照"
       },
+      "staleSnapshot": "快照已过期，等待刷新",
       "prepaidBalance": "预付余额",
       "availableBalance": "{{name}} 可用余额",
       "minimumRequired": "最低使用门槛：{{amount}}",

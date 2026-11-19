@@ -400,3 +400,29 @@ async def test_glm_allowlist_transition_preserves_native_settings_and_is_idempot
             "litellm_params": saved["litellm_params"], "model_info": saved["model_info"],
         })
         assert await store.upsert(desired) is False
+
+
+@pytest.mark.asyncio
+async def test_reconcile_keeps_extra_usage_permission_and_hard_limit_window_identity() -> None:
+    from datetime import datetime, timezone
+
+    from litellm.proxy.management_endpoints.account_pool_native_routing import available, snapshots
+
+    now: Final = datetime.now(timezone.utc)
+    environment: Final = GatewayEnvironment.model_validate({
+        **_environment(routable=True).model_dump(),
+        "quota": {"observed_at": now, "refresh_status": "complete", "extra_usage_enabled": True, "windows": [
+            {"name": "5 hour", "remaining_percent": 0},
+            {"name": "Extra usage", "remaining_percent": 20},
+        ]},
+    })
+    previous: Final = snapshots.values
+    try:
+        await reconcile(FakeGatewayClient((environment,)), FakeDeploymentStore(desired_deployments((environment,))))
+        snapshot: Final = snapshots.values[str(environment.id)]
+        assert snapshot.quota.extra_usage_enabled is True
+        assert snapshot.quota.refresh_status == "complete"
+        assert tuple(w.name for w in snapshot.quota.windows) == ("5 hour", "Extra usage")
+        assert available(snapshot, environment.enabled_models[0], now)
+    finally:
+        snapshots.replace(previous)

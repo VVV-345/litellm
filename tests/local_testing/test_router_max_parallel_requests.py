@@ -958,3 +958,130 @@ async def test_max_parallel_requests_tpm_rate_limiting_base_case():
 
     with pytest.raises(litellm.RateLimitError):
         await _exceed_limit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("api", ("chat", "responses"))
+@pytest.mark.parametrize("ending", ("exhaust", "close", "error", "cancel"))
+async def test_account_pool_router_holds_permit_for_entire_stream(api, ending, monkeypatch):
+    from uuid import uuid4
+
+    from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
+
+    class Stream:
+        def __init__(self):
+            self._hidden_params = {"fixture": "preserved"}
+            self.closed = 0
+            self.read = False
+            self.waiting = asyncio.Event()
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            if not self.read:
+                self.read = True
+                return "chunk"
+            if ending == "error":
+                raise RuntimeError("fixture stream failed")
+            if ending == "cancel":
+                self.waiting.set()
+                await asyncio.Event().wait()
+            raise StopAsyncIteration
+
+        async def aclose(self):
+            self.closed += 1
+
+    router = litellm.Router(
+        model_list=[_account_pool_deployment("model-a", _ENVIRONMENT_A, 1)],
+        num_retries=0, disable_cooldowns=True,
+        account_pool_routing={"session_affinity": False},
+    )
+    semaphore = router._get_client(router.model_list[0], {}, client_type="max_parallel_requests")
+    original = Stream()
+
+    async def provider(**kwargs):
+        assert semaphore._value == 0
+        return original
+
+    token = pool_identity.set(PoolIdentity(key_hash="fixture", request_id=uuid4()))
+    try:
+        if api == "chat":
+            monkeypatch.setattr(litellm, "acompletion", provider)
+            response = await router.acompletion(
+                model="model-a", messages=[{"role": "user", "content": "fixture"}], stream=True,
+            )
+        else:
+            response = await router._ageneric_api_call_with_fallbacks_helper(
+                model="model-a", original_generic_function=provider, stream=True,
+            )
+        assert semaphore._value == 0
+        assert response._hidden_params["fixture"] == "preserved"
+        assert not original.read
+        if ending == "close":
+            await response.aclose()
+        else:
+            assert await response.__anext__() == "chunk"
+            assert semaphore._value == 0
+            if ending == "cancel":
+                consumer = asyncio.create_task(response.__anext__())
+                await original.waiting.wait()
+                consumer.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await consumer
+            else:
+                with pytest.raises(RuntimeError if ending == "error" else StopAsyncIteration):
+                    await response.__anext__()
+        assert semaphore._value == 1
+        assert original.closed == 1
+        await response.aclose()
+        assert semaphore._value == 1
+        assert original.closed == 1
+    finally:
+        pool_identity.reset(token)
+        router.discard()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", (False, True))
+async def test_account_pool_stream_repeated_cancellation_finishes_close_before_release(failed):
+    from litellm.router_utils.client_initalization_utils import AccountPoolStream
+
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    closed = []
+
+    class SlowClose:
+        async def __anext__(self):
+            if failed:
+                raise RuntimeError("fixture original error")
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            entered.set()
+            await release.wait()
+            closed.append(True)
+
+    semaphore = asyncio.Semaphore(1)
+    await semaphore.acquire()
+    stream = AccountPoolStream(SlowClose(), semaphore)
+    consuming = asyncio.create_task(stream.__anext__())
+    if not failed:
+        await asyncio.sleep(0)
+        consuming.cancel()
+    await entered.wait()
+    consuming.cancel()
+    await asyncio.sleep(0)
+    consuming.cancel()
+    await asyncio.sleep(0)
+    assert not consuming.done()
+    assert semaphore._value == 0
+    assert not closed
+    release.set()
+    with pytest.raises(RuntimeError if failed else asyncio.CancelledError, match="fixture original error" if failed else None):
+        await consuming
+    assert closed == [True]
+    assert semaphore._value == 1
+    await stream.aclose()
+    assert semaphore._value == 1
+    assert closed == [True]

@@ -123,7 +123,9 @@ from litellm.router_utils.batch_utils import (
 )
 from litellm.router_utils.client_initalization_utils import (
     AccountPoolConcurrencyRegistry,
+    AccountPoolStream,
     InitalizeCachedClient,
+    account_pool_environment_id,
     account_pool_environment_limits,
 )
 from litellm.router_utils.clientside_credential_handler import (
@@ -3275,6 +3277,7 @@ class Router:
         model_name = None
         deployment = None
         _timeout_debug_deployment_dict = {}  # this is a temporary dict to debug timeout issues
+        stream_semaphore: asyncio.Semaphore | None = None  # rebind-ok: transfer the held permit to the returned stream
         try:
             input_kwargs_for_streaming_fallback: Final = kwargs.copy()
             input_kwargs_for_streaming_fallback["model"] = model
@@ -3353,7 +3356,18 @@ class Router:
                 kwargs=kwargs,
                 client_type="max_parallel_requests",
             )
-            if rpm_semaphore is not None and isinstance(rpm_semaphore, asyncio.Semaphore):
+            if (
+                isinstance(rpm_semaphore, asyncio.Semaphore)
+                and kwargs.get("stream")
+                and account_pool_environment_id(deployment.get("model_info")) is not None
+            ):
+                await rpm_semaphore.acquire()
+                stream_semaphore = rpm_semaphore
+                await self.async_routing_strategy_pre_call_checks(
+                    deployment=deployment, parent_otel_span=parent_otel_span
+                )
+                response = await _response
+            elif rpm_semaphore is not None and isinstance(rpm_semaphore, asyncio.Semaphore):
                 async with rpm_semaphore:
                     """
                     - Check rpm limits before making the call
@@ -3409,6 +3423,9 @@ class Router:
                     initial_kwargs=input_kwargs_for_streaming_fallback,
                 )
 
+            if stream_semaphore is not None and hasattr(response, "__anext__"):
+                response = AccountPoolStream(response, stream_semaphore)
+                stream_semaphore = None
             return response
         except litellm.Timeout as e:
             deployment_request_timeout_param: Final = _timeout_debug_deployment_dict.get("litellm_params", {}).get(
@@ -3431,6 +3448,9 @@ class Router:
                 self._set_deployment_num_retries_on_exception(e, deployment)
                 self._stamp_failed_deployment_id_with_effective_model_info(e, deployment, kwargs)
             raise e
+        finally:
+            if stream_semaphore is not None:
+                stream_semaphore.release()
 
     def _update_kwargs_before_fallbacks(
         self,
@@ -5101,6 +5121,7 @@ class Router:
         passthrough_on_no_deployment: Final = kwargs.pop("passthrough_on_no_deployment", False)
         function_name: Final = "_ageneric_api_call_with_fallbacks"
         deployment = None  # rebind-ok: pre-init so the except block can stamp a failure with no deployment picked
+        stream_semaphore: asyncio.Semaphore | None = None  # rebind-ok: transfer the held permit to the returned stream
         try:
             parent_otel_span: Final = _get_parent_otel_span_from_kwargs(kwargs)
             try:
@@ -5155,7 +5176,18 @@ class Router:
                 client_type="max_parallel_requests",
             )
 
-            if rpm_semaphore is not None and isinstance(rpm_semaphore, asyncio.Semaphore):
+            if (
+                isinstance(rpm_semaphore, asyncio.Semaphore)
+                and kwargs.get("stream")
+                and account_pool_environment_id(deployment.get("model_info")) is not None
+            ):
+                await rpm_semaphore.acquire()
+                stream_semaphore = rpm_semaphore
+                await self.async_routing_strategy_pre_call_checks(
+                    deployment=deployment, parent_otel_span=parent_otel_span
+                )
+                response = await response
+            elif rpm_semaphore is not None and isinstance(rpm_semaphore, asyncio.Semaphore):
                 async with rpm_semaphore:
                     """
                     - Check rpm limits before making the call
@@ -5174,6 +5206,9 @@ class Router:
             self.success_calls[model_name] += 1
             verbose_router_logger.info("ageneric_api_call_with_fallbacks(model=%s)\x1b[32m 200 OK\x1b[0m", model_name)
 
+            if stream_semaphore is not None and hasattr(response, "__anext__"):
+                response = AccountPoolStream(response, stream_semaphore)
+                stream_semaphore = None
             return response
         except Exception as e:
             verbose_router_logger.info(
@@ -5184,6 +5219,9 @@ class Router:
             if deployment is not None:
                 self._stamp_failed_deployment_id_with_effective_model_info(e, deployment, kwargs)
             raise e
+        finally:
+            if stream_semaphore is not None:
+                stream_semaphore.release()
 
     async def _aresponses_with_streaming_fallbacks(
         self, original_function: Callable, **kwargs: Any

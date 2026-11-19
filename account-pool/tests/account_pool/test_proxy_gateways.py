@@ -1303,3 +1303,73 @@ def test_manager_api_returns_declared_configuration_path() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"config_path": "/opt/litellm/mihomo/config.yaml"}
+
+
+@pytest.mark.asyncio
+async def test_configuration_io_does_not_block_event_loop(tmp_path: Path, monkeypatch) -> None:
+    import threading
+
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("proxies: []\nproxy-groups: []\nlisteners: []\n", encoding="utf-8")
+    service, _ = _service(
+        _settings(()).model_copy(update={"clash_config_path": str(config_path)}), FakeController()
+    )
+    main_thread = threading.get_ident()
+    calls = []
+    load, dump, replace = yaml.safe_load, yaml.safe_dump, service._replace_config
+
+    def tracked_load(*args, **kwargs):
+        calls.append(("load", threading.get_ident()))
+        return load(*args, **kwargs)
+
+    def tracked_dump(*args, **kwargs):
+        calls.append(("dump", threading.get_ident()))
+        return dump(*args, **kwargs)
+
+    def tracked_replace(*args, **kwargs):
+        calls.append(("replace", threading.get_ident()))
+        return replace(*args, **kwargs)
+
+    monkeypatch.setattr(yaml, "safe_load", tracked_load)
+    monkeypatch.setattr(yaml, "safe_dump", tracked_dump)
+    monkeypatch.setattr(service, "_replace_config", tracked_replace)
+    await service.update_configuration(content="proxies: []\nproxy-groups: []\nlisteners: []\nmode: rule\n")
+    assert {name for name, _ in calls} == {"load", "dump", "replace"}
+    assert all(thread != main_thread for _, thread in calls)
+
+
+@pytest.mark.asyncio
+async def test_configuration_cancellation_waits_for_write_and_rollback(tmp_path: Path, monkeypatch) -> None:
+    import threading
+
+    config_path = tmp_path / "config.yaml"
+    original = "proxies: []\nproxy-groups: []\nlisteners: []\n"
+    config_path.write_text(original, encoding="utf-8")
+    controller = FakeController(fail_reload=True)
+    service, _ = _service(_settings(()).model_copy(update={"clash_config_path": str(config_path)}), controller)
+    entered, proceed = threading.Event(), threading.Event()
+    replace = service._replace_config
+
+    def slow_replace(path, directory, content):
+        if content != original:
+            entered.set()
+            assert proceed.wait(3), "configuration write was not released"
+        replace(path, directory, content)
+
+    monkeypatch.setattr(service, "_replace_config", slow_replace)
+    update = asyncio.create_task(service.update_configuration(content=original + "mode: rule\n"))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        update.cancel()
+        await asyncio.sleep(0.02)
+        assert not update.done()
+        assert service._registry_lock.locked()
+        proceed.set()
+        with pytest.raises(asyncio.CancelledError):
+            await update
+        assert config_path.read_text(encoding="utf-8") == original
+        assert len(controller.reloaded) == 2
+        assert not service._registry_lock.locked()
+    finally:
+        proceed.set()
+        await asyncio.gather(update, return_exceptions=True)

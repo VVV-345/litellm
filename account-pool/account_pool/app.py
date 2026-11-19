@@ -12,7 +12,9 @@ from uuid import UUID
 
 import httpx
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from psycopg_pool import PoolTimeout
 
 from account_pool.access_token_fallback import AccessTokenFallbackService
 from account_pool.api import create_router
@@ -31,7 +33,6 @@ from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
 from account_pool.error_logs import ErrorLogService
-from account_pool.manager_logs import ManagerLogs
 from account_pool.feedback import FeedbackService
 from account_pool.feedback.repository import PostgresFeedbackRepository
 from account_pool.gateway_repository import PostgresLeaseRepository
@@ -41,12 +42,13 @@ from account_pool.management_repository import (
     PostgresErrorLogRepository,
     initialize_management_schema,
 )
-from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
+from account_pool.manager_logs import ManagerLogs
 from account_pool.oauth_automation.login_scripts import LoginScriptStore
 from account_pool.oauth_automation.repository import PostgresAutomationRepository
 from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.oauth_automation.worker import AutomationWorker
+from account_pool.oauth_browser import OAuthBrowserSessionService, cleanup_oauth_browser_sessions
 from account_pool.onboarding.repository import PostgresOnboardingRepository
 from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
@@ -67,6 +69,7 @@ from account_pool.repository import (
     PostgresEnvironmentRepository,
     PostgresOAuthBrowserSessionRepository,
     PostgresProxyProfileRepository,
+    database_pool,
 )
 from account_pool.service import EnvironmentService
 from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
@@ -210,7 +213,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return failed
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    async def manager_lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
         resolved.data_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         await environments.initialize()
         await reset_store.initialize()
@@ -316,7 +319,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await reset_http.aclose()
             await automation_http.aclose()
 
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
+        async with database_pool(resolved.database_url), manager_lifespan(application):
+            yield
+
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
+
+    @app.exception_handler(PoolTimeout)
+    async def database_busy(_: Request, _error: PoolTimeout) -> JSONResponse:
+        return JSONResponse(
+            {"detail": "Account pool database is busy; retry later"}, status_code=503, headers={"Retry-After": "1"}
+        )
+
     app.include_router(
         create_router(
             service,

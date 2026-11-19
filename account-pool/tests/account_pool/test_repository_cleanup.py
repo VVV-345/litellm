@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Final, cast
@@ -13,6 +15,7 @@ from account_pool.domain import ChannelKind, EnvironmentStatus, ModelCooldown, S
 from account_pool.gateway_contracts import Lease
 from account_pool.gateway_repository import _release_lease, reserve_token_budget, settle_model_cooldowns
 from account_pool.repository import _delete_environment
+from psycopg_pool import PoolTimeout
 from test_account_pool import _record
 
 
@@ -211,6 +214,146 @@ async def test_timeout_failure_persists_streak_without_an_active_cooldown() -> N
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("prior_cooldown", (False, True))
+async def test_release_does_not_rewrite_unchanged_model_cooldowns(prior_cooldown: bool) -> None:
+    request: Final = lease(uuid4(), uuid4())
+    cooldowns: Final = (
+        (ModelCooldown(model=request.model, retry_at=request.started_at + timedelta(minutes=1)),)
+        if prior_cooldown else ()
+    )
+    record: Final = _record(status=EnvironmentStatus.READY).model_copy(
+        update={"id": request.account_id, "model_cooldowns": cooldowns}
+    )
+
+    class UnchangedConnection:
+        def __init__(self) -> None:
+            self.statements: tuple[str, ...] = ()
+
+        async def execute(self, query: str, params: tuple[object, ...] = ()) -> ResultCursor:
+            self.statements = (*self.statements, query)
+            if query.startswith("SELECT id, payload"):
+                return ResultCursor({"id": request.account_id, "payload": record.model_dump(mode="json")})
+            if query.startswith("DELETE FROM account_pool_leases"):
+                return ResultCursor({"lease_id": request.lease_id})
+            return ResultCursor()
+
+    connection: Final = UnchangedConnection()
+    await _release_lease(connection, request, 0, None, model_succeeded=True)
+    assert any("FOR UPDATE" in statement for statement in connection.statements)
+    assert not any("SET payload = jsonb_set" in statement for statement in connection.statements)
+
+
+@pytest.mark.asyncio
+async def test_database_pool_reuses_bounds_rolls_back_and_keeps_other_dsns_direct() -> None:
+    from account_pool.repository import database_connection, database_pool
+
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    ready: Final = asyncio.Event()
+
+    async def sibling_request() -> int:
+        await ready.wait()
+        async with database_connection(url) as connection:
+            result: Final = await connection.execute("SELECT pg_backend_pid() AS pid")
+            row: Final = await result.fetchone()
+            assert row is not None
+            return int(row["pid"])
+
+    sibling: Final = asyncio.create_task(sibling_request())
+    async with database_pool(url, max_size=1, timeout=0.1) as pool:
+        await pool.wait(timeout=3)
+        async with database_connection(url) as original:
+            result: Final = await original.execute("SELECT pg_backend_pid() AS pid")
+            row: Final = await result.fetchone()
+            assert row is not None
+            pid: Final = row["pid"]
+            await original.execute("CREATE TEMP TABLE pool_probe (value integer)")
+            await original.execute("INSERT INTO pool_probe VALUES (1)")
+            with pytest.raises(PoolTimeout):
+                async with database_connection(url):
+                    pytest.fail("pool exceeded its connection limit")
+        with pytest.raises(RuntimeError, match="rollback probe"):
+            async with database_connection(url) as failed:
+                await failed.execute("INSERT INTO pool_probe VALUES (2)")
+                raise RuntimeError("rollback probe")
+        async with database_connection(url) as reused:
+            values: Final = await reused.execute("SELECT sum(value) AS total FROM pool_probe")
+            total: Final = await values.fetchone()
+            assert total is not None and total["total"] == 1
+            assert reused is original
+        ready.set()
+        assert await sibling == pid
+        scoped: Final = psycopg.conninfo.make_conninfo(url, application_name="pool-unregistered-test")
+        async with database_connection(scoped) as direct:
+            other: Final = await direct.execute("SELECT pg_backend_pid() AS pid")
+            other_row: Final = await other.fetchone()
+            assert other_row is not None and other_row["pid"] != pid
+        assert direct.closed
+    assert pool.closed and original.closed
+    async with database_connection(url) as after_close:
+        await after_close.execute("SELECT 1")
+    assert after_close.closed
+    async with database_pool(url, max_size=1) as reopened:
+        async with database_connection(url) as connection:
+            await connection.execute("SELECT 1")
+    assert reopened.closed
+
+
+@pytest.mark.asyncio
+async def test_database_pool_returns_connection_after_cancelled_transaction_and_closes_on_failure() -> None:
+    from account_pool.repository import database_connection, database_pool
+
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    entered: Final = asyncio.Event()
+
+    async def cancelled_request() -> None:
+        async with database_connection(url) as connection:
+            entered.set()
+            await connection.execute("SELECT pg_sleep(30)")
+
+    with pytest.raises(RuntimeError, match="startup failure"):
+        async with database_pool(url, max_size=1, timeout=1) as pool:
+            task: Final = asyncio.create_task(cancelled_request())
+            await asyncio.wait_for(entered.wait(), 1)
+            await asyncio.sleep(0.05)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            async with database_connection(url) as recovered:
+                result: Final = await recovered.execute("SELECT 1 AS value")
+                row: Final = await result.fetchone()
+                assert row is not None and row["value"] == 1
+            raise RuntimeError("startup failure")
+    assert pool.closed and recovered.closed
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured,expected", ((0, "30s"), (60000, "30s"), (250, "250ms")))
+async def test_database_pool_bounds_statements_without_raising_shorter_dsn_timeouts(configured: int, expected: str) -> None:
+    from account_pool.repository import database_connection, database_pool
+
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    scoped: Final = psycopg.conninfo.make_conninfo(url, options=f"-c statement_timeout={configured}")
+    async with database_pool(scoped, max_size=1):
+        async with database_connection(scoped) as connection:
+            result: Final = await connection.execute("SHOW statement_timeout")
+            row: Final = await result.fetchone()
+            assert row is not None and row["statement_timeout"] == expected
+        if configured == 250:
+            with pytest.raises(psycopg.errors.QueryCanceled):
+                async with database_connection(scoped) as timed_out:
+                    await timed_out.execute("SELECT pg_sleep(1)")
+            async with database_connection(scoped) as reused:
+                assert reused is connection
+                await reused.execute("SELECT 1")
+
+
+@pytest.mark.asyncio
 async def test_deleting_card_clears_its_leases_and_session_bindings() -> None:
     card_id: Final = uuid4()
     member_id: Final = uuid4()
@@ -342,3 +485,18 @@ async def test_token_budget_uses_active_fixed_window_only() -> None:
     assert exact_limit == first_window
     assert exhausted is None
     assert reset == next_window
+
+@pytest.mark.asyncio
+async def test_manager_pool_timeout_is_retryable_and_never_exposes_database_details(tmp_path) -> None:
+    from account_pool.app import create_app
+    from fastapi import Request
+    from psycopg_pool import PoolTimeout
+    from test_account_pool import _settings
+
+    app = create_app(_settings(tmp_path))
+    handler = app.exception_handlers[PoolTimeout]
+    response = await handler(Request({"type": "http", "method": "GET", "path": "/api/environments", "headers": []}),
+                             PoolTimeout("postgresql://fixture-secret@private-database.invalid:5432/private"))
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "1"
+    assert b"fixture-secret" not in response.body and b"private-database" not in response.body

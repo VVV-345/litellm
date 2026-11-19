@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import os
 from typing import Final
 from uuid import uuid4
 
@@ -140,3 +141,118 @@ async def test_access_only_and_full_codex_credentials_cannot_claim_the_same_acce
         await registry.claim(uuid4(), second.fingerprints)
     await registry.claim(owner, second.fingerprints)
     assert await registry.owns(owner, (*first.fingerprints, *second.fingerprints))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("postgres", (False, True))
+async def test_batch_ownership_requires_all_fingerprints_on_the_exact_owner(postgres: bool) -> None:
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL") if postgres else None
+    if postgres and not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    registry: Final = CredentialOwnership(url)
+    await registry.initialize()
+    first, second, partial, stolen, empty = (uuid4() for _ in range(5))
+    prefix: Final = uuid4().hex
+    primary, secondary, missing, partial_key = (prefix + suffix for suffix in ("-a", "-b", "-missing", "-partial"))
+    await registry.claim(first, (primary, secondary))
+    await registry.claim(second, (prefix + "-second",))
+    await registry.claim(partial, (partial_key,))
+    assert await registry.owns_many({
+        first: (primary, primary, secondary), second: (prefix + "-second",),
+        partial: (partial_key, missing), stolen: (primary,), empty: (),
+    }) == frozenset((first, second))
+    assert await registry.owns_many({}) == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_operation_budget_rejects_seventh_without_blocking_model_queries() -> None:
+    from contextlib import AsyncExitStack
+
+    from account_pool.repository import PostgresEnvironmentRepository, database_pool
+    from psycopg_pool import PoolTimeout
+
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    registry: Final = CredentialOwnership(url)
+    local_profile: Final = asyncio.Lock()
+    async with database_pool(url, max_size=1) as main_pool:
+        environments: Final = PostgresEnvironmentRepository(url)
+        await environments.initialize()
+        async with local_profile, AsyncExitStack() as locks:
+            for _ in range(6):
+                await locks.enter_async_context(registry.operation(uuid4()))
+            async with asyncio.timeout(0.1):
+                with pytest.raises(PoolTimeout):
+                    async with registry.operation(uuid4()):
+                        pytest.fail("seventh long operation exceeded its independent budget")
+            async with asyncio.timeout(0.5):
+                assert await environments.get(uuid4()) is None
+            assert main_pool.get_stats()["pool_size"] == 1
+        async with registry.operation(uuid4()), registry.operation(uuid4()), registry.operation(uuid4()):
+            assert await environments.get(uuid4()) is None
+
+
+@pytest.mark.asyncio
+async def test_nested_operation_exhaustion_releases_existing_advisory_lock() -> None:
+    from contextlib import AsyncExitStack
+
+    from account_pool.repository import database_connection, database_pool
+    from psycopg_pool import PoolTimeout
+
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    registry: Final = CredentialOwnership(url)
+    outer: Final = uuid4()
+    async with database_pool(url), AsyncExitStack() as occupied:
+        for _ in range(5):
+            await occupied.enter_async_context(registry.operation(uuid4()))
+        with pytest.raises(PoolTimeout):
+            async with registry.operation(outer), registry.operation(uuid4()):
+                pytest.fail("nested operation unexpectedly exceeded the budget")
+        async with database_connection(url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0)) AS released", (str(outer),)
+            )
+            row: Final = await cursor.fetchone()
+            assert row is not None and row["released"] is True
+        async with registry.operation(outer):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_child_task_cannot_inherit_lock_budget_and_cancelled_waiter_returns_slot() -> None:
+    from contextlib import AsyncExitStack
+
+    from account_pool.repository import database_connection, database_pool
+    from psycopg_pool import PoolTimeout
+
+    url: Final = os.environ.get("ACCOUNT_POOL_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
+    registry: Final = CredentialOwnership(url)
+
+    async def child(owner) -> None:
+        async with registry.operation(owner):
+            pass
+
+    async with database_pool(url):
+        async with AsyncExitStack() as occupied:
+            owners: Final = tuple(uuid4() for _ in range(6))
+            for owner in owners:
+                await occupied.enter_async_context(registry.operation(owner))
+            with pytest.raises(PoolTimeout):
+                await asyncio.create_task(child(uuid4()))
+        waiting_owner: Final = uuid4()
+        async with registry.operation(waiting_owner):
+            waiter: Final = asyncio.create_task(child(waiting_owner))
+            await asyncio.sleep(0.05)
+            waiter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+        async with AsyncExitStack() as occupied_again:
+            for _ in range(6):
+                await occupied_again.enter_async_context(registry.operation(uuid4()))
+            async with database_connection(url) as connection:
+                await connection.execute("SELECT 1")

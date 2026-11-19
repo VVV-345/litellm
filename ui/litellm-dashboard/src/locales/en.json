@@ -7174,6 +7174,7 @@
         "cliproxyapi_cache": "CLIProxyAPI cache",
         "stored_cache": "Stored snapshot"
       },
+      "staleSnapshot": "Snapshot stale, awaiting refresh",
       "prepaidBalance": "Prepaid balance",
       "availableBalance": "{{name}} available balance",
       "minimumRequired": "Minimum required: {{amount}}",

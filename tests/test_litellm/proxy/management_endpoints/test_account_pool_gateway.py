@@ -4582,3 +4582,538 @@ def test_glm_unverified_protocol_is_not_silently_converted_or_reported_success(e
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "unsupported_endpoint"
     assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_gateway_resources_reuse_isolated_bounded_clients_and_drain_cleanup():
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources, managed_cleanup
+
+    seen = []
+    created = []
+
+    def factory(proxy=None):
+        def upstream(request):
+            seen.append((proxy, request.headers.get("cookie"), request.headers.get("authorization")))
+            return httpx.Response(200, headers={"set-cookie": "shared=forbidden; Path=/"})
+        client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
+        created.append(client)
+        return client
+
+    resources = GatewayHTTPResources(factory, factory, proxy_limit=1)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def finish():
+        entered.set()
+        await release.wait()
+        assert not resources.control.is_closed
+        await resources.control.post("https://control.test/finish", headers={"authorization": "Bearer manager"})
+
+    with resources.bind():
+        async with resources.upstream(None) as direct:
+            await direct.get("https://upstream.test", headers={"authorization": "Bearer first"})
+            await direct.get("https://upstream.test", headers={"authorization": "Bearer second"})
+        async with resources.upstream(None) as reused:
+            assert reused is direct
+        async with resources.upstream("http://proxy-a") as first:
+            async with resources.upstream("http://proxy-a") as same:
+                assert same is first
+            async def borrow_other():
+                async with resources.upstream("http://proxy-b") as other:
+                    assert other is not first
+                    await other.get("https://upstream.test", headers={"authorization": "Bearer other"})
+            pending = asyncio.create_task(borrow_other())
+            await asyncio.sleep(0)
+            assert not pending.done()
+            assert not first.is_closed
+        await asyncio.wait_for(pending, 1)
+        assert first.is_closed
+        assert len(resources.proxies) == 1
+        cleanup = asyncio.create_task(managed_cleanup(finish()))
+        await entered.wait()
+        cleanup.cancel()
+        await asyncio.sleep(0)
+        cleanup.cancel()
+        closing = asyncio.create_task(resources.aclose())
+        await asyncio.sleep(0)
+        assert not closing.done()
+        assert not resources.control.is_closed
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await cleanup
+        await closing
+    assert all(client.is_closed for client in created)
+    assert all(cookie is None for _, cookie, _ in seen)
+    assert [auth for proxy, _, auth in seen if proxy is None] == ["Bearer first", "Bearer second", "Bearer manager"]
+
+
+def test_gateway_lifespan_reuses_clients_and_resolves_session_once():
+    _, original = setup_gateway(lambda _: httpx.Response(200))
+    clients = []
+    resolves = []
+
+    class CountingControl(Control):
+        async def resolve(self, request):
+            resolves.append(request)
+            return await super().resolve(request)
+
+    control = CountingControl(original.resolution)
+    def client_factory():
+        client = httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"output": []})))
+        clients.append(client)
+        return client
+
+    app = FastAPI()
+    app.add_middleware(
+        lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
+        control_factory=lambda _: control, client_factory=client_factory,
+    )
+    with TestClient(app) as client:
+        for _ in range(2):
+            response = client.post("/v1/responses", headers={"Authorization": f"Bearer {_KEY}", "session-id": "fixture"},
+                                   json={"model": "public-model", "input": "fixture"})
+            assert response.status_code == 200
+        assert len(clients) == 2
+        assert len(resolves) == 2
+        assert all(request.session_hash is not None for request in resolves)
+        assert all(not client.is_closed for client in clients)
+        assert len(control.acquisitions) == 2
+        assert len(control.finished) == 2
+    assert all(client.is_closed for client in clients)
+
+
+@pytest.mark.asyncio
+async def test_finish_attempt_times_out_logging_but_still_reports(monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import managed_cleanup
+
+    from litellm.proxy.management_endpoints import account_pool_gateway_forwarder as module
+    from litellm.proxy.management_endpoints.account_pool_gateway_contracts import AcquireRequest
+
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+    lease = await control.acquire(AcquireRequest(
+        card_key=_KEY, account_id=control.resolution.card_id, request_id=uuid4(), model="model-a",
+        card_version=1, policy_version=1, account_version=1, account_policy_version=1, timeout_seconds=120, attempt=1,
+    ))
+    async def send(message):
+        pass
+
+    class StalledLog:
+        async def finish(self, result):
+            await asyncio.Event().wait()
+
+    attempt = module.Attempt(lease, "/v1/responses", send, log=StalledLog())
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(module.asyncio, "timeout", lambda seconds: original_timeout(0.02 if seconds == 5 else seconds))
+    await asyncio.wait_for(managed_cleanup(module.finish_attempt(control, attempt)), 1)
+    assert len(control.finished) == 1
+    assert control.finished[0].lease_id == lease.lease_id
+
+
+@pytest.mark.asyncio
+async def test_gateway_absolute_deadline_covers_dns_before_upstream_send(monkeypatch):
+    import time
+
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints import account_pool_gateway_forwarder as module
+
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+    account = control.resolution.candidates[0].model_copy(update={
+        "channel": "openai_compatible", "supplier": "openai_compatible", "api_base": "https://public.test/v1",
+    })
+    resolution = control.resolution.model_copy(update={"candidates": (account,)})
+    selected = routes(resolution, "model-a", "/v1/responses", Headers())
+    assert not isinstance(selected, Rejected)
+    lease = await control.acquire(AcquireRequest(
+        card_key=_KEY, account_id=account.id, request_id=uuid4(), model="model-a",
+        card_version=1, policy_version=1, account_version=2, account_policy_version=1, timeout_seconds=120, attempt=1,
+    ))
+    request = Request({"type": "http", "path": "/v1/responses", "method": "POST", "headers": [], "query_string": b""})
+    messages = []
+    async def send(message):
+        messages.append(message)
+    def slow_dns(destination):
+        time.sleep(0.08)
+        return destination, None
+    monkeypatch.setattr(module, "validate_url", slow_dns)
+    attempt = module.Attempt(lease, "/v1/responses", send)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: pytest.fail("expired lease sent upstream"))) as client:
+        await module.execute(request, {"model": "model-a"}, selected[0], resolution, client, attempt, None, 120,
+                             lease_deadline=asyncio.get_running_loop().time() + 0.02)
+    assert attempt.result.http_status == 504
+    assert attempt.result.upstream_code == "request_timeout"
+    assert not getattr(request.state, "account_pool_upstream_attempted", False)
+    assert messages[0]["status"] == 504
+
+
+@pytest.mark.asyncio
+async def test_internal_gateway_uses_one_shared_admission_slot(monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+
+    from litellm.proxy.management_endpoints.account_pool_integration import INTERNAL_PREFIX, PoolIdentity, create_ticket
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "test-only-manager-token-" * 3)
+    _, original = setup_gateway(lambda _: httpx.Response(200))
+    class InternalControl(Control):
+        async def resolve(self, request):
+            return self.resolution.model_copy(update={"candidates": self.resolution.candidates[:1]})
+    control = InternalControl(original.resolution)
+    resources = GatewayHTTPResources(lambda: httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _: httpx.Response(200, json={"output": []})
+    )))
+    for _ in range(99):
+        await resources.admission.acquire()
+    async def ordinary(scope, receive, send):
+        pytest.fail("internal request escaped gateway")
+    middleware = AccountPoolGatewayMiddleware(ordinary, control_factory=lambda _: control, resources=resources)
+    ticket = create_ticket(PoolIdentity(key_hash="fixture", request_id=uuid4()), control.resolution.card_id)
+    body = json.dumps({"model": "model-a", "input": "fixture"}).encode()
+    delivered = False
+    async def receive():
+        nonlocal delivered
+        if not delivered:
+            delivered = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.request", "body": b"", "more_body": False}
+    messages = []
+    async def send(message):
+        messages.append(message)
+    scope = {"type": "http", "path": INTERNAL_PREFIX + str(control.resolution.card_id) + "/v1/responses",
+             "method": "POST", "query_string": b"", "headers": [(b"authorization", ("Bearer " + ticket).encode()),
+             (b"content-type", b"application/json")]}
+    try:
+        await asyncio.wait_for(middleware(scope, receive, send), 1)
+        assert messages[0]["status"] == 200
+        assert resources.admission._value == 1
+        assert len(control.acquisitions) == len(control.finished) == 1
+    finally:
+        await resources.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_shared_clients_reuse_real_local_tcp_connections():
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+
+    connections = []
+    requests = []
+    handlers = set()
+
+    async def server_request(reader, writer):
+        task = asyncio.current_task()
+        handlers.add(task)
+        connections.append(writer)
+        try:
+            while True:
+                raw = await reader.readuntil(b"\r\n\r\n")
+                requests.append(raw)
+                writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nSet-Cookie: blocked=yes; Path=/\r\n\r\nok")
+                await writer.drain()
+        except asyncio.IncompleteReadError:
+            pass
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            handlers.discard(task)
+
+    server = await asyncio.start_server(server_request, "127.0.0.1", 0)
+    port = server.sockets[0].getsockname()[1]
+    url = f"http://127.0.0.1:{port}/fixture"
+    resources = GatewayHTTPResources()
+    try:
+        for client in (resources.control, resources.direct):
+            for auth in ("first", "second"):
+                response = await client.get(url, headers={"authorization": f"Bearer {auth}"})
+                assert response.status_code == 200
+        for _ in range(2):
+            async with resources.upstream(f"http://127.0.0.1:{port}") as proxy:
+                assert (await proxy.get("http://upstream.invalid/fixture")).status_code == 200
+        assert len(connections) == 3
+        assert len(requests) == 6
+        assert not any(b"\r\ncookie:" in raw.lower() for raw in requests)
+        assert b"Bearer first" in requests[0] and b"Bearer second" in requests[1]
+    finally:
+        await resources.aclose()
+        server.close()
+        await server.wait_closed()
+        if handlers:
+            await asyncio.gather(*tuple(handlers))
+
+
+@pytest.mark.asyncio
+async def test_gateway_shutdown_cancellation_drains_before_closing_clients():
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources, managed_cleanup
+
+    resources = GatewayHTTPResources(lambda: httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _: httpx.Response(200)
+    )))
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    finished = []
+
+    async def finish():
+        entered.set()
+        await release.wait()
+        assert not resources.control.is_closed
+        assert (await resources.control.post("https://control.test/finish")).status_code == 200
+        finished.append(True)
+
+    with resources.bind():
+        cleanup = asyncio.create_task(managed_cleanup(finish()))
+        await entered.wait()
+        closing = asyncio.create_task(resources.aclose())
+        await asyncio.sleep(0)
+        closing.cancel()
+        await asyncio.sleep(0)
+        closing.cancel()
+        await asyncio.sleep(0)
+        assert not closing.done()
+        assert not resources.control.is_closed
+        release.set()
+        await cleanup
+        with pytest.raises(asyncio.CancelledError):
+            await closing
+    assert finished == [True]
+    assert resources.control.is_closed and resources.direct.is_closed
+    assert not resources.cleanup_tasks
+    await resources.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_slow_body_cannot_exhaust_shared_admission():
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+
+    _, control = setup_gateway(lambda _: httpx.Response(200))
+    resources = GatewayHTTPResources(lambda: httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _: httpx.Response(200)
+    )))
+    for _ in range(99):
+        await resources.admission.acquire()
+    started = asyncio.Event()
+    async def slow_receive():
+        started.set()
+        await asyncio.Event().wait()
+    async def ordinary(scope, receive, send):
+        pytest.fail("pool request escaped gateway")
+    async def discard(message):
+        pass
+    middleware = AccountPoolGatewayMiddleware(ordinary, control_factory=lambda _: control, resources=resources)
+    body_scope = {"type": "http", "path": "/v1/responses", "method": "POST", "query_string": b"",
+                  "headers": [(b"authorization", b"Bearer cpk_invalid-but-well-shaped-key"),
+                              (b"content-type", b"application/json")]}
+    slow = asyncio.create_task(middleware.dispatch_card(body_scope, slow_receive, discard))
+    try:
+        await started.wait()
+        assert resources.admission._value == 1
+        messages = []
+        async def send(message):
+            messages.append(message)
+        models_scope = {**body_scope, "path": "/v1/models", "method": "GET",
+                        "headers": [(b"authorization", f"Bearer {_KEY}".encode())]}
+        await asyncio.wait_for(middleware.dispatch_card(models_scope, slow_receive, send), 0.5)
+        assert messages[0]["status"] == 200
+        assert not control.acquisitions
+    finally:
+        slow.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await slow
+        for _ in range(99):
+            resources.admission.release()
+        await resources.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("valid_key", (False, True))
+async def test_gateway_body_timeout_is_bounded_and_keeps_auth_error_priority(valid_key, monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+
+    from litellm.proxy.management_endpoints import account_pool_gateway as module
+
+    _, original = setup_gateway(lambda _: httpx.Response(200))
+    resolutions = []
+    class CountingControl(Control):
+        async def resolve(self, request):
+            resolutions.append(request)
+            return await super().resolve(request)
+    control = CountingControl(original.resolution)
+    resources = GatewayHTTPResources(lambda: httpx.AsyncClient(transport=httpx.MockTransport(
+        lambda _: httpx.Response(200)
+    )))
+    async def ordinary(scope, receive, send):
+        pytest.fail("pool request escaped gateway")
+    async def receive():
+        await asyncio.Event().wait()
+    messages = []
+    async def send(message):
+        messages.append(message)
+    key = _KEY if valid_key else "cpk_invalid-but-well-shaped-key"
+    scope = {"type": "http", "path": "/v1/responses", "method": "POST", "query_string": b"",
+             "headers": [(b"authorization", f"Bearer {key}".encode()), (b"content-type", b"application/json")]}
+    middleware = AccountPoolGatewayMiddleware(ordinary, control_factory=lambda _: control, resources=resources)
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(module.asyncio, "timeout", lambda seconds: original_timeout(0.02 if seconds == 10 else seconds))
+    try:
+        await asyncio.wait_for(middleware.dispatch_card(scope, receive, send), 1)
+        assert messages[0]["status"] == (408 if valid_key else 401)
+        assert len(resolutions) == 1
+        assert resources.admission._value == 100
+        assert not control.acquisitions
+    finally:
+        await resources.aclose()
+
+
+@pytest.mark.parametrize("body", (b"{}", b'{"model":12}'))
+def test_gateway_invalid_key_keeps_priority_over_body_model_validation(body):
+    client, control = setup_gateway(lambda _: pytest.fail("invalid key sent upstream"))
+    with client:
+        response = client.post("/v1/responses", content=body, headers={
+            "authorization": "Bearer cpk_invalid-but-well-shaped-key", "content-type": "application/json",
+        })
+    assert response.status_code == 401
+    assert not control.acquisitions
+
+
+@pytest.mark.asyncio
+async def test_gateway_repeated_cancellation_drains_http_response_close_once():
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+    from starlette.requests import Request
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
+
+    delivered = asyncio.Event()
+    closing = asyncio.Event()
+    release = asyncio.Event()
+    closed = []
+    class SlowCloseStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"type":"response.output_text.delta","delta":"fixture"}\n\n'
+            await asyncio.Event().wait()
+        async def aclose(self):
+            closing.set()
+            await release.wait()
+            closed.append(True)
+    upstream = httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=SlowCloseStream())
+    _, control = setup_gateway(lambda _: upstream)
+    resources = GatewayHTTPResources(lambda: httpx.AsyncClient(transport=httpx.MockTransport(lambda _: upstream)))
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+    request = Request({"type": "http", "path": "/v1/responses", "method": "POST", "headers": [],
+                       "query_string": b"", "asgi": {"spec_version": "2.4"},
+                       "state": {"account_pool_standard_accounting": True}}, receive)
+    async def send(message):
+        if message["type"] == "http.response.body" and b"fixture" in message.get("body", b""):
+            delivered.set()
+    selected = routes(control.resolution, "model-a", "/v1/responses", Headers())
+    assert not isinstance(selected, Rejected)
+    with resources.bind():
+        task = asyncio.create_task(forward(request, {"model": "model-a", "input": "fixture", "stream": True},
+                                          _KEY, None, control.resolution, selected, control, resources.direct, send))
+        try:
+            await asyncio.wait_for(delivered.wait(), 2)
+            task.cancel()
+            await asyncio.wait_for(closing.wait(), 2)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done()
+            assert not closed
+            release.set()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert closed == [True]
+            assert len(control.finished) == 1
+            assert not resources.direct.is_closed
+            assert not resources.cleanup_tasks
+        finally:
+            release.set()
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await resources.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_lru_cancellation_finishes_retired_transport_close():
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    closed = []
+    class SlowTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            return httpx.Response(200)
+        async def aclose(self):
+            started.set()
+            await release.wait()
+            closed.append(True)
+    def direct():
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+    resources = GatewayHTTPResources(direct, lambda _: httpx.AsyncClient(transport=SlowTransport()), proxy_limit=1)
+    async with resources.upstream("http://proxy-a"):
+        pass
+    async def evict():
+        async with resources.upstream("http://proxy-b"):
+            pytest.fail("cancelled eviction borrowed another client")
+    task = asyncio.create_task(evict())
+    try:
+        await asyncio.wait_for(started.wait(), 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert not closed
+        assert resources.cleanup_tasks
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert closed == [True]
+        assert not resources.cleanup_tasks
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+        await resources.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_proxy_borrow_returns_before_waiting_for_notification():
+    from contextlib import AsyncExitStack
+
+    from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources
+
+    def factory(*args):
+        return httpx.AsyncClient(transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+    resources = GatewayHTTPResources(factory, factory)
+    stack = AsyncExitStack()
+    await stack.enter_async_context(resources.upstream("http://proxy-a"))
+    await resources.available.acquire()
+    task = asyncio.create_task(stack.aclose())
+    try:
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert resources.proxies["http://proxy-a"][1] == 0
+    finally:
+        resources.available.release()
+        await resources.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gateway_shutdown_client_close_has_one_total_deadline(monkeypatch):
+    from litellm.proxy.management_endpoints import account_pool_gateway_resources as module
+
+    cancelled = []
+    class StalledTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request):
+            return httpx.Response(200)
+        async def aclose(self):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+    resources = module.GatewayHTTPResources(lambda: httpx.AsyncClient(transport=StalledTransport()))
+    original_timeout = asyncio.timeout
+    monkeypatch.setattr(module.asyncio, "timeout", lambda seconds: original_timeout(0.02 if seconds == 5 else seconds))
+    await asyncio.wait_for(resources.aclose(), 1)
+    assert len(cancelled) == 2
+    assert resources.control.is_closed and resources.direct.is_closed
+    assert not resources.cleanup_tasks

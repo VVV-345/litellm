@@ -325,10 +325,11 @@ async def _release_lease(
             utc_now(),
             timeout_failure=timeout_failure,
         )
-        await connection.execute(
-            "UPDATE account_pool_environments SET payload = jsonb_set(payload, '{model_cooldowns}', %s::jsonb) WHERE id = %s",
-            (Jsonb([item.model_dump(mode="json") for item in settled]), lease.account_id),
-        )
+        if settled != record.model_cooldowns:
+            await connection.execute(
+                "UPDATE account_pool_environments SET payload = jsonb_set(payload, '{model_cooldowns}', %s::jsonb) WHERE id = %s",
+                (Jsonb([item.model_dump(mode="json") for item in settled]), lease.account_id),
+            )
     if (
         deleted_row is not None
         and lease.budget_window_seconds is not None

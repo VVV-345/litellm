@@ -437,3 +437,61 @@ async def test_unknown_quota_does_not_hide_models_with_successful_inference(obse
     assert result.restored
     assert up.calls == ["verify", "status"]
     assert env.record.quota == quota
+
+
+@pytest.mark.asyncio
+async def test_fallback_manual_probes_share_service_concurrency_and_release_on_cancel():
+    import asyncio
+    from uuid import uuid4
+
+    from account_pool.access_token_fallback import AccessTokenFallbackService
+
+    record = _record().model_copy(update={
+        "auth_file_name": "fixture.json", "auth_index": "fixture", "credential_fingerprints": ("fixture",)
+    })
+    release = asyncio.Event()
+
+    class BlockingUpstream(FallbackUpstream):
+        active = 0
+        peak = 0
+        entered = 0
+
+        async def verify_access_fallback(self, current, model):
+            self.active += 1
+            self.entered += 1
+            self.peak = max(self.peak, self.active)
+            try:
+                await release.wait()
+                return await super().verify_access_fallback(current, model)
+            finally:
+                self.active -= 1
+
+    upstream = BlockingUpstream()
+    service = AccessTokenFallbackService(
+        FallbackEnvironments(record), FallbackPolicies(), upstream, FallbackOwnership(), FallbackLeases()
+    )
+    pending = [asyncio.create_task(service.verify(uuid4(), "model-a")) for _ in range(8)]
+    try:
+        for _ in range(100):
+            if upstream.entered >= 4:
+                break
+            await asyncio.sleep(0.001)
+        assert upstream.active == 4
+        assert upstream.peak == 4
+        pending[0].cancel()
+        await asyncio.gather(pending[0], return_exceptions=True)
+        for _ in range(100):
+            if upstream.entered >= 5:
+                break
+            await asyncio.sleep(0.001)
+        assert upstream.active == 4
+        release.set()
+        await asyncio.gather(*pending, return_exceptions=True)
+        assert upstream.entered == 8
+        assert upstream.active == 0
+        assert upstream.peak == 4
+    finally:
+        release.set()
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)

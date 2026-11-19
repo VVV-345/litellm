@@ -7,6 +7,10 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Final
 from uuid import UUID
 
+import anyio
+
+from litellm._logging import verbose_router_logger
+from litellm.router_utils.add_retry_fallback_headers import HiddenParamsAsyncIteratorWrapper, get_hidden_params_dict
 from litellm.types.router import RouterRateLimitErrorBasic
 from litellm.utils import calculate_max_parallel_requests
 
@@ -16,6 +20,54 @@ if TYPE_CHECKING:
     LitellmRouter = _Router
 else:
     LitellmRouter = Any
+
+
+class AccountPoolStream(HiddenParamsAsyncIteratorWrapper):
+    def __init__(self, inner: object, semaphore: asyncio.Semaphore) -> None:
+        super().__init__(inner)
+        self._hidden_params = get_hidden_params_dict(inner)
+        self._semaphore = semaphore
+        self._close_task: asyncio.Task[None] | None = None
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
+
+    async def __anext__(self) -> object:
+        if self._close_task is not None:
+            raise StopAsyncIteration
+        try:
+            return await super().__anext__()
+        except BaseException:
+            try:
+                await self.aclose()
+            except BaseException as error:
+                verbose_router_logger.debug("Account Pool stream cleanup failed: %s", error.__class__.__name__)
+            raise
+
+    async def aclose(self) -> None:
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close())
+        task: Final = self._close_task
+        cancelled = False  # rebind-ok: preserve cancellation until the provider stream has closed
+        with anyio.CancelScope(shield=True):
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    cancelled = True
+            try:
+                task.result()
+            finally:
+                if cancelled:
+                    raise asyncio.CancelledError
+
+    async def _close(self) -> None:
+        try:
+            with anyio.CancelScope(shield=True):
+                async with asyncio.timeout(5):
+                    await super().aclose()
+        finally:
+            self._semaphore.release()
 
 
 class AccountPoolSemaphore(asyncio.Semaphore):

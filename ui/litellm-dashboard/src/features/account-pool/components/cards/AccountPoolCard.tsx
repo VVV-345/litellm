@@ -19,6 +19,7 @@ import {
   canToggleEnvironment,
 } from "../../utils/AccountPoolPermissions";
 import {
+  displayedQuota,
   formatCount,
   formatDateTime,
   formatQuota,
@@ -108,6 +109,7 @@ const AccountPoolCardComponent = ({
   const { t, i18n } = useTranslation();
   const latency = accountPoolLatency(proxyGateway, proxyDelay, ispProbe);
   const quotaWindow = mostConstrainedWindow(environment);
+  const quota = displayedQuota(environment);
   const configuredPort = environment.proxy_profile_id?.match(/^clash-gateway-(\d+)$/)?.[1];
   const proxyPort = proxyGateway?.port ?? configuredPort;
   const proxyLabel = proxyPort
@@ -124,6 +126,8 @@ const AccountPoolCardComponent = ({
   const visibleModels = accountPoolVisibleModels(environment);
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
   const family = accountPoolFamilyKind(environment);
+  const showQuota =
+    ["openai_codex", "glm", "opencode"].includes(family) || quota.balances.length > 0 || quota.prepaid_balance != null;
   const showPlan = environment.supplier !== "openai_codex" && Boolean(environment.quota.plan_type);
   const showLabels = showPlan || Boolean(group) || tags.length > 0;
   const policyValues = policy?.policy;
@@ -290,7 +294,12 @@ const AccountPoolCardComponent = ({
         </div>
       </CardHeader>
       <CardContent className="grid gap-3 text-sm">
-        {["openai_codex", "glm", "opencode"].includes(family) && <AccountPoolCardQuota environment={environment} />}
+        {showQuota && (
+          <AccountPoolCardQuota
+            environment={environment}
+            maxAgeSeconds={policyValues?.routing?.quota_snapshot_max_age}
+          />
+        )}
         {environment.access_token_fallback?.active && (
           <p role="status" className="text-sm font-medium text-amber-700 dark:text-amber-400">
             {t("accountPool.credential.temporary")}

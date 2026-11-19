@@ -9,6 +9,7 @@ import {
   canToggleEnvironment,
 } from "./AccountPoolPermissions";
 import {
+  quotaSnapshotIsStale,
   formatCount,
   concurrencyLimitLabel,
   formatQuota,
@@ -238,4 +239,30 @@ it.each([
 });
 it("keeps full counts available", () => {
   expect(formatCount(1234567, false)).toBe("1,234,567");
+});
+
+it("marks old, failed, and elapsed quota snapshots stale without changing their values", () => {
+  const now = new Date("2026-11-19T10:00:00Z").getTime();
+  const quota = { observed_at: "2026-11-19T09:59:00Z", refresh_status: "complete" as const, windows: [], balances: [] };
+  expect(quotaSnapshotIsStale(quota, now)).toBe(false);
+  expect(quotaSnapshotIsStale(quota, now + 300_000)).toBe(true);
+  expect(quotaSnapshotIsStale({ ...quota, refresh_status: "failed" }, now)).toBe(true);
+  expect(quotaSnapshotIsStale({ ...quota, observed_at: null }, now)).toBe(false);
+  expect(
+    quotaSnapshotIsStale(
+      {
+        ...quota,
+        windows: [
+          {
+            name: "5 hour",
+            remaining_percent: 0,
+            used_percent: 100,
+            window_minutes: 300,
+            resets_at: "2026-11-19T10:00:00Z",
+          },
+        ],
+      },
+      now,
+    ),
+  ).toBe(true);
 });

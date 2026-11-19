@@ -201,6 +201,33 @@ class OpenAICompatibleChannel:
         if refresh_quota:
             display_quota: Final = await self._read_display_quota(record)
             if display_quota is not None:
+                previous: Final = record.display_quota
+                if (
+                    display_quota.refresh_status in ("failed", "unsupported")
+                    and previous is not None and previous.windows
+                ):
+                    cached: Final = previous.model_copy(update={
+                        "source": "stored_cache", "refresh_status": display_quota.refresh_status,
+                        "refresh_attempted_at": display_quota.refresh_attempted_at,
+                        "refresh_error": display_quota.refresh_error,
+                    })
+                    return record.model_copy(update={"display_quota": cached})
+                now: Final = utc_now()
+                incoming_names: Final = frozenset(window.name for window in display_quota.windows)
+                missing: Final = tuple(
+                    window for window in (() if previous is None else previous.windows)
+                    if window.name not in incoming_names
+                    and (window.resets_at is None or window.resets_at > now)
+                )
+                if missing and previous is not None:
+                    # 缺失窗口未重置前沿用旧观测，避免部分响应误解除耗尽限制。
+                    merged: Final = display_quota.model_copy(update={
+                        "windows": tuple(sorted(
+                            (*display_quota.windows, *missing), key=lambda window: window.window_minutes,
+                        )),
+                        "observed_at": previous.observed_at, "source": "stored_cache", "refresh_status": "partial",
+                    })
+                    return record.model_copy(update={"display_quota": merged})
                 return record.model_copy(update={"display_quota": display_quota})
         identity: Final = credential_identity(
             json.dumps(

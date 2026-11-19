@@ -18,6 +18,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
 from websockets.typing import Subprotocol
 
+from litellm._logging import verbose_proxy_logger
 from litellm.litellm_core_utils.signature_recovery import merge_visible_history, recover_signature_history
 from litellm.litellm_core_utils.url_utils import validate_url
 from litellm.proxy.management_endpoints.account_pool_failover import (
@@ -40,6 +41,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import (
     select_gateway_credential,
     upstream_request_headers,
 )
+from litellm.proxy.management_endpoints.account_pool_gateway_resources import managed_cleanup
 from litellm.proxy.management_endpoints.account_pool_request_log import RequestLog
 from litellm.proxy.management_endpoints.account_pool_retry import failover_rebuildable, has_server_reference
 from litellm.proxy.management_endpoints.account_pool_routing import Route, upstream_url
@@ -327,7 +329,7 @@ async def _forward_candidate(
         attempt.outcome(502, "WebSocket forwarding failed", stage="connection")
         raise
     finally:
-        await asyncio.shield(_finish_attempt(control, attempt, log))
+        await _finish_attempt(control, attempt, log)
     if completed:
         return True, frozenset[AcquireRejectionReason]()
     return await _forward_candidate(
@@ -347,11 +349,19 @@ async def _forward_candidate(
 
 
 async def _finish_attempt(control: GatewayControl, attempt: _Attempt, log: RequestLog) -> None:
+    await managed_cleanup(_finish_attempt_work(control, attempt, log))
+
+
+async def _finish_attempt_work(control: GatewayControl, attempt: _Attempt, log: RequestLog) -> None:
     if attempt.finished:
         return
     attempt.finished = True
     try:
-        attempt.result = await (attempt.log or log).finish(attempt.result)
+        try:
+            async with asyncio.timeout(5):
+                attempt.result = await (attempt.log or log).finish(attempt.result)
+        except Exception:
+            verbose_proxy_logger.warning("Account pool WebSocket log cleanup failed: lease=%s", attempt.result.lease_id)
     finally:
         await report(control, attempt.result)
 

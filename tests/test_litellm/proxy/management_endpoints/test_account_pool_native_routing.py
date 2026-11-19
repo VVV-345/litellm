@@ -1,7 +1,7 @@
 """验证额度预筛选、套餐偏好和原生会话亲和性不扩大卡片范围。"""
 
 from datetime import datetime, timedelta, timezone
-from typing import Final
+from typing import Final, Literal
 from uuid import UUID, uuid4
 
 import pytest
@@ -1002,3 +1002,46 @@ def test_explain_marks_a_fresh_card_within_the_reserve_as_eligible() -> None:
     assert status.eligible is True
     assert status.reason is None
     assert all(gate.passed for gate in status.gates)
+
+@pytest.mark.parametrize(("age", "status", "extra", "expected"), [
+    (0, "complete", None, False), (300, "complete", False, False),
+    (301, "complete", None, False), (0, "failed", None, False),
+    (0, "partial", None, False), (0, "unsupported", None, False),
+    (0, "complete", True, True), (None, None, None, False),
+])
+def test_known_exhaustion_stays_blocked_until_reset_without_automatic_paid_usage(
+    age: int | None,
+    status: Literal["complete", "partial", "failed", "unsupported"] | None,
+    extra: bool | None,
+    expected: bool,
+) -> None:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import available
+
+    now: Final = datetime.now(timezone.utc)
+    quota: Final = RoutingQuota(
+        remaining_percent=0, observed_at=None if age is None else now - timedelta(seconds=age),
+        refresh_status=status, extra_usage_enabled=extra,
+    )
+    assert available(RoutingSnapshot(quota=quota), "shared", now) is expected
+
+
+def test_native_extra_usage_still_enforces_its_own_hard_limit() -> None:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import available
+
+    now: Final = datetime.now(timezone.utc)
+    quota: Final = RoutingQuota(observed_at=now, extra_usage_enabled=True, windows=(
+        RoutingQuotaWindow(name="5 hour", window_minutes=300, remaining_percent=0),
+        RoutingQuotaWindow(name="Extra usage", window_minutes=43200, remaining_percent=0, resets_at=now + timedelta(seconds=1)),
+    ))
+    assert not available(RoutingSnapshot(quota=quota), "shared", now)
+    assert available(RoutingSnapshot(quota=quota), "shared", now + timedelta(seconds=1))
+
+
+def test_failed_refresh_keeps_known_exhaustion_and_reports_cached_freshness() -> None:
+    from litellm.proxy.management_endpoints.account_pool_native_routing import explain
+
+    now: Final = datetime.now(timezone.utc)
+    quota: Final = RoutingQuota(remaining_percent=0, observed_at=now, refresh_status="failed")
+    status: Final = explain(uuid4(), RoutingSnapshot(quota=quota), "shared", now)
+    assert status.eligible is False and status.reason == "quota_exhausted"
+    assert status.gates[3].detail == "stale"
