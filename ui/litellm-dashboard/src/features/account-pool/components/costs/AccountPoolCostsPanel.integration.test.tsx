@@ -60,6 +60,9 @@ it("switches totals, keeps missing costs visible, and refreshes after an explici
     </QueryClientProvider>,
   );
   expect(await screen.findByText("真实账号")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "批量录入账号费用" }));
+  expect(screen.getByRole("checkbox", { name: "选择 真实账号" })).toBeInTheDocument();
+  await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "取消" }));
   expect(screen.getAllByText("¥10.00")).toHaveLength(2);
   expect(screen.getAllByText("未录入")).toHaveLength(3);
   await userEvent.click(screen.getByRole("button", { name: "实际付款" }));

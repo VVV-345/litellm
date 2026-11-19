@@ -18,6 +18,7 @@ import { toast } from "@/lib/toast";
 import { getCosts, stopCostRenewal, voidCost, type CostRecord, type CostReport } from "../../api/AccountPoolCostsApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { CostEntryDialog, type CostEntryTarget } from "./CostEntryDialog";
+import { BatchCostEntryAction } from "./BatchCostEntryDialog";
 import { chinaToday, costLabels, expiryLabel, money } from "./costForm";
 
 type CostAccount = CostReport["accounts"][number];
@@ -147,7 +148,8 @@ export function AccountPoolCostsPanel({ accessToken, active = true }: { accessTo
           <h2 className="text-lg font-semibold">成本管理</h2>
           <p className="mt-1 text-sm text-muted-foreground">人民币台账 · 订阅关联已有账号，代理与服务器独立记账</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <BatchCostEntryAction accessToken={accessToken} report={data} />
           <Button variant="outline" onClick={() => setTarget({ category: "proxy" })}>
             录入代理费用
           </Button>
