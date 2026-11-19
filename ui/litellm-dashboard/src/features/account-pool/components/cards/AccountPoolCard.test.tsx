@@ -384,6 +384,25 @@ it("shows the three OpenCode Go plan windows and reset times, not a wallet balan
   expect(screen.queryByText("工作区余额未获取")).not.toBeInTheDocument();
 });
 
+it("shows a failed OpenCode quota query even before its plan has been identified", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({
+    supplier: "openai_compatible",
+    provider_family: "opencode",
+    display_quota: {
+      plan_type: null,
+      refresh_attempted_at: "2090-01-01T00:00:00Z",
+      refresh_status: "failed",
+      refresh_error: "OpenCode Go 套餐额度未获取（HTTP 401）",
+      windows: [], balances: [],
+    },
+  });
+  expect(screen.getByRole("status")).toHaveTextContent("OpenCode Go 套餐额度未获取（HTTP 401）");
+  expect(screen.getByText("套餐额度未获取")).toBeVisible();
+  expect(screen.queryByRole("meter")).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "打开 OpenCode 账单" })).toBeVisible();
+});
+
 it("labels the optional GLM monthly window as MCP, not model quota", async () => {
   await i18n.changeLanguage("zh-CN");
   renderCard({

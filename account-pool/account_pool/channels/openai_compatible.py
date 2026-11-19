@@ -244,16 +244,16 @@ class OpenAICompatibleChannel:
             return None
         configuration: Final = self._configuration(record)
         base: Final = str(configuration.base_url).rstrip("/")
-        go: Final = base in OPENCODE_GO_BASES
-        endpoint: Final = OPENCODE_GO_QUOTA_URL if go else GLM_CODING_PLAN_QUOTA_URLS.get(base)
+        opencode: Final = family == "opencode"
+        endpoint: Final = OPENCODE_GO_QUOTA_URL if opencode else GLM_CODING_PLAN_QUOTA_URLS.get(base)
         if endpoint is None:
             return QuotaSnapshot(
                 refresh_status="unsupported",
                 refresh_error="此 GLM 卡片不是 Coding Plan 接入，未查询套餐额度" if family == "glm" else None,
             )
         observed_at: Final = utc_now()
-        plan: Final = OPENCODE_GO_PLAN if go else None
-        failure: Final = f"{plan or 'GLM'} 套餐额度未获取"
+        plan: Final = OPENCODE_GO_PLAN if base in OPENCODE_GO_BASES else None
+        failure: Final = f"{OPENCODE_GO_PLAN if opencode else 'GLM'} 套餐额度未获取"
         try:
             credential: Final = configuration.credentials[0]
             async with asyncio.timeout(10), AsyncExitStack() as stack:
@@ -267,7 +267,7 @@ class OpenAICompatibleChannel:
                 async with client.stream(
                     "GET",
                     destination,
-                    headers={"Authorization": f"Bearer {key}" if go else key},
+                    headers={"Authorization": f"Bearer {key}" if opencode else key},
                     follow_redirects=False,
                 ) as response:
                     response.raise_for_status()
@@ -276,7 +276,7 @@ class OpenAICompatibleChannel:
                         if body.tell() + len(chunk) > _MAX_DISPLAY_QUOTA_BYTES:
                             raise ValueError("plan quota response too large")
                         body.write(chunk)
-                parse: Final = parse_opencode_go_quota if go else parse_glm_coding_quota
+                parse: Final = parse_opencode_go_quota if opencode else parse_glm_coding_quota
                 parsed: Final = parse(body.getvalue().decode("utf-8"), observed_at)
                 if parsed is not None:
                     return parsed

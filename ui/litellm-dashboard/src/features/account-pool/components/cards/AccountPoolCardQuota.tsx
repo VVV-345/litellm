@@ -13,7 +13,9 @@ export function AccountPoolCardQuota({ environment }: { environment: AccountPool
   const now = useAccountPoolClock();
   const family = accountPoolFamilyKind(environment);
   const quota = displayedQuota(environment);
-  const goQuota = family === "opencode" && quota.plan_type === "OpenCode Go";
+  const goQuota = family === "opencode" && (
+    quota.plan_type === "OpenCode Go" || Boolean(quota.refresh_attempted_at)
+  );
   const isPlanQuota = family === "glm" || goQuota;
   const billingLink = family === "opencode" ? (
     <div className="grid gap-1 text-xs">

@@ -114,11 +114,10 @@ OPENCODE_PROVIDER_FAMILY: Final = ProviderFamily(
 
 _GLM_ISSUERS: Final = ("https://open.bigmodel.cn", "https://api.z.ai")
 GLM_CODING_PLAN_QUOTA_URLS: Final = MappingProxyType({
-    f"{issuer}/api/coding/paas/v4": f"{issuer}/api/monitor/usage/quota/limit" for issuer in _GLM_ISSUERS
+    f"{issuer}{path}": f"{issuer}/api/monitor/usage/quota/limit"
+    for issuer in _GLM_ISSUERS for path in ("/api/paas/v4", "/api/coding/paas/v4")
 })
-_GLM_BASES: Final = frozenset(
-    (*GLM_CODING_PLAN_QUOTA_URLS, *(f"{issuer}/api/paas/v4" for issuer in _GLM_ISSUERS))
-)
+_GLM_BASES: Final = frozenset(GLM_CODING_PLAN_QUOTA_URLS)
 OPENCODE_GO_CATALOG_BASE: Final = "https://opencode.ai/inference/go/v1"
 OPENCODE_GO_QUOTA_URL: Final = "https://opencode.ai/zen/go/v1/usage"
 OPENCODE_GO_BASES: Final = frozenset(
