@@ -1253,7 +1253,10 @@ async def test_background_quota_refresh_waits_for_interval_before_first_run(tmp_
 
 
 @pytest.mark.asyncio
-async def test_partial_quota_refresh_logs_transient_failures_after_repository_serialization(tmp_path: Path) -> None:
+@pytest.mark.parametrize("quota_field", ("quota", "display_quota"))
+async def test_partial_quota_refresh_logs_transient_failures_after_repository_serialization(
+    tmp_path: Path, quota_field: Literal["quota", "display_quota"],
+) -> None:
     failure: Final = ProviderEndpointFailure(
         method="GET",
         endpoint="https://api.anthropic.com/api/oauth/profile",
@@ -1268,7 +1271,7 @@ async def test_partial_quota_refresh_logs_transient_failures_after_repository_se
     logs: Final = RecordingLogs()
     cli.read_result = record.model_copy(
         update={
-            "quota": QuotaSnapshot(
+            quota_field: QuotaSnapshot(
                 refresh_status="partial",
                 refresh_error=failure.summary(),
                 refresh_failures=(failure,),
@@ -1289,10 +1292,15 @@ async def test_partial_quota_refresh_logs_transient_failures_after_repository_se
     refreshed: Final = await service.refresh_environment(record.id)
 
     assert isinstance(refreshed, Success)
-    assert refreshed.value.quota.refresh_status == "partial"
+    displayed: Final = refreshed.value.display_quota or refreshed.value.quota
+    assert displayed.refresh_status == "partial"
     assert logs.events[-1].endpoint == failure.endpoint
     assert logs.events[-1].http_status == 503
     assert logs.events[-1].upstream_request_id == "upstream-request-1"
+
+    stored: Final = await repository.get(record.id)
+    assert stored is not None
+    assert not (stored.display_quota or stored.quota).refresh_failures
 
 
 @pytest.mark.asyncio

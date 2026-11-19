@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +12,8 @@ const defaultProps = {
 };
 
 describe("OnboardingFormBody submit payload", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
   });
 

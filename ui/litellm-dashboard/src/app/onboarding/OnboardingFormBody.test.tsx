@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,7 +14,8 @@ const defaultProps = {
 };
 
 describe("OnboardingFormBody", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("en");
     vi.clearAllMocks();
   });
 
@@ -62,7 +64,7 @@ describe("OnboardingFormBody", () => {
   it("should show a loading indicator on the submit button when isPending is true", () => {
     render(<OnboardingFormBody {...defaultProps} isPending={true} />);
     // antd v5 renders a loading icon with aria-label="loading" inside the button
-    expect(screen.getByRole("img", { name: "loading" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /loading/i })).toBeInTheDocument();
   });
 
   it("should call onSubmit with the typed password on form submit", async () => {

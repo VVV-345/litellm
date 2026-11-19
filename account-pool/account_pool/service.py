@@ -936,9 +936,9 @@ class EnvironmentService:
                     ),
                 }
             )
-            saved: Final = await self._repository.save(refreshed)
-            quota_result: Final = saved.display_quota or saved.quota
+            quota_result: Final = refreshed.display_quota or refreshed.quota
             refresh_failures: Final = quota_result.refresh_failures
+            saved: Final = await self._repository.save(refreshed)
             if refresh_quota and quota_result.refresh_status in ("partial", "failed") and quota_result.refresh_error:
                 if refresh_failures:
                     for failure in refresh_failures:

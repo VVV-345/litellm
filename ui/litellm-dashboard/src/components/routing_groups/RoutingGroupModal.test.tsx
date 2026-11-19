@@ -1,10 +1,15 @@
+import i18n from "@/i18n";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders, screen } from "@/../tests/test-utils";
 
 import RoutingGroupModal from "./RoutingGroupModal";
 import type { RoutingGroup } from "./types";
+
+beforeEach(async () => {
+  await i18n.changeLanguage("en");
+});
 
 const STRATEGIES = ["simple-shuffle", "latency-based-routing", "usage-based-routing"];
 const MODEL_OPTIONS = ["gpt-4o", "claude-sonnet", "gemini-pro"];
