@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -20,6 +21,7 @@ from account_pool.error_logs import (
     ErrorStats,
     LogStorageStats,
 )
+from account_pool.gateway_contracts import LogStatusRequest
 from account_pool.manager_logs import MANAGER_BROWSER_OPERATION, ManagerLogQuery
 from account_pool.repository import database_connection
 
@@ -137,6 +139,18 @@ class PostgresCardKeyRepository:
 class PostgresErrorLogRepository:
     def __init__(self, database_url: str) -> None:
         self._database_url: Final = database_url
+
+    async def update_persistence(self, request: LogStatusRequest) -> bool:
+        async with database_connection(self._database_url) as connection:
+            changed: Final = await connection.execute(
+                "UPDATE account_pool_error_log SET payload=payload || %s "
+                "WHERE event_id=%s AND payload->>'operation'='model_request'",
+                (
+                    Jsonb(request.model_dump(mode="json", exclude=MappingProxyType({"lease_id": True}))),
+                    request.lease_id,
+                ),
+            )
+            return changed.rowcount == 1
 
     async def append(self, event: ErrorLogRecord) -> None:
         async with database_connection(self._database_url) as connection:

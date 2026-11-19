@@ -164,6 +164,8 @@ jobs:
             tests/test_litellm/proxy/management_endpoints/test_account_pool_full_logs.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_observability.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_control_health.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_finish_latency.py \
+            tests/test_litellm/proxy/management_endpoints/test_account_pool_protocols.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_releases.py \
             tests/test_litellm/proxy/management_endpoints/test_account_pool_endpoints.py::test_proxy_admin_can_manage_upstream_compatibility_workflow \
             tests/test_litellm/proxy/management_endpoints/test_deployment_version.py \
@@ -171,6 +173,7 @@ jobs:
             account-pool/tests/account_pool/test_contracts.py \
             account-pool/tests/account_pool/test_oauth_automation.py \
             account-pool/tests/account_pool/test_gateway_service.py \
+            account-pool/tests/account_pool/test_log_persistence_postgres.py \
             account-pool/tests/account_pool/test_upstream_sync.py \
             account-pool/tests/account_pool/test_settings.py \
             account-pool/tests/account_pool/test_policies.py \

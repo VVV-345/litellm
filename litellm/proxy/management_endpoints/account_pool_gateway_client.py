@@ -12,6 +12,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRequest,
     FinishRequest,
     Lease,
+    LogStatusRequest,
     Resolution,
     ResolveRequest,
 )
@@ -31,13 +32,14 @@ class ControlError(Exception):
 
     @property
     def counts_as_outage(self) -> bool:
-        return self.reason != "configuration" and (self.status == 0 or self.status >= 500)
+        return self.reason not in ("configuration", "circuit_open") and (self.status == 0 or self.status >= 500)
 
 
 class GatewayControl(Protocol):
     async def resolve(self, request: ResolveRequest) -> Resolution: ...
     async def acquire(self, request: AcquireRequest) -> Lease | AcquireRejected: ...
     async def finish(self, request: FinishRequest) -> None: ...
+    async def log_status(self, request: LogStatusRequest) -> None: ...
 
 
 class ManagerControl:
@@ -51,7 +53,7 @@ class ManagerControl:
             f"{self.base_url}/api/internal/gateway/{path}",
             content=body.model_dump_json().encode(),
             headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
-            timeout=10,
+            timeout=httpx.Timeout(10, pool=1),
         )
         return response
 
@@ -73,5 +75,11 @@ class ManagerControl:
 
     async def finish(self, request: FinishRequest) -> None:
         response: Final = await self.call("finish", request)
+        if response.is_error:
+            raise ControlError(response.status_code)
+
+
+    async def log_status(self, request: LogStatusRequest) -> None:
+        response: Final = await self.call("log-status", request)
         if response.is_error:
             raise ControlError(response.status_code)

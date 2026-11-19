@@ -38,6 +38,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import (
     attempt_routing_reason,
     estimate_request_tokens,
     report,
+    report_log_status,
     select_gateway_credential,
     upstream_request_headers,
 )
@@ -148,6 +149,7 @@ class _RelayResult:
 class _Attempt:
     def __init__(self, lease_id: UUID, endpoint: str, detail: str | None) -> None:
         self.finished = False
+        self.log_finished = False
         self.log: RequestLog | None = None
         self.result = FinishRequest(
             lease_id=lease_id,
@@ -158,6 +160,22 @@ class _Attempt:
             message="WebSocket downstream disconnected",
             detail=detail,
         )
+
+    async def settle(self, control: GatewayControl, log: RequestLog) -> None:
+        if self.finished:
+            return
+        self.finished = True
+        try:
+            self.result = (self.log or log).prepare(self.result)
+        except (ValueError, TypeError, ArithmeticError, LookupError):
+            verbose_proxy_logger.warning(
+                "Account pool WebSocket usage preparation failed: lease=%s", self.result.lease_id
+            )
+        finally:
+            await report(control, self.result)
+
+    def mark_persistence_failure(self, log: RequestLog) -> None:
+        self.result = (self.log or log).persistence_failed(self.result)
 
     def outcome(
         self,
@@ -353,17 +371,18 @@ async def _finish_attempt(control: GatewayControl, attempt: _Attempt, log: Reque
 
 
 async def _finish_attempt_work(control: GatewayControl, attempt: _Attempt, log: RequestLog) -> None:
-    if attempt.finished:
+    await attempt.settle(control, log)
+    if attempt.log_finished:
         return
-    attempt.finished = True
+    attempt.log_finished = True
     try:
-        try:
-            async with asyncio.timeout(5):
-                attempt.result = await (attempt.log or log).finish(attempt.result)
-        except Exception:
-            verbose_proxy_logger.warning("Account pool WebSocket log cleanup failed: lease=%s", attempt.result.lease_id)
-    finally:
-        await report(control, attempt.result)
+        async with asyncio.timeout(5):
+            attempt.result = await (attempt.log or log).persist(attempt.result)
+    except Exception:
+        attempt.mark_persistence_failure(log)
+        verbose_proxy_logger.warning("Account pool WebSocket log cleanup failed: lease=%s", attempt.result.lease_id)
+    await report_log_status(control, attempt.result)
+
 
 
 async def _connect_and_relay(
@@ -678,6 +697,7 @@ class _ResponsesRelay:
             _safe_debug_detail(self.websocket, route) if self.resolution.policy.transport.debug_log_enabled else None,
         ).result
         self.attempt.finished = False
+        self.attempt.log_finished = False
         self.log = RequestLog(
             lease,
             route,
@@ -869,6 +889,7 @@ class _ResponsesRelay:
         if (retry or recover_old_id) and not self.output_visible and event.get("type") in _PRE_OUTPUT_EVENTS:
             self.lifecycle_frames = (*self.lifecycle_frames, data)
             return None
+        await self._settle_terminal(event.get("type"), quota)
         frames: Final = (*self.lifecycle_frames, data)
         self.lifecycle_frames = ()
         for frame in frames:
@@ -903,6 +924,18 @@ class _ResponsesRelay:
                 await _finish_attempt(self.control, self.attempt, self.log)
             return True
         return None
+
+    async def _settle_terminal(self, event_type: JsonValue, quota: bool) -> None:
+        # 终止帧可见前结算租约，日志在发帧后保存，下一请求不再撞上旧槽位。
+        if event_type == "response.completed":
+            self.attempt.outcome(200, "WebSocket response completed", stage="response")
+        elif event_type == "response.incomplete" and self.cancelled:
+            self.attempt.outcome(499, "WebSocket response cancelled", stage="response")
+        elif event_type in ("error", "response.failed", "response.incomplete") and not quota:
+            self.attempt.outcome(502, "WebSocket response failed", stage="response")
+        else:
+            return
+        await managed_cleanup(self.attempt.settle(self.control, self.log))
 
     async def _send_upstream_event(self, data: str | bytes) -> None:
         public: Final = _rewrite_model(data, self.upstream_model, self.public_model, strict=False)

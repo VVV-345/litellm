@@ -254,3 +254,20 @@ def test_model_catalog_and_authorization_regressions_gate_image_publication() ->
     dockerfile: Final = (root / "account-pool/cliproxy-adapter/Dockerfile").read_text(encoding="utf-8")
     assert "go test -mod=readonly ./internal/api/handlers/management -run '^TestCodexModelCatalog' -count=1" in dockerfile
     assert dockerfile.index("go test") < dockerfile.index("go build")
+
+
+def test_gateway_release_uses_root_locked_pool_dependency_and_completion_regressions() -> None:
+    import tomllib
+
+    root = Path.cwd()
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    lock = tomllib.loads((root / "uv.lock").read_text(encoding="utf-8"))
+    requirements = tuple(item for item in project["dependency-groups"]["dev"]
+        if isinstance(item, str) and item.startswith("psycopg-pool=="))
+    assert len(requirements) == 1, "root frozen CI dependencies must install the Manager connection pool"
+    pinned = requirements[0].split("==", 1)[1]
+    pools = tuple(package for package in lock["package"] if package["name"] == "psycopg-pool")
+    assert len(pools) == 1 and pools[0]["version"] == pinned
+    workflow = (root / ".github/workflows/publish-deployment-images.yml").read_text(encoding="utf-8")
+    assert "--frozen --group ci --group proxy-dev --extra proxy" in workflow
+    assert "test_account_pool_finish_latency.py" in workflow and "test_account_pool_protocols.py" in workflow

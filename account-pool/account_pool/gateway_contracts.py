@@ -222,3 +222,11 @@ class AcquireRejected(BaseModel):
     model_config = ConfigDict(frozen=True)
     reason: AcquireRejectionReason
     retry_after_seconds: int = Field(default=0, ge=0, le=86400)
+
+
+
+class LogStatusRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    lease_id: UUID
+    full_log_state: Literal["disabled", "stored", "truncated", "failed"]
+    spend_sync_state: Literal["pending", "synced", "failed", "unavailable", "standard"]

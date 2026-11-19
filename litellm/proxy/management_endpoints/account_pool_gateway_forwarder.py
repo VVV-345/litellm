@@ -49,6 +49,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     FinishRequest,
     GatewayCredential,
     Lease,
+    LogStatusRequest,
     Resolution,
     RoutingReason,
 )
@@ -234,6 +235,7 @@ class Attempt:
             message="Request did not complete",
             detail=detail,
         )
+        self.finished = False
         self.started = False
         self.downstream_disconnected = False
         self._send: Final = send
@@ -243,6 +245,20 @@ class Attempt:
         self.attempt_number: Final = lease.attempt
         self.signature_retry_count = 0
         self.signature_failure_reason: str | None = None
+
+    def begin_finish(self) -> bool:
+        if self.finished:
+            return False
+        self.finished = True
+        return True
+
+    def prepare_result(self) -> None:
+        if self.log is not None:
+            self.result = self.log.prepare(self.result)
+
+    def mark_persistence_failure(self) -> None:
+        if self.log is not None:
+            self.result = self.log.persistence_failed(self.result)
 
     def mark_downstream_disconnected(self) -> None:
         self.downstream_disconnected = True
@@ -307,7 +323,20 @@ async def report(control: GatewayControl, result: FinishRequest) -> None:
         )
 
 
+async def report_log_status(control: GatewayControl, result: FinishRequest) -> None:
+    try:
+        async with asyncio.timeout(3):
+            await control.log_status(LogStatusRequest(
+                lease_id=result.lease_id,
+                full_log_state=result.full_log_state, spend_sync_state=result.spend_sync_state,
+            ))
+    except Exception:  # noqa: BLE001  # 仅回写日志状态，任意驱动故障都不能重复结算或改变已返回的响应。
+        verbose_proxy_logger.warning("Account pool log status update failed: lease=%s", result.lease_id)
+
+
 async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
+    if not attempt.begin_finish():
+        return
     try:
         state: Final = attempt.stream_state
         signature_reason: Final = (
@@ -329,12 +358,20 @@ async def finish_attempt(control: GatewayControl, attempt: Attempt) -> None:
             )
         if attempt.log is not None:
             try:
-                async with asyncio.timeout(5):
-                    attempt.result = await attempt.log.finish(attempt.result)
-            except Exception:
-                verbose_proxy_logger.warning("Account pool log cleanup failed: lease=%s", attempt.result.lease_id)
+                attempt.prepare_result()
+            except (ValueError, TypeError, ArithmeticError, LookupError):
+                verbose_proxy_logger.warning("Account pool usage preparation failed: lease=%s", attempt.result.lease_id)
     finally:
         await report(control, attempt.result)
+    if attempt.log is not None:
+        try:
+            async with asyncio.timeout(5):
+                attempt.result = await attempt.log.persist(attempt.result)
+        except Exception:
+            attempt.mark_persistence_failure()
+            verbose_proxy_logger.warning("Account pool log cleanup failed: lease=%s", attempt.result.lease_id)
+        await report_log_status(control, attempt.result)
+
 
 
 def recorded_upstream_result(

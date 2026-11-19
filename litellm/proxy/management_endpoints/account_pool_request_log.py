@@ -9,6 +9,7 @@ import re
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from functools import reduce
+from types import MappingProxyType
 from typing import Final, Literal
 from urllib.parse import urlsplit, urlunsplit
 
@@ -337,10 +338,11 @@ class RequestLog:
         except ValueError:
             return clean_content(raw, self.secrets, self.redact_fields)
 
-    async def finish(self, result: FinishRequest) -> FinishRequest:
+    def prepare(self, result: FinishRequest) -> FinishRequest:
         enriched: Final = result.model_copy(
             update={
                 "cost_usd": result.cost_usd,
+                "spend_sync_state": "standard" if self.standard_accounting else result.spend_sync_state,
                 "session_id": self.session_id,
                 "proxy_endpoint": self.proxy_endpoint,
                 "reasoning_effort": self.reasoning[0],
@@ -380,15 +382,31 @@ class RequestLog:
             if self.transport == "websocket"
             else estimate_with_fallback
         )
-        synced: Final = await self._sync(priced)
-        keep_full: Final = self.enabled and (
+        return priced
+
+    async def finish(self, result: FinishRequest) -> FinishRequest:
+        return await self.persist(self.prepare(result))
+
+    async def persist(self, result: FinishRequest) -> FinishRequest:
+        synced: Final = await self._sync(result)
+        return await self._save_full(synced) if self._keep_full(synced) else synced
+
+    def persistence_failed(self, result: FinishRequest) -> FinishRequest:
+        return result.model_copy(update=MappingProxyType({
+            "full_log_state": "failed" if self._keep_full(result) else "disabled",
+            "spend_sync_state": "standard" if self.standard_accounting else (
+                "failed" if result.spend_sync_state == "pending" else result.spend_sync_state
+            ),
+        }))
+
+    def _keep_full(self, result: FinishRequest) -> bool:
+        return self.enabled and (
             not self.skip_failed
-            if self.incomplete(synced)
+            if self.incomplete(result)
             else self.keep_success
             and int(hashlib.sha256((self.session_id or str(self.lease.request_id)).encode()).hexdigest()[:8], 16) % 100
             < self.sample_percent
         )
-        return await self._save_full(synced) if keep_full else synced
 
     def incomplete(self, result: FinishRequest) -> bool:
         return (

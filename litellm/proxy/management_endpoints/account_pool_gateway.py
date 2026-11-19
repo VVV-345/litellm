@@ -20,7 +20,7 @@ from starlette.datastructures import Headers
 from starlette.requests import ClientDisconnect, Request
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
-from starlette.websockets import WebSocket
+from starlette.websockets import WebSocket, WebSocketState
 from typing_extensions import NotRequired, ReadOnly
 
 from litellm.proxy.management_endpoints.account_pool_control_health import ControlHealth
@@ -30,6 +30,7 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
     AcquireRequest,
     FinishRequest,
     Lease,
+    LogStatusRequest,
     Resolution,
     ResolveRequest,
 )
@@ -135,6 +136,9 @@ class TrustedControl:
 
     async def finish(self, request: FinishRequest) -> None:
         await self.control.finish(request)
+
+    async def log_status(self, request: LogStatusRequest) -> None:
+        await self.control.log_status(request)
 
 
 def manager_control(client: httpx.AsyncClient) -> GatewayControl:
@@ -357,7 +361,7 @@ class AccountPoolGatewayMiddleware:
         if headers.get("content-type", "").split(";")[0].strip() != "application/json":
             await error_response(415, "Use application/json")(scope, receive, send)
             return
-        if not self.health.permits():
+        if not self.health.available():
             await self._control_unavailable(scope, receive, send)
             return
         try:
@@ -440,8 +444,8 @@ class AccountPoolGatewayMiddleware:
         if not model or len(model) > 256:
             await websocket.close(code=1008, reason="A valid model query parameter is required")
             return
-        if not self.health.permits():
-            await websocket.close(code=1013, reason="Account pool control plane is unavailable")
+        if not self.health.available():
+            await self._deny_websocket_control(websocket)
             return
         try:
             async with self.http_clients() as clients:
@@ -468,13 +472,27 @@ class AccountPoolGatewayMiddleware:
                     control,
                     self.websocket_dialer,
                 )
-        except ControlError:
-            await websocket.close(code=1013, reason="Account pool control plane is unavailable")
-        except (ValueError, httpx.HTTPError):
+        except ControlError as error:
+            if websocket.application_state is WebSocketState.CONNECTING:
+                await self._deny_websocket_control(websocket, error.client_status)
+            else:
+                await websocket.close(code=1013, reason="Account pool control plane is unavailable")
+        except httpx.HTTPError:
+            if websocket.application_state is WebSocketState.CONNECTING:
+                await self._deny_websocket_control(websocket)
+            else:
+                await websocket.close(code=1011, reason="Account pool WebSocket request failed")
+        except ValueError:
             await websocket.close(code=1011, reason="Account pool WebSocket request failed")
 
+    async def _deny_websocket_control(self, websocket: WebSocket, status: int = 503) -> None:
+        await websocket.send_denial_response(error_response(
+            status, "Account pool control plane is unavailable", "control_plane_unavailable",
+            retry_after=max(1, self.health.retry_after_seconds()) if status == 503 else 0,
+        ))
+
     async def models(self, request: Request, key: str, send: Send) -> None:
-        if not self.health.permits():
+        if not self.health.available():
             await error_response(
                 503,
                 "Account pool model catalog is unavailable",

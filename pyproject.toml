@@ -180,6 +180,7 @@ dev = [
     # pytest works without requiring a system libpq install.
     "psycopg==3.3.3",
     "psycopg-binary==3.3.3",
+    "psycopg-pool==3.3.3",
     "pytest-xdist==3.8.0",
     "requests-mock==1.12.1",
     "responses==0.26.0",

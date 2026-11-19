@@ -12,7 +12,7 @@ import httpx
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 from account_pool.domain import ChannelKind, EnvironmentRecord, SupplierKind, utc_now
-from account_pool.gateway_contracts import ReasoningEffort, RoutingReason
+from account_pool.gateway_contracts import LogStatusRequest, ReasoningEffort, RoutingReason
 from account_pool.providers.usage.contracts import ProviderQuotaError
 from account_pool.settings import AccountPoolSettingsRepository
 from account_pool.shared.error_safety import safe_error
@@ -192,6 +192,8 @@ class LogStorageStats(BaseModel):
 
 
 class ErrorLogRepository(Protocol):
+    async def update_persistence(self, request: LogStatusRequest) -> bool: ...
+
     async def append(self, event: ErrorLogRecord) -> None: ...
 
     async def query(self, query: ErrorLogQuery) -> ErrorLogPage: ...

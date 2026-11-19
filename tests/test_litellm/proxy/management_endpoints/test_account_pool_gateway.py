@@ -1066,6 +1066,7 @@ class Control:
         self.resolution: Final = resolution
         self.acquisitions: list[AcquireRequest] = []
         self.finished: list[FinishRequest] = []
+        self.log_updates = []
         self.revoked = False
         self.exhausted = False
         self.budget_exhausted_account_ids: frozenset[UUID] = frozenset()
@@ -1108,6 +1109,9 @@ class Control:
 
     async def finish(self, request: FinishRequest) -> None:
         self.finished.append(request)
+
+    async def log_status(self, request) -> None:
+        self.log_updates.append(request)
 
 
 class FakeUpstreamWebSocket:
@@ -4698,7 +4702,13 @@ async def test_finish_attempt_times_out_logging_but_still_reports(monkeypatch):
         pass
 
     class StalledLog:
-        async def finish(self, result):
+        def prepare(self, result):
+            return result
+
+        def persistence_failed(self, result):
+            return result.model_copy(update={"spend_sync_state": "failed"})
+
+        async def persist(self, result):
             await asyncio.Event().wait()
 
     attempt = module.Attempt(lease, "/v1/responses", send, log=StalledLog())
@@ -4707,6 +4717,7 @@ async def test_finish_attempt_times_out_logging_but_still_reports(monkeypatch):
     await asyncio.wait_for(managed_cleanup(module.finish_attempt(control, attempt)), 1)
     assert len(control.finished) == 1
     assert control.finished[0].lease_id == lease.lease_id
+    assert len(control.log_updates) == 1 and control.log_updates[0].spend_sync_state == "failed"
 
 
 @pytest.mark.asyncio

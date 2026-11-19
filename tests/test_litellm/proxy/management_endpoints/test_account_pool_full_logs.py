@@ -203,8 +203,8 @@ def test_full_sse_retains_partial_reply_and_never_puts_body_in_daily_log(store: 
     assert _KEY not in saved.model_dump_json()
     assert "private input" in saved.model_dump_json()
     assert saved.session_id == control.finished[0].session_id
-    assert control.finished[0].full_log_state == "stored"
-    assert saved.result.spend_sync_state == control.finished[0].spend_sync_state
+    assert control.log_updates[0].full_log_state == "stored"
+    assert saved.result.spend_sync_state == control.log_updates[0].spend_sync_state
     assert "private" not in control.finished[0].model_dump_json()
 
 
@@ -309,7 +309,7 @@ def test_storage_failure_does_not_change_response_or_skip_daily_log(store: FullL
     assert response.status_code == 200
     assert len(control.finished) == 1
     assert control.finished[0].http_status == 200
-    assert control.finished[0].full_log_state == "failed"
+    assert control.log_updates[0].full_log_state == "failed"
 
 
 def test_switching_off_preserves_existing_full_records(store: FullLogStore) -> None:
@@ -328,7 +328,7 @@ def test_switching_off_preserves_existing_full_records(store: FullLogStore) -> N
             headers={"Authorization": f"Bearer {_KEY}"},
         )
     assert store.storage().row_count == 1
-    assert [result.full_log_state for result in control.finished] == ["stored", "disabled"]
+    assert [result.full_log_state for result in control.log_updates] == ["stored", "disabled"]
 
 
 def request_log(transport: Literal["http", "sse", "websocket"] = "websocket") -> RequestLog:
@@ -645,3 +645,19 @@ def test_session_title_uses_cleaned_client_title_or_first_user_text(payload: Jso
 
     assert session_title(clean_content(payload, ())) == expected
     assert session_title(clean_content({"input": "secret-value"}, ("secret-value",))) == "[REDACTED]"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_persistence_failure_reports_only_selected_storage_and_preserves_known_spend_state(enabled):
+    log = request_log("http")
+    log.enabled = enabled
+    log.keep_success = True
+    log.sample_percent = 100
+    result = FinishRequest(lease_id=log.lease.lease_id, endpoint="/v1/responses", message="done", http_status=200,
+        response_completed=True, input_tokens=11, output_tokens=7, cost_usd=0.25, spend_sync_state="synced")
+    failed = log.persistence_failed(result)
+    assert failed.full_log_state == ("failed" if enabled else "disabled")
+    assert failed.spend_sync_state == "synced"
+    assert failed.model_dump(exclude={"full_log_state"}) == result.model_dump(exclude={"full_log_state"})
+    pending = result.model_copy(update={"spend_sync_state": "pending"})
+    assert log.persistence_failed(pending).spend_sync_state == "failed"

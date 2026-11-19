@@ -27,6 +27,7 @@ from account_pool.gateway_contracts import (
     CandidateQuotaWindow,
     FinishRequest,
     Lease,
+    LogStatusRequest,
     Resolution,
     ResolveRequest,
 )
@@ -403,6 +404,10 @@ class GatewayService:
             except Exception as error:
                 logging.getLogger(__name__).warning("Quota call verification persistence failed: %s", type(error).__name__)
 
+    async def log_status(self, request: LogStatusRequest) -> None:
+        if not await self.logs.repository.update_persistence(request):
+            raise HTTPException(404, "Completion event was not recorded")
+
     async def cooldown_delay(self, lease: Lease) -> int:
         if self.model_cooldowns is None or lease.channel != ChannelKind.CLIPROXYAPI:
             return 0
@@ -478,7 +483,15 @@ def create_gateway_router(service: GatewayService, authorize: Callable[..., None
     async def finish(request: FinishRequest) -> None:
         await service.finish(request)
 
+    async def log_status(request: LogStatusRequest) -> None:
+        await service.log_status(request)
+
     router.add_api_route("/resolve", resolve, methods=["POST"])
     router.add_api_route("/acquire", acquire, methods=["POST"])
     router.add_api_route("/finish", finish, methods=["POST"], status_code=204)
+    router.add_api_route(
+        "/log-status", log_status,
+        methods=["POST"],  # mutable-ok: LIT002 FastAPI 的 methods 参数要求 list[str]，不共享业务状态。
+        status_code=204,
+    )
     return router
