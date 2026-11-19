@@ -487,3 +487,16 @@ Windows 上机械迁移应保留原文件换行，避免只改一个导入却出
 整理前后相关回归均为 417 项通过，36 个模型、144 个应用路由的 OpenAPI 及数据库声明契约校验值一致。Manager 全量前后均为 1229 通过、32 跳过、2 失败：`test_authorization_view_contract_has_only_public_authorization_instructions` 的快照未包含新增状态字段，`test_policy_versions_and_supplier_scope` 的预期未包含 `allow_valid_access_after_refresh_failure`。这些既有失败未混入本轮修改，缺少隔离数据库或 Docker 显式开关的检查没有计作通过
 
 CI 独立运行的上号契约测试通过，反馈 CLI 本机 fixture 为 17 通过及 26 个子测试通过。构建 wheel 内含 134 个 Python 文件，21 个入口从解包后的 wheel 实际导入，命令行入口仍是 `account_pool.app:main`。集中手册 186 个本地链接通过检查。以上是本地结构检查，不代表已构建生产镜像、部署或完成真实账号授权
+
+
+## 2026-11-19 隔离数据库补验收与代理归一化
+
+在 `1fa0fb7744` 基础上核对 Manager 主命令的 70 项跳过：26 项账号、凭据、额度及连接池测试缺少 `ACCOUNT_POOL_TEST_DATABASE_URL`，25 项 OAuth 任务测试缺少 `OAUTH_AUTOMATION_TEST_DATABASE_URL`，16 项代理目录测试缺少 `PROXY_CATALOG_TEST_DATABASE_URL`，1 项日志清理测试缺少 `MANAGER_LOGS_TEST_DATABASE_URL`，2 项备份恢复测试未启用 `RUN_RELEASE_DATABASE_INTEGRATION=1`。这些依赖均可本地满足，不能直接把跳过当成完成验收
+
+本次使用本地 Docker PostgreSQL 16 的独立 `account_pool_test`、`oauth_automation_test`、`proxy_catalog_test`、`manager_logs_test` 数据库。OAuth 和日志夹具要求对应专用库名；不得填入部署库地址。备份恢复测试另外创建隔离的 Compose 标签容器，结束后检查并清理测试容器，不连接服务器或修改部署
+
+Windows 上 psycopg 异步测试使用 Selector loop，原生异步子进程测试保留 Proactor loop，因此分进程运行并按 JUnit 的每一个测试身份核对覆盖，不只相加终端总数。结果为常规组 1496 项通过，原跳过组全部 70 项通过，合并后 1566 个不同用例全部覆盖，无剩余跳过或失败。OAuth 组验证持久化、互斥、恢复和脱敏，不代表真实账号已完成登录
+
+额外复核发现三个冻结模型的 after 校验器返回新对象，直接构造时该返回值被忽略，导致默认代理模式残留旧 `proxy_profile_id` 或 `proxy_url`。归一化移至新对象的 `model_post_init`，保留原字段校验及 PROFILE 模式要求，已存在的对象不在读取时原地改写。新增 27 项回归覆盖构造、解析、JSON 往返、冻结性和非法输入；同输入原版本 3 项失败、24 项通过，修复后 27 项通过
+
+完整记录和逐项覆盖表保留在本地验证归档中，构建、推送、部署和真实上游调用仍是独立验收项。以上数字为本次记录，不作为后续版本的永久通过保证

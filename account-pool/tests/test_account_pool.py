@@ -5073,3 +5073,92 @@ async def test_glm_standard_create_reuses_encrypted_credentials_and_manual_model
         == "fixture-standard-key"
     )
     assert await repository.get(original[0].id) == original[0]
+
+
+@pytest.fixture(params=("configuration", "network", "update"))
+def proxy_model_normalization_case(request):
+    from account_pool.domain import NetworkSettingsProfileBaseline
+
+    model = {
+        "configuration": EnvironmentConfiguration,
+        "network": NetworkSettingsProfileBaseline,
+        "update": UpdateEnvironmentRequest,
+    }[request.param]
+    values = {
+        "name": "fixture", "version": 0, "profile_id": "network-default",
+        "concurrency_limit": 3, "enabled": True, "manual_cooldown": False,
+        "proxy_mode": ProxyMode.DEFAULT_GATEWAY, "proxy_profile_id": "old-profile",
+        "proxy_url": "http://previous-proxy.test:8080", "enabled_models": ("model-a",),
+    }
+    return model, values
+
+
+@pytest.mark.parametrize("mode", (ProxyMode.DEFAULT_GATEWAY, ProxyMode.PROFILE))
+def test_proxy_model_normalization_matches_constructor_and_parsed_input(proxy_model_normalization_case, mode):
+    import warnings
+
+    model, values = proxy_model_normalization_case
+    payload = {**values, "proxy_mode": mode}
+    original = payload.copy()
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        direct = model(**payload)
+        parsed = model.model_validate(payload)
+        roundtrip = model.model_validate_json(direct.model_dump_json())
+    assert direct == parsed == roundtrip
+    assert payload == original
+    assert not recorded
+    assert model.model_validate(direct) is direct
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError, match="frozen"):
+        setattr(direct, "proxy_profile_id", "another-profile")
+    assert direct.proxy_profile_id == (None if mode is ProxyMode.DEFAULT_GATEWAY else "old-profile")
+    if model is EnvironmentConfiguration:
+        assert direct.proxy_url == ("" if mode is ProxyMode.DEFAULT_GATEWAY else values["proxy_url"])
+
+
+@pytest.mark.parametrize("invalid", ("x" * 121, 123, {}, b"\xff"))
+def test_proxy_model_normalization_keeps_invalid_profile_rejection(proxy_model_normalization_case, invalid):
+    from pydantic import ValidationError
+
+    model, values = proxy_model_normalization_case
+    payload = {**values, "proxy_profile_id": invalid}
+    with pytest.raises(ValidationError):
+        model(**payload)
+    with pytest.raises(ValidationError):
+        model.model_validate(payload)
+
+
+@pytest.mark.parametrize("missing", (True, False))
+def test_proxy_model_normalization_keeps_profile_requirement(proxy_model_normalization_case, missing):
+    from pydantic import ValidationError
+
+    model, values = proxy_model_normalization_case
+    payload = {key: value for key, value in values.items() if key != "proxy_profile_id"}
+    payload = {**payload, "proxy_mode": ProxyMode.PROFILE, **({} if missing else {"proxy_profile_id": None})}
+    if model is EnvironmentConfiguration:
+        assert model(**payload).proxy_profile_id is None
+    else:
+        with pytest.raises(ValidationError):
+            model(**payload)
+        with pytest.raises(ValidationError):
+            model.model_validate(payload)
+
+
+@pytest.mark.parametrize("url", ([], b"\xff"))
+def test_proxy_model_normalization_rejects_invalid_stale_url(url):
+    from pydantic import ValidationError
+
+    values = dict(name="fixture", concurrency_limit=3, enabled=True, manual_cooldown=False,
+                  proxy_mode=ProxyMode.DEFAULT_GATEWAY, proxy_profile_id="old-profile", proxy_url=url)
+    with pytest.raises(ValidationError):
+        EnvironmentConfiguration(**values)
+    with pytest.raises(ValidationError):
+        EnvironmentConfiguration.model_validate(values)
+
+
+def test_proxy_model_normalization_preserves_default_gateway_url_without_stale_profile():
+    values = dict(name="fixture", concurrency_limit=3, enabled=True, manual_cooldown=False,
+                  proxy_mode=ProxyMode.DEFAULT_GATEWAY, proxy_url="http://default-gateway.test:8080")
+    assert EnvironmentConfiguration(**values).proxy_url == values["proxy_url"]
+    assert EnvironmentConfiguration.model_validate(values).proxy_url == values["proxy_url"]

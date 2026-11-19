@@ -214,11 +214,11 @@ class EnvironmentConfiguration(BaseModel):
     credential_enabled: bool = True
     oauth_excluded_models: tuple[str, ...] = ()
 
-    @model_validator(mode="after")
-    def normalize_proxy_mode(self) -> EnvironmentConfiguration:
+    def model_post_init(self, _context: object, /) -> None:
+        # __init__ 不采用 after 校验器返回的新实例，仅在新对象初始化时归一化冻结字段。
         if self.proxy_mode is ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
-            return self.model_copy(update={"proxy_profile_id": None, "proxy_url": ""})
-        return self
+            object.__setattr__(self, "proxy_profile_id", None)
+            object.__setattr__(self, "proxy_url", "")
 
 
 class CommonSettingsProfileBaseline(BaseModel):
@@ -235,12 +235,14 @@ class NetworkSettingsProfileBaseline(BaseModel):
     proxy_mode: ProxyMode
     proxy_profile_id: str | None = Field(default=None, max_length=120)
 
+    def model_post_init(self, _context: object, /) -> None:
+        if self.proxy_mode is ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
+            object.__setattr__(self, "proxy_profile_id", None)
+
     @model_validator(mode="after")
     def validate_proxy_profile(self) -> NetworkSettingsProfileBaseline:
         if self.proxy_mode is ProxyMode.PROFILE and self.proxy_profile_id is None:
             raise ValueError("proxy_profile_id is required for profile mode")
-        if self.proxy_mode is ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
-            return self.model_copy(update={"proxy_profile_id": None})
         return self
 
 
@@ -697,12 +699,14 @@ class UpdateEnvironmentRequest(BaseModel):
         normalized: Final = tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
         return normalized
 
+    def model_post_init(self, _context: object, /) -> None:
+        if self.proxy_mode is ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
+            object.__setattr__(self, "proxy_profile_id", None)
+
     @model_validator(mode="after")
     def validate_proxy_profile(self) -> UpdateEnvironmentRequest:
-        if self.proxy_mode == ProxyMode.PROFILE and not self.proxy_profile_id:
+        if self.proxy_mode is ProxyMode.PROFILE and not self.proxy_profile_id:
             raise ValueError("proxy_profile_id is required for profile mode")
-        if self.proxy_mode == ProxyMode.DEFAULT_GATEWAY and self.proxy_profile_id is not None:
-            return self.model_copy(update={"proxy_profile_id": None})
         return self
 
 
