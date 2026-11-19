@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import email
 import imaplib
+import io
 import re
 import ssl
 from collections.abc import Awaitable, Callable
@@ -13,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from email.message import Message
 from email.utils import parseaddr, parsedate_to_datetime
+from types import MappingProxyType
 from typing import Final
 
 import httpx
@@ -65,6 +67,28 @@ class GraphMessages(BaseModel):
     value: tuple[GraphMessage, ...] = Field(default=(), max_length=20)
 
 
+class _LimitedIMAPSSL(imaplib.IMAP4_SSL):
+    """在标准库读取 literal 前限长，防止服务端忽略部分 FETCH 后占用大量内存。"""
+
+    def read(self, size: int) -> bytes:
+        if size > 262145:
+            self.state = "LOGOUT"
+            self.shutdown()
+            raise MailboxUnavailable("邮箱邮件超过大小限制，请手工填码")
+        return super().read(size)
+
+
+async def _limited_body(response: httpx.Response, limit: int) -> bytes:
+    if response.headers.get("content-encoding", "identity").casefold() != "identity":
+        raise MailboxUnavailable("邮箱返回了不支持的压缩响应，请手工填码")
+    body: Final = io.BytesIO()
+    async for chunk in response.aiter_bytes(chunk_size=16384):
+        if body.tell() + len(chunk) > limit:
+            raise MailboxUnavailable("邮箱响应超过大小限制，请手工填码")
+        body.write(chunk)
+    return body.getvalue()
+
+
 @dataclass(frozen=True, slots=True)
 class MailboxReader:
     http: httpx.AsyncClient
@@ -96,21 +120,24 @@ class MailboxReader:
         persist: Callable[[MailboxSecret], Awaitable[None]],
     ) -> str | None:
         current: Final = await self._refresh(secret, persist)
-        response: Final = await self.http.get(
-            "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
-            headers={"Authorization": "Bearer " + current.access_token, "Prefer": 'outlook.body-content-type="text"'},
+        async with self.http.stream(
+            "GET", "https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages",
+            headers={
+                "Authorization": "Bearer " + current.access_token,
+                "Prefer": 'outlook.body-content-type="text"', "Accept-Encoding": "identity",
+            },
             params={
                 "$top": "20",
                 "$select": "from,receivedDateTime,subject,body",
                 "$orderby": "receivedDateTime desc",
                 "$filter": "receivedDateTime ge " + since.astimezone(timezone.utc).isoformat(),
             },
-            timeout=15,
-            follow_redirects=False,
-        )
-        if response.status_code != 200 or len(response.content) > 1048576:
-            raise MailboxUnavailable("邮箱收件箱读取失败；需 Mail.Read 收信授权，也可手工填码")
-        messages: Final = GraphMessages.model_validate_json(response.content)
+            timeout=15, follow_redirects=False,
+        ) as response:
+            if response.status_code != 200:
+                raise MailboxUnavailable("邮箱收件箱读取失败；需 Mail.Read 收信授权，也可手工填码")
+            payload: Final = await _limited_body(response, 1048576)
+        messages: Final = GraphMessages.model_validate_json(payload)
         return next(
             (
                 code
@@ -141,20 +168,21 @@ class MailboxReader:
         if not secret.client_id or not secret.refresh_token:
             raise MailboxUnavailable("缺少邮箱客户端 ID 或收信刷新令牌，请手工填码")
         await persist(secret.model_copy(update={"refresh_pending": True}))
-        response: Final = await self.http.post(
-            "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+        async with self.http.stream(
+            "POST", "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+            headers=MappingProxyType({"Accept-Encoding": "identity"}),
             data={
                 "client_id": secret.client_id,
                 "refresh_token": secret.refresh_token,
                 "grant_type": "refresh_token",
                 "scope": "https://graph.microsoft.com/Mail.Read offline_access",
             },
-            timeout=15,
-            follow_redirects=False,
-        )
-        if response.status_code != 200 or len(response.content) > 65536:
-            raise MailboxUnavailable("邮箱 OAuth 刷新失败，请核对收信权限或手工填码")
-        pair: Final = TokenResponse.model_validate_json(response.content)
+            timeout=15, follow_redirects=False,
+        ) as response:
+            if response.status_code != 200:
+                raise MailboxUnavailable("邮箱 OAuth 刷新失败，请核对收信权限或手工填码")
+            payload: Final = await _limited_body(response, 65536)
+        pair: Final = TokenResponse.model_validate_json(payload)
         current: Final = secret.model_copy(
             update={
                 "refresh_pending": False,
@@ -169,7 +197,7 @@ class MailboxReader:
     @staticmethod
     def _imap(secret: MailboxSecret, since: datetime) -> str | None:
         host: Final = IMAP_HOSTS[secret.email.rsplit("@", 1)[1]]
-        with imaplib.IMAP4_SSL(host, ssl_context=ssl.create_default_context(), timeout=15) as client:
+        with _LimitedIMAPSSL(host, ssl_context=ssl.create_default_context(), timeout=15) as client:
             client.login(secret.email, secret.password)
             if client.select("INBOX", readonly=True)[0] != "OK":
                 raise MailboxUnavailable("邮箱收件箱不可读")
@@ -177,7 +205,7 @@ class MailboxReader:
             if status != "OK" or not data or not isinstance(data[0], bytes):
                 return None
             for uid in reversed(data[0].split()[-20:]):
-                fetched, parts = client.uid("fetch", uid.decode("ascii"), "(BODY.PEEK[])")
+                fetched, parts = client.uid("fetch", uid.decode("ascii"), "(BODY.PEEK[]<0.262145>)")
                 if fetched != "OK":
                     continue
                 code = next(

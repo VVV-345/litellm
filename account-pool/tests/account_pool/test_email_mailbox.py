@@ -100,3 +100,245 @@ async def test_refresh_pending_is_durable_before_post_and_blocks_old_rt_after_lo
             await reader.poll(saved[-1], utc_now(), persist)
         assert len(calls) == 1 and saved[-1].refresh_pending
         reader.close()
+
+
+class CountedMailboxBody(httpx.AsyncByteStream):
+    def __init__(self, chunk_bytes=32768, chunks=64):
+        self.chunk_bytes, self.chunks = chunk_bytes, chunks
+        self.downloaded = 0
+        self.closed = False
+
+    async def __aiter__(self):
+        for _ in range(self.chunks):
+            self.downloaded += self.chunk_bytes
+            yield b"x" * self.chunk_bytes
+
+    async def aclose(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("declared", ["1", "2097152"])
+async def test_graph_response_stops_reading_at_limit_even_with_wrong_content_length(declared):
+    body = CountedMailboxBody()
+
+    def respond(request):
+        return httpx.Response(200, headers={"content-length": declared}, stream=body)
+
+    async def persist(secret):
+        raise AssertionError("cached token must not refresh")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        reader = MailboxReader(client)
+        secret = MailboxSecret(
+            email="test@outlook.com",
+            method="microsoft",
+            access_token="fixture",
+            access_expires_at=utc_now() + timedelta(hours=1),
+        )
+        try:
+            with pytest.raises(MailboxUnavailable):
+                await reader.poll(secret, utc_now(), persist)
+            assert body.downloaded <= 1048576 + body.chunk_bytes
+            assert body.closed
+        finally:
+            reader.close()
+
+
+class MailboxWire:
+    def __init__(self, raw, declared):
+        self.raw, self.declared = raw, declared
+        self.lines = [b"* OK fixture ready\r\n"]
+        self.commands, self.read_sizes = [], []
+        self.closed = False
+
+    def sendall(self, data):
+        self.commands.append(data)
+        words = data.split()
+        tag, command = words[:2]
+        if command == b"CAPABILITY":
+            self.lines.append(b"* CAPABILITY IMAP4rev1\r\n")
+        elif command in (b"EXAMINE", b"SELECT"):
+            self.lines.append(b"* 1 EXISTS\r\n")
+        elif command == b"UID" and words[2] == b"SEARCH":
+            self.lines.append(b"* SEARCH 1\r\n")
+        elif command == b"UID" and words[2] == b"FETCH":
+            self.lines.extend([b"* 1 FETCH (UID 1 BODY[]<0> {" + str(self.declared).encode() + b"}\r\n", b")\r\n"])
+        elif command == b"LOGOUT":
+            self.lines.append(b"* BYE closing\r\n")
+        self.lines.append(tag + b" OK completed\r\n")
+
+    def makefile(self, mode):
+        return self
+
+    def readline(self, limit):
+        return self.lines.pop(0)
+
+    def read(self, size):
+        self.read_sizes.append(size)
+        return self.raw[:size] if self.declared == len(self.raw) else b"x" * size
+
+    def shutdown(self, how):
+        self.closed = True
+
+    def close(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("size", [0, 262145, 1048576])
+async def test_imap_partial_fetch_and_literal_guard_bound_downloads(monkeypatch, size):
+    import socket
+    import ssl
+    from email.utils import format_datetime
+
+    now = utc_now()
+    raw = (
+        "From: noreply@openai.com\r\nDate: "
+        + format_datetime(now)
+        + "\r\nSubject: Verify\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n123456"
+    ).encode()
+    wire = MailboxWire(raw, size or len(raw))
+
+    class Context:
+        def wrap_socket(self, sock, server_hostname):
+            assert server_hostname == "imap.gmail.com"
+            return sock
+
+    def connect(address, timeout=None):
+        assert address == ("imap.gmail.com", 993)
+        return wire
+
+    monkeypatch.setattr(socket, "create_connection", connect)
+    monkeypatch.setattr(ssl, "create_default_context", Context)
+
+    async def persist(secret):
+        raise AssertionError("IMAP must not rotate credentials")
+
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: pytest.fail("no HTTP")), trust_env=False
+    ) as client:
+        reader = MailboxReader(client)
+        secret = MailboxSecret(email="test@gmail.com", password="fixture-app-password", method="imap")
+        try:
+            if size > 262145:
+                with pytest.raises(MailboxUnavailable):
+                    await reader.poll(secret, now - timedelta(seconds=1), persist)
+                assert wire.read_sizes == [], "oversized literal must be rejected before reading any payload"
+            else:
+                result = await reader.poll(secret, now - timedelta(seconds=1), persist)
+                assert result == (None if size else "123456")
+                assert sum(wire.read_sizes) <= 262145
+            assert wire.closed
+            assert any(b"BODY.PEEK[]<0.262145>" in command for command in wire.commands)
+        finally:
+            reader.close()
+
+
+@pytest.mark.asyncio
+async def test_token_response_is_bounded_and_uncertain_rotation_stays_pending():
+    saved = []
+    body = CountedMailboxBody(chunk_bytes=4096, chunks=64)
+
+    def respond(request):
+        assert request.url.host == "login.microsoftonline.com"
+        assert request.headers["accept-encoding"] == "identity"
+        assert saved[-1].refresh_pending
+        return httpx.Response(200, stream=body)
+
+    async def persist(secret):
+        saved.append(secret)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        reader = MailboxReader(client)
+        try:
+            with pytest.raises(MailboxUnavailable):
+                await reader.poll(
+                    MailboxSecret(
+                        email="test@outlook.com",
+                        method="microsoft",
+                        client_id="fixture",
+                        refresh_token="original-fixture-rt",
+                    ),
+                    utc_now(),
+                    persist,
+                )
+            assert body.closed and body.downloaded <= 65536 + 16384
+            assert len(saved) == 1 and saved[-1].refresh_pending
+            assert saved[-1].refresh_token == "original-fixture-rt"
+        finally:
+            reader.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("encoding", ["gzip", "deflate"])
+async def test_unexpected_compressed_mail_body_is_rejected_before_decode(encoding):
+    body = CountedMailboxBody()
+
+    def respond(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(200, headers={"content-encoding": encoding}, stream=body)
+
+    async def persist(secret):
+        raise AssertionError("cached token must not refresh")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        reader = MailboxReader(client)
+        try:
+            with pytest.raises(MailboxUnavailable):
+                await reader.poll(
+                    MailboxSecret(
+                        email="test@outlook.com",
+                        method="microsoft",
+                        access_token="fixture",
+                        access_expires_at=utc_now() + timedelta(hours=1),
+                    ),
+                    utc_now(),
+                    persist,
+                )
+            assert body.downloaded == 0 and body.closed
+        finally:
+            reader.close()
+
+
+@pytest.mark.asyncio
+async def test_bounded_graph_reply_still_returns_current_verification_code():
+    now = utc_now()
+
+    def respond(request):
+        assert request.headers["accept-encoding"] == "identity"
+        return httpx.Response(
+            200,
+            json={
+                "value": [
+                    {
+                        "from": {"emailAddress": {"address": "noreply@openai.com"}},
+                        "receivedDateTime": now.isoformat(),
+                        "subject": "Verification",
+                        "body": {"content": "123456"},
+                    }
+                ]
+            },
+        )
+
+    async def persist(secret):
+        raise AssertionError("cached token must not refresh")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        reader = MailboxReader(client)
+        try:
+            assert (
+                await reader.poll(
+                    MailboxSecret(
+                        email="test@outlook.com",
+                        method="microsoft",
+                        access_token="fixture",
+                        access_expires_at=now + timedelta(hours=1),
+                    ),
+                    now,
+                    persist,
+                )
+                == "123456"
+            )
+        finally:
+            reader.close()

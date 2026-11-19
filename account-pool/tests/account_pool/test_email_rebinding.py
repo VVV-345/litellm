@@ -263,10 +263,11 @@ class BindingWorker:
 
         row = (await self.service.repository.read()).jobs[-1]
         if action == "start":
-            assert row.item.irreversible_started
+            assert row.item.irreversible_started is bool(payload["target"]["verify_only"])
             assert payload["credentials"].startswith("old@example.test----site-password")
             assert "mail-password" not in payload["credentials"]
         if action == "commit":
+            assert row.item.irreversible_started
             assert self.service.cipher.open(row.item.id, row.subject_ciphertext) == self.subject
         self.commands.append((action, payload))
         return RebindingWorkerView(
@@ -375,6 +376,7 @@ async def test_checkpoint_before_external_commit_and_same_card_oauth_gates_compl
 
 @pytest.mark.asyncio
 async def test_changed_status_without_durable_original_identity_is_never_accepted(bindings, tmp_path):
+    from account_pool.shared.result import Failure
     service, card, _ = bindings
     await confirmed_row(service, card)
     runner, _, worker = binding_runner(service, tmp_path)
@@ -383,6 +385,8 @@ async def test_changed_status_without_durable_original_identity_is_never_accepte
     await runner.run_once()
     assert (await service.view()).jobs[-1].stage == "uncertain"
     assert not (await service.view()).jobs[-1].email_changed
+    assert (await service.view()).jobs[-1].irreversible_started
+    assert isinstance(await runner.action((await service.view()).jobs[-1].id, "cancel"), Failure)
     assert (await service.view()).mailboxes[0].status == "reserved"
     await runner.run_once()
     assert sum(a == "start" for a, _ in worker.commands) == 1
@@ -467,3 +471,120 @@ async def test_invalid_import_does_not_leak_secret_in_validation_error(bindings)
     assert isinstance(result, Failure)
     assert "private-mail-password" not in result.message
     assert (await service.view()).mailboxes == ()
+
+
+@pytest.mark.asyncio
+async def test_login_expiry_before_commit_can_cancel_without_losing_card_or_mailbox(bindings, tmp_path):
+    from account_pool.domain import utc_now
+    from account_pool.email_rebinding.models import RebindingWorkerView
+    from account_pool.shared.result import Success
+
+    class ExpiredLogin(BindingWorker):
+        async def binding_command(self, session_id, token, action, payload):
+            if action == "status":
+                return RebindingWorkerView(status="expired", step="login", expires_at=utc_now())
+            return await super().binding_command(session_id, token, action, payload)
+
+    service, card, _ = bindings
+    row = await confirmed_row(service, card)
+    runner, browser, worker = binding_runner(service, tmp_path, ExpiredLogin(service))
+    await runner.run_once()
+    await runner.run_once()
+    job = (await service.view()).jobs[-1]
+    assert job.stage == "failed" and not job.irreversible_started
+    assert isinstance(await runner.action(row.item.id, "cancel"), Success)
+    restored = await service.automation.environments.get(card.id)
+    assert restored.id == card.id and restored.auth_file_name == card.auth_file_name
+    assert restored.email_rebinding_job_id is None and restored.oauth_automation_operation is None
+    assert (await service.view()).mailboxes[0].status == "available"
+    assert len(browser.cleaned) == 1 and sum(a == "commit" for a, _ in worker.commands) == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("initial", ["login", "manual"])
+@pytest.mark.parametrize("lost", [False, True])
+async def test_precommit_login_can_retry_after_expiry_or_lost_worker(bindings, tmp_path, initial, lost):
+    from account_pool.domain import utc_now
+    from account_pool.email_rebinding.models import RebindingWorkerView
+    from account_pool.shared.result import Success
+
+    class InterruptedLogin(BindingWorker):
+        stopped = False
+
+        async def binding_command(self, session_id, token, action, payload):
+            if action == "status":
+                if self.stopped and lost:
+                    raise OSError("fixture lost browser")
+                return RebindingWorkerView(
+                    status="expired" if self.stopped else "manual" if initial == "manual" else "running",
+                    step="login",
+                    expires_at=utc_now(),
+                )
+            return await super().binding_command(session_id, token, action, payload)
+
+    service, card, _ = bindings
+    row = await confirmed_row(service, card)
+    worker = InterruptedLogin(service)
+    runner, browser, _ = binding_runner(service, tmp_path, worker)
+    await runner.run_once()
+    await runner.run_once()
+    worker.stopped = True
+    await runner.run_once()
+    assert (await service.view()).jobs[-1].stage == "failed"
+    assert not (await service.view()).jobs[-1].irreversible_started
+    assert isinstance(await runner.action(row.item.id, "retry"), Success)
+    await runner.run_once()
+    assert browser.starts == 2 and len(browser.cleaned) == 1
+    assert (await service.view()).mailboxes[0].status == "reserved"
+    assert len(service.automation.environments.records) == 1
+    assert (await service.automation.environments.get(card.id)).id == card.id
+    assert all(a != "commit" for a, _ in worker.commands)
+
+
+@pytest.mark.asyncio
+async def test_lost_commit_ack_keeps_fence_and_cannot_regrant_or_cancel(bindings, tmp_path):
+    from account_pool.shared.result import Failure
+
+    class LostAck(BindingWorker):
+        async def binding_command(self, session_id, token, action, payload):
+            response = await super().binding_command(session_id, token, action, payload)
+            if action == "commit":
+                raise OSError("fixture lost commit acknowledgement")
+            return response
+
+    service, card, _ = bindings
+    row = await confirmed_row(service, card)
+    runner, _, worker = binding_runner(service, tmp_path, LostAck(service))
+    await runner.run_once()
+    worker.step = "awaiting_commit"
+    with pytest.raises(OSError):
+        await runner.run_once()
+    saved = (await service.repository.read()).jobs[-1]
+    assert saved.subject_ciphertext and saved.item.irreversible_started
+    await runner.run_once()
+    assert (await service.view()).jobs[-1].stage == "uncertain"
+    assert sum(a == "commit" for a, _ in worker.commands) == 1
+    assert isinstance(await runner.action(row.item.id, "cancel"), Failure)
+    assert isinstance(await runner.action(row.item.id, "retry"), Failure)
+    assert (await service.view()).mailboxes[0].status == "reserved"
+
+
+@pytest.mark.asyncio
+async def test_cleanup_pending_cannot_release_card_or_start_second_browser(bindings, tmp_path):
+    from account_pool.shared.result import Failure
+
+    service, card, _ = bindings
+    row = await confirmed_row(service, card)
+    runner, browser, _ = binding_runner(service, tmp_path)
+    await runner.run_once()
+
+    class PendingCleanup(BindingBrowser):
+        async def get(self, session_id):
+            return SimpleNamespace(cleanup_pending=True)
+
+    runner.oauth.browser = PendingCleanup()
+    assert isinstance(await runner.action(row.item.id, "retry"), Failure)
+    assert isinstance(await runner.action(row.item.id, "cancel"), Failure)
+    assert browser.starts == 1 and runner.oauth.browser.starts == 0
+    assert (await service.automation.environments.get(card.id)).email_rebinding_job_id == row.item.id
+    assert (await service.view()).mailboxes[0].status == "reserved"

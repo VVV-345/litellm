@@ -6,6 +6,7 @@ import logging
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -49,7 +50,10 @@ class EmailBindingRunner:
         if row.item.stage == stage and row.item.message == message:
             return row
         saved: Final = await self.service.save(
-            row.model_copy(update={"item": row.item.model_copy(update={"stage": stage, "message": message})})
+            row.model_copy(update={"item": row.item.model_copy(update={
+                "stage": stage, "message": message,
+                "irreversible_started": row.item.irreversible_started or stage == "uncertain",
+            })})
         )
         if self.oauth.record_diagnostic is not None:
             await self.oauth.record_diagnostic(
@@ -204,14 +208,13 @@ class EmailBindingRunner:
                 await self._cleanup(durable)
                 await self._progress(durable, "failed", "浏览器镜像不支持当前换绑协议或脚本未匹配；没有发送登录资料")
                 return
-            fenced: Final = await self.service.save(
+            logging_in: Final = await self.service.save(
                 durable.model_copy(
                     update={
                         "item": durable.item.model_copy(
                             update={
-                                "irreversible_started": True,
                                 "stage": "changing",
-                                "message": "已记录防重放标记，正在登录原账号",
+                                "message": "正在登录原账号，尚未允许修改邮箱",
                             }
                         )
                     }
@@ -221,7 +224,7 @@ class EmailBindingRunner:
                 self.service.cipher.open(row.item.id, row.subject_ciphertext) if row.subject_ciphertext else None
             )
             await self._command(
-                fenced,
+                logging_in,
                 "start",
                 {
                     "credentials": self.service.cipher.open(row.item.environment_id, row.original_login_ciphertext),
@@ -240,10 +243,16 @@ class EmailBindingRunner:
         try:
             status: Final = await self._command(row, "status")
         except Exception:
-            await self._progress(row, "uncertain", "浏览器状态未知，保留进度和邮箱占用；仅允许核实，不重放换绑")
+            await self._progress(
+                row, "uncertain" if row.item.irreversible_started else "failed",
+                "浏览器连接不可用；提交前可清理后重试，提交后仅核实，不重放换绑",
+            )
             return
         if status.status in {"failed", "expired", "cancelled"}:
-            await self._progress(row, "uncertain", "浏览器已停止，换绑结果尚需核实；不会再次提交修改邮箱")
+            await self._progress(
+                row, "uncertain" if row.item.irreversible_started else "failed",
+                "浏览器已停止；提交前可清理后重试，提交后仅核实，不重放换绑",
+            )
             return
         if status.status in {"waiting", "manual"}:
             await self._progress(row, "manual", "页面需要人工核对：原邮箱验证、人机验证或未知页面；可打开画面接管")
@@ -265,28 +274,10 @@ class EmailBindingRunner:
             await self._authorization(bound)
             return
         if status.step == "awaiting_commit":
-            if (
-                not status.subject
-                or status.source_email is None
-                or status.source_email.casefold() != row.item.old_email.casefold()
-            ):
-                await self._progress(row, "manual", "登录账号与原卡不一致，未允许修改邮箱")
-                return
-            if (
-                row.subject_ciphertext
-                and self.service.cipher.open(row.item.id, row.subject_ciphertext) != status.subject
-            ):
-                await self._progress(row, "manual", "原账号身份已改变，未允许修改邮箱")
-                return
-            checkpoint: Final = await self.service.save(
-                row.model_copy(
-                    update={
-                        "subject_ciphertext": self.service.cipher.seal(row.item.id, status.subject),
-                    }
-                )
-            )
-            await self._command(checkpoint, "commit")
-            await self._progress(checkpoint, "changing", "原账号证明已保存，正在通过官网修改邮箱")
+            await self._grant_commit(row, status)
+            return
+        if status.step in ("changing", "waiting_code", "verifying") and not row.item.irreversible_started:
+            await self._progress(row, "uncertain", "浏览器报告了未获准的修改步骤，保留占用，请人工核实")
             return
         if status.step == "waiting_code":
             if row.mail_poll_failed:
@@ -323,6 +314,37 @@ class EmailBindingRunner:
                     )
                 )
             return
+
+    async def _grant_commit(self, row: StoredBinding, status: RebindingWorkerView) -> None:
+        if row.item.irreversible_started:
+            await self._progress(row, "uncertain", "已记录提交边界，不能重复允许换绑；请仅核实结果")
+            return
+        if (
+            not status.subject
+            or status.source_email is None
+            or status.source_email.casefold() != row.item.old_email.casefold()
+        ):
+            await self._progress(row, "manual", "登录账号与原卡不一致，未允许修改邮箱")
+            return
+        if (
+            row.subject_ciphertext
+            and self.service.cipher.open(row.item.id, row.subject_ciphertext) != status.subject
+        ):
+            await self._progress(row, "manual", "原账号身份已改变，未允许修改邮箱")
+            return
+        checkpoint: Final = await self.service.save(
+            row.model_copy(
+                update={
+                    "subject_ciphertext": self.service.cipher.seal(row.item.id, status.subject),
+                    "item": row.item.model_copy(update=MappingProxyType({"irreversible_started": True})),
+                }
+            )
+        )
+        if not checkpoint.item.irreversible_started or checkpoint.subject_ciphertext is None:
+            return
+        await self._command(checkpoint, "commit")
+        await self._progress(checkpoint, "changing", "原账号证明已保存，正在通过官网修改邮箱")
+        return
 
     async def _authorization(self, row: StoredBinding) -> None:
         current: Final = await self.service.automation.environments.get(row.item.environment_id)
