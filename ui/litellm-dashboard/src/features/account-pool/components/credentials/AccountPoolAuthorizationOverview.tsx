@@ -11,6 +11,7 @@ import { statusLabel, statusVariant } from "../../utils/AccountPoolFormatters";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import type { AccountPoolSupplier } from "../../utils/AccountPoolTypes";
 import { AccountPoolSupplierLogo } from "../providers/AccountPoolSupplierLogo";
+import { AccountPoolEmailRebinding } from "./AccountPoolEmailRebinding";
 import { useAccountPoolProxyOptions } from "../../hooks/useAccountPoolProxyOptions";
 
 const OAUTH_PROVIDERS: readonly AccountPoolSupplier[] = [
@@ -119,6 +120,9 @@ export const AccountPoolAuthorizationOverview = ({
                 {statusLabel(t, environment.status)}
               </Badge>
               <div className="flex flex-wrap gap-2">
+                {environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth" && (
+                  <AccountPoolEmailRebinding accessToken={accessToken} environment={environment} />
+                )}
                 {canAutomate && onAutomation && (
                   <Button
                     type="button"
@@ -137,12 +141,13 @@ export const AccountPoolAuthorizationOverview = ({
                     {t("accountPool.oauth.reauthorize")}
                   </Button>
                 )}
-                {environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth"
-                  && canAuthorizeEnvironment(environment) && (
-                  <Button type="button" size="sm" variant="ghost" onClick={() => onAuthorize(environment, true)}>
-                    {t("accountPool.oauth.manualReauthorize")}
-                  </Button>
-                )}
+                {environment.supplier === "openai_codex" &&
+                  environment.authorization_flow === "browser_oauth" &&
+                  canAuthorizeEnvironment(environment) && (
+                    <Button type="button" size="sm" variant="ghost" onClick={() => onAuthorize(environment, true)}>
+                      {t("accountPool.oauth.manualReauthorize")}
+                    </Button>
+                  )}
               </div>
             </div>
           );

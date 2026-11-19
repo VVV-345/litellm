@@ -20,7 +20,7 @@ def saved_login_can_replace(record: EnvironmentRecord, email: str, now: datetime
         and record.desired_configuration_version == record.observed_configuration_version
         and record.status in (EnvironmentStatus.COOLING_DOWN, EnvironmentStatus.ERROR, EnvironmentStatus.READY)
         and record.credential_email is not None and record.credential_email.casefold() == email.casefold()
-        and not any(fallback.usable_for(model, now) for model in record.enabled_models)
+        and (record.email_rebinding_job_id is not None or not any(fallback.usable_for(model, now) for model in record.enabled_models))
         and (
             (
                 record.status is not EnvironmentStatus.READY

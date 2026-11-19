@@ -143,6 +143,7 @@ def render_oauth_browser_compose(
                        if automation and automation.login_script_package is not None else {}),
                     **({
                         "OAUTH_AUTOMATION": "true",
+                        **({"OAUTH_BROWSER_PURPOSE": "email_rebind"} if automation.purpose == "email_rebind" else {}),
                         "OAUTH_AUTOMATION_TOKEN": automation.worker_token,
                         "OAUTH_FINGERPRINT_PROFILE": automation.fingerprint_json,
                         "OAUTH_HUMAN_TIMEOUT_SECONDS": str(automation.human_timeout_seconds),

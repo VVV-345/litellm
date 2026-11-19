@@ -496,7 +496,8 @@ class CredentialRefreshStatus(BaseModel):
 class EnvironmentRecord(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    oauth_automation_operation: str | None = Field(default=None, pattern=r"^automation:[a-f0-9]{32}:[1-9][0-9]*$", repr=False)
+    email_rebinding_job_id: UUID | None = None
+    oauth_automation_operation: str | None = Field(default=None, pattern=r"^(?:automation:[a-f0-9]{32}:[1-9][0-9]*|email-rebind:[a-f0-9]{32})$", repr=False)
 
     access_token_fallback: AccessTokenFallbackStatus = Field(default_factory=AccessTokenFallbackStatus)
     credential_refresh: CredentialRefreshStatus = Field(default_factory=CredentialRefreshStatus)

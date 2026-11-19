@@ -71,6 +71,7 @@ class CredentialRefreshService:
                 or record.auth_file_disabled
                 or record.configuration_pending
                 or record.oauth_automation_operation is not None
+                or record.email_rebinding_job_id is not None
                 or not record.auth_file_name
                 or not record.auth_index
                 or not await self.ownership.owns(environment_id, record.credential_fingerprints)

@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Final, Protocol
+from typing import Final, Literal, Protocol
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -97,6 +97,7 @@ class OAuthBrowserAutomation(BaseModel):
     expires_at: datetime
     human_timeout_seconds: int = Field(default=300, ge=30, le=300)
     login_script_package: str | None = Field(default=None, max_length=120_000, repr=False)
+    purpose: Literal["oauth", "email_rebind"] = "oauth"
 
 
 class OAuthBrowserSessionRepository(Protocol):

@@ -8,10 +8,12 @@ import { parseCredential } from "./login.mjs";
 import { loadLoginScript, observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
 import { openAuthorizationPage, runStartupStage, validateAuthorization } from "./core.mjs";
 import { BrowserControl, createControlServer } from "./control.mjs";
+import { rebindEmail, createRebindingControl } from "./rebinding.mjs";
 
 const exec = promisify(execFile);
 const readyFile = "/tmp/oauth-browser-ready";
 const automatic = process.env.OAUTH_AUTOMATION === "true";
+const binding = automatic && process.env.OAUTH_BROWSER_PURPOSE === "email_rebind";
 const deadline = Date.parse(process.env.OAUTH_BROWSER_EXPIRES_AT ?? "") || Date.now() + 600_000;
 const input = async (enabled) => {
   await exec("x11vnc", ["-display", ":99", "-sync", "-R", enabled ? "noviewonly" : "viewonly"], {
@@ -31,9 +33,10 @@ async function main() {
     await runStartupStage("driver", async () => {
       if (process.env.CHROME_PROXY !== "http://egress-relay:8080") throw new Error("proxy");
       const authorization = process.env.OAUTH_AUTHORIZATION_URL;
-      const trusted = automatic ? validateAuthorization(authorization) : null;
+      if (binding && authorization !== "https://chatgpt.com/auth/login") throw new Error("binding_origin");
+      const trusted = automatic && !binding ? validateAuthorization(authorization) : null;
       if (automatic) {
-        loginScript = await runStartupStage("login_script", () => loadLoginScript(process.env.OAUTH_LOGIN_SCRIPT_PACKAGE));
+        loginScript = await runStartupStage("login_script", () => loadLoginScript(process.env.OAUTH_LOGIN_SCRIPT_PACKAGE, binding ? { rebindEmail } : null));
       }
       const options = await runStartupStage("profile", async () => JSON.parse(execFileSync(
         "python", ["/app/camoufox_profile.py"], { encoding: "utf8", maxBuffer: 2_000_000 },
@@ -49,13 +52,18 @@ async function main() {
         if (new URL(page.url()).origin === "https://auth.openai.com") {
           process.stderr.write(`OAuth email form readiness: labelled=${await page.getByLabel("Email address", { exact: true }).count()}, typed=${await page.locator('input[type="email"]').count()}\n`);
         }
-        const callback = new URL(trusted.callback);
-        callback.searchParams.set("state", trusted.url.searchParams.get("state"));
+        const callback = binding ? null : new URL(trusted.callback);
+        if (callback) callback.searchParams.set("state", trusted.url.searchParams.get("state"));
         server = createControlServer({
           token: process.env.OAUTH_AUTOMATION_TOKEN,
-          loginScriptDigest: loginScript.digest,
-          createController: async (text) => {
+          loginScriptDigest: loginScript.digest, purpose: binding ? "email_rebind" : "oauth",
+          createController: async (text, target) => {
             const credential = parseCredential(text);
+            if (binding) {
+              controller = createRebindingControl({ page, account: credential, input, close: () => context.close(),
+                script: loginScript, locale, deadline, humanMs: Number(process.env.OAUTH_HUMAN_TIMEOUT_SECONDS ?? "300") * 1000, target });
+              return controller;
+            }
             const submitted = new Set();
             controller = new BrowserControl({
               login: async (signal) => {

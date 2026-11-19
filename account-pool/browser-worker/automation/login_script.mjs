@@ -9,8 +9,8 @@ import { automateLogin, verifyResumableAccount } from "./login.mjs";
 const safePath = (value) => typeof value === "string" && value.length <= 160 &&
   !/[\\:\p{Cc}\p{Cs}]/u.test(value) && value.split("/").every(part => part && part !== "." && part !== "..");
 
-export async function loadLoginScript(payload) {
-  if (payload === undefined) return { automateLogin, verifyResumableAccount, digest: null, cleanup: async () => {} };
+export async function loadLoginScript(payload, bindingDefault = null) {
+  if (payload === undefined) return { ...(bindingDefault ?? { automateLogin, verifyResumableAccount }), digest: null, cleanup: async () => {} };
   if (typeof payload !== "string" || Buffer.byteLength(payload) > 120_000) throw new Error("login_script_size");
   const { entrypoint, files } = JSON.parse(payload);
   if (!safePath(entrypoint) || !/\.(?:mjs|js)$/.test(entrypoint) ||
@@ -29,11 +29,13 @@ export async function loadLoginScript(payload) {
       await writeFile(dest, bytes, { flag: "wx", mode: 0o600 });
     }
     const loaded = await import(pathToFileURL(join(root, entrypoint)).href);
-    if (typeof loaded.automateLogin !== "function" || typeof loaded.verifyResumableAccount !== "function") {
+    if (bindingDefault ? typeof loaded.rebindEmail !== "function" :
+        typeof loaded.automateLogin !== "function" || typeof loaded.verifyResumableAccount !== "function") {
       throw new Error("login_script_exports");
     }
     const digest = createHash("sha256").update(payload).digest("hex");
-    return { automateLogin: loaded.automateLogin, verifyResumableAccount: loaded.verifyResumableAccount, digest, cleanup };
+    return bindingDefault ? { rebindEmail: loaded.rebindEmail, digest, cleanup }
+      : { automateLogin: loaded.automateLogin, verifyResumableAccount: loaded.verifyResumableAccount, digest, cleanup };
   } catch (error) {
     await cleanup();
     throw error;

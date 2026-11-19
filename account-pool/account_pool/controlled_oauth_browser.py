@@ -60,6 +60,44 @@ class ControlledOAuthBrowser:
         await self.sessions.transition(session_id, OAuthBrowserSessionStatus.FAILED)
         await cleanup_oauth_browser_sessions(self.sessions, self.runtime)
 
+    async def start_rebinding(
+        self, environment_id: UUID, operation_id: str, automation: OAuthBrowserAutomation,
+        on_reserved: Callable[[OAuthBrowserSessionGrant], Awaitable[None]],
+    ) -> Result[OAuthBrowserSessionGrant]:
+        await cleanup_oauth_browser_sessions(self.sessions, self.runtime)
+        async with self.ownership.operation(OAUTH_AUTOMATION_LOCK), self.ownership.operation(environment_id):
+            record: Final = await self.environments.get(environment_id)
+            if (record is None or record.oauth_automation_operation != operation_id
+                or record.email_rebinding_job_id is None or automation.purpose != "email_rebind"):
+                return Failure(FailureCode.CONFLICT, "换绑没有已确认的卡片占用，未启动浏览器")
+            if any(item.oauth_automation_operation not in (None, operation_id) for item in await self.environments.list()):
+                return Failure(FailureCode.CONFLICT, "其它浏览器任务尚未结束，请稍后继续")
+            url: Final = await self.profiles.get_url(record.proxy_profile_id) if record.proxy_profile_id else None
+            callback: Final = self.service.oauth_callback_target(record)
+            if record.proxy_profile_id is None or url is None or _loopback_proxy(url) or callback is None:
+                return Failure(FailureCode.CONFLICT, "原卡出站代理或浏览器渠道不可用")
+            started: Final = await self.sessions.start(environment_id, record.proxy_profile_id, url)
+        if isinstance(started, Failure):
+            return started
+        grant: Final = started.value
+        try:
+            await on_reserved(grant)
+            await self.runtime.start_oauth_browser(
+                grant.session, proxy_url=url, authorization_url="https://chatgpt.com/auth/login",
+                callback_token=grant.callback_token, callback_port=callback[0], callback_path=callback[1], automation=automation,
+            )
+            active: Final = await self.sessions.activate(grant.session.id)
+            if active is None or not await self.current_binding(grant.session):
+                await self.fail(grant.session.id)
+                return Failure(FailureCode.CONFLICT, "原卡代理已改变，换绑浏览器已停止")
+            return Success(OAuthBrowserSessionGrant(active, grant.ticket, grant.callback_token))
+        except asyncio.CancelledError:
+            await asyncio.shield(self.fail(grant.session.id))
+            raise
+        except Exception:
+            await self.fail(grant.session.id)
+            return Failure(FailureCode.UPSTREAM, "换绑浏览器未能启动；原卡和目标邮箱保留")
+
     async def start(
         self,
         environment_id: UUID,

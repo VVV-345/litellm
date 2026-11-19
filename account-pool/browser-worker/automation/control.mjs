@@ -110,7 +110,7 @@ export class BrowserControl {
   }
 }
 
-export function createControlServer({ token, createController, loginScriptDigest = null }) {
+export function createControlServer({ token, createController, loginScriptDigest = null, purpose = "oauth" }) {
   if (typeof token !== "string" || token.length < 32) throw new Error("job_token");
   const expected = Buffer.from(`Bearer ${token}`);
   let controller = null;
@@ -138,7 +138,9 @@ export function createControlServer({ token, createController, loginScriptDigest
       }
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       if (body?.action === "script_check") {
-        if (Object.keys(body).length !== 2 || loginScriptDigest === null || body.sha256 !== loginScriptDigest) {
+        if (purpose === "email_rebind" ?
+            Object.keys(body).length !== 3 || body.purpose !== purpose || body.sha256 !== loginScriptDigest :
+            Object.keys(body).length !== 2 || loginScriptDigest === null || body.sha256 !== loginScriptDigest) {
           reply(409, { error: "login_script_mismatch" });
           return;
         }
@@ -146,8 +148,10 @@ export function createControlServer({ token, createController, loginScriptDigest
         return;
       }
       if (!body || Array.isArray(body) || typeof body !== "object" ||
-          !["start", "status", "takeover", "resume", "cancel"].includes(body.action) ||
-          Object.keys(body).some((key) => key !== "action" && !(key === "credentials" && body.action === "start"))) {
+          !(purpose === "email_rebind" ? ["start", "status", "takeover", "resume", "cancel", "commit", "code"]
+            : ["start", "status", "takeover", "resume", "cancel"]).includes(body.action) ||
+          Object.keys(body).some((key) => key !== "action" && !(key === "credentials" && body.action === "start") &&
+            !(purpose === "email_rebind" && ((key === "target" && body.action === "start") || (key === "code" && body.action === "code"))))) {
         reply(400, { error: "invalid_command" });
         return;
       }
@@ -156,11 +160,16 @@ export function createControlServer({ token, createController, loginScriptDigest
           reply(400, { error: "invalid_credentials" });
           return;
         }
-        controller = Promise.resolve().then(() => createController(body.credentials));
+        if (purpose === "email_rebind" && (!body.target || typeof body.target.email !== "string" ||
+            body.target.email.length > 320 || typeof body.target.verify_only !== "boolean" ||
+            (body.target.verify_only && (typeof body.target.subject !== "string" || body.target.subject.length > 256)))) {
+          reply(400, { error: "invalid_binding_target" }); return;
+        }
+        controller = Promise.resolve().then(() => createController(body.credentials, body.target));
       }
       if (controller === null) { reply(409, { error: "not_started" }); return; }
       const active = await controller;
-      const view = await active.command(body.action);
+      const view = await active.command(body.action, body);
       const diagnostic = body.action !== "start" && request.headers["x-oauth-diagnostics"] === "1"
         ? active.diagnosticView() : null;
       reply(200, diagnostic ? { ...view, diagnostic } : view);

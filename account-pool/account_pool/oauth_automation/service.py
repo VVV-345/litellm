@@ -384,6 +384,56 @@ class AutomationRegistry:
             await tx.save(state.model_copy(update={"jobs": (*state.jobs, job)}))
             return Success(item)
 
+    async def queue_rebound_authorization(
+        self, environment_id: UUID, binding_id: UUID, old_email: str, target_email: str, original_login_ciphertext: str,
+    ) -> Result[JobView]:
+        async with self.ownership.operation(environment_id), self.repository.transaction() as tx:
+            state: Final = tx.snapshot
+            existing: Final = next((j for j in state.jobs if j.email_rebinding_job_id == binding_id), None)
+            if existing is not None:
+                return Success(existing.item) if existing.item.environment_id == environment_id else Failure(FailureCode.CONFLICT, "换绑任务归属不一致")
+            record: Final = await self.environments.get(environment_id)
+            profile: Final = next((p for p in state.profiles if p.item.bound_environment_id == environment_id), None)
+            if (record is None or record.email_rebinding_job_id != binding_id or not record.credential_account_id
+                or record.oauth_automation_operation not in (None, f"email-rebind:{binding_id.hex}")
+                or record.credential_email is None or record.credential_email.casefold() not in (old_email.casefold(), target_email.casefold())
+                or not record.enabled or record.manual_cooldown or record.auth_file_disabled or record.configuration_pending
+                or record.credential_refresh.save_pending or record.proxy_profile_id is None or profile is None or not profile.item.enabled
+                or profile.account_digest not in (self.identity(old_email), self.identity(target_email))
+                or len(state.jobs) >= 200 or not state.settings.enabled or state.checked_image != self.worker.image):
+                return Failure(FailureCode.CONFLICT, "原卡或指纹已改变；邮箱已绑定，保留进度等待核对")
+            if any(j.item.environment_id == environment_id and j.item.stage in ACTIVE | {"queued"} for j in state.jobs):
+                return Failure(FailureCode.CONFLICT, "原卡已有其它授权任务")
+            cipher: Final = StateCipher(self.secrets)
+            original: Final = cipher.open(environment_id, original_login_ciphertext)
+            if credential_email(original) != old_email.casefold():
+                return Failure(FailureCode.CONFLICT, "保存的原账号资料与换绑任务不一致")
+            _, password, totp = original.strip().split("----")
+            credentials: Final = cipher.seal(environment_id, f"{target_email}----{password}----{totp}")
+            now: Final = utc_now()
+            item: Final = JobView(id=uuid4(), environment_id=environment_id, profile_id=profile.item.id,
+                proxy_profile_id=record.proxy_profile_id, configuration_version=record.observed_configuration_version,
+                created_at=now, updated_at=now, message="邮箱已换绑，沿用原密码、2FA、指纹与代理重新授权")
+            updated_record: Final = record.model_copy(update={
+                "version": record.version + 1, "credential_email": target_email,
+                "status": EnvironmentStatus.ERROR, "desired_state": EnvironmentStatus.ERROR,
+                "last_error": "上游认证失效，请重新认证", "oauth_automation_operation": None,
+                "oauth_verification_pending": True,
+                "credential_refresh": record.credential_refresh.model_copy(update={"schedule_reason": "reauthorization_required"}),
+                "updated_at": now,
+            })
+            saved: Final = await self.environments.save_if_version(updated_record, record.version)
+            if saved is None:
+                return Failure(FailureCode.CONFLICT, "原卡已改变，未覆盖凭据")
+            job: Final = StoredJob(item=item, account_digest=self.identity(target_email), credential_ciphertext=credentials,
+                                  email_rebinding_job_id=binding_id)
+            updated_profile: Final = profile.model_copy(update={"account_digest": job.account_digest, "login_ciphertext": credentials})
+            await tx.save(state.model_copy(update={
+                "profiles": tuple(updated_profile if p.item.id == profile.item.id else p for p in state.profiles),
+                "jobs": (*state.jobs, job),
+            }))
+            return Success(item)
+
     async def remember_login(self, job: StoredJob) -> None:
         if not job.credential_ciphertext:
             return

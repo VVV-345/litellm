@@ -124,7 +124,7 @@ class EnvironmentAuthorization:
             fallback: Final = record.access_token_fallback
             now: Final = utc_now()
             # 在锁内保护已经验证的降级凭据，避免旧页面请求清掉仍可用的绑定。
-            if any(fallback.usable_for(model, now) for model in record.enabled_models):
+            if record.email_rebinding_job_id is None and any(fallback.usable_for(model, now) for model in record.enabled_models):
                 return Failure(FailureCode.CONFLICT, "访问令牌降级仍可用，未启动重新授权")
             if record.oauth_staged and record.oauth_provider_state and record.oauth_state_consumed_at:
                 return Failure(FailureCode.CONFLICT, "已有回调结果待核对，请先恢复原卡授权")

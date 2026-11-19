@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue, TypeAdapter
 
 from account_pool.compose_runtime import ComposeRuntime
 from account_pool.domain import GatewayEnvironment
+from account_pool.email_rebinding.models import RebindingWorkerView
 from account_pool.oauth_automation.models import BrowserOS, WorkerView
 from account_pool.oauth_browser import oauth_browser_control_host
 
@@ -117,6 +118,28 @@ class AutomationWorker:
         if len(response.content) > 4096:
             raise ValueError("worker response is oversized")
         return WorkerView.model_validate_json(response.content)
+
+    async def confirm_binding_script(self, session_id: UUID, token: str, sha256: str | None) -> bool:
+        response: Final = await self.http.post(
+            f"http://{oauth_browser_control_host(session_id)}:8092/control",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"action": "script_check", "sha256": sha256, "purpose": "email_rebind"},
+            timeout=20, follow_redirects=False,
+        )
+        return response.status_code == 200 and len(response.content) <= 256 and response.json() == {"sha256": sha256}
+
+    async def binding_command(
+        self, session_id: UUID, token: str, action: str, payload: dict[str, JsonValue] | None = None,
+    ) -> RebindingWorkerView:
+        response: Final = await self.http.post(
+            f"http://{oauth_browser_control_host(session_id)}:8092/control",
+            headers={"Authorization": f"Bearer {token}"}, json={"action": action, **(payload or {})},
+            timeout=20, follow_redirects=False,
+        )
+        response.raise_for_status()
+        if len(response.content) > 4096:
+            raise ValueError("oversized email worker response")
+        return RebindingWorkerView.model_validate_json(response.content)
 
     async def verify(self, endpoint: GatewayEnvironment, model: str) -> ModelAcceptance:
         if (

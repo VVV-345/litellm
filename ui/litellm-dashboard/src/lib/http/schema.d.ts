@@ -855,6 +855,160 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/account_pool/email-rebinding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** View */
+        get: operations["view_account_pool_email_rebinding_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Export */
+        get: operations["export_account_pool_email_rebinding_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Propose */
+        post: operations["propose_account_pool_email_rebinding_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/jobs/{job_id}/action": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Action */
+        post: operations["action_account_pool_email_rebinding_jobs__job_id__action_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/jobs/{job_id}/code": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Code */
+        post: operations["code_account_pool_email_rebinding_jobs__job_id__code_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/jobs/{job_id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm */
+        post: operations["confirm_account_pool_email_rebinding_jobs__job_id__confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/jobs/{job_id}/screen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Screen */
+        post: operations["screen_account_pool_email_rebinding_jobs__job_id__screen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/mailboxes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Upload */
+        post: operations["upload_account_pool_email_rebinding_mailboxes_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/account_pool/email-rebinding/script": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Script */
+        get: operations["script_account_pool_email_rebinding_script_get"];
+        /** Update Script */
+        put: operations["update_script_account_pool_email_rebinding_script_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/account_pool/environments": {
         parameters: {
             query?: never;
@@ -27729,6 +27883,92 @@ export interface components {
             /** Entities */
             entities: components["schemas"]["BedrockChecksSensitiveInformationEntityItem"][];
         };
+        /** BindingAction */
+        BindingAction: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "cancel" | "retry" | "takeover" | "resume" | "reconcile";
+        };
+        /** BindingPoolView */
+        BindingPoolView: {
+            /** Jobs */
+            jobs: components["schemas"]["BindingView"][];
+            /** Mailboxes */
+            mailboxes: components["schemas"]["MailboxView"][];
+            /** Version */
+            version: number;
+        };
+        /** BindingView */
+        BindingView: {
+            /** Browser Session Id */
+            browser_session_id?: string | null;
+            /**
+             * Confirmation Expires At
+             * Format: date-time
+             */
+            confirmation_expires_at: string;
+            /** Confirmed At */
+            confirmed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Email Changed
+             * @default false
+             */
+            email_changed: boolean;
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Irreversible Started
+             * @default false
+             */
+            irreversible_started: boolean;
+            /**
+             * Mailbox Id
+             * Format: uuid
+             */
+            mailbox_id: string;
+            /**
+             * Message
+             * @default 请核对原卡片与目标邮箱，确认后才会暂停卡片并换绑
+             */
+            message: string;
+            /** Oauth Job Id */
+            oauth_job_id?: string | null;
+            /** Old Email */
+            old_email: string;
+            /**
+             * Stage
+             * @default awaiting_confirmation
+             * @enum {string}
+             */
+            stage: "awaiting_confirmation" | "draining" | "starting" | "changing" | "waiting_code" | "manual" | "uncertain" | "email_changed" | "reauthorizing" | "verification_failed" | "completed" | "cancelled" | "failed";
+            /** Target Email */
+            target_email: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Version
+             * @default 0
+             */
+            version: number;
+        };
         /** BlockKeyRequest */
         BlockKeyRequest: {
             /** Key */
@@ -30010,6 +30250,16 @@ export interface components {
         "ConfigurableClientsideParamsCustomAuth-Output": {
             /** Api Base */
             api_base: string;
+        };
+        /** ConfirmBinding */
+        ConfirmBinding: {
+            /**
+             * Confirmed
+             * @constant
+             */
+            confirmed: true;
+            /** Version */
+            version: number;
         };
         /**
          * ContentFilterAction
@@ -36438,6 +36688,38 @@ export interface components {
             /** Setup Url */
             setup_url?: string | null;
         };
+        /** MailboxCode */
+        MailboxCode: {
+            /** Code */
+            code: string;
+        };
+        /** MailboxView */
+        MailboxView: {
+            /** Bound At */
+            bound_at?: string | null;
+            /** Email */
+            email: string;
+            /** Environment Id */
+            environment_id?: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Job Id */
+            job_id?: string | null;
+            /**
+             * Method
+             * @enum {string}
+             */
+            method: "microsoft" | "imap" | "manual";
+            /**
+             * Status
+             * @default available
+             * @enum {string}
+             */
+            status: "available" | "reserved" | "bound";
+        };
         /** MakeAgentsPublicRequest */
         MakeAgentsPublicRequest: {
             /** Agent Ids */
@@ -39376,6 +39658,24 @@ export interface components {
              */
             version: number;
         };
+        /** PoolImportResult */
+        PoolImportResult: {
+            /** Added */
+            added: number;
+            /** Existing */
+            existing: number;
+            view: components["schemas"]["BindingPoolView"];
+        };
+        /** PoolUpload */
+        PoolUpload: {
+            /** Content */
+            content: string;
+            /**
+             * Filename
+             * @default mailboxes.csv
+             */
+            filename: string;
+        };
         /** ProfileInput */
         ProfileInput: {
             /**
@@ -39581,6 +39881,21 @@ export interface components {
             modality: "TEXT" | "AUDIO" | "IMAGE" | "VIDEO";
             /** Tokencount */
             tokenCount: number;
+        };
+        /** ProposeBinding */
+        ProposeBinding: {
+            /**
+             * Environment Id
+             * Format: uuid
+             */
+            environment_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Mailbox Id */
+            mailbox_id?: string | null;
         };
         /**
          * ProviderBudgetResponse
@@ -39927,6 +40242,10 @@ export interface components {
             } | null;
         } & {
             [key: string]: unknown;
+        };
+        /** RebindingScriptUpdate */
+        RebindingScriptUpdate: {
+            package: components["schemas"]["LoginScriptPackage"] | null;
         };
         /** ReconcilerStatus */
         ReconcilerStatus: {
@@ -46709,6 +47028,301 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AccountPoolEnvironment"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    view_account_pool_email_rebinding_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingPoolView"];
+                };
+            };
+        };
+    };
+    export_account_pool_email_rebinding_export_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    propose_account_pool_email_rebinding_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProposeBinding"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    action_account_pool_email_rebinding_jobs__job_id__action_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BindingAction"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    code_account_pool_email_rebinding_jobs__job_id__code_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MailboxCode"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    confirm_account_pool_email_rebinding_jobs__job_id__confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfirmBinding"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BindingView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    screen_account_pool_email_rebinding_jobs__job_id__screen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationScreen"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_account_pool_email_rebinding_mailboxes_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolUpload"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolImportResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    script_account_pool_email_rebinding_script_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginScriptStatus"];
+                };
+            };
+        };
+    };
+    update_script_account_pool_email_rebinding_script_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebindingScriptUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginScriptStatus"];
                 };
             };
             /** @description Validation Error */

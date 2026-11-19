@@ -30,8 +30,6 @@ from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
 from account_pool.credential_import import is_two_factor_text
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService, create_credential_refresh_router
-from account_pool.oauth_automation.api import create_automation_router
-from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.domain import (
     AuthorizationFlow,
     ChannelKind,
@@ -47,6 +45,8 @@ from account_pool.domain import (
     UpdateEnvironmentRequest,
     utc_now,
 )
+from account_pool.email_rebinding.api import create_rebinding_router
+from account_pool.email_rebinding.runner import EmailBindingRunner
 from account_pool.error_logs import ErrorLogService, ErrorStats
 from account_pool.feedback import FeedbackService
 from account_pool.feedback.api import create_feedback_router
@@ -54,6 +54,8 @@ from account_pool.gateway_service import GatewayService, create_gateway_router
 from account_pool.isp_probe import GatewayISPProbeResult, ISPProbeResult
 from account_pool.management_api import create_management_router
 from account_pool.manager_logs import ManagerLogs, create_manager_logs_router
+from account_pool.oauth_automation.api import create_automation_router
+from account_pool.oauth_automation.runner import AutomationRunner
 from account_pool.oauth_browser import (
     OAuthBrowserCallback,
     OAuthBrowserRuntime,
@@ -356,6 +358,7 @@ def create_router(
     browser_runtime: OAuthBrowserRuntime | None = None,
     browser_controller: ControlledOAuthBrowser | None = None,
     automation: AutomationRunner | None = None,
+    email_rebinding: EmailBindingRunner | None = None,
     feedback: FeedbackService | None = None,
     quota_reset: QuotaResetService | None = None,
     access_token_fallback: AccessTokenFallbackService | None = None,
@@ -379,6 +382,8 @@ def create_router(
         router.include_router(create_credential_refresh_router(credential_refresh, require_manager))
     if automation is not None:
         router.include_router(create_automation_router(automation, require_manager))
+    if email_rebinding is not None:
+        router.include_router(create_rebinding_router(email_rebinding, require_manager))
     if manager_logs is not None:
         router.include_router(create_manager_logs_router(manager_logs, require_manager))
 

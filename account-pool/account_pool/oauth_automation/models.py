@@ -151,6 +151,7 @@ class StoredJob(BaseModel):
     cleanup_retry_at: datetime | None = None
     login_submitted: bool = False
     verification_started: bool = False
+    email_rebinding_job_id: UUID | None = None
 
 
 class SessionSecrets(BaseModel):

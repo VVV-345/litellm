@@ -32,6 +32,10 @@ from account_pool.controlled_oauth_browser import ControlledOAuthBrowser
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.credential_refresh import CredentialRefreshService
 from account_pool.domain import ChannelKind, EnvironmentRecord, EnvironmentStatus
+from account_pool.email_rebinding.mailbox import MailboxReader
+from account_pool.email_rebinding.repository import PostgresBindingRepository
+from account_pool.email_rebinding.runner import EmailBindingRunner
+from account_pool.email_rebinding.service import BindingService
 from account_pool.error_logs import ErrorLogService
 from account_pool.feedback import FeedbackService
 from account_pool.feedback.repository import PostgresFeedbackRepository
@@ -73,7 +77,7 @@ from account_pool.repository import (
 )
 from account_pool.service import EnvironmentService
 from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
-from account_pool.shared.secrets import EnvironmentSecretDeriver
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -173,6 +177,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ),
         browser_controller, automation_worker, record_diagnostic=manager_logs.record,
     )
+    binding_repository: Final = PostgresBindingRepository(resolved.database_url)
+    binding_reader: Final = MailboxReader(automation_http)
+    email_rebinding: Final = EmailBindingRunner(
+        BindingService(binding_repository, automation.registry), automation, binding_reader,
+        LoginScriptStore(resolved.data_root / ".email-rebinding-package.json", secrets.derive(UUID(int=1), SecretPurpose.OAUTH_STATE)),
+    )
     quota_scheduler: Final = QuotaRefreshScheduler(
         settings_repository,
         lambda: service.refresh_ready_quotas(resolved.quota_refresh_max_concurrency),
@@ -227,6 +237,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await batches.initialize()
         await onboarding_repository.initialize()
         await automation_repository.initialize()
+        await binding_repository.initialize()
         await settings_repository.initialize()
         await plugin_repository.initialize()
         if resolved.clash_controller_url and resolved.clash_gateway_ports:
@@ -254,6 +265,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         log_retention_task: Final = asyncio.create_task(logs.maintain(retry_stopped))
         onboarding_task: Final = asyncio.create_task(onboarding_service.run_until_cancelled(retry_stopped))
         automation_task: Final = asyncio.create_task(automation.run_until_cancelled(retry_stopped))
+        binding_task: Final = asyncio.create_task(email_rebinding.run_until_cancelled(retry_stopped))
         batch_task: Final = asyncio.create_task(batch_service.run_until_cancelled(retry_stopped))
         retry_task: Final = asyncio.create_task(
             _reconcile_pending_configurations_until_cancelled(service, retry_stopped)
@@ -280,6 +292,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             batch_task.cancel()
             onboarding_task.cancel()
             automation_task.cancel()
+            binding_task.cancel()
             quota_refresh_task.cancel()
             quota_event_task.cancel()
             quota_recovery_task.cancel()
@@ -291,6 +304,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await asyncio.gather(batch_task, return_exceptions=True)
             await asyncio.gather(onboarding_task, return_exceptions=True)
             await asyncio.gather(automation_task, return_exceptions=True)
+            await asyncio.gather(binding_task, return_exceptions=True)
+            binding_reader.close()
             await asyncio.gather(quota_refresh_task, return_exceptions=True)
             await asyncio.gather(quota_event_task, return_exceptions=True)
             await asyncio.gather(quota_recovery_task, return_exceptions=True)
@@ -369,6 +384,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             browser_runtime=browser_runtime,
             browser_controller=browser_controller,
             automation=automation,
+            email_rebinding=email_rebinding,
             manager_logs=manager_logs,
             feedback=feedback,
             quota_reset=quota_reset,

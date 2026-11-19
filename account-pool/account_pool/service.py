@@ -40,7 +40,7 @@ from account_pool.application.quota_state import routing_quota
 from account_pool.channels.registry import ChannelRegistry, UnsupportedChannelError
 from account_pool.clash import ClashError, ClashProxyNode
 from account_pool.config import Settings, validate_proxy_profile_url
-from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, OAUTH_AUTOMATION_LOCK
+from account_pool.credential_ownership import OAUTH_AUTOMATION_LOCK, CredentialConflict, CredentialOwnership
 from account_pool.domain import (
     AuthorizationFlow,
     AuthorizationInstructionFlow,
@@ -844,6 +844,10 @@ class EnvironmentService:
                 return stored or record
             if current is None or current.status is EnvironmentStatus.DELETING:
                 return current or record
+            if current.email_rebinding_job_id is not None and (
+                current.oauth_automation_operation is None or current.oauth_automation_operation.startswith("email-rebind:")
+            ):
+                return current
             if (
                 current.configuration_pending
                 or current.desired_configuration_version > current.observed_configuration_version
