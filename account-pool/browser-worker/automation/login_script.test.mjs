@@ -88,3 +88,17 @@ test("classifies localized manual checks without forwarding page text or input v
     assert.deepEqual(diagnostic, { step, reason, http_status: code }, profile + " / " + path);
   }
 });
+
+
+test("the current built-in login can be uploaded as one self-contained file", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const content = await readFile(new URL("./login.mjs", import.meta.url));
+  const payload = JSON.stringify({ entrypoint: "login.mjs", files: [{ path: "login.mjs", data: content.toString("base64") }] });
+  const loaded = await loadLoginScript(payload);
+  try {
+    assert.equal(typeof loaded.automateLogin, "function");
+    assert.equal(typeof loaded.verifyResumableAccount, "function");
+  } finally {
+    await loaded.cleanup();
+  }
+});

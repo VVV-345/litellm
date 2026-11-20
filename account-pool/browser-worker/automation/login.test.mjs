@@ -36,9 +36,11 @@ function pageFixture(stages) {
   const clicked = [];
   const stage = () => stages[position];
   const locator = (role, name) => ({
-    isVisible: async () => role === 'textbox' ? (name === stage().field || (stage().path === '/log-in/password' && name === (stage().emailLabel ?? 'Email address'))) : role === 'heading' ? (name instanceof RegExp ? name.test(stage().heading ?? '') : name === stage().heading) : role === 'button' && name === stage().buttonName,
+    count: async () => role === 'textbox' && (name === stage().field ||
+      (stage().path.endsWith('/log-in/password') && stage().emailInput !== false && name === (stage().emailLabel ?? 'Email address'))) ? 1 : 0,
+    isVisible: async () => role === 'textbox' ? (name === stage().field || (stage().path.endsWith('/log-in/password') && name === (stage().emailLabel ?? 'Email address'))) : role === 'heading' ? (name instanceof RegExp ? name.test(stage().heading ?? '') : name === stage().heading) : role === 'button' && name === stage().buttonName,
     inputValue: async () => {
-      if (stage().path === '/log-in/password' && name !== (stage().emailLabel ?? 'Email address')) throw new Error('no matching account field');
+      if (stage().path.endsWith('/log-in/password') && name !== (stage().emailLabel ?? 'Email address')) throw new Error('no matching account field');
       return stage().email ?? credential.email;
     },
     fill: async (value) => filled.push({ name, value }),
@@ -59,7 +61,7 @@ function pageFixture(stages) {
     getByLabel: (name) => locator('textbox', name instanceof RegExp ? name.test(stage().field) ? stage().field : name.test(stage().emailLabel ?? 'Email address') ? (stage().emailLabel ?? 'Email address') : name : name),
     locator: (selector) => locator('textbox', stage().emailInputType === 'email' && selector.includes('email') ? 'email-type' : stage().inputSelector === selector ? stage().field : 'absent'),
     getByText: (text) => ({ waitFor: async () => {
-      if (stage().hideEmail || text !== (stage().email ?? credential.email)) throw new Error("not visible");
+      if (stage().ambiguousEmail || stage().hideEmail || text !== (stage().email ?? credential.email)) throw new Error("not visible");
     } }),
   };
   return { page, filled, clicked };
@@ -229,4 +231,64 @@ test('Japanese MFA without an account label requires the preceding password acco
   const unbound = pageFixture([mfa]);
   assert.equal((await automateLogin(unbound.page, credential, { locale: 'ja-JP', timeoutMs: 30 })).status, 'verification_required');
   assert.equal(unbound.filled.length, 0);
+});
+
+
+for (const prefix of ['ja-JP', 'pt-BR', 'zh-Hant-TW', 'ru-RU', 'tr-TR', 'uk-UA']) {
+  test(`normalizes ${prefix} login and password routes without relaxing callback validation`, async () => {
+    const callback = 'http://127.0.0.1:1456/auth/callback?state=expected';
+    const { page, filled } = pageFixture([
+      { path: `/${prefix}/log-in`, field: 'Email address' },
+      { path: `/${prefix}/log-in/password`, field: 'Password' },
+      { origin: 'http://127.0.0.1:1456', path: '/auth/callback?state=expected&code=fixture' },
+    ]);
+    assert.equal((await automateLogin(page, credential, { callback, locale: prefix })).status, 'callback_received');
+    assert.equal(filled.length, 2);
+  });
+}
+
+test('password-page account text supports login and resume only when identity is unambiguous', async () => {
+  const callback = 'http://127.0.0.1:1456/auth/callback?state=expected';
+  for (const flags of [{}, { hideEmail: true }, { ambiguousEmail: true }, { email: 'other@example.test' }]) {
+    const { page, filled } = pageFixture([
+      { path: '/ja-JP/log-in/password', field: 'Password', emailInput: false, ...flags },
+      { origin: 'http://127.0.0.1:1456', path: '/auth/callback?state=expected&code=fixture' },
+    ]);
+    const expected = Object.keys(flags).length === 0;
+    assert.equal(await verifyResumableAccount(page, credential, { locale: 'ja-JP' }), expected);
+    const result = await automateLogin(page, credential, { callback, locale: 'ja-JP' });
+    assert.equal(result.status === 'callback_received', expected);
+    assert.equal(filled.length, expected ? 1 : 0);
+  }
+});
+
+test('a conflicting email field cannot be overridden by a matching label elsewhere', async () => {
+  const { page, filled } = pageFixture([{ path: '/log-in/password', field: 'Password', email: 'other@example.test' }]);
+  page.getByText = () => ({ waitFor: async () => {} });
+  assert.equal((await automateLogin(page, credential)).status, 'account_mismatch');
+  assert.equal(await verifyResumableAccount(page, credential), false);
+  assert.equal(filled.length, 0);
+});
+
+test('changing language on the same email step does not replay an already submitted form', async () => {
+  const submitted = new Set();
+  const first = pageFixture([{ path: '/ja-JP/log-in', field: 'Email address', buttonName: 'Continue' },
+    { path: '/email-verification' }]);
+  await automateLogin(first.page, credential, { submitted });
+  const second = pageFixture([{ path: '/en-US/log-in', field: 'Email address' }]);
+  await automateLogin(second.page, credential, { submitted, timeoutMs: 1 });
+  assert.equal(first.clicked.length, 1);
+  assert.equal(second.clicked.length, 0);
+});
+
+test('localized external origins and localized callback paths are never accepted', async () => {
+  for (const stage of [
+    { origin: 'https://auth.openai.com.evil.test', path: '/ja-JP/log-in', field: 'Email address' },
+    { origin: 'http://127.0.0.1:1456', path: '/ja-JP/auth/callback?state=expected&code=fixture' },
+  ]) {
+    const { page, filled } = pageFixture([stage]);
+    const result = await automateLogin(page, credential, { callback: 'http://127.0.0.1:1456/auth/callback?state=expected' });
+    assert.equal(result.status, 'verification_required');
+    assert.equal(filled.length, 0);
+  }
 });

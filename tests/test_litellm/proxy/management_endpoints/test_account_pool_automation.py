@@ -174,3 +174,32 @@ def test_local_automation_validation_returns_safe_structured_reason_without_inpu
     assert response.headers["cache-control"] == "no-store"
     assert "private-test-input" not in response.text
     manager.assert_not_awaited()
+
+
+
+def _static_manager_automation_failures():
+    import ast
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[4] / "account-pool/account_pool/oauth_automation"
+    return tuple(sorted({
+        node.args[1].value
+        for name in ("service.py", "runner.py", "login_scripts.py", "api.py")
+        for node in ast.walk(ast.parse((source / name).read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in {"Failure", "HTTPException"}
+        and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
+    }))
+
+
+@pytest.mark.parametrize("message", _static_manager_automation_failures())
+def test_all_reviewed_static_automation_failures_remain_actionable(message):
+    manager = AsyncMock(return_value=httpx.Response(502, json={"detail": message}))
+    app = FastAPI()
+    app.include_router(create_automation_router(manager, lambda user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        response = client.get("/account_pool/oauth-automation")
+    assert response.status_code == 502
+    assert response.json()["detail"]["message"] == message
+    assert response.json()["detail"]["code"] != "operation_failed"
+    assert response.headers["cache-control"] == "no-store"

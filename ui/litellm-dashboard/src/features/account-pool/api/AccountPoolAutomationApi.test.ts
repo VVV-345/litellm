@@ -32,3 +32,14 @@ it("compares the exact displayed settings while old clients can omit the snapsho
     accessToken: "test-admin", body: { version: 2, settings: updated },
   });
 });
+
+
+it.each([
+  ["proxy_location_failed", "代理地区、语言或时区匹配失败；未绑定指纹或启动登录，请检查出口及固定镜像"],
+  ["profile_generation_failed", "指纹生成或验证失败，请先自检固定镜像"],
+  ["profile_size_exceeded", "指纹配置超过镜像支持的大小"],
+  ["operation_rejected", "原指纹还有未停止或未清理的任务"],
+])("preserves the reviewed %s failure for the operator", (code, message) => {
+  const error = new ApiError(message, 502, { detail: { code, message } });
+  expect(safeAutomationOperationMessage(error)).toBe(message);
+});

@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { automateLogin, verifyResumableAccount } from "./login.mjs";
+import { authPathname, automateLogin, verifyResumableAccount } from "./login.mjs";
 
 const safePath = (value) => typeof value === "string" && value.length <= 160 &&
   !/[\\:\p{Cc}\p{Cs}]/u.test(value) && value.split("/").every(part => part && part !== "." && part !== "..");
@@ -64,7 +64,7 @@ export function observeLoginPage(page, profileLocale = "en-US") {
   const location = () => {
     const url = new URL(page.url());
     const origin = url.origin === trustedAuth ? "openai_auth" : "other";
-    const path = url.pathname.replace(/^\/[a-z]{2}(?:-[a-z]{2,4}){0,2}\//i, "/");
+    const path = authPathname(url.pathname);
     const route = origin !== "openai_auth" ? "other" : routes.has(path) ? path
       : path.startsWith("/mfa-challenge/") ? "authenticator"
       : /(?:^|\/)(?:email-verification|verify-email)(?:\/|$)/.test(path) ? "email_verification" : "other";

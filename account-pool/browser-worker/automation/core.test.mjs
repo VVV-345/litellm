@@ -6,6 +6,9 @@ import { promisify } from "node:util";
 import { runInNewContext } from "node:vm";
 import { validateAuthorization } from "./core.mjs";
 import * as startup from "./core.mjs";
+import { BrowserControl } from "./control.mjs";
+import { AUTOMATION_LOGIN_TIMEOUT_MS, parseCredential } from "./login.mjs";
+import { observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
 
 const valid = () => {
   const url = new URL("https://auth.openai.com/oauth/authorize");
@@ -90,16 +93,22 @@ test("navigation timeout propagates once without retrying or reporting readiness
   assert.equal(JSON.stringify(events).includes("DO_NOT_LOG"), false);
 });
 
-function driverFixture(failure) {
+function driverFixture(failure, automatic = false) {
   const events = [];
   const messages = [];
+  const budgets = [];
+  let clock = Date.now();
+  let createController;
   const entered = Promise.withResolvers();
   const release = Promise.withResolvers();
   let ready = false;
   let closed = false;
   let connected = true;
   const process = {
-    env: { CHROME_PROXY: "http://egress-relay:8080", OAUTH_AUTHORIZATION_URL: valid().href },
+    env: { CHROME_PROXY: "http://egress-relay:8080", OAUTH_AUTHORIZATION_URL: valid().href,
+      ...(automatic ? { OAUTH_AUTOMATION: "true", OAUTH_FINGERPRINT_PROFILE: '{"locale":"ja-JP"}',
+        OAUTH_BROWSER_EXPIRES_AT: new Date(clock + 100_000).toISOString() } : {}),
+    },
     once: () => {},
     stderr: { write: (line) => {
       messages.push(line);
@@ -109,9 +118,13 @@ function driverFixture(failure) {
     } },
   };
   const browser = {
-    newContext: async () => ({ newPage: async () => ({ goto: async () => {
-      if (failure === "navigation") throw new Error("DO_NOT_LOG");
-    } }) }),
+    newContext: async () => ({ close: async () => {}, newPage: async () => ({
+      url: () => "https://auth.openai.com/log-in", on: () => {},
+      getByLabel: () => ({ count: async () => 0 }), locator: () => ({ count: async () => 0 }),
+      goto: async () => {
+        if (failure === "navigation") throw new Error("DO_NOT_LOG");
+      },
+    }) }),
     isConnected: () => connected,
     close: async () => {
       closed = true;
@@ -121,7 +134,18 @@ function driverFixture(failure) {
   // 执行真实入口，只替换浏览器、进程、文件和时钟边界，不启动外部程序。
   const source = readFileSync(new URL("./browser.mjs", import.meta.url), "utf8").replace(/^import .*;\r?\n/gm, "");
   const done = runInNewContext(source, {
-    ...startup, promisify, process, AbortController, URL,
+    ...startup, AUTOMATION_LOGIN_TIMEOUT_MS, promisify, process, AbortController, URL, BrowserControl, parseCredential, observeLoginPage, toPageDiagnostic,
+    Date: class extends Date { static now() { return clock; } },
+    loadLoginScript: async () => ({ digest: null, cleanup: async () => {},
+      automateLogin: async (_page, _credential, options) => {
+        budgets.push(options.timeoutMs); return { status: "stopped" };
+      },
+      verifyResumableAccount: async () => true,
+    }),
+    createControlServer: (options) => {
+      createController = options.createController;
+      return { once: () => {}, off: () => {}, listen: (_port, _host, ready) => ready(), close: (done) => done() };
+    },
     execFile: (_file, _args, _options, callback) => callback(null, "", ""),
     execFileSync: () => "{}",
     firefox: { launch: async () => {
@@ -141,7 +165,9 @@ function driverFixture(failure) {
       log: (event) => process.stderr.write(`oauth_browser_startup ${JSON.stringify(event)}\n`),
     }),
   }, { filename: "browser.mjs" });
-  return { events, messages, process, done, entered: entered.promise, release: release.resolve, closed: () => closed };
+  return { events, messages, process, done, entered: entered.promise, release: release.resolve, closed: () => closed,
+    budgets, advance: (milliseconds) => { clock += milliseconds; }, start: (text) => createController(text),
+  };
 }
 
 test("driver readiness is emitted once after the ready file, while the session is active", { timeout: 2000 }, async () => {
@@ -182,4 +208,22 @@ test("driver readiness is not repeated or reclassified by a later cleanup failur
   assert.equal(events[1].closed, false);
   assert.equal(driver.process.exitCode, 1);
   assert.equal(driver.messages.join("").includes("DO_NOT_LOG"), false);
+});
+
+
+test("automatic driver forwards remaining session time on start and resume", { timeout: 2000 }, async () => {
+  const driver = driverFixture(undefined, true);
+  try {
+    await driver.entered;
+    const control = await driver.start("fixture@example.test----fixture-password----GEZDGNBVGY3TQOJQ");
+    await control.command("start");
+    await control.command("takeover");
+    driver.advance(30_000);
+    await control.command("resume");
+    await control.command("takeover");
+    assert.deepEqual(driver.budgets, [100_000, 70_000]);
+  } finally {
+    driver.release();
+    await driver.done;
+  }
 });

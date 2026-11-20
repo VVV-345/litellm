@@ -59,6 +59,10 @@ export const openAutomationScreen = async (accessToken: string, id: string) => {
 };
 
 const operatorErrorCodes = new Set([
+  "proxy_location_failed",
+  "profile_generation_failed",
+  "profile_size_exceeded",
+  "operation_rejected",
   "account_already_bound",
   "automation_not_ready",
   "card_not_empty",

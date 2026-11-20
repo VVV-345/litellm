@@ -4,7 +4,7 @@ import { writeFileSync, rmSync } from "node:fs";
 import { promisify } from "node:util";
 import { setTimeout } from "node:timers/promises";
 import { firefox } from "playwright-core";
-import { parseCredential } from "./login.mjs";
+import { AUTOMATION_LOGIN_TIMEOUT_MS, parseCredential } from "./login.mjs";
 import { loadLoginScript, observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
 import { openAuthorizationPage, runStartupStage, validateAuthorization } from "./core.mjs";
 import { BrowserControl, createControlServer } from "./control.mjs";
@@ -14,7 +14,7 @@ const exec = promisify(execFile);
 const readyFile = "/tmp/oauth-browser-ready";
 const automatic = process.env.OAUTH_AUTOMATION === "true";
 const binding = automatic && process.env.OAUTH_BROWSER_PURPOSE === "email_rebind";
-const deadline = Date.parse(process.env.OAUTH_BROWSER_EXPIRES_AT ?? "") || Date.now() + 600_000;
+const deadline = Date.parse(process.env.OAUTH_BROWSER_EXPIRES_AT ?? "") || Date.now() + AUTOMATION_LOGIN_TIMEOUT_MS;
 const input = async (enabled) => {
   await exec("x11vnc", ["-display", ":99", "-sync", "-R", enabled ? "noviewonly" : "viewonly"], {
     timeout: 5000, env: { DISPLAY: ":99", HOME: "/tmp", PATH: process.env.PATH },
@@ -67,7 +67,7 @@ async function main() {
             const submitted = new Set();
             controller = new BrowserControl({
               login: async (signal) => {
-                const result = await loginScript.automateLogin(page, credential, { signal, callback: callback.href, locale, submitted });
+                const result = await loginScript.automateLogin(page, credential, { signal, callback: callback.href, locale, submitted, timeoutMs: Math.max(0, deadline - Date.now()) });
                 if (result.status === "verification_required") {
                   const status = await loginDiagnostics.inspect().catch(() => ({
                     step: "login", reason: "page_observation_failed", httpStatus: null,

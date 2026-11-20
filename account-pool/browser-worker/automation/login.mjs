@@ -2,6 +2,12 @@
 import { createHmac } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 
+export const AUTOMATION_LOGIN_TIMEOUT_MS = 600_000;
+
+export function authPathname(pathname) {
+  return pathname.replace(/^\/[a-z]{2}(?:-[a-z]{2,4}){0,2}\//i, "/");
+}
+
 function decodeSecret(value) {
   const text = value.toUpperCase().replace(/=+$/, "");
   if (!/^[A-Z2-7]{16,128}$/.test(text)) throw new Error("credential");
@@ -57,8 +63,25 @@ async function loginInput(page, field, labels) {
   return page.locator(selector);
 }
 
+async function passwordAccountMatches(page, credential, labels) {
+  try {
+    const input = await loginInput(page, "Email address", labels);
+    const count = await input.count();
+    if (count > 1) return null;
+    if (count === 1) {
+      const email = await input.inputValue({ timeout: 3000 });
+      return email ? email.toLowerCase() === credential.email.toLowerCase() : null;
+    }
+    // 不存在邮箱输入框时，只接受官网上唯一、可见的完整账号；错误的已有字段不能被此分支覆盖。
+    await page.getByText(credential.email, { exact: true }).waitFor({ state: "visible", timeout: 3000 });
+    return true;
+  } catch {
+    return null;
+  }
+}
+
 export async function automateLogin(page, credential, {
-  signal, allowConsent = true, callback, locale = "en-US", now = Date.now, timeoutMs = 45_000,
+  signal, allowConsent = true, callback, locale = "en-US", now = Date.now, timeoutMs = AUTOMATION_LOGIN_TIMEOUT_MS,
   challengeMs = 8000, submitted = new Set(),
 } = {}) {
   const deadline = Date.now() + timeoutMs;
@@ -107,7 +130,7 @@ export async function automateLogin(page, credential, {
         continue;
       }
       challengeAt = 0;
-      const path = current.pathname;
+      const path = authPathname(current.pathname);
       const unchanged = () => !stopped() && page.url() === current.href;
       if (path === "/sign-in-with-chatgpt/codex/consent" && !submitted.has(path)) {
         if (!await accountMatches()) return result("account_mismatch");
@@ -126,7 +149,10 @@ export async function automateLogin(page, credential, {
       if (!field && !submitted.has(path) && !["/oauth/authorize", "/authorize"].includes(path)) return result("verification_required");
       const input = field ? await loginInput(page, field, labels) : null;
       if (field && input && !submitted.has(path) && await visible(input)) {
-        if (field === "Password" && (await (await loginInput(page, "Email address", labels)).inputValue({ timeout: 3000 })).toLowerCase() !== credential.email.toLowerCase()) return result("account_mismatch");
+        if (field === "Password") {
+          const matches = await passwordAccountMatches(page, credential, labels);
+          if (matches !== true) return result(matches === false ? "account_mismatch" : "verification_required");
+        }
         if (field === "One-time code" && ((!submitted.has("/log-in/password") && !await accountMatches()) ||
             (!await visible(heading(loginLabels.en[2])) && !await visible(heading(labels[2]))))) return result("verification_required");
         if (!unchanged()) return result("stopped");
@@ -155,11 +181,9 @@ export async function verifyResumableAccount(page, credential, { locale = "en-US
   try {
     const current = new URL(page.url());
     if (current.origin !== "https://auth.openai.com") return false;
-    if (current.pathname === "/log-in/password") {
-      const email = await (await loginInput(page, "Email address", labels)).inputValue({ timeout: 3000 });
-      return email.toLowerCase() === credential.email.toLowerCase();
-    }
-    if (current.pathname !== "/sign-in-with-chatgpt/codex/consent" && !current.pathname.startsWith("/mfa-challenge/")) return false;
+    const path = authPathname(current.pathname);
+    if (path === "/log-in/password") return await passwordAccountMatches(page, credential, labels) === true;
+    if (path !== "/sign-in-with-chatgpt/codex/consent" && !path.startsWith("/mfa-challenge/")) return false;
     await page.getByText(credential.email, { exact: true }).waitFor({ state: "visible", timeout: 3000 });
     return true;
   } catch {
