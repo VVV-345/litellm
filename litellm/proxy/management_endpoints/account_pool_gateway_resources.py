@@ -39,16 +39,16 @@ _RESOURCES: Final[ContextVar[GatewayHTTPResources | None]] = ContextVar("account
 
 
 async def _wait_cleanup(task: asyncio.Task[None]) -> None:
-    cancelled = False  # rebind-ok: remember cancellation until the owned cleanup task drains
+    cancelled: asyncio.CancelledError | None = None  # rebind-ok: preserve the owning cancel scope while cleanup drains
     with anyio.CancelScope(shield=True):
         while not task.done():
             try:
                 await asyncio.shield(task)
-            except asyncio.CancelledError:
-                cancelled = True
+            except asyncio.CancelledError as error:
+                cancelled = error
         task.result()
-    if cancelled:
-        raise asyncio.CancelledError
+    if cancelled is not None:
+        raise cancelled
 
 
 async def managed_cleanup(operation: Coroutine[object, object, None]) -> None:

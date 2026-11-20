@@ -5128,3 +5128,53 @@ async def test_gateway_shutdown_client_close_has_one_total_deadline(monkeypatch)
     assert len(cancelled) == 2
     assert resources.control.is_closed and resources.direct.is_closed
     assert not resources.cleanup_tasks
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["/v1/responses", "/v1/realtime"])
+async def test_websocket_disconnect_cleanup_preserves_parent_cancel_scope(endpoint):
+    import anyio
+
+    _, control = setup_gateway(lambda _: httpx.Response(500))
+    policy = control.resolution.policy.model_copy(update={"transport": TransportPolicy(websocket="enabled")})
+    account = control.resolution.candidates[0].model_copy(update={"policy": policy, "websocket_enabled": True})
+    resolution = control.resolution.model_copy(
+        update={"policy": policy, "candidates": (account,), "websocket_enabled": True}
+    )
+    inbound = asyncio.Queue()
+    await inbound.put({"type": "websocket.connect"})
+    drained = asyncio.Event()
+
+    async def receive():
+        return await inbound.get()
+
+    async def send(message):
+        if message["type"] == "websocket.accept":
+            await inbound.put({"type": "websocket.disconnect", "code": 1000})
+
+    selected = routes(resolution, "model-a", endpoint, Headers(), websocket=True)
+    assert not isinstance(selected, Rejected)
+    websocket = WebSocket(
+        {"type": "websocket", "path": endpoint, "query_string": b"model=model-a", "headers": [], "scheme": "ws"},
+        receive, send,
+    )
+    with anyio.CancelScope() as scope:
+        class CancellingUpstream(FakeUpstreamWebSocket):
+            async def recv(self):
+                try:
+                    return await super().recv()
+                except asyncio.CancelledError:
+                    scope.cancel()
+                    drained.set()
+                    raise
+
+        class Dialer(FakeWebSocketDialer):
+            def __init__(self):
+                self.upstream = CancellingUpstream()
+                self.requests = []
+
+        await forward_websocket(websocket, _KEY, "model-a", None, resolution, selected, control, Dialer())
+        await anyio.lowlevel.checkpoint()
+    assert scope.cancelled_caught
+    assert drained.is_set()
+    assert len(control.finished) == 1

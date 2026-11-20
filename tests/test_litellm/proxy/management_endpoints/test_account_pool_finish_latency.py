@@ -131,3 +131,42 @@ async def test_stream_end_releases_slot_before_slow_persistence_and_reports_usag
         log.release.set()
         if not task.done():
             await task
+
+
+@pytest.mark.asyncio
+async def test_cleanup_preserves_asyncio_cancellation_reason_after_draining():
+    completed = asyncio.Event()
+
+    async def cleanup():
+        await asyncio.sleep(0)
+        completed.set()
+
+    task = asyncio.current_task()
+    assert task is not None
+    task.cancel("downstream disconnected during cleanup")
+    with pytest.raises(asyncio.CancelledError, match="downstream disconnected during cleanup"):
+        await managed_cleanup(cleanup())
+    assert completed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_preserves_anyio_scope_cancellation_after_draining():
+    import anyio
+
+    completed = asyncio.Event()
+
+    async def cleanup():
+        await asyncio.sleep(0)
+        completed.set()
+
+    task = asyncio.current_task()
+    assert task is not None
+    with anyio.CancelScope() as scope:
+        scope.cancel()
+        try:
+            await anyio.lowlevel.checkpoint()
+        except asyncio.CancelledError as error:
+            task.cancel(*error.args)
+        await managed_cleanup(cleanup())
+    assert completed.is_set()
+    assert scope.cancelled_caught

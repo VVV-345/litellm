@@ -566,9 +566,7 @@ class _ResponsesRelay:
             self.pending = asyncio.create_task(self.upstream.recv())
             return _UpstreamEvent(result)
         finally:
-            cancellation.cancel()
-            disconnected.cancel()
-            await asyncio.gather(cancellation, disconnected, return_exceptions=True)
+            await _cancel_relay_tasks(cancellation, disconnected)
 
     async def _next_frame(self) -> _ClientMessage:
         frame: Final = asyncio.create_task(self.frames.get())
@@ -579,8 +577,7 @@ class _ResponsesRelay:
                     return frame.result()
                 await self._forward_pending()
         finally:
-            frame.cancel()
-            await asyncio.gather(frame, return_exceptions=True)
+            await _cancel_relay_tasks(frame)
 
     async def _forward_pending(self) -> None:
         data: Final = self.pending.result()
@@ -609,10 +606,7 @@ class _ResponsesRelay:
                 await self.websocket.close(code=code)
             return _RelayResult(200 if code in (1000, 1001) else 502, "WebSocket upstream disconnected")
         finally:
-            reader.cancel()
-            await asyncio.gather(reader, return_exceptions=True)
-            self.pending.cancel()
-            await asyncio.gather(self.pending, return_exceptions=True)
+            await _cancel_relay_tasks(reader, self.pending)
 
     async def _frame(self) -> _RelayResult | None:
         frame: Final = await self._next_frame()
@@ -725,8 +719,7 @@ class _ResponsesRelay:
             timeout_seconds=seconds,
             proxy_url=credential.proxy_url,
         )
-        self.pending.cancel()
-        await asyncio.gather(self.pending, return_exceptions=True)
+        await _cancel_relay_tasks(self.pending)
         await self.upstream.close()
         self.upstream = await self.stack.enter_async_context(self.dialer.connect(request))
         if self.upstream.subprotocol != self.subprotocol:
@@ -977,6 +970,16 @@ async def _websocket_url(websocket: WebSocket, route: Route, upstream_model: str
     return urlunsplit((scheme, parsed.netloc, parsed.path, urlencode(effective_query), ""))
 
 
+async def _cancel_relay_tasks(*tasks: asyncio.Task[object]) -> None:
+    async def cancel_and_wait() -> None:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    # gather 自身被取消时可能丢失父取消域，必须由独立清理任务排空子任务。
+    await managed_cleanup(cancel_and_wait())
+
+
 async def _relay(
     websocket: WebSocket,
     upstream: UpstreamWebSocket,
@@ -994,9 +997,7 @@ async def _relay(
         done, _ = await asyncio.wait((downstream_task, upstream_task), return_when=asyncio.FIRST_COMPLETED)
     finally:
         # 超时和取消同样要终止两个方向，不能在归还租约后继续转发。
-        downstream_task.cancel()
-        upstream_task.cancel()
-        await asyncio.gather(downstream_task, upstream_task, return_exceptions=True)
+        await _cancel_relay_tasks(downstream_task, upstream_task)
     results: Final = await asyncio.gather(*done, return_exceptions=True)
     error: Final = next((item for item in results if isinstance(item, BaseException)), None)
     if error is not None:
