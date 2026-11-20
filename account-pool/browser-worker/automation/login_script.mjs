@@ -108,3 +108,11 @@ export function observeLoginPage(page, profileLocale = "en-US") {
 }
 
 export const toPageDiagnostic = ({ step, reason, httpStatus }) => ({ step, reason, http_status: httpStatus });
+
+
+export function loginFailureDiagnostic(value) {
+  if (!value || typeof value !== "object" ||
+      !["email", "password", "authenticator", "consent"].includes(value.step) ||
+      !["form_fill_timeout", "form_fill_failed", "form_submit_timeout", "form_submit_failed"].includes(value.reason)) return null;
+  return { step: value.step, reason: value.reason, http_status: null };
+}

@@ -26,6 +26,7 @@ BrowserPageStep = Literal["authorize", "login", "email", "password", "authentica
 BrowserPageReason = Literal[
     "browser_security_challenge", "email_verification", "navigation_http_error", "unexpected_origin",
     "unrecognized_route", "form_or_transition_not_confirmed", "page_observation_failed",
+    "form_fill_timeout", "form_fill_failed", "form_submit_timeout", "form_submit_failed",
 ]
 ManagerLogStep = BrowserStartupStep | BrowserPageStep | Literal["compose", "callback", "credentials", "model_check", "cleanup"]
 ManagerLogState = Literal["started", "ready", "running", "waiting", "manual", "failed", "expired", "cancelled", "completed"]

@@ -52,11 +52,11 @@ def _worker_event(stage: Stage, status: WorkerView) -> ManagerDiagnostic:
     if stage == "callback_pending":
         return event
     page: Final = status.diagnostic
-    match status.reason:
-        case "manual_takeover" | "account_verification_required" | "account_mismatch" | "confirmation_required" as reason:
-            safe_reason: Final = reason
-        case _:
-            safe_reason: Final = page.reason if page and page.reason else event.reason
+    safe_reason: Final = (
+        status.reason
+        if status.reason in ("manual_takeover", "account_verification_required", "account_mismatch", "confirmation_required")
+        else page.reason if page and page.reason else event.reason
+    )
     return ManagerDiagnostic(
         step=page.step if page else event.step, state=event.state, reason=safe_reason,
         http_status=page.http_status if page else None,
@@ -80,6 +80,10 @@ def _worker_message(stage: Stage, status: WorkerView) -> str:
         return "上游验证页返回 HTTP 错误，请查看画面和 Manager 日志，不要重复提交"
     if page and page.step == "email_verification" and page.reason == "email_verification":
         return f"上游要求邮箱验证。{action}，请从该账号收件箱查收邮箱验证码，只在授权页输入；验证器的动态码不能代替"
+    if page and page.reason in ("form_fill_timeout", "form_fill_failed", "form_submit_timeout", "form_submit_failed"):
+        operation: Final = "填写表单" if page.reason.startswith("form_fill_") else "提交表单"
+        outcome: Final = "超时" if page.reason.endswith("_timeout") else "失败"
+        return f"{operation}{outcome}，脚本已停止，不会自动重复提交。{action}，请核对当前页面后继续"
     if status.reason == "confirmation_required":
         return f"上游等待授权确认。{action}，请先核对账号和授权内容"
     return "已停止脚本，可以人工输入" if stage == "manual" else f"当前页面尚未确认，可先查看画面。{action}"
@@ -740,7 +744,7 @@ class AutomationRunner:
                 acknowledged: Final = await self.worker.command(
                     row.item.browser_session_id, secret.worker_token, action
                 )
-                if acknowledged.status not in {"running", "manual", "waiting"}:
+                if acknowledged.status not in ("running", "manual", "waiting"):
                     return Failure(FailureCode.CONFLICT, "浏览器已结束，请刷新任务")
                 updated: Final = await self._save(
                     latest.model_copy(

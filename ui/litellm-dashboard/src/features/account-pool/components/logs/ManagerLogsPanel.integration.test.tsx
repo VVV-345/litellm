@@ -57,3 +57,19 @@ it("shows a retry message without showing the upstream error body", async () => 
   expect(await screen.findByRole("alert")).toHaveTextContent("无法加载 Manager 日志，请刷新后重试。");
   expect(screen.queryByText("fixture-private-error")).not.toBeInTheDocument();
 });
+
+
+it.each([
+  ["form_fill_timeout", "填写表单超时"], ["form_fill_failed", "填写表单失败"],
+  ["form_submit_timeout", "提交表单超时"], ["form_submit_failed", "提交表单失败"],
+])("displays %s with the actual form stage", async (reason, label) => {
+  vi.stubGlobal("fetch", async () => Response.json({ has_more: false, items: [{
+    event_id: "44444444-4444-4444-8444-444444444444", occurred_at: "2026-11-20T01:02:03Z",
+    card_id: card, session_id: session, severity: "warning", step: "password", state: "waiting",
+    reason, http_status: null, duration_ms: null,
+  }] }));
+  renderLogs();
+  expect(await screen.findByText(label)).toBeInTheDocument();
+  expect(screen.getByText(/输入密码/)).toHaveTextContent("等待人工");
+  expect(screen.queryByText(reason)).not.toBeInTheDocument();
+});

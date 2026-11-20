@@ -16,8 +16,15 @@ const languages = {
   "en-US": ["Email address", "Password", "Check your authenticator app", "One-time code", "Continue"],
   "ja-JP": ["メールアドレス", "パスワード", "認証アプリを確認してください", "ワンタイムコード", "続行"],
   "pt-BR": ["Endereço de e-mail", "Senha", "Confira seu aplicativo autenticador", "Código de uso único", "Continuar"],
+  "ru-RU": ["Адрес электронной почты", "Пароль", "Откройте приложение-аутентификатор", "Одноразовый код", "Продолжить"],
+  "tr-TR": ["E-posta adresi", "Şifre", "Kimlik doğrulama uygulamanızı kontrol edin", "Tek kullanımlık kod", "Devam et"],
+  "uk-UA": ["Електронна адреса", "Пароль", "Перевірте застосунок-автентифікатор", "Одноразовий код", "Продовжити"],
 };
 const cases = [
+  ...["ru-RU", "tr-TR", "uk-UA"].flatMap(locale => [
+    { name: `${locale}-localized-mfa-and-consent`, locale, prefix: `/${locale}`, textOnly: true },
+    { name: `${locale}-unbound-account`, locale, prefix: `/${locale}`, negative: "missing" },
+  ]),
   { name: "ordinary-login", locale: "en-US", prefix: "" },
   { name: "japanese-prefix-text-account", locale: "ja-JP", prefix: "/ja-JP", textOnly: true },
   { name: "brazil-prefix-text-account", locale: "pt-BR", prefix: "/pt-BR", textOnly: true },

@@ -45,6 +45,9 @@ const loginLabels = {
   de: ["E-Mail-Adresse", "Einmalcode", /Authentifizierungs-App/iu, "Weiter"],
   es: ["Correo electrónico", "Código de un solo uso", /aplicación de autenticación/iu, "Continuar"],
   pt: ["Endereço de e-mail", "Código de uso único", /aplicativo autenticador/iu, "Continuar"],
+  ru: ["Адрес электронной почты", "Одноразовый код", /приложени[ея][ -]аутентификатор/iu, "Продолжить"],
+  tr: ["E-posta adresi", "Tek kullanımlık kod", /kimlik doğrulama uygulama/iu, "Devam et"],
+  uk: ["Електронна адреса", "Одноразовий код", /(?:застосунок|додаток)[ -]автентифікатор/iu, "Продовжити"],
 };
 
 function labelsFor(locale) {
@@ -111,6 +114,15 @@ export async function automateLogin(page, credential, {
     }
   };
   const result = (status) => ({ status });
+  const formAction = async (step, action, run) => {
+    try {
+      return await run() ?? null;
+    } catch (error) {
+      return stopped() ? result("stopped") : { status: "verification_required", diagnostic: {
+        step, reason: `form_${action}_${error?.name === "TimeoutError" ? "timeout" : "failed"}`, http_status: null,
+      } };
+    }
+  };
   try {
     while (Date.now() < deadline) {
       if (stopped()) return result("stopped");
@@ -139,16 +151,26 @@ export async function automateLogin(page, credential, {
         const title = await page.title();
         if (!callback || !/^(?=.*\bCodex\b)(?=.*\bChatGPT\b).* - OpenAI$/.test(title)) return result("verification_required");
         if (!unchanged()) return result("stopped");
-        submitted.add(path);
-        const english = page.getByRole("button", { name: "Continue", exact: true });
-        const button = await visible(english) ? english : page.getByRole("button", { name: labels[3], exact: true });
-        await button.click({ timeout: 3000, noWaitAfter: true });
+        const failure = await formAction("consent", "submit", async () => {
+          const english = page.getByRole("button", { name: "Continue", exact: true });
+          const button = await visible(english) ? english : page.getByRole("button", { name: labels[3], exact: true });
+          if (!unchanged()) return result("stopped");
+          submitted.add(path);
+          await button.click({ timeout: 3000, noWaitAfter: true });
+        });
+        if (failure) return failure;
         continue;
       }
       const field = path === "/log-in" ? "Email address" : path === "/log-in/password" ? "Password" : path.startsWith("/mfa-challenge/") ? "One-time code" : null;
       if (!field && !submitted.has(path) && !["/oauth/authorize", "/authorize"].includes(path)) return result("verification_required");
-      const input = field ? await loginInput(page, field, labels) : null;
-      if (field && input && !submitted.has(path) && await visible(input)) {
+      const step = field === "Email address" ? "email" : field === "Password" ? "password" : "authenticator";
+      const form = field ? await formAction(step, "fill", async () => {
+        const input = await loginInput(page, field, labels);
+        return { input, visible: await visible(input) };
+      }) : null;
+      if (form?.status) return form;
+      if (field && form?.visible && !submitted.has(path)) {
+        const input = form.input;
         if (field === "Password") {
           const matches = await passwordAccountMatches(page, credential, labels);
           if (matches !== true) return result(matches === false ? "account_mismatch" : "verification_required");
@@ -157,15 +179,19 @@ export async function automateLogin(page, credential, {
             (!await visible(heading(loginLabels.en[2])) && !await visible(heading(labels[2]))))) return result("verification_required");
         if (!unchanged()) return result("stopped");
         const value = field === "Email address" ? credential.email : field === "Password" ? credential.password : totp(credential.totpSecret, now());
-        await input.fill(value, { timeout: 3000 });
-        const english = page.getByRole("button", { name: "Continue", exact: true });
-        const button = await visible(english) ? english : page.getByRole("button", { name: labels[3], exact: true });
-        const canClick = await visible(button);
-        if (!unchanged()) return result("stopped");
-        // 有些登录页只响应按钮点击；一旦尝试提交，不再用另一种方式重发。
-        submitted.add(path);
-        if (canClick) await button.click({ timeout: 3000, noWaitAfter: true });
-        else await input.press("Enter", { timeout: 3000, noWaitAfter: true });
+        const fillFailure = await formAction(step, "fill", async () => { await input.fill(value, { timeout: 3000 }); });
+        if (fillFailure) return fillFailure;
+        const submitFailure = await formAction(step, "submit", async () => {
+          const english = page.getByRole("button", { name: "Continue", exact: true });
+          const button = await visible(english) ? english : page.getByRole("button", { name: labels[3], exact: true });
+          const canClick = await visible(button);
+          if (!unchanged()) return result("stopped");
+          // 有些登录页只响应按钮点击；一旦尝试提交，不再用另一种方式重发。
+          submitted.add(path);
+          if (canClick) await button.click({ timeout: 3000, noWaitAfter: true });
+          else await input.press("Enter", { timeout: 3000, noWaitAfter: true });
+        });
+        if (submitFailure) return submitFailure;
         continue;
       }
       await setTimeout(250, undefined, { signal });

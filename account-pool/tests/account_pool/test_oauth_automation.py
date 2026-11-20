@@ -594,6 +594,8 @@ async def _execution(registry_data, tmp_path: Path, authorized_email: str, *, us
                 "diagnostic": (
                     {"step": "password", "reason": "fixture-secret-not-a-reason"}
                     if "unsafe-diagnostic" in commands
+                    else {"step": "password", "reason": reason, "http_status": 200}
+                    if (reason := next((entry for entry in commands if entry.startswith("form_")), None))
                     else {"step": "email_verification", "reason": "email_verification", "http_status": 200}
                     if "email-verification" in commands
                     else {"step": "password", "reason": "browser_security_challenge", "http_status": 403}
@@ -704,6 +706,10 @@ async def test_consumed_callback_recovers_original_card_without_replaying_code(
     ("email-verification", ("email_verification", "email_verification", 200), "邮箱验证码"),
     ("security-challenge", ("password", "browser_security_challenge", 403), "人机验证"),
     ("unsafe-diagnostic", ("login", "verification_required", None), "查看画面"),
+    ("form_fill_timeout", ("password", "form_fill_timeout", 200), "填写表单超时"),
+    ("form_fill_failed", ("password", "form_fill_failed", 200), "填写表单失败"),
+    ("form_submit_timeout", ("password", "form_submit_timeout", 200), "提交表单超时"),
+    ("form_submit_failed", ("password", "form_submit_failed", 200), "提交表单失败"),
 ])
 async def test_runner_records_waiting_phase_once_without_raw_worker_text(memory_execution, fixture, expected, hint) -> None:
     from account_pool.error_logs import ErrorLogRecord

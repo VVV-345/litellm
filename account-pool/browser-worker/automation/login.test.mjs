@@ -292,3 +292,100 @@ test('localized external origins and localized callback paths are never accepted
     assert.equal(filled.length, 0);
   }
 });
+
+
+for (const [locale, email, code, heading, button, inbox] of [
+  ['ru-RU', 'Адрес электронной почты', 'Одноразовый код', 'Откройте приложение-аутентификатор', 'Продолжить', 'Проверьте свою электронную почту'],
+  ['tr-TR', 'E-posta adresi', 'Tek kullanımlık kod', 'Kimlik doğrulama uygulamanızı kontrol edin', 'Devam et', 'E-postanızı kontrol edin'],
+  ['uk-UA', 'Електронна адреса', 'Одноразовий код', 'Перевірте застосунок-автентифікатор', 'Продовжити', 'Перевірте свою електронну пошту'],
+]) {
+  test(`${locale} completes localized MFA and consent without changing account or callback checks`, async () => {
+    const callback = 'http://127.0.0.1:1456/auth/callback?state=expected';
+    const { page, filled, clicked } = pageFixture([
+      { path: `/${locale}/log-in`, field: email, buttonName: button, requiresClick: true },
+      { path: `/${locale}/log-in/password`, field: 'password-type', inputSelector: 'input[type="password"]', emailLabel: email, buttonName: button, requiresClick: true },
+      { path: `/${locale}/mfa-challenge/test`, field: code, heading, buttonName: button, requiresClick: true },
+      { path: `/${locale}/sign-in-with-chatgpt/codex/consent`, buttonName: button },
+      { origin: 'http://127.0.0.1:1456', path: '/auth/callback?state=expected&code=fixture' },
+    ]);
+    assert.equal((await automateLogin(page, credential, { callback, locale, now: () => 59_000, timeoutMs: 500 })).status, 'callback_received');
+    assert.deepEqual(filled.map(item => item.value), [credential.email, credential.password, '287082']);
+    assert.equal(clicked.length, 4);
+  });
+  test(`${locale} never supplies TOTP to email verification or an unbound MFA account`, async () => {
+    for (const stage of [{ heading: inbox }, { heading, hideEmail: true }]) {
+      const { page, filled, clicked } = pageFixture([{ path: `/${locale}/mfa-challenge/test`, field: code, buttonName: button, ...stage }]);
+      assert.equal((await automateLogin(page, credential, { locale, timeoutMs: 500 })).status, 'verification_required');
+      assert.equal(filled.length, 0);
+      assert.equal(clicked.length, 0);
+    }
+  });
+}
+
+for (const action of ['fill', 'click', 'press']) {
+  for (const name of ['TimeoutError', 'Error']) {
+    test(`${action} ${name} is reported safely without repeating a failed submission`, async () => {
+      let calls = 0;
+      const submitted = new Set();
+      const locator = {
+        isVisible: async () => true,
+        fill: async () => {
+          if (action === 'fill') { calls++; throw Object.assign(new Error('PRIVATE credential selector URL'), { name }); }
+        },
+        press: async () => { calls++; throw Object.assign(new Error('PRIVATE credential selector URL'), { name }); },
+      };
+      const page = {
+        url: () => 'https://auth.openai.com/log-in', isClosed: () => false, evaluate: async () => false,
+        getByLabel: () => locator,
+        getByRole: () => ({ isVisible: async () => action !== 'press', click: async () => {
+          calls++; throw Object.assign(new Error('PRIVATE credential selector URL'), { name });
+        } }),
+      };
+      const result = await automateLogin(page, credential, { submitted });
+      assert.deepEqual(result, { status: 'verification_required', diagnostic: { step: 'email',
+        reason: `form_${action === 'fill' ? 'fill' : 'submit'}_${name === 'TimeoutError' ? 'timeout' : 'failed'}`, http_status: null } });
+      assert.equal(calls, 1);
+      assert.equal(submitted.has('/log-in'), action !== 'fill');
+      assert.equal(JSON.stringify(result).includes('PRIVATE'), false);
+    });
+  }
+}
+
+test('a failed consent click keeps its stage and cannot be automatically replayed', async () => {
+  let calls = 0;
+  const submitted = new Set();
+  const page = {
+    url: () => 'https://auth.openai.com/ja-JP/sign-in-with-chatgpt/codex/consent', isClosed: () => false,
+    title: async () => 'Codex ChatGPT - OpenAI', evaluate: async () => false,
+    getByText: () => ({ waitFor: async () => {} }),
+    getByRole: () => ({ isVisible: async () => true, click: async () => {
+      calls++; throw Object.assign(new Error('PRIVATE'), { name: 'TimeoutError' });
+    } }),
+  };
+  const result = await automateLogin(page, credential, { callback: 'http://localhost:1456/auth/callback?state=fixture', submitted });
+  assert.deepEqual(result, { status: 'verification_required', diagnostic: { step: 'consent', reason: 'form_submit_timeout', http_status: null } });
+  assert.equal(calls, 1);
+  assert.equal(submitted.has('/sign-in-with-chatgpt/codex/consent'), true);
+});
+
+
+for (const selection of ["input", "button"]) {
+  for (const name of ["Error", "TimeoutError"]) {
+    test(`${selection} selector ${name} keeps a safe reason without marking an unattempted submission`, async () => {
+      const submitted = new Set();
+      let fills = 0;
+      const fail = async () => { throw Object.assign(new Error("PRIVATE selector strict mode violation"), { name }); };
+      const page = {
+        url: () => 'https://auth.openai.com/log-in', isClosed: () => false, evaluate: async () => false,
+        getByLabel: () => ({ isVisible: selection === "input" ? fail : async () => true, fill: async () => { fills++; } }),
+        getByRole: () => ({ isVisible: fail }),
+      };
+      const result = await automateLogin(page, credential, { submitted });
+      assert.deepEqual(result, { status: "verification_required", diagnostic: { step: "email",
+        reason: `form_${selection === "input" ? "fill" : "submit"}_${name === "TimeoutError" ? "timeout" : "failed"}`, http_status: null } });
+      assert.equal(fills, selection === "input" ? 0 : 1);
+      assert.equal(submitted.size, 0);
+      assert.equal(JSON.stringify(result).includes("PRIVATE"), false);
+    });
+  }
+}

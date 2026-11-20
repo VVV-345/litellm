@@ -125,3 +125,6 @@ Outlook / Hotmail / Live / MSN 的邮箱 OAuth 需要原客户端已授予 Micro
 「换绑脚本设置」直接上传单个 `rebind.mjs` 或其目录，入口导出 `rebindEmail(page, account, options)`；相对辅助文件和资源一起上传，有多个 JS 入口时选择一个，不需要压缩，也不需要填写发布密钥。脚本必须在修改前 `await options.checkpoint({subject,email})` 并获准，目标验证码用 `await options.receiveCode()` 获取；引擎独立核对官网身份和结果，获准后中断不重放脚本。文件数量、大小和路径规则沿用登录脚本包，只有代理管理员可发布受信代码，脚本可以接触账号资料。首次启用此功能须配套更新 LiteLLM、Manager、browser-worker；之后只换脚本不必重建镜像，旧 Worker 会在发送登录资料前被协议校验拒绝
 
 官网可能要求原邮箱验证码、人机验证或额外账户安全操作，没有密码替代选项时只能由账号持有人完成。自动化不绕过验证，不保证所有账号与页面都能全自动换绑。官方适用范围与步骤见 [OpenAI 换邮箱说明](https://help.openai.com/en/articles/4936827-changing-your-openai-account-email-address)，本地模拟回归通过不等同于已对真实账号完成换绑
+
+
+浏览器内置脚本共用一份语言文案表，俄语、土耳其语、乌克兰语与日语等配置使用相同的账号、MFA 和回调校验。填写或提交失败会停止脚本，Manager 日志分别显示填写/提交的失败或超时，不保存异常原文、输入值和选择器。已经尝试过的提交不自动重放；邮箱验证码与人机验证仍由账号持有人接管。网页仅替换单文件脚本可以更新表单识别，但新增日志原因的展示需要配套更新 Worker、Manager 与 LiteLLM，旧组件不会凭此获得新日志能力

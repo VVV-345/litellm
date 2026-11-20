@@ -8,7 +8,7 @@ import { validateAuthorization } from "./core.mjs";
 import * as startup from "./core.mjs";
 import { BrowserControl } from "./control.mjs";
 import { AUTOMATION_LOGIN_TIMEOUT_MS, parseCredential } from "./login.mjs";
-import { observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
+import { observeLoginPage, toPageDiagnostic, loginFailureDiagnostic } from "./login_script.mjs";
 
 const valid = () => {
   const url = new URL("https://auth.openai.com/oauth/authorize");
@@ -93,7 +93,7 @@ test("navigation timeout propagates once without retrying or reporting readiness
   assert.equal(JSON.stringify(events).includes("DO_NOT_LOG"), false);
 });
 
-function driverFixture(failure, automatic = false) {
+function driverFixture(failure, automatic = false, scriptResult = { status: "stopped" }) {
   const events = [];
   const messages = [];
   const budgets = [];
@@ -120,6 +120,7 @@ function driverFixture(failure, automatic = false) {
   const browser = {
     newContext: async () => ({ close: async () => {}, newPage: async () => ({
       url: () => "https://auth.openai.com/log-in", on: () => {},
+      evaluate: async () => ({ inputs: 1, challenge: false, email: false }),
       getByLabel: () => ({ count: async () => 0 }), locator: () => ({ count: async () => 0 }),
       goto: async () => {
         if (failure === "navigation") throw new Error("DO_NOT_LOG");
@@ -134,11 +135,11 @@ function driverFixture(failure, automatic = false) {
   // 执行真实入口，只替换浏览器、进程、文件和时钟边界，不启动外部程序。
   const source = readFileSync(new URL("./browser.mjs", import.meta.url), "utf8").replace(/^import .*;\r?\n/gm, "");
   const done = runInNewContext(source, {
-    ...startup, AUTOMATION_LOGIN_TIMEOUT_MS, promisify, process, AbortController, URL, BrowserControl, parseCredential, observeLoginPage, toPageDiagnostic,
+    ...startup, AUTOMATION_LOGIN_TIMEOUT_MS, promisify, process, AbortController, URL, BrowserControl, parseCredential, observeLoginPage, toPageDiagnostic, loginFailureDiagnostic,
     Date: class extends Date { static now() { return clock; } },
     loadLoginScript: async () => ({ digest: null, cleanup: async () => {},
       automateLogin: async (_page, _credential, options) => {
-        budgets.push(options.timeoutMs); return { status: "stopped" };
+        budgets.push(options.timeoutMs); return scriptResult;
       },
       verifyResumableAccount: async () => true,
     }),
@@ -227,3 +228,31 @@ test("automatic driver forwards remaining session time on start and resume", { t
     await driver.done;
   }
 });
+
+
+for (const [reason, expected] of [
+  ["form_fill_timeout", "form_fill_timeout"], ["form_fill_failed", "form_fill_failed"],
+  ["form_submit_timeout", "form_submit_timeout"], ["form_submit_failed", "form_submit_failed"],
+  ["PRIVATE-input-and-URL", "form_or_transition_not_confirmed"],
+]) {
+  test(`worker returns and logs only the approved ${expected} diagnostic`, { timeout: 2000 }, async () => {
+    const driver = driverFixture(undefined, true, { status: "verification_required", diagnostic: {
+      step: "email", reason, http_status: "PRIVATE", message: "PRIVATE", url: "PRIVATE",
+    } });
+    try {
+      await driver.entered;
+      const control = await driver.start("fixture@example.test----fixture-password----GEZDGNBVGY3TQOJQ");
+      await control.command("start");
+      await control.pending;
+      assert.equal(control.view().status, "waiting");
+      assert.equal(control.diagnosticView().reason, expected);
+      const logged = driver.messages.filter(line => line.startsWith("OAuth form state: ")).join("");
+      assert.ok(logged.includes(expected));
+      assert.equal(logged.includes("PRIVATE"), false);
+      assert.deepEqual(Object.keys(control.diagnosticView()).sort(), ["http_status", "reason", "step"]);
+    } finally {
+      driver.release();
+      await driver.done;
+    }
+  });
+}

@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { setTimeout } from "node:timers/promises";
 import { firefox } from "playwright-core";
 import { AUTOMATION_LOGIN_TIMEOUT_MS, parseCredential } from "./login.mjs";
-import { loadLoginScript, observeLoginPage, toPageDiagnostic } from "./login_script.mjs";
+import { loadLoginScript, observeLoginPage, toPageDiagnostic, loginFailureDiagnostic } from "./login_script.mjs";
 import { openAuthorizationPage, runStartupStage, validateAuthorization } from "./core.mjs";
 import { BrowserControl, createControlServer } from "./control.mjs";
 import { rebindEmail, createRebindingControl } from "./rebinding.mjs";
@@ -72,8 +72,11 @@ async function main() {
                   const status = await loginDiagnostics.inspect().catch(() => ({
                     step: "login", reason: "page_observation_failed", httpStatus: null,
                   }));
-                  process.stderr.write(`OAuth form state: ${JSON.stringify(status)}\n`);
-                  return { status: result.status, diagnostic: toPageDiagnostic(status) };
+                  const failure = loginFailureDiagnostic(result.diagnostic);
+                  const diagnostic = failure?.step === status.step && status.reason === "form_or_transition_not_confirmed"
+                    ? failure : toPageDiagnostic(status);
+                  process.stderr.write(`OAuth form state: ${JSON.stringify(diagnostic)}\n`);
+                  return { status: result.status, diagnostic };
                 }
                 return { status: result.status };
               },
