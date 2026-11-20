@@ -196,6 +196,11 @@ const AccountPoolCardComponent = ({
               <p className="mt-1 text-xs text-muted-foreground">
                 {t("accountPool.spendUsed", { amount: spendAmount })}
               </p>
+              {environment.oauth_verification_pending && (
+                <p className="mt-1 text-xs text-amber-700 dark:text-amber-400" role="status">
+                  {t("accountPool.oauthVerificationPending")}
+                </p>
+              )}
               {environment.configuration_pending && (
                 <p className="mt-1 text-xs text-muted-foreground" role="status">
                   {t("accountPool.configurationSyncing")}

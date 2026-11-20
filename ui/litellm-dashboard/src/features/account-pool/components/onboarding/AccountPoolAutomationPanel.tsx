@@ -18,7 +18,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/lib/toast";
-import { ApiError } from "@/lib/http/client";
 import {
   actOnAutomation,
   checkAutomationImage,
@@ -30,6 +29,7 @@ import {
   openAutomationScreen,
   releaseAutomationReservation,
   saveAutomationSettings,
+  safeAutomationOperationMessage,
   submitAutomation,
   updateAutomationProfile,
   type AutomationJob,
@@ -379,10 +379,9 @@ export function AccountPoolAutomationPanel({
       await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
       toast.success("操作已完成");
     } catch (error) {
-      const knownError = error === screenUnavailableAfterTakeover || (error instanceof ApiError && [404, 409].includes(error.status));
-      const message = knownError && error instanceof Error
-        ? error.message
-        : "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
+      const message = error === screenUnavailableAfterTakeover
+        ? screenUnavailableAfterTakeover.message
+        : safeAutomationOperationMessage(error);
       setOperationError(message);
       toast.error(message);
       if (error === screenUnavailableAfterTakeover) {
@@ -418,15 +417,18 @@ export function AccountPoolAutomationPanel({
     const key = JSON.stringify([environmentId, model, draft, reuseProfileId]);
     const id = pendingSubmission.current?.key === key ? pendingSubmission.current.id : createAccountPoolJobId();
     pendingSubmission.current = { key, id };
-    fileGeneration.current += 1;
-    setCredentials("");
+    const submittedCredentials = credentials;
+    const generation = ++fileGeneration.current;
     setFileError("");
     void run(async () => {
       await submitAutomation(accessToken, {
-        id, environment_id: draft ? id : environmentId, credentials, model,
+        id, environment_id: draft ? id : environmentId, credentials: submittedCredentials, model,
         ...(draft ? { draft } : {}), ...(reuseProfileId ? { reuse_profile_id: reuseProfileId } : {}),
       });
       pendingSubmission.current = null;
+      if (generation === fileGeneration.current) {
+        setCredentials((current) => current === submittedCredentials ? "" : current);
+      }
     });
   };
   const readCredentialFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -654,7 +656,7 @@ export function AccountPoolAutomationPanel({
         >
           {creatingCard ? "创建卡片并加入队列" : "添加到串行队列"}
         </Button>
-        {!state.settings.enabled && <p className="text-sm text-muted-foreground">当前自动化关闭，添加后不会开始登录</p>}
+        {!state.settings.enabled && <p className="text-sm text-muted-foreground">当前自动化已暂停，排队任务保留；开启后继续，添加后不会立即登录</p>}
       </form>
       {state.jobs.length === 0 ? (
         <p className="text-sm text-muted-foreground">还没有授权任务。先生成指纹，再添加空白卡片和授权资料</p>
@@ -775,7 +777,7 @@ export function AccountPoolAutomationPanel({
                   key={JSON.stringify(state.settings)}
                   settings={state.settings}
                   disabled={busy}
-                  save={(settings) => run(() => saveAutomationSettings(accessToken, state.version, settings))}
+                  save={(settings) => run(() => saveAutomationSettings(accessToken, state.version, settings, state.settings))}
                 />
                 <AccountPoolLoginScriptSettings accessToken={accessToken} />
               </div>

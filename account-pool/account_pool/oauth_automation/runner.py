@@ -389,8 +389,12 @@ class AutomationRunner:
             status: Final = await self.worker.command(row.item.browser_session_id, secret.worker_token, "status")
             if status.status in {"prepared", "failed", "cancelled", "expired"}:
                 await self._finish(
-                    row, "failed", "浏览器未运行或已结束；不会重复提交登录",
-                    reason="browser_driver_failed" if status.reason == "browser_driver_failed" else "worker_not_running",
+                    row, "cancelled" if status.status == "cancelled" else "expired" if status.status == "expired" else "failed",
+                    "浏览器已取消；不会重复提交登录" if status.status == "cancelled" else
+                    "浏览器会话已过期；不会重复提交登录" if status.status == "expired" else
+                    "浏览器未运行或已结束；不会重复提交登录",
+                    reason="job_timeout" if status.status == "expired" else
+                    "browser_driver_failed" if status.reason == "browser_driver_failed" else "worker_not_running",
                     page=status.diagnostic,
                 )
                 return
@@ -497,7 +501,18 @@ class AutomationRunner:
         )
         cooling: Final = {item.model for item in record.model_cooldowns if item.retry_at > self.clock()}
         model: Final = row.item.model or next((item for item in endpoint.enabled_models if item not in cooling), None)
-        if model is None or model not in endpoint.enabled_models or model in cooling or not endpoint.routable:
+        if not endpoint.routable:
+            message: Final = (
+                "配置尚未同步" if record.configuration_pending else
+                "卡片已停用" if not record.enabled else
+                "卡片处于手动冷却" if record.manual_cooldown else
+                "卡片或账号尚未就绪、仍在冷却"
+            )
+            await self._finish(
+                row, "verification_failed", f"凭据已保存，但{message}；请恢复卡片后仅重试验收", reason="card_changed",
+            )
+            return
+        if model is None or model not in endpoint.enabled_models or model in cooling:
             await self._finish(
                 row, "verification_failed", "凭据已保存，但选定模型不可路由或仍在冷却；请仅重试验收", reason="model_unavailable",
             )
@@ -685,6 +700,12 @@ class AutomationRunner:
     ) -> Result[JobView]:
         if action == "cancel":
             return await self.registry.cancel(job_id)
+        if action in ("takeover", "resume"):
+            current: Final = next(
+                (job for job in (await self.registry.repository.read()).jobs if job.item.id == job_id), None,
+            )
+            if current is not None and current.item.stage in ("validating", "verifying"):
+                return Failure(FailureCode.CONFLICT, "凭据正在验收，无需重新登录；可取消任务或结束后仅重试验收")
         async with self.registry.repository.worker_lock() as acquired:
             if not acquired:
                 return Failure(FailureCode.CONFLICT, "任务正在推进，请稍后刷新再操作")
@@ -869,6 +890,11 @@ class AutomationRunner:
             return Success(retry.item)
 
     async def screen(self, job_id: UUID) -> Result[AutomationScreen]:
+        current_job: Final = next(
+            (job for job in (await self.registry.repository.read()).jobs if job.item.id == job_id), None,
+        )
+        if current_job is not None and current_job.item.stage in ("validating", "verifying"):
+            return Failure(FailureCode.CONFLICT, "凭据正在验收，无需重新登录；可取消任务或结束后仅重试验收")
         async with self.registry.repository.worker_lock() as acquired:
             if not acquired:
                 return Failure(FailureCode.CONFLICT, "任务正在推进，请稍后打开画面")

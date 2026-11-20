@@ -80,7 +80,7 @@ def create_automation_router(runner: AutomationRunner, authorize: Callable[..., 
         return _unwrap(registry.login_scripts.update(request))
 
     async def settings(request: SettingsUpdate) -> AutomationView:
-        return _unwrap(await registry.save_settings(request.settings, request.version))
+        return _unwrap(await registry.save_settings(request.settings, request.version, expected_settings=request.expected_settings))
 
     async def create_profile(request: ProfileInput) -> ProfileView:
         return _unwrap(await registry.create_profile(request))

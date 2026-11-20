@@ -201,7 +201,7 @@ it("disables old job retries when their card has been deleted", async () => {
   expect(screen.getByText(/原卡片已删除，请使用新卡提交新任务/)).toBeVisible();
 });
 
-it("explains binding conflicts without retaining submitted credentials", async () => {
+it("explains rejected submissions and retains credentials only in the form", async () => {
   const message = "原卡片已删除，请到指纹配置确认删除失效绑定后再提交";
   post.mockRejectedValue(new ApiError(message, 409, { detail: message }));
   const user = userEvent.setup();
@@ -211,7 +211,7 @@ it("explains binding conflicts without retaining submitted credentials", async (
   fireEvent.change(credentials, { target: { value: "one@example.test----private-password----GEZDGNBVGY3TQOJQ" } });
   await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(message);
-  expect(credentials).toHaveValue("");
+  expect(credentials).toHaveValue("one@example.test----private-password----GEZDGNBVGY3TQOJQ");
   expect(toastError).toHaveBeenCalledWith(message);
 });
 
@@ -245,7 +245,7 @@ it("does not silently select a different account when the linked card is unavail
   expect(post).not.toHaveBeenCalled();
 });
 
-it("clears submitted credentials immediately and never puts them in query or mutation caches", async () => {
+it("clears submitted credentials after acknowledgement and never puts them in query or mutation caches", async () => {
   const user = userEvent.setup();
   const client = mount();
   const credentials = await screen.findByRole("textbox", { name: "单账号资料" });
@@ -439,4 +439,53 @@ it.each([
   } finally {
     vi.useRealTimers();
   }
+});
+
+
+it.each([422, 502])("shows safe %s details and preserves a rejected submission for correction", async (status) => {
+  const message = status === 422 ? "登录资料格式错误" : "浏览器镜像自检失败";
+  post.mockRejectedValue(new ApiError(message, status, { detail: { code: status === 422 ? "invalid_credentials" : "image_check_failed", message } }));
+  const user = userEvent.setup();
+  const client = mount("card-001");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  const credentials = screen.getByRole("textbox", { name: "单账号资料" });
+  fireEvent.change(credentials, { target: { value: "fixture-private-credentials" } });
+  await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(message);
+  expect(credentials).toHaveValue("fixture-private-credentials");
+  const firstId = post.mock.calls[0][1].body.id;
+  await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+  expect(post.mock.calls[1][1].body.id).toBe(firstId);
+  expect(JSON.stringify(client.getQueryCache().getAll())).not.toContain("fixture-private-credentials");
+  expect(client.getMutationCache().getAll()).toHaveLength(0);
+});
+
+it("does not erase credentials before acknowledgement or overwrite a newly edited form", async () => {
+  let acknowledge!: (value: AutomationJob) => void;
+  post.mockImplementation(() => new Promise<AutomationJob>((resolve) => { acknowledge = resolve; }));
+  const user = userEvent.setup();
+  mount("card-001");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  const credentials = screen.getByRole("textbox", { name: "单账号资料" });
+  fireEvent.change(credentials, { target: { value: "fixture-original" } });
+  await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
+  expect(credentials).toHaveValue("fixture-original");
+  fireEvent.change(credentials, { target: { value: "fixture-new-input" } });
+  acknowledge(job);
+  await waitFor(() => expect(screen.getByRole("button", { name: "添加到串行队列" })).toBeEnabled());
+  expect(credentials).toHaveValue("fixture-new-input");
+});
+
+
+it("does not trust arbitrary structured upstream errors", async () => {
+  post.mockRejectedValue(new ApiError("private-upstream-token", 502, {
+    detail: { code: "unknown_upstream", message: "private-upstream-token" },
+  }));
+  const user = userEvent.setup();
+  mount("card-001");
+  await screen.findByRole("option", { name: "空白测试卡" });
+  fireEvent.change(screen.getByRole("textbox", { name: "单账号资料" }), { target: { value: "fixture credentials" } });
+  await user.click(screen.getByRole("button", { name: "添加到串行队列" }));
+  expect(await screen.findByRole("alert")).not.toHaveTextContent("private-upstream-token");
 });

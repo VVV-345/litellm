@@ -1421,3 +1421,177 @@ async def test_cleanup_failure_is_visible_redacted_and_retried_before_next_job(d
     assert (await registry.repository.read()).jobs[0].session_ciphertext is None
     assert finished.item.browser_session_id in removals
     assert isinstance(await registry.delete_job(finished.item.id), Success)
+
+
+
+@pytest.mark.asyncio
+async def test_settings_snapshot_ignores_job_ticks_but_rejects_admin_overwrite(deletion_registry):
+    from account_pool.oauth_automation.models import AutomationSettings
+    service, _ = deletion_registry
+    original = await service.view()
+    await service.create_profile(ProfileInput(name="queue changes must not invalidate settings"))
+    settings = AutomationSettings(total_timeout_seconds=500)
+    saved = await service.save_settings(settings, original.version, expected_settings=original.settings)
+    assert isinstance(saved, Success)
+    conflict = await service.save_settings(
+        AutomationSettings(total_timeout_seconds=550), saved.value.version, expected_settings=original.settings,
+    )
+    assert isinstance(conflict, Failure)
+    assert (await service.view()).settings == settings
+    assert isinstance(await service.save_settings(settings, original.version), Failure)
+
+
+@pytest.mark.asyncio
+async def test_disabled_automation_preserves_queue_until_explicit_enable(memory_execution):
+    from account_pool.oauth_automation.models import AutomationSettings
+    service, _, _, runner, _, commands, starts, _, submitted = memory_execution
+    await runner.run_once()
+    assert (await service.view()).jobs[0].stage == "queued" and not starts
+    checked = await service.self_check()
+    assert isinstance(await service.save_settings(AutomationSettings(enabled=True), checked.value.version), Success)
+    await runner.run_once()
+    assert (await service.view()).jobs[0].stage == "running" and commands.count("start") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcome", ["timeout", "503", "401", "invalid", "oversized"])
+@pytest.mark.parametrize("action", ["status", "start"])
+async def test_only_readonly_worker_status_retries_transient_failures(memory_execution, outcome, action):
+    import json
+    _, _, _, runner, _, _, _, _, _ = memory_execution
+    seen = []
+    async def handler(request):
+        seen.append(json.loads(request.content))
+        if len(seen) == 1:
+            if outcome == "timeout":
+                raise httpx.ReadTimeout("fixture-private-error", request=request)
+            if outcome in {"503", "401"}:
+                return httpx.Response(int(outcome), json={"private": "not-public"})
+            return httpx.Response(200, content=b"x" * 4097 if outcome == "oversized" else b"not-json")
+        return httpx.Response(200, json={"status": "running", "reason": None, "expires_at": "2099-01-01T00:00:00Z"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        worker = replace(runner.worker, http=http)
+        if action == "status" and outcome in {"timeout", "503"}:
+            assert (await worker.command(uuid4(), "private-token", action)).status == "running"
+            assert len(seen) == 2 and all(item == {"action": "status"} for item in seen)
+        else:
+            with pytest.raises((httpx.HTTPError, ValueError)):
+                await worker.command(uuid4(), "private-token", action, credentials=CREDENTIAL)
+            assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_status_retry_exhaustion_is_bounded_without_replaying_login(memory_execution):
+    _, _, _, runner, _, _, _, _, _ = memory_execution
+    seen = []
+    async def unavailable(request):
+        seen.append(request)
+        return httpx.Response(503)
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unavailable)) as http:
+        with pytest.raises(httpx.HTTPStatusError):
+            await replace(runner.worker, http=http).command(uuid4(), "fixture-token", "status")
+    assert len(seen) == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("terminal", ["cancelled", "expired"])
+async def test_worker_terminal_status_preserves_cancel_and_expiry(memory_execution, terminal):
+    from account_pool.oauth_automation.models import AutomationSettings
+    service, _, _, runner, _, commands, starts, _, _ = memory_execution
+    checked = await service.self_check()
+    await service.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    await runner.run_once()
+    async def ended(request):
+        return httpx.Response(200, json={"status": terminal, "reason": None, "expires_at": "2099-01-01T00:00:00Z"})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(ended)) as http:
+        await replace(runner, worker=replace(runner.worker, http=http)).run_once()
+    job = (await service.view()).jobs[0]
+    assert job.stage == terminal
+    assert ("过期" if terminal == "expired" else "取消") in job.message
+    assert commands.count("start") == len(starts) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["chat", "responses"])
+@pytest.mark.parametrize("result", ["complete", "truncated", "401", "timeout"])
+async def test_model_budget_retry_requires_explicit_truncation_and_complete_text(memory_execution, mode, result):
+    import json
+    from account_pool.domain import GatewayEnvironment
+    _, card, _, runner, _, _, _, _, _ = memory_execution
+    endpoint = GatewayEnvironment(id=card.id, routable=True, concurrency_limit=1,
+        enabled_models=("fixture-model",), api_base=f"http://cliproxy-{card.id.hex}:8317/v1", api_key="fixture-key")
+    budgets = []
+    async def handler(request):
+        payload = json.loads(request.content)
+        budgets.append(payload["max_completion_tokens" if mode == "chat" else "max_output_tokens"])
+        if result == "timeout":
+            raise httpx.ReadTimeout("private-network-error", request=request)
+        if result == "401":
+            return httpx.Response(401, json={"error": "private-token"})
+        if len(budgets) == 1 or result == "truncated":
+            return httpx.Response(200, json={"choices": [{"finish_reason": "length", "message": {"content": "partial"}}]}
+                if mode == "chat" else {"status": "incomplete", "incomplete_details": {"reason": "max_output_tokens"}})
+        return httpx.Response(200, json={"choices": [{"finish_reason": "stop", "message": {"content": "Hello"}}]}
+            if mode == "chat" else {"status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "Hello"}]}]})
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
+        accepted, detail = await replace(runner.worker, http=http)._infer(endpoint, "fixture-model", mode)
+    assert accepted is (result == "complete")
+    assert budgets == ([256] if result in {"401", "timeout"} else [256, 2048])
+    assert "private" not in detail
+    if result == "truncated":
+        assert "预算不足" in detail
+
+
+@pytest.mark.asyncio
+async def test_verification_progress_returns_actionable_screen_error_without_waiting_or_login_replay(memory_execution):
+    from account_pool.domain import OAuthCallback
+    from account_pool.oauth_automation.models import AutomationSettings
+    service, card, manager, runner, _, commands, starts, _, submitted = memory_execution
+    checked = await service.self_check()
+    await service.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    await runner.run_once()
+    record = await service.environments.get(card.id)
+    assert isinstance(await manager.submit_oauth_callback(OAuthCallback(state=record.oauth_state, code="fixture-code"), card.id), Success)
+    commands.append("hold-chat")
+    advancing = asyncio.create_task(runner.run_once())
+    try:
+        async with asyncio.timeout(2):
+            while "chat" not in commands:
+                await asyncio.sleep(0.01)
+        for result in [await asyncio.wait_for(runner.screen(submitted.value.id), 0.5),
+                       await asyncio.wait_for(runner.action(submitted.value.id, "takeover"), 0.5)]:
+            assert isinstance(result, Failure) and "正在验收" in result.message
+        assert len(starts) == commands.count("start") == 1
+    finally:
+        commands.remove("hold-chat")
+        await asyncio.wait_for(advancing, 2)
+    assert (await service.view()).jobs[0].stage == "completed"
+    assert not (await service.environments.get(card.id)).oauth_verification_pending
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failed", [False, True])
+async def test_manual_auth_replacement_recovers_pending_only_after_credential_validation(tmp_path, failed):
+    from account_pool.channels.cliproxyapi.channel import CLIProxyAPIChannel
+    from account_pool.domain import to_view
+    from test_account_pool import _settings
+    record = _record(status=EnvironmentStatus.READY).model_copy(update={"oauth_verification_pending": True})
+    cli = FakeCLIProxy(read_error=RuntimeError("invalid credential") if failed else None)
+    service = _service(record, cli, tmp_path)
+    assert to_view(record).oauth_verification_pending
+    native = CLIProxyAPIChannel(_settings(tmp_path), service._secrets)
+    try:
+        assert not native.gateway(record).routable
+    finally:
+        await native.close()
+    result = await service.upload_auth_file(record.id, "replacement.json", b'{"refresh_token":"test-replacement"}',
+        "application/json", replace=True)
+    saved = await service._repository.get(record.id)
+    assert saved is not None and saved.auth_file_name == "replacement.json"
+    assert saved.oauth_verification_pending is failed
+    native_after = CLIProxyAPIChannel(_settings(tmp_path), service._secrets)
+    try:
+        assert native_after.gateway(saved).routable is (not failed)
+    finally:
+        await native_after.close()
+    assert isinstance(result, Failure if failed else Success)

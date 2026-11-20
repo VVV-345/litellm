@@ -143,3 +143,34 @@ def test_reauthorize_requests_saved_details_for_the_same_card(role, manager_stat
             assert result.json() is None
         else:
             assert "private fixture" not in result.text
+
+
+@pytest.mark.parametrize("status,message,code", [
+    (422, "请选择一条 email----password----TOTPBase32 登录资料，不接收多账号混合记录", "invalid_credentials"),
+    (502, "浏览器镜像自检失败；检查镜像、显示服务和预装资源，不会启动账号登录", "image_check_failed"),
+])
+def test_safe_oauth_failure_keeps_operator_reason_without_raw_details(status, message, code):
+    manager = AsyncMock(return_value=httpx.Response(status, json={"detail": message}))
+    app = FastAPI()
+    app.include_router(create_automation_router(manager, lambda user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        response = client.get("/account_pool/oauth-automation")
+    assert response.status_code == status
+    assert response.json()["detail"] == {"code": code, "message": message}
+    assert response.headers["cache-control"] == "no-store"
+
+
+
+def test_local_automation_validation_returns_safe_structured_reason_without_input():
+    manager = AsyncMock()
+    app = FastAPI()
+    app.include_router(create_automation_router(manager, lambda user: None), prefix="/account_pool")
+    app.dependency_overrides[user_api_key_auth] = lambda: UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN)
+    with TestClient(app) as client:
+        response = client.post("/account_pool/oauth-automation/jobs", json={"credentials": "private-test-input"})
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "invalid_request"
+    assert response.headers["cache-control"] == "no-store"
+    assert "private-test-input" not in response.text
+    manager.assert_not_awaited()

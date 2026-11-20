@@ -6626,6 +6626,7 @@
     "description": "管理隔离的 OpenAI Codex 环境和网关路由。",
     "provider": "OpenAI Codex",
     "configurationSyncing": "配置同步中",
+    "oauthVerificationPending": "凭据已保存，等待授权验收，暂不接单；可仅重试验收或更换认证文件",
     "preAuthorizationProxyHint": "建议先在配置里选好出站代理，再完成授权，授权和之后的流量都会走代理。",
     "status": {
       "all": "全部状态",

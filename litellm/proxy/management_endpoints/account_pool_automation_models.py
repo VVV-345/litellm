@@ -132,6 +132,7 @@ class SettingsUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     version: int = Field(ge=0)
     settings: AutomationSettings
+    expected_settings: AutomationSettings | None = None
 
 
 class JobAction(BaseModel):

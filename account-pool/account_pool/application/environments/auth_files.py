@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Final
 from uuid import UUID
 
@@ -193,11 +194,20 @@ class EnvironmentAuthFiles:
         persisted: Final = await self._repository.get(record.id)
         if persisted is None or persisted.status not in _AUTHORIZATION_COMPLETE_STATUSES:
             return Failure(FailureCode.CONFLICT, "auth file validation did not reach a usable state")
-        if persisted.status is EnvironmentStatus.READY and not self._gateway_environment(persisted).routable:
+        if persisted.configuration_pending:
             return Failure(FailureCode.CONFLICT, "auth file validation is still being reconciled")
-        await self._ownership.retain(record.id, persisted.credential_fingerprints)
-        await self._log_event(persisted, "authentication", None)
-        return Success(to_view(persisted))
+        verified: Final = await self._repository.save_if_version(
+            persisted.model_copy(update=MappingProxyType({
+                "version": persisted.version + 1, "oauth_verification_pending": False, "updated_at": utc_now(),
+            })), persisted.version,
+        ) if persisted.oauth_verification_pending else persisted
+        if verified is None:
+            return Failure(FailureCode.CONFLICT, "environment was changed while validating the credential")
+        if verified.status is EnvironmentStatus.READY and not self._gateway_environment(verified).routable:
+            return Failure(FailureCode.CONFLICT, "auth file validation is still being reconciled")
+        await self._ownership.retain(record.id, verified.credential_fingerprints)
+        await self._log_event(verified, "authentication", None)
+        return Success(to_view(verified))
 
     async def download_auth_file(self, environment_id: UUID) -> Result[tuple[bytes, str, str]]:
         record: Final = await self._repository.get(environment_id)

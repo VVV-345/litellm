@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Final, Literal
 from uuid import UUID
@@ -31,7 +32,7 @@ class ModelAcceptance(BaseModel):
     failure_detail: str | None = None
 
 
-def _objects(value: JsonValue) -> tuple[dict[str, JsonValue], ...]:
+def _objects(value: JsonValue | tuple[JsonValue, ...]) -> tuple[dict[str, JsonValue], ...]:
     try:
         return TypeAdapter(tuple[dict[str, JsonValue], ...]).validate_python(value)
     except ValueError:
@@ -107,17 +108,27 @@ class AutomationWorker:
         credentials: str | None = None,
     ) -> WorkerView:
         payload: Final = {"action": action, **({"credentials": credentials} if action == "start" else {})}
-        response: Final = await self.http.post(
-            f"http://{oauth_browser_control_host(session_id)}:8092/control",
-            headers={"Authorization": f"Bearer {token}", "X-OAuth-Diagnostics": "1"},
-            json=payload,
-            timeout=20,
-            follow_redirects=False,
-        )
-        response.raise_for_status()
-        if len(response.content) > 4096:
-            raise ValueError("worker response is oversized")
-        return WorkerView.model_validate_json(response.content)
+        # status 是只读查询；登录、接管等命令的未知结果不得重放。
+        attempts: Final = 3 if action == "status" else 1
+        for attempt in range(attempts):
+            try:
+                response = await self.http.post(
+                    f"http://{oauth_browser_control_host(session_id)}:8092/control",
+                    headers={"Authorization": f"Bearer {token}", "X-OAuth-Diagnostics": "1"},
+                    json=payload,
+                    timeout=5 if action == "status" else 20,
+                    follow_redirects=False,
+                )
+                response.raise_for_status()
+                if len(response.content) > 4096:
+                    raise ValueError("worker response is oversized")
+                return WorkerView.model_validate_json(response.content)
+            except (httpx.TransportError, httpx.HTTPStatusError) as error:
+                transient = isinstance(error, httpx.TransportError) or error.response.status_code in (502, 503, 504)
+                if not transient or attempt + 1 == attempts:
+                    raise
+                await asyncio.sleep(0.2 * (attempt + 1))
+        raise AssertionError("unreachable worker retry state")
 
     async def confirm_binding_script(self, session_id: UUID, token: str, sha256: str | None) -> bool:
         response: Final = await self.http.post(
@@ -159,33 +170,45 @@ class AutomationWorker:
     async def _infer(
         self, endpoint: GatewayEnvironment, model: str, mode: Literal["chat", "responses"]
     ) -> tuple[bool, str]:
-        payload: Final = {
-            "model": model,
-            "stream": False,
-            **(
-                {
-                    "messages": [{"role": "user", "content": "Hello. Reply briefly with Hello."}],
-                    "max_completion_tokens": 256,
-                }
-                if mode == "chat"
-                else {"input": "Hello. Reply briefly with Hello.", "max_output_tokens": 256, "store": False}
-            ),
-        }
-        try:
-            response: Final = await self.http.post(
-                endpoint.api_base + ("/chat/completions" if mode == "chat" else "/responses"),
-                json=payload,
-                headers={"Authorization": f"Bearer {endpoint.api_key}"},
-                timeout=30,
-                follow_redirects=False,
-            )
-            if not response.is_success:
-                return False, f"HTTP {response.status_code}"
-            if len(response.content) > 1024 * 1024:
-                return False, "响应过大"
-            complete: Final = complete_text(TypeAdapter(dict[str, JsonValue]).validate_json(response.content), mode)
-            return complete, "通过" if complete else "未返回完整文本"
-        except httpx.HTTPError:
-            return False, "网络错误或超时，结果未知"
-        except ValueError:
-            return False, "响应格式无效"
+        for budget in (256, 2048):
+            payload = {
+                "model": model,
+                "stream": False,
+                **(
+                    {"messages": [{"role": "user", "content": "Hello. Reply briefly with Hello."}],
+                     "max_completion_tokens": budget}
+                    if mode == "chat"
+                    else {"input": "Hello. Reply briefly with Hello.", "max_output_tokens": budget, "store": False}
+                ),
+            }
+            try:
+                response = await self.http.post(
+                    endpoint.api_base + ("/chat/completions" if mode == "chat" else "/responses"),
+                    json=payload,
+                    headers={"Authorization": f"Bearer {endpoint.api_key}"},
+                    timeout=30,
+                    follow_redirects=False,
+                )
+                if not response.is_success:
+                    return False, f"HTTP {response.status_code}"
+                if len(response.content) > 1024 * 1024:
+                    return False, "响应过大"
+                body = TypeAdapter(dict[str, JsonValue]).validate_json(response.content)
+                if complete_text(body, mode):
+                    return True, "通过"
+                truncated = (
+                    any(choice.get("finish_reason") == "length" for choice in _objects(body.get("choices")))
+                    if mode == "chat"
+                    else body.get("status") == "incomplete" and any(
+                        item.get("reason") == "max_output_tokens" for item in _objects((body.get("incomplete_details"),))
+                    )
+                )
+                if not truncated:
+                    return False, "未返回完整文本"
+                if budget == 2048:
+                    return False, "输出预算不足，响应被截断；可仅重试验收，不代表凭据失效"
+            except httpx.HTTPError:
+                return False, "网络错误或超时，结果未知"
+            except ValueError:
+                return False, "响应格式无效"
+        raise AssertionError("unreachable model budget state")

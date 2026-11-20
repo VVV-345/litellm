@@ -526,3 +526,9 @@ it("keeps a failed plan snapshot visible with an explicit stale label", async ()
   expect(screen.getByText("快照已过期，等待刷新")).toBeVisible();
   expect(screen.getByText("主动刷新失败，已回退缓存")).toBeVisible();
 });
+
+
+it("shows saved-but-unverified OAuth credentials instead of silently looking routable", () => {
+  renderCard({ supplier: "openai_codex", oauth_verification_pending: true, auth_file_bound: true });
+  expect(screen.getByText(/凭据已保存，等待授权验收，暂不接单/)).toBeVisible();
+});

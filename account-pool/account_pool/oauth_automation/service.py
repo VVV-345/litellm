@@ -115,10 +115,13 @@ class AutomationRegistry:
             return Failure(FailureCode.UPSTREAM, "浏览器镜像自检失败；检查镜像、显示服务和预装资源，不会启动账号登录")
         return Success(await self.view())
 
-    async def save_settings(self, values: AutomationSettings, version: int) -> Result[AutomationView]:
+    async def save_settings(
+        self, values: AutomationSettings, version: int, *, expected_settings: AutomationSettings | None = None,
+    ) -> Result[AutomationView]:
         async with self.repository.transaction() as tx:
             state: Final = tx.snapshot
-            if state.version != version:
+            changed: Final = state.settings != expected_settings if expected_settings is not None else state.version != version
+            if changed:
                 return Failure(FailureCode.CONFLICT, "配置已改变，请刷新后再保存")
             if values.enabled and (state.checked_image is None or state.checked_image != self.worker.image):
                 return Failure(FailureCode.CONFLICT, "新镜像必须先通过自检才能开启自动化")
