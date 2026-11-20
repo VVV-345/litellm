@@ -153,6 +153,10 @@ RUNTIME_ROLLOUT_SCHEMA_ADDITIONS: Final = (
 QUOTA_CALL_SCHEMA_ADDITIONS: Final = (
     b"ALTER TABLE account_pool_quota_verifications ADD COLUMN IF NOT EXISTS api_call jsonb",
 )
+EMAIL_REBINDING_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_email_rebinding "
+    b"(id integer PRIMARY KEY CHECK(id=1),payload jsonb NOT NULL)",
+)
 
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
@@ -287,6 +291,7 @@ def additive_manager_schema_upgrade(
         ),
     )
     if additions not in (
+        EMAIL_REBINDING_SCHEMA_ADDITIONS,
         RUNTIME_ROLLOUT_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
             QUOTA_VERIFICATION_SCHEMA_ADDITIONS,

@@ -232,6 +232,37 @@ def test_unknown_schema_or_missing_backups_still_block_deployment(setup_data, ba
     assert not any(event.startswith("apply:") for event in runtime.events)
 
 
+@pytest.mark.parametrize("backups,fail_capture", ((False, False), (True, False), (True, True)))
+def test_email_rebinding_upgrade_requires_verified_database_backup(tmp_path, backups, fail_capture):
+    from account_pool.release_compatibility import additive_manager_schema_upgrade
+
+    source = (Path(__file__).parents[1] / "account_pool/email_rebinding/repository.py").read_bytes()
+    baseline = (("schema.prisma", b"model A { id String @id }"),)
+    target = (*baseline, ("email_rebinding/repository.py", source))
+
+    class EmailRuntime(Runtime):
+        def is_additive_manager_schema_upgrade(self, current, target_pair):
+            return current == CURRENT and target_pair == NEW and additive_manager_schema_upgrade(baseline, target)
+
+    runtime, clock, database = EmailRuntime(), Clock(), Database()
+    runtime.changed_schema = NEW.id
+    database.fail_capture = fail_capture
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database if backups else None)
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    if not backups or fail_capture:
+        assert service.store.jobs()[0].status == "failed"
+        assert runtime.running == CURRENT
+        assert not any(event.startswith("apply:") for event in runtime.events)
+        if not backups:
+            assert database.events == []
+    else:
+        assert service.store.jobs()[0].status == "succeeded"
+        assert runtime.running == NEW
+        assert service.store.backup(CURRENT.id).database_snapshot is not None
+        assert database.events == ["stop", "capture"]
+    assert not any(event.startswith("restore:") for event in database.events)
+
+
 def test_failed_oauth_upgrade_backup_does_not_start_new_images(setup_data):
     service, runtime, clock, database = setup_data
     runtime.changed_schema = NEW.id

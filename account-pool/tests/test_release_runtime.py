@@ -776,6 +776,44 @@ def test_oauth_browser_upgrade_runtime_reads_raw_prisma_and_complete_manager_sou
     assert all("--network" in call and "none" in call for call in command.calls if call[0] == "create")
 
 
+def test_email_rebinding_upgrade_accepts_only_the_exact_additive_table() -> None:
+    root = Path(__file__).resolve().parents[1] / "account_pool"
+    repository = root / "email_rebinding" / "repository.py"
+    baseline = tuple(
+        (path.relative_to(root).as_posix(), path.read_bytes())
+        for path in root.rglob("*.py") if path != repository
+    ) + (("schema.prisma", b"model A { id String @id }"),)
+    source = ("email_rebinding/repository.py", repository.read_bytes())
+    target = (*baseline, source)
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE old"')))
+    assert not additive_manager_schema_upgrade(baseline, (*target, (
+        "extra.py", b'SQL="CREATE TABLE IF NOT EXISTS account_pool_unreviewed (id uuid)"',
+    )))
+    assert not additive_manager_schema_upgrade(baseline, tuple(
+        (name, b"model B { id String @id }" if name == "schema.prisma" else content)
+        for name, content in target
+    ))
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("id integer PRIMARY KEY", "id text PRIMARY KEY"),
+    ("CHECK(id=1)", "CHECK(id=2)"),
+    ("CHECK(id=1)", ""),
+    ("payload jsonb", "payload text"),
+    ("payload jsonb NOT NULL", "payload jsonb"),
+    ("payload jsonb NOT NULL", "payload jsonb NOT NULL, extra text"),
+))
+def test_email_rebinding_upgrade_rejects_unreviewed_schema_changes(original: str, replacement: str) -> None:
+    root = Path(__file__).resolve().parents[1] / "account_pool"
+    source = (root / "email_rebinding" / "repository.py").read_bytes()
+    baseline = (("schema.prisma", b"model A { id String @id }"),)
+    assert original.encode() in source
+    target = (*baseline, ("email_rebinding/repository.py", source.replace(original.encode(), replacement.encode())))
+    assert not additive_manager_schema_upgrade(baseline, target)
+
+
 def test_proxy_catalog_upgrade_allows_only_reviewed_additive_schema() -> None:
     root: Final = Path(__file__).resolve().parents[1] / "account_pool"
     baseline: Final = tuple((str(path.relative_to(root)), path.read_bytes()) for path in root.rglob("*.py")
