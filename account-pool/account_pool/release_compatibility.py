@@ -139,6 +139,10 @@ QUOTA_RESET_SCHEMA_ADDITIONS: Final = tuple(sorted((
     b"CREATE INDEX IF NOT EXISTS account_pool_quota_resets_environment_idx "
     b"ON account_pool_quota_resets (environment_id, created_at DESC)",
 )))
+GLM_RESET_CLAIM_SCHEMA_ADDITIONS: Final = (
+    b"CREATE TABLE IF NOT EXISTS account_pool_quota_reset_claims ( provider_scope text NOT NULL, "
+    b"credit_id text NOT NULL, request_id uuid NOT NULL, PRIMARY KEY (provider_scope, credit_id) )",
+)
 QUOTA_VERIFICATION_SCHEMA_ADDITIONS: Final = (
     b"CREATE TABLE IF NOT EXISTS account_pool_quota_verifications ( "
     b"environment_id uuid PRIMARY KEY REFERENCES account_pool_environments(id) ON DELETE CASCADE, payload jsonb NOT NULL )",
@@ -296,6 +300,13 @@ def additive_manager_schema_upgrade(
         *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
             QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
             QUOTA_CALL_SCHEMA_ADDITIONS,
+            (*QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
+        )),
+        *(tuple(sorted((*group, *GLM_RESET_CLAIM_SCHEMA_ADDITIONS))) for group in (
+            (), QUOTA_RESET_SCHEMA_ADDITIONS, QUOTA_VERIFICATION_SCHEMA_ADDITIONS, QUOTA_CALL_SCHEMA_ADDITIONS,
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS),
+            (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
             (*QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
             (*QUOTA_RESET_SCHEMA_ADDITIONS, *QUOTA_VERIFICATION_SCHEMA_ADDITIONS, *QUOTA_CALL_SCHEMA_ADDITIONS),
         )),

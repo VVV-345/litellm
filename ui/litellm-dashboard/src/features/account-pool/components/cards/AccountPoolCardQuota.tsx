@@ -26,7 +26,7 @@ export function AccountPoolCardQuota({
   const quota = displayedQuota(environment);
   const stale = quotaSnapshotIsStale(quota, now, maxAgeSeconds);
   const hasBalances = quota.balances.length > 0 || quota.prepaid_balance != null;
-  const showResetCredits = environment.supplier === "openai_codex" || quota.reset_credits_available != null;
+  const showResetCredits = environment.supplier === "openai_codex" || family === "glm" || quota.reset_credits_available != null;
   const numberFormatter = new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 2 });
   const goQuota = family === "opencode" && (quota.plan_type === "OpenCode Go" || Boolean(quota.refresh_attempted_at));
   const isPlanQuota = family === "glm" || goQuota;

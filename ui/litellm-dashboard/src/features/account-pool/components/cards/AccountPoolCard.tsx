@@ -354,7 +354,7 @@ const AccountPoolCardComponent = ({
                 {t("accountPool.credential.verify")}
               </Button>
             )}
-          {environment.supplier === "openai_codex" && onQuotaReset && (
+          {(environment.supplier === "openai_codex" || family === "glm") && onQuotaReset && (
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => onQuotaReset(environment)}>
               {t("accountPool.quotaReset.action")}
             </Button>

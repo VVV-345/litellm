@@ -19,6 +19,14 @@ class PostgresResetStore:
     async def initialize(self) -> None:
         async with database_connection(self.database_url) as connection:
             await connection.execute("""
+                CREATE TABLE IF NOT EXISTS account_pool_quota_reset_claims (
+                    provider_scope text NOT NULL,
+                    credit_id text NOT NULL,
+                    request_id uuid NOT NULL,
+                    PRIMARY KEY (provider_scope, credit_id)
+                )
+            """)
+            await connection.execute("""
                 CREATE TABLE IF NOT EXISTS account_pool_quota_resets (
                     request_id uuid PRIMARY KEY,
                     environment_id uuid NOT NULL REFERENCES account_pool_environments(id) ON DELETE CASCADE,
@@ -104,6 +112,23 @@ class PostgresResetStore:
             )
             row: Final = await cursor.fetchone()
             return None if row is None else ResetOperation.model_validate(row["payload"])
+
+    async def claim_credit(self, operation: ResetOperation) -> bool:
+        if operation.before.provider_scope is None:
+            raise ValueError("供应商重置身份未确认")
+        async with database_connection(self.database_url) as connection:
+            # 不关联可删除的卡片；卡片删除和服务重启不能抹掉不可逆兑换的防重记录。
+            await connection.execute(
+                "INSERT INTO account_pool_quota_reset_claims (provider_scope, credit_id, request_id) "
+                "VALUES (%s, %s, %s) ON CONFLICT (provider_scope, credit_id) DO NOTHING",
+                (operation.before.provider_scope, operation.credit_id, operation.request_id),
+            )
+            cursor: Final = await connection.execute(
+                "SELECT request_id FROM account_pool_quota_reset_claims WHERE provider_scope = %s AND credit_id = %s",
+                (operation.before.provider_scope, operation.credit_id),
+            )
+            row: Final = await cursor.fetchone()
+            return row is not None and row["request_id"] == operation.request_id
 
     async def save(self, operation: ResetOperation) -> None:
         async with database_connection(self.database_url) as connection:

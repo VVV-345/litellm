@@ -20,19 +20,21 @@ import {
   prepareQuotaReset,
   verifyQuotaReset,
   type QuotaResetVerification,
+  type QuotaResetCredit,
 } from "../../api/AccountPoolQuotaResetApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
+import { formatDateTime } from "../../utils/AccountPoolFormatters";
 
 interface Props {
   accessToken: string;
-  environment: { id: string; name: string; enabled_models: readonly string[] };
+  environment: { id: string; name: string; enabled_models: readonly string[]; provider_family?: string };
   onClose: () => void;
 }
 
 type Step = "reset" | "verify";
 
 export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const cache = useQueryClient();
   const key = accountPoolQueryKeys.quotaReset(accessToken, environment.id);
   const status = useQuery({
@@ -45,6 +47,8 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const observation = status.data?.observation;
   const queryFailed = status.isError || (status.isSuccess && !observation);
   const [confirmed, setConfirmed] = useState(false);
+  const [creditId, setCreditId] = useState("");
+  const [confirmedChoice, setConfirmedChoice] = useState("");
   const [recover, setRecover] = useState(false);
   const [model, setModel] = useState(environment.enabled_models[0] ?? "");
   const [pending, setPending] = useState<Step | null>(null);
@@ -53,13 +57,22 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const [verification, setVerification] = useState<QuotaResetVerification | null>(null);
   const busy = useRef(false);
   const reconcile = operation?.status === "uncertain";
+  const credits = observation?.cards ?? [];
+  const prepared = operation?.status === "prepared" || reconcile;
+  const selectedId = prepared ? operation?.credit_id ?? operation?.before.credit_id ?? "" : creditId || observation?.credit_id || "";
+  const selected = credits.find((credit) => credit.id === selectedId);
+  const choiceIdentity = selected ? JSON.stringify([observation?.provider_scope, selected.id, selected.reset_type, selected.grant_type, selected.expires_at]) : "";
+  const confirmationValid = confirmed && confirmedChoice === choiceIdentity;
+  const creditLabel = (credit: QuotaResetCredit) => `${t(`accountPool.quotaReset.window.${credit.reset_type}`)} · ${t("accountPool.quotaReset.expires", {
+    time: formatDateTime(credit.expires_at, i18n.language),
+  })}`;
   const savedVerification = status.data?.last_verification;
   const savedCall = status.data?.last_api_call;
   const displayedCall = !failed && !pending && !verification && savedCall?.model === model
     && savedCall.verification_at === savedVerification?.observed_at ? savedCall : null;
   const displayedVerification = failed || pending ? null : verification ?? (savedVerification?.model === model ? savedVerification.result : null);
   const run = async (action: Step) => {
-    if (busy.current || (action === "reset" && !confirmed)) return;
+    if (busy.current || (action === "reset" && !confirmationValid)) return;
     let step = action;
     busy.current = true;
     setPending(step);
@@ -72,7 +85,7 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
         const prepared =
           operation?.status === "prepared" || operation?.status === "uncertain"
             ? operation
-            : await prepareQuotaReset(accessToken, environment.id, operation?.request_id);
+            : await prepareQuotaReset(accessToken, environment.id, operation?.request_id, selected ? { creditId: selected.id, providerScope: observation?.provider_scope ?? undefined } : undefined);
         // 即使随后 HTTP 响应丢失，也保留服务器给出的原兑换身份。
         cache.setQueryData(key, { observation, operation: prepared });
         if (prepared.status !== "prepared" && prepared.status !== "uncertain") return;
@@ -101,7 +114,7 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
       setPending(null);
     }
   };
-  const hasCredit = Boolean(observation?.eligible && observation.available > 0);
+  const hasCredit = Boolean(observation?.eligible && observation.available > 0 && (!credits.length || selected?.eligible));
   const canReset = reconcile || (!status.isFetching && !queryFailed && hasCredit);
   const eligibility = observation?.eligible ? "accountPool.quotaReset.eligible" : "accountPool.quotaReset.ineligible";
   const resetAction = reconcile ? "accountPool.quotaReset.reconcile" : "accountPool.quotaReset.reset";
@@ -120,7 +133,24 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
         <section className="grid gap-3 rounded-md border p-3">
           <h3 className="text-sm font-medium">{t("accountPool.quotaReset.redemption")}</h3>
           <p>{t("accountPool.quotaReset.available", { count: observation?.available ?? "?" })}</p>
-          {queryFailed ? <p role="alert">{t("accountPool.quotaReset.queryFailed")}</p> : (
+          {credits.length > 0 && (
+            <div className="grid gap-2">
+              <Label htmlFor="quota-reset-credit">{t("accountPool.quotaReset.credit")}</Label>
+              <Select value={selectedId} disabled={inProgress || prepared} onValueChange={(value) => {
+                setCreditId(value ?? "");
+                setConfirmed(false);
+              }}>
+                <SelectTrigger id="quota-reset-credit"><SelectValue>{selected ? creditLabel(selected) : undefined}</SelectValue></SelectTrigger>
+                <SelectContent>{credits.map((credit) => (
+                  <SelectItem key={credit.id} value={credit.id} disabled={!credit.eligible}>
+                    {creditLabel(credit)}
+                  </SelectItem>
+                ))}</SelectContent>
+              </Select>
+              <p className="text-sm text-muted-foreground">{t("accountPool.quotaReset.glmNotice")}</p>
+            </div>
+          )}
+          {queryFailed ? <p role="alert">{t(environment.provider_family === "glm" ? "accountPool.quotaReset.glmQueryFailed" : "accountPool.quotaReset.queryFailed")}</p> : (
             <p className="text-sm text-muted-foreground">
               {t(status.isPending ? "accountPool.quotaReset.querying" : eligibility)}
             </p>
@@ -130,15 +160,18 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
           </Button>
           <Label className="flex items-start gap-2">
             <Checkbox
-              checked={confirmed}
+              checked={confirmationValid}
               disabled={inProgress}
-              onCheckedChange={(value) => setConfirmed(value === true)}
+              onCheckedChange={(value) => {
+                setConfirmed(value === true);
+                setConfirmedChoice(value === true ? choiceIdentity : "");
+              }}
             />
             {t(reconcile ? "accountPool.quotaReset.confirmReconcile" : "accountPool.quotaReset.confirm", {
               name: environment.name,
             })}
           </Label>
-          <Button disabled={inProgress || !confirmed || !canReset} onClick={() => void run("reset")}>
+          <Button disabled={inProgress || !confirmationValid || !canReset} onClick={() => void run("reset")}>
             {t(pending === "reset" ? "accountPool.quotaReset.redeeming" : resetAction)}
           </Button>
           {operation && (

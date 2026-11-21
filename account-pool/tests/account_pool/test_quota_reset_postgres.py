@@ -232,3 +232,26 @@ async def test_ordinary_api_through_manager_persists_call_proof(database, endpoi
     assert saved.request_id == logs.events[-1].request_id
     assert logs.events[-1].final_status == "succeeded"
     assert upstream.calls == [] and upstream.probes == []
+
+
+@pytest.mark.asyncio
+async def test_glm_credit_claim_is_global_across_cards_and_survives_card_deletion(database):
+    from account_pool.quota_reset_models import ResetObservation, ResetOperation
+
+    url, repo, store = database
+    _, card, _, _ = setup_service()
+    other = card.model_copy(update={"id": uuid4()})
+    await repo.save(card)
+    await repo.save(other)
+    before = ResetObservation(available=1, credit_id="123", eligible=True, provider_scope="a" * 64)
+    first = ResetOperation(request_id=uuid4(), environment_id=card.id, credit_id="123", credential_fingerprints=("first",), before=before)
+    second = ResetOperation(request_id=uuid4(), environment_id=other.id, credit_id="123", credential_fingerprints=("second",), before=before)
+    results = await asyncio.gather(store.claim_credit(first), PostgresResetStore(url).claim_credit(second))
+    assert sum(results) == 1
+    winner = first if results[0] else second
+    loser = second if results[0] else first
+    async with database_connection(url) as connection:
+        await connection.execute("DELETE FROM account_pool_environments WHERE id = %s", (winner.environment_id,))
+    restarted = PostgresResetStore(url)
+    assert await restarted.claim_credit(winner)
+    assert not await restarted.claim_credit(loser)

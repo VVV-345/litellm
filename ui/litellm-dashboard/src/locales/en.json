@@ -6558,6 +6558,11 @@
   },
   "accountPool": {
     "quotaReset": {
+      "credit": "Choose a reset credit",
+      "expires": "Expires: {{time}}",
+      "glmNotice": "Redeems only the confirmed personal-plan credit. A 5-hour reset does not clear weekly limits. No other credit or cash balance is used automatically.",
+      "glmQueryFailed": "Cannot confirm a personal Coding Plan or reset permission. Team redemption requires more than an inference key. A failed query does not mean zero credits.",
+      "window": {"FIVE_HOUR": "5-hour reset", "WEEK": "Weekly reset"},
       "title": "Quota reset and verification · {{name}}",
       "action": "Reset and verify quota",
       "notice": "Quota queries only read provider state. Resetting spends an available reset credit. Neither action refreshes OAuth tokens or touches other cards.",

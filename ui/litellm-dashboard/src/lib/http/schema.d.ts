@@ -25978,8 +25978,12 @@ export interface components {
         };
         /** AccountPoolPrepareReset */
         AccountPoolPrepareReset: {
+            /** Credit Id */
+            credit_id?: string | null;
             /** Previous Request Id */
             previous_request_id?: string | null;
+            /** Provider Scope */
+            provider_scope?: string | null;
         };
         /** AccountPoolProviderFamily */
         AccountPoolProviderFamily: {
@@ -26209,20 +26213,48 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** AccountPoolResetCredit */
+        AccountPoolResetCredit: {
+            /** Eligible */
+            eligible: boolean;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Grant Type */
+            grant_type: string;
+            /** Id */
+            id: string;
+            /**
+             * Reset Type
+             * @enum {string}
+             */
+            reset_type: "FIVE_HOUR" | "WEEK";
+        };
         /** AccountPoolResetObservation */
         AccountPoolResetObservation: {
             /** Available */
             available: number;
+            /**
+             * Cards
+             * @default []
+             */
+            cards: components["schemas"]["AccountPoolResetCredit"][];
             /** Credit Id */
             credit_id?: string | null;
             /** Eligible */
             eligible: boolean;
+            /** Provider Scope */
+            provider_scope?: string | null;
             quota: components["schemas"]["AccountPoolQuotaSnapshot"];
         };
         /** AccountPoolResetOperation */
         AccountPoolResetOperation: {
             after?: components["schemas"]["AccountPoolResetObservation"] | null;
             before: components["schemas"]["AccountPoolResetObservation"];
+            /** Credit Id */
+            credit_id?: string | null;
             /**
              * Environment Id
              * Format: uuid

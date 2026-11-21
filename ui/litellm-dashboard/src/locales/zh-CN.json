@@ -6558,6 +6558,11 @@
   },
   "accountPool": {
     "quotaReset": {
+      "credit": "选择重置权益",
+      "expires": "到期：{{time}}",
+      "glmNotice": "仅兑换你确认的个人套餐权益；5 小时重置不会解除周额度限制。不会自动使用其他权益或充值余额。",
+      "glmQueryFailed": "无法确认个人 Coding Plan 或重置权限。团队版不能仅凭推理 Key 兑换；查询失败不代表可用次数为 0。",
+      "window": {"FIVE_HOUR": "5 小时重置", "WEEK": "周额度重置"},
       "title": "额度重置与验证 · {{name}}",
       "action": "额度重置与验证",
       "notice": "额度查询只读取供应商状态；额度重置会消耗一次可用次数。两者均不刷新 OAuth Token，也不操作其他卡片。",

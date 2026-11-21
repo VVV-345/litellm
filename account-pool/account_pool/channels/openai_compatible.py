@@ -140,6 +140,10 @@ async def _validate_destination(base_url: str, resolver: HostResolver) -> tuple[
     return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, "")), host_header
 
 
+resolve_host: Final[HostResolver] = _resolve_host
+validate_destination: Final[Callable[[str, HostResolver], Awaitable[tuple[str, str | None]]]] = _validate_destination
+
+
 class OpenAICompatibleChannel:
     def __init__(
         self,

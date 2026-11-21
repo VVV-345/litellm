@@ -6,11 +6,20 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from account_pool.domain import ModelQuotaSnapshot, QuotaSnapshot, utc_now
 
 ResetCode = Literal["reset", "nothing_to_reset", "no_credit", "already_redeemed"]
+
+
+class ResetCredit(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    id: str = Field(min_length=1, max_length=64)
+    reset_type: Literal["FIVE_HOUR", "WEEK"]
+    grant_type: str = Field(pattern=r"^[A-Z_]{1,32}$")
+    expires_at: AwareDatetime
+    eligible: bool
 
 
 class ResetObservation(BaseModel):
@@ -20,6 +29,8 @@ class ResetObservation(BaseModel):
     eligible: bool
     quota: QuotaSnapshot = Field(default_factory=QuotaSnapshot)
     model_quotas: tuple[ModelQuotaSnapshot, ...] = ()
+    cards: tuple[ResetCredit, ...] = Field(default=(), max_length=2000)
+    provider_scope: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", repr=False)
 
 
 class ResetReply(BaseModel):
@@ -46,6 +57,8 @@ class ResetOperation(BaseModel):
 class PrepareResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     previous_request_id: UUID | None = None
+    credit_id: str | None = Field(default=None, min_length=1, max_length=64)
+    provider_scope: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class ConsumeResetRequest(BaseModel):
@@ -55,6 +68,7 @@ class ConsumeResetRequest(BaseModel):
 
 
 class ResetView(BaseModel):
+    credit_id: str | None = None
     request_id: UUID
     environment_id: UUID
     status: Literal["prepared", "uncertain", "reset", "nothing_to_reset", "no_credit", "already_redeemed"]

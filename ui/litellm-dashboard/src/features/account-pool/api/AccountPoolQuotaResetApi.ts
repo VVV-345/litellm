@@ -2,6 +2,7 @@
 import { apiClient } from "@/components/networking";
 import type { components } from "@/lib/http/schema";
 
+export type QuotaResetCredit = components["schemas"]["AccountPoolResetCredit"];
 export type QuotaResetStatus = components["schemas"]["AccountPoolResetStatus"];
 export type QuotaResetOperation = components["schemas"]["AccountPoolResetOperation"];
 export type QuotaResetVerification = components["schemas"]["AccountPoolResetVerification"];
@@ -9,10 +10,10 @@ const root = (id: string) => `/account_pool/environments/${encodeURIComponent(id
 
 export const getQuotaResetStatus = (accessToken: string, id: string) =>
   apiClient.get<QuotaResetStatus>(root(id), { accessToken });
-export const prepareQuotaReset = (accessToken: string, id: string, previousId?: string) =>
+export const prepareQuotaReset = (accessToken: string, id: string, previousId?: string, selection?: { readonly creditId: string; readonly providerScope?: string }) =>
   apiClient.post<QuotaResetOperation>(`${root(id)}/prepare`, {
     accessToken,
-    body: { previous_request_id: previousId ?? null },
+    body: { previous_request_id: previousId ?? null, ...(selection?.creditId ? { credit_id: selection.creditId } : {}), ...(selection?.providerScope ? { provider_scope: selection.providerScope } : {}) },
   });
 export const consumeQuotaReset = (accessToken: string, id: string, requestId: string) =>
   apiClient.post<QuotaResetOperation>(`${root(id)}/consume`, {

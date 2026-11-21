@@ -1584,3 +1584,24 @@ async def test_browser_creation_timeout_leaves_other_manager_requests_unchanged(
         manager: Final = AccountPoolManagerClient("http://manager.test", "m" * 32, client=transport)
         response: Final = await manager.request(method, path)
         assert response.status_code == 200
+
+
+@pytest.mark.parametrize("credit_id", [None, "123"])
+def test_glm_reset_proxy_preserves_credit_selection_without_breaking_legacy_codex(credit_id) -> None:
+    calls = []
+    def handle(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        return httpx.Response(200, json={
+            "request_id": str(uuid4()), "environment_id": str(_ENVIRONMENT_ID), "status": "prepared",
+            "credit_id": "123", "before": {"available": 1, "eligible": True, "quota": {}, "cards": [{
+                "id": "123", "reset_type": "FIVE_HOUR", "grant_type": "DIRECT", "expires_at": "2099-01-01T00:00:00Z", "eligible": True,
+            }]}, "windows_reset": 0, "verification": "not_run",
+        })
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient("http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
+    payload = {"previous_request_id": None, **({"credit_id": credit_id} if credit_id is not None else {})}
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response = client.post(f"/account_pool/environments/{_ENVIRONMENT_ID}/quota-reset/prepare", json=payload)
+        assert response.status_code == 200
+        assert response.json()["before"]["cards"][0]["reset_type"] == "FIVE_HOUR"
+    assert json.loads(calls[0].content) == ({"credit_id": credit_id} if credit_id is not None else {})

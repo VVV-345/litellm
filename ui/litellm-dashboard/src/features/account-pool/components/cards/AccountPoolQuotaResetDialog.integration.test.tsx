@@ -1,5 +1,5 @@
 /** 验证确认操作、原兑换身份重用及失败不得显示恢复成功。 */
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, expect, it, vi } from "vitest";
 import { apiClient } from "@/components/networking";
@@ -165,4 +165,45 @@ it("does not consume again when prepare returns a previously completed operation
   expect(apiClient.post).toHaveBeenCalledExactlyOnceWith(
     "/account_pool/environments/first/quota-reset/prepare", expect.anything(),
   );
+});
+
+
+it("requires confirmation for the selected GLM credit and sends its exact id", async () => {
+  const cards = [
+    { id: "123", reset_type: "FIVE_HOUR", grant_type: "DIRECT", expires_at: "2099-01-01T00:00:00Z", eligible: true },
+    { id: "456", reset_type: "WEEK", grant_type: "GLOBAL", expires_at: "2099-01-02T00:00:00Z", eligible: true },
+  ];
+  vi.mocked(apiClient.get).mockResolvedValue({ observation: { ...observation, credit_id: "123", cards }, operation: null });
+  vi.mocked(apiClient.post).mockResolvedValueOnce({ ...operation, credit_id: "123" }).mockResolvedValueOnce({ ...operation, status: "uncertain" });
+  open();
+  expect(await screen.findByRole("combobox", { name: "选择重置权益" })).toHaveTextContent("5 小时重置");
+  expect(screen.getByText(/5 小时重置不会解除周额度限制/)).toBeVisible();
+  const reset = screen.getByRole("button", { name: "重置额度" });
+  expect(reset).toBeDisabled();
+  fireEvent.click(screen.getByRole("checkbox", { name: /我确认仅操作/ }));
+  fireEvent.click(reset);
+  await screen.findByText(/same-redemption/);
+  expect(apiClient.post).toHaveBeenNthCalledWith(1, "/account_pool/environments/first/quota-reset/prepare", {
+    accessToken: "admin", body: { previous_request_id: null, credit_id: "123" },
+  });
+  expect(apiClient.post).toHaveBeenCalledTimes(2);
+});
+
+
+it("revokes GLM confirmation if a fresh query changes the default credit", async () => {
+  const cards = [
+    { id: "123", reset_type: "FIVE_HOUR", grant_type: "DIRECT", expires_at: "2099-01-01T00:00:00Z", eligible: true },
+    { id: "456", reset_type: "WEEK", grant_type: "GLOBAL", expires_at: "2099-01-02T00:00:00Z", eligible: true },
+  ];
+  vi.mocked(apiClient.get).mockResolvedValueOnce({ observation: { ...observation, credit_id: "123", cards }, operation: null })
+    .mockResolvedValue({ observation: { ...observation, credit_id: "456", cards }, operation: null });
+  open();
+  await screen.findByRole("combobox", { name: "选择重置权益" });
+  fireEvent.click(screen.getByRole("checkbox", { name: /我确认仅操作/ }));
+  expect(screen.getByRole("button", { name: "重置额度" })).toBeEnabled();
+  fireEvent.click(screen.getByRole("button", { name: "查询额度" }));
+  await waitFor(() => expect(screen.getByRole("combobox", { name: "选择重置权益" })).toHaveTextContent("周额度重置"));
+  expect(screen.getByRole("checkbox", { name: /我确认仅操作/ })).not.toBeChecked();
+  expect(screen.getByRole("button", { name: "重置额度" })).toBeDisabled();
+  expect(apiClient.post).not.toHaveBeenCalled();
 });

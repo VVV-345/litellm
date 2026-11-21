@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import httpx
 
+from account_pool.application.quota_state import routing_quota
 from account_pool.credential_ownership import CredentialOwnership
 from account_pool.domain import (
     ChannelKind,
@@ -17,6 +18,7 @@ from account_pool.domain import (
     SupplierKind,
     utc_now,
 )
+from account_pool.provider_families import provider_family_kind
 from account_pool.quota_reset_models import (
     ResetObservation,
     ResetOperation,
@@ -31,6 +33,7 @@ class ResetStore(Protocol):
     async def latest(self, environment_id: UUID) -> ResetOperation | None: ...
     async def get(self, environment_id: UUID, request_id: UUID) -> ResetOperation | None: ...
     async def save(self, operation: ResetOperation) -> None: ...
+    async def claim_credit(self, operation: ResetOperation) -> bool: ...
     async def save_verification(self, environment_id: UUID, verification: ResetVerificationRecord) -> None: ...
     async def latest_verification(self, environment_id: UUID) -> ResetVerificationRecord | None: ...
     async def latest_api_call(self, environment_id: UUID) -> VerifiedAPICall | None: ...
@@ -63,10 +66,12 @@ def recovered_record(
     quota: QuotaSnapshot | None = None,
     model_quotas: tuple[ModelQuotaSnapshot, ...] = (),
 ) -> EnvironmentRecord | None:
+    previous_quota: Final = routing_quota(record)
+    glm: Final = provider_family_kind(record) == "glm"
     quota_deadline = record.cooldown_until is not None and any(
         window.remaining_percent <= 0 and window.resets_at == record.cooldown_until
         and (quota is None or any(fresh.name == window.name and fresh.remaining_percent > 0 for fresh in quota.windows))
-        for window in record.quota.windows
+        for window in previous_quota.windows
     )
     if (
         not record.enabled
@@ -91,8 +96,9 @@ def recovered_record(
             "last_error": None,
             "version": record.version + 1,
             "updated_at": utc_now(),
+            "display_quota": quota if glm and quota is not None else record.display_quota,
             "quota": record.quota
-            if quota is None
+            if quota is None or glm
             else record.quota.model_copy(
                 update={
                     "windows": quota.windows,
@@ -152,8 +158,12 @@ class QuotaResetService:
             raise ValueError("卡片不存在")
         if record.oauth_automation_operation is not None:
             raise ValueError("卡片正由授权自动化独占，请先取消任务")
+        if record.channel is ChannelKind.OPENAI_COMPATIBLE and provider_family_kind(record) == "glm":
+            if record.configuration_pending or record.openai_compatible is None or len(record.openai_compatible.credentials) != 1 or not record.credential_fingerprints:
+                raise ValueError("GLM 重置需要已确认归属的单个 Coding Plan Key")
+            return record
         if record.channel is not ChannelKind.CLIPROXYAPI or record.supplier is not SupplierKind.OPENAI_CODEX:
-            raise ValueError("此卡片不支持 Codex 官方额度重置")
+            raise ValueError("此卡片不支持官方额度重置")
         if not record.auth_file_name or not record.auth_index or not record.credential_fingerprints:
             raise ValueError("卡片缺少已确认归属的认证文件")
         return record
@@ -184,15 +194,16 @@ class QuotaResetService:
         except (ValueError, httpx.HTTPError, TimeoutError):
             return ResetVerification(passed=True, restored=False, reason="quota_check_failed")
         fresh_model_windows: Final = _model_windows(observation.model_quotas, model)
-        if any(window.remaining_percent <= 0 for window in (*observation.quota.windows, *fresh_model_windows)):
+        quota_windows: Final = tuple(w for w in observation.quota.windows if provider_family_kind(record) != "glm" or w.name != "MCP Monthly")
+        if any(window.remaining_percent <= 0 for window in (*quota_windows, *fresh_model_windows)):
             return ResetVerification(passed=True, restored=False, reason="quota_not_recovered")
         now: Final = utc_now()
-        if not observation.quota.windows or any(
+        if not quota_windows or any(
             window.remaining_percent <= 0
             and (window.resets_at is None or window.resets_at > now)
             and not any(current.name == window.name for current in fresh)
             for previous, fresh in (
-                (record.quota.windows, observation.quota.windows),
+                (routing_quota(record).windows, quota_windows),
                 (_model_windows(record.model_quotas, model), fresh_model_windows),
             )
             for window in previous
@@ -204,21 +215,29 @@ class QuotaResetService:
         )
         return ResetVerification(passed=True, restored=restored, reason="restored" if restored else "state_changed")
 
-    async def prepare(self, environment_id: UUID, previous_request_id: UUID | None) -> ResetOperation:
+    async def prepare(self, environment_id: UUID, previous_request_id: UUID | None, credit_id: str | None = None, provider_scope: str | None = None) -> ResetOperation:
         async with self.ownership.operation(environment_id):
             record: Final = await self.record(environment_id)
             latest: Final = await self.store.latest(environment_id)
             if latest is not None and (
                 latest.status in ("prepared", "uncertain") or latest.request_id != previous_request_id
             ):
+                if credit_id is not None and latest.credit_id != credit_id:
+                    raise ValueError("已有待核对的兑换，不能替换已确认的重置权益")
                 return latest
             observation: Final = await self.upstream.observe(record)
-            if not observation.eligible or observation.available == 0 or observation.credit_id is None:
+            if provider_scope is not None and provider_scope != observation.provider_scope:
+                raise ValueError("供应商账号已变化，请重新查询并确认")
+            if provider_family_kind(record) == "glm" and (observation.provider_scope is None or not observation.cards):
+                raise ValueError("没有可确认的 GLM 重置权益")
+            selected: Final = next((card for card in observation.cards if card.id == credit_id and card.eligible), None)
+            chosen: Final = selected.id if selected is not None else observation.credit_id if credit_id is None else None
+            if not observation.eligible or observation.available == 0 or chosen is None:
                 raise ValueError("没有适用的重置次数或当前无须重置")
             operation: Final = ResetOperation(
                 request_id=uuid4(),
                 environment_id=environment_id,
-                credit_id=observation.credit_id,
+                credit_id=chosen,
                 credential_fingerprints=record.credential_fingerprints,
                 before=observation,
             )
@@ -243,6 +262,8 @@ class QuotaResetService:
                 return checked
             if operation.status != "prepared":
                 return operation
+            if operation.before.provider_scope is not None and not await self.store.claim_credit(operation):
+                raise ValueError("此供应商重置权益已有兑换记录，请核对原操作，不能从另一张卡重复兑换")
             # 单独提交日志后才发送请求；进程退出或取消也不能生成新兑换身份。
             pending: Final = operation.model_copy(update={"status": "uncertain", "message": "兑换结果待核对"})
             await self.store.save(pending)

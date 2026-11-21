@@ -58,6 +58,7 @@ from account_pool.onboarding.service import OnboardingService
 from account_pool.plugins import PluginService, PostgresPluginRepository, parse_plugin_registry
 from account_pool.policies import PostgresPolicyRepository
 from account_pool.ports import EnvironmentRepository
+from account_pool.providers.glm_quota_reset import GLMResetClient
 from account_pool.proxy_catalog_repository import PostgresProxyCatalogRepository, ProxyCatalogCipher
 from account_pool.proxy_catalog_service import ProxyCatalogService
 from account_pool.proxy_expiry import ISPExpiryScheduler
@@ -67,6 +68,7 @@ from account_pool.quota_refresh_trigger import (  # pyright: ignore[reportMissin
     QuotaRefreshTrigger,
 )
 from account_pool.quota_reset import QuotaResetService
+from account_pool.quota_reset_clients import ProviderResetClient
 from account_pool.quota_reset_repository import PostgresResetStore
 from account_pool.quota_scheduler import QuotaRefreshScheduler, RefreshScheduler
 from account_pool.repository import (
@@ -114,7 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ownership: Final = CredentialOwnership(resolved.database_url)
     reset_http: Final = httpx.AsyncClient(timeout=55.0, trust_env=False, transport=httpx.AsyncHTTPTransport(retries=0))
     reset_store: Final = PostgresResetStore(resolved.database_url)
-    quota_reset: Final = QuotaResetService(reset_store, environments, CodexResetClient(reset_http, secrets), ownership)
+    quota_reset: Final = QuotaResetService(reset_store, environments, ProviderResetClient(CodexResetClient(reset_http, secrets), GLMResetClient(reset_http, secrets)), ownership)
     quota_recovery: Final = QuotaRecoveryScheduler(environments.list, quota_reset.recover_due, resolved.quota_refresh_max_concurrency)
     channels: Final = ChannelRegistry.default(resolved, secrets, ownership)
     channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)

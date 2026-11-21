@@ -23,7 +23,13 @@ from test_cliproxy_supplier_client import _record
 class Store:
     def __init__(self):
         self.items = {}
+        self.claims = {}
         self.verifications = {}
+
+    async def claim_credit(self, operation):
+        key = (operation.before.provider_scope, operation.credit_id)
+        existing = self.claims.setdefault(key, operation.request_id)
+        return existing == operation.request_id
 
     async def save_verification(self, environment_id, verification):
         self.verifications[environment_id] = verification

@@ -49,7 +49,7 @@ def create_quota_reset_router(service: QuotaResetService, require_manager: Calla
 
     async def prepare(environment_id: UUID, request: PrepareResetRequest) -> ResetView:
         try:
-            return reset_view(await service.prepare(environment_id, request.previous_request_id))
+            return reset_view(await service.prepare(environment_id, request.previous_request_id, request.credit_id, request.provider_scope))
         except (ValueError, httpx.HTTPError, TimeoutError):
             raise HTTPException(409, "无法准备兑换，请核对卡片绑定、适用次数及额度状态") from None
 

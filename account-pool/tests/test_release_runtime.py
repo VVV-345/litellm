@@ -1441,3 +1441,15 @@ def test_native_rollout_updates_only_selected_card(tmp_path):
     configuration = runtime.product_configuration(runtime.selected, b'{"services":{"litellm":{},"account-pool":{}}}')
     runtime.rollout_cards(runtime.selected, configuration, lambda _: None, card_ids=(cards[1],))
     assert executed == [cards[1]]
+
+
+def test_glm_reset_claim_is_an_exact_additive_upgrade_without_dropping_protection() -> None:
+    from account_pool.release_compatibility import GLM_RESET_CLAIM_SCHEMA_ADDITIONS
+
+    before = (("schema.prisma", b"model A { id String @id }"),)
+    added = ("glm.py", repr(GLM_RESET_CLAIM_SCHEMA_ADDITIONS[0].decode()).encode())
+    after = (*before, added)
+    assert additive_manager_schema_upgrade(before, after)
+    assert not additive_manager_schema_upgrade(after, before)
+    assert not additive_manager_schema_upgrade(before, (*before, (added[0], added[1].replace(b"credit_id text", b"credit_id uuid"))))
+    assert not additive_manager_schema_upgrade(before, (*after, ("bad.py", b'SQL="DROP TABLE account_pool_quota_reset_claims"')))

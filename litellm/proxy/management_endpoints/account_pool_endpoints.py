@@ -16,7 +16,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, HttpUrl, TypeAdapter
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, WebSocketException
@@ -568,14 +568,25 @@ class AccountPoolClashNode(BaseModel):
     proxy_type: str
 
 
+class AccountPoolResetCredit(BaseModel):
+    id: str
+    reset_type: Literal["FIVE_HOUR", "WEEK"]
+    grant_type: str
+    expires_at: AwareDatetime
+    eligible: bool
+
+
 class AccountPoolResetObservation(BaseModel):
     available: int
     credit_id: str | None = None
     eligible: bool
     quota: AccountPoolQuotaSnapshot
+    cards: tuple[AccountPoolResetCredit, ...] = ()
+    provider_scope: str | None = None
 
 
 class AccountPoolResetOperation(BaseModel):
+    credit_id: str | None = None
     request_id: UUID
     environment_id: UUID
     status: Literal["prepared", "uncertain", "reset", "nothing_to_reset", "no_credit", "already_redeemed"]
@@ -596,6 +607,8 @@ class AccountPoolResetStatus(BaseModel):
 class AccountPoolPrepareReset(BaseModel):
     model_config = ConfigDict(extra="forbid")
     previous_request_id: UUID | None = None
+    credit_id: str | None = Field(default=None, min_length=1, max_length=64)
+    provider_scope: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class AccountPoolConsumeReset(BaseModel):
@@ -1204,7 +1217,7 @@ def create_account_pool_router(
             client_factory,
             "POST",
             f"/api/environments/{environment_id}/quota-reset/prepare",
-            request.model_dump_json().encode(),
+            request.model_dump_json(exclude_none=True).encode(),
         )
         return _validate_response(response, TypeAdapter(AccountPoolResetOperation))
 

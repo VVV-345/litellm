@@ -325,7 +325,7 @@ it("keeps card logs in the action row for non-Codex cards without Codex recovery
   expect(actions.onViewLogs).toHaveBeenCalledExactlyOnceWith(environment);
 });
 
-it("shows GLM plan quota on the card without offering Codex redemption", async () => {
+it("shows GLM plan quota and offers provider reset and verification", async () => {
   await i18n.changeLanguage("zh-CN");
   renderCard({
     supplier: "openai_compatible",
@@ -346,7 +346,7 @@ it("shows GLM plan quota on the card without offering Codex redemption", async (
   });
   expect(screen.getByText("套餐额度")).toBeVisible();
   expect(screen.getByRole("meter")).toHaveAttribute("aria-valuenow", "36");
-  expect(screen.queryByRole("button", { name: /额度重置/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "额度重置与验证" })).toBeVisible();
 });
 
 it("shows an unchecked GLM plan as not fetched rather than zero", async () => {
