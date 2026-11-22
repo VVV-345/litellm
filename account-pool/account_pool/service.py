@@ -292,9 +292,19 @@ class EnvironmentService:
 
     async def refresh_quota_after_failure(self, environment_id: UUID) -> bool:
         record: Final = await self._repository.get(environment_id)
-        if record is None or record.channel is not ChannelKind.CLIPROXYAPI or record.supplier not in (
-            SupplierKind.OPENAI_CODEX, SupplierKind.ANTHROPIC_CLAUDE, SupplierKind.XAI, SupplierKind.GOOGLE_ANTIGRAVITY,
-        ):
+        supports_cliproxy_quota: Final = (
+            record is not None
+            and record.channel is ChannelKind.CLIPROXYAPI
+            and record.supplier in (
+                SupplierKind.OPENAI_CODEX, SupplierKind.ANTHROPIC_CLAUDE, SupplierKind.XAI, SupplierKind.GOOGLE_ANTIGRAVITY,
+            )
+        )
+        supports_plan_quota: Final = (
+            record is not None
+            and record.channel is ChannelKind.OPENAI_COMPATIBLE
+            and provider_family_kind(record) in ("glm", "opencode")
+        )
+        if record is None or (not supports_cliproxy_quota and not supports_plan_quota):
             return True
         try:
             async with self._quota_refresh_slots:
@@ -316,10 +326,12 @@ class EnvironmentService:
 
         async def refresh(record: EnvironmentRecord) -> UUID | None:
             async with semaphore:
-                result: Final = await self.refresh_environment(record.id)
-                if isinstance(result, Failure):
+                try:
+                    async with self._quota_refresh_slots:
+                        refreshed: Final = await self._refresh_if_needed(record, refresh_quota=True)
+                except Exception:
                     return record.id
-                quota: Final = result.value.display_quota or result.value.quota
+                quota: Final = refreshed.display_quota or refreshed.quota
                 return record.id if quota.refresh_status == "failed" else None
 
         failed: Final = await asyncio.gather(*(refresh(record) for record in ready))

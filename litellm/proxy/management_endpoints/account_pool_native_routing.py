@@ -250,8 +250,7 @@ def window_reserve(snapshot: RoutingSnapshot, minutes: int | None) -> float:
     return snapshot.quota_reserve_percent if override is None else override
 
 
-def quota_depleted(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
-    quota: Final = snapshot.model_quotas.get(snapshot.model_aliases.get(model, model), snapshot.quota)
+def _quota_object_depleted(snapshot: RoutingSnapshot, quota: RoutingQuota, now: datetime) -> bool:
     if quota.windows:
         return any(_window_depleted(snapshot, quota, window, now) for window in quota.windows)
     return (
@@ -259,6 +258,15 @@ def quota_depleted(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool
         and quota.remaining_percent is not None
         and quota.remaining_percent <= snapshot.quota_reserve_percent
     )
+
+
+def quota_depleted(snapshot: RoutingSnapshot, model: str, now: datetime) -> bool:
+    target: Final = snapshot.model_aliases.get(model, model)
+    model_quota: Final = snapshot.model_quotas.get(target)
+    if model_quota is not None and _quota_object_depleted(snapshot, model_quota, now):
+        return True
+    # 卡片级主窗口或余额归零时同样阻断路由，防止分模型快照掩盖整卡已耗尽状态。
+    return _quota_object_depleted(snapshot, snapshot.quota, now)
 
 
 def _window_depleted(snapshot: RoutingSnapshot, quota: RoutingQuota, window: RoutingQuotaWindow, now: datetime) -> bool:

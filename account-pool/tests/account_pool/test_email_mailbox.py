@@ -342,3 +342,26 @@ async def test_bounded_graph_reply_still_returns_current_verification_code():
             )
         finally:
             reader.close()
+
+
+def test_verification_code_strips_style_hex_colors_and_imap_prefers_plain_text():
+    from email.message import EmailMessage
+    from email.utils import format_datetime
+
+    from account_pool.email_rebinding.mailbox import _imap_code
+
+    now = utc_now()
+    html = (
+        "<style>.btn{color:#123456;background:#654321;}</style>"
+        "<script>var debug = 999888;</script>"
+        "<p>Your ChatGPT code is <b>445566</b></p>"
+    )
+    assert verification_code("noreply@openai.com", "", html, now, now) == "445566"
+
+    msg = EmailMessage()
+    msg["From"] = "noreply@openai.com"
+    msg["Date"] = format_datetime(now)
+    msg["Subject"] = "Verify"
+    msg.set_content("Your code is 111222.")
+    msg.add_alternative("<div style='color:#abcdef'>Backup code 777888</div>", subtype="html")
+    assert _imap_code(msg.as_bytes(), now - timedelta(seconds=1)) == "111222"

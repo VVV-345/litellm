@@ -15,6 +15,7 @@ from account_pool.quota_reset_models import (
     ResetStatus,
     ResetVerification,
     ResetView,
+    ResolveUncertainResetRequest,
     VerifyResetRequest,
 )
 
@@ -65,8 +66,15 @@ def create_quota_reset_router(service: QuotaResetService, require_manager: Calla
         except (ValueError, httpx.HTTPError, TimeoutError):
             raise HTTPException(409, "调用验证未完成，未确认号池恢复") from None
 
+    async def resolve_uncertain(environment_id: UUID, request: ResolveUncertainResetRequest) -> ResetView:
+        try:
+            return reset_view(await service.resolve_uncertain(environment_id, request.request_id, request.outcome))
+        except (ValueError, httpx.HTTPError, TimeoutError):
+            raise HTTPException(409, "无法核销不明确兑换记录，请核对凭据状态与记录标识") from None
+
     router.add_api_route("", status, methods=["GET"], response_model=ResetStatus)
     router.add_api_route("/prepare", prepare, methods=["POST"], response_model=ResetView)
     router.add_api_route("/consume", consume, methods=["POST"], response_model=ResetView)
+    router.add_api_route("/resolve-uncertain", resolve_uncertain, methods=["POST"], response_model=ResetView)
     router.add_api_route("/verify", verify, methods=["POST"], response_model=ResetVerification)
     return router

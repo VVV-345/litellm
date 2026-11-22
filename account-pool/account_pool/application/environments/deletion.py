@@ -46,6 +46,8 @@ class EnvironmentDeletion:
             if record is None:
                 await self._ownership.retain(environment_id)
                 return Success(None)
+            if record.oauth_automation_operation is not None or record.email_rebinding_job_id is not None:
+                return Failure(FailureCode.CONFLICT, "卡片正由授权自动化或邮箱换绑任务占用，请先取消任务后再删除")
             requested_operation: Final = operation_id or record.operation_id or str(uuid4())
             if record.status is EnvironmentStatus.DELETING and operation_id is not None:
                 if record.operation_id not in (None, operation_id):

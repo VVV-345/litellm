@@ -138,18 +138,37 @@ def _claude_plan_type(profile: _ClaudeProfilePayload | None) -> str | None:
 
 
 def _claude_windows(payload: _ClaudeUsagePayload) -> tuple[QuotaWindow, ...]:
+    fractional_limits: Final = any(
+        (num := _number(limit.percent if limit.percent is not None else limit.utilization)) is not None and 0 < num < 1
+        for limit in payload.limits
+    )
+    fixed_values: Final = (
+        payload.five_hour,
+        payload.seven_day,
+        payload.seven_day_sonnet or payload.seven_day_sonnet_4 or payload.seven_day_model,
+        payload.seven_day_overage_included,
+    )
+    fractional_fixed: Final = any(
+        (num := _number(item.utilization)) is not None and 0 < num < 1
+        for item in fixed_values
+        if item is not None
+    )
     sonnet: Final = payload.seven_day_sonnet or payload.seven_day_sonnet_4 or payload.seven_day_model
     fixed: Final = tuple(
         window
         for window in (
-            _claude_window("5 hour", payload.five_hour, 300),
-            _claude_window("7 day", payload.seven_day, 10080),
-            _claude_window("7 day Sonnet", sonnet, 10080),
-            _claude_window("7 day Fable", payload.seven_day_overage_included, 10080),
+            _claude_window("5 hour", payload.five_hour, 300, fractional=fractional_fixed),
+            _claude_window("7 day", payload.seven_day, 10080, fractional=fractional_fixed),
+            _claude_window("7 day Sonnet", sonnet, 10080, fractional=fractional_fixed),
+            _claude_window("7 day Fable", payload.seven_day_overage_included, 10080, fractional=fractional_fixed),
         )
         if window is not None
     )
-    dynamic: Final = tuple(window for limit in payload.limits if (window := _claude_limit_window(limit)) is not None)
+    dynamic: Final = tuple(
+        window
+        for limit in payload.limits
+        if (window := _claude_limit_window(limit, fractional=fractional_limits)) is not None
+    )
     dynamic_names: Final = frozenset(window.name for window in dynamic)
     extra: Final = _claude_extra_usage_window(payload.extra_usage)
     return (
@@ -159,11 +178,13 @@ def _claude_windows(payload: _ClaudeUsagePayload) -> tuple[QuotaWindow, ...]:
     )
 
 
-def _claude_limit_window(value: _ClaudeUsageLimit) -> QuotaWindow | None:
-    raw_percent: Final = _number(value.percent) if value.percent is not None else _number(value.utilization)
+def _claude_limit_window(value: _ClaudeUsageLimit, *, fractional: bool = False) -> QuotaWindow | None:
+    raw_source: Final = value.percent if value.percent is not None else value.utilization
+    raw_percent: Final = _number(raw_source)
     if raw_percent is None:
         return None
-    used_percent: Final = raw_percent * 100 if 0 < raw_percent < 1 else raw_percent
+    scale_one: Final = raw_percent == 1 and (isinstance(raw_source, float) or fractional)
+    used_percent: Final = raw_percent * 100 if (0 < raw_percent < 1 or scale_one) else raw_percent
     kind: Final = (_text_value(value.kind) or "").casefold()
     group: Final = (_text_value(value.group) or "").casefold()
     scope_name: Final = _claude_scope_name(value.scope)
@@ -208,13 +229,21 @@ def _claude_scope_name(scope: JsonValue | None) -> str | None:
     )
 
 
-def _claude_window(name: str, value: _ClaudeUsageWindow | None, fallback_minutes: int) -> QuotaWindow | None:
+def _claude_window(
+    name: str,
+    value: _ClaudeUsageWindow | None,
+    fallback_minutes: int,
+    *,
+    fractional: bool = False,
+) -> QuotaWindow | None:
     if value is None:
         return None
     utilization: Final = _number(value.utilization)
     if utilization is None:
         return None
-    return _window(name, utilization, None, value.resets_at, fallback_minutes)
+    scale_one: Final = utilization == 1 and (isinstance(value.utilization, float) or fractional)
+    used_percent: Final = utilization * 100 if (0 < utilization < 1 or scale_one) else utilization
+    return _window(name, used_percent, None, value.resets_at, fallback_minutes)
 
 
 def _first_number_value(values: tuple[JsonValue | _MoneyValue | None, ...]) -> float | None:

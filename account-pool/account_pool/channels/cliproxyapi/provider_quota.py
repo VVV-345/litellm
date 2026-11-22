@@ -36,6 +36,7 @@ from account_pool.channels.cliproxyapi.quota_state import (
 from account_pool.channels.cliproxyapi.suppliers.base import SupplierDefinition
 from account_pool.channels.cliproxyapi.transport import JSONValue, ManagementRequest
 from account_pool.domain import (
+    AuthorizationFlow,
     EnvironmentRecord,
     ProviderEndpointFailure,
     ProviderHTTPMethod,
@@ -70,6 +71,17 @@ class ProviderQuotaClient:
     ) -> ProviderQuotaRefresh | None:
         if supplier.kind is SupplierKind.OPENAI_CODEX:
             return await self.refresh_codex_quota(record, auth_file)
+        auth_kind: Final = (auth_file.type or "").casefold().replace("-", "_")
+        if supplier.kind in (SupplierKind.ANTHROPIC_CLAUDE, SupplierKind.XAI) and (
+            record.authorization_flow is AuthorizationFlow.DIRECT_CREDENTIAL
+            or auth_kind in ("api_key", "apikey")
+        ):
+            return ProviderQuotaRefresh(
+                quota=QuotaSnapshot(
+                    refresh_status="unsupported",
+                    refresh_error="API key credentials do not expose OAuth subscription quota windows",
+                )
+            )
         if supplier.kind is SupplierKind.ANTHROPIC_CLAUDE:
             return await self.refresh_claude_quota(record, auth_file)
         if supplier.kind is SupplierKind.XAI:

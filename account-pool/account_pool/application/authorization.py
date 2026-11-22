@@ -39,7 +39,11 @@ def saved_login_can_replace(record: EnvironmentRecord, email: str, now: datetime
 
 def _authorization_expires_at(flow: AuthorizationFlow, expires_in_seconds: int | None) -> datetime:
     duration: Final = (
-        expires_in_seconds if flow is AuthorizationFlow.DEVICE_CODE and expires_in_seconds is not None else 300
+        expires_in_seconds
+        if flow is AuthorizationFlow.DEVICE_CODE and expires_in_seconds is not None
+        else 660
+        if flow is AuthorizationFlow.BROWSER_OAUTH
+        else 300
     )
     return utc_now() + timedelta(seconds=min(max(duration, 1), 3600))
 

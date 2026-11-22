@@ -455,7 +455,12 @@ class HttpCLIProxyClient:
         overload_elapsed: Final = (
             auth_file.next_retry_after is not None
             and auth_file.next_retry_after <= now
-            and upstream_code == "server_is_overloaded"
+            and upstream_code in (
+                "server_is_overloaded",
+                "rate_limit_exceeded",
+                "rate_limit_error",
+                "resource_exhausted",
+            )
         )
         # 复用本次或短期内的供应商观测，避免普通页面刷新又被上游旧 unavailable 标记锁回冷却。
         recovery_quota: Final = record.quota if refreshed_quota is None else refreshed_quota.quota
@@ -498,7 +503,11 @@ class HttpCLIProxyClient:
         return record.model_copy(
             update={
                 "access_token_fallback": fallback,
-                "credential_refresh": auth_file.credential_refresh,
+                "credential_refresh": (
+                    auth_file.credential_refresh
+                    if "credential_refresh" in auth_file.model_fields_set
+                    else record.credential_refresh
+                ),
                 "auth_file_name": auth_file.name,
                 "auth_index": auth_file.auth_index,
                 "credential_fingerprints": () if credential is None else credential.fingerprints,

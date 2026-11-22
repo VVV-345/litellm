@@ -143,6 +143,9 @@ export async function automateLogin(page, credential, {
       }
       challengeAt = 0;
       const path = authPathname(current.pathname);
+      if (await hasInlineAuthError(page)) {
+        return { status: "verification_required" };
+      }
       const unchanged = () => !stopped() && page.url() === current.href;
       if (path === "/sign-in-with-chatgpt/codex/consent" && !submitted.has(path)) {
         if (!await accountMatches()) return result("account_mismatch");
@@ -178,6 +181,14 @@ export async function automateLogin(page, credential, {
         if (field === "One-time code" && ((!submitted.has("/log-in/password") && !await accountMatches()) ||
             (!await visible(heading(loginLabels.en[2])) && !await visible(heading(labels[2]))))) return result("verification_required");
         if (!unchanged()) return result("stopped");
+        if (now === Date.now && field !== "Email address" && field !== "Password") {
+          const stopSignal = typeof signal !== "undefined" ? signal : undefined;
+          const remainingMs = 30_000 - (now() % 30_000);
+          if (remainingMs < 3_000) {
+            await sleepWithSignal(remainingMs + 250, stopSignal);
+            if (stopSignal?.aborted) return { status: "stopped" };
+          }
+        }
         const value = field === "Email address" ? credential.email : field === "Password" ? credential.password : totp(credential.totpSecret, now());
         const fillFailure = await formAction(step, "fill", async () => { await input.fill(value, { timeout: 3000 }); });
         if (fillFailure) return fillFailure;
@@ -208,6 +219,11 @@ export async function verifyResumableAccount(page, credential, { locale = "en-US
     const current = new URL(page.url());
     if (current.origin !== "https://auth.openai.com") return false;
     const path = authPathname(current.pathname);
+    if (path === "/log-in") {
+      if (await hasSecurityChallenge(page)) return false;
+      const emailValue = await readLoginEmailInput(page);
+      return emailValue === "";
+    }
     if (path === "/log-in/password") return await passwordAccountMatches(page, credential, labels) === true;
     if (path !== "/sign-in-with-chatgpt/codex/consent" && !path.startsWith("/mfa-challenge/")) return false;
     await page.getByText(credential.email, { exact: true }).waitFor({ state: "visible", timeout: 3000 });
@@ -215,4 +231,67 @@ export async function verifyResumableAccount(page, credential, { locale = "en-US
   } catch {
     return false;
   }
+}
+
+const INLINE_AUTH_ERROR_PATTERN = /incorrect|wrong|invalid|too many|rate[- ]?limit|try again|suspended|blocked|locked|disabled|something went wrong|错误|失败|频繁|停用|限制/iu;
+
+async function hasInlineAuthError(page) {
+  if (typeof page?.locator !== "function") return false;
+  try {
+    const alert = page.locator('[role="alert"]').first();
+    if (typeof alert?.isVisible !== "function" || !(await alert.isVisible().catch(() => false))) return false;
+    if (typeof alert?.innerText !== "function") return false;
+    const text = (await alert.innerText().catch(() => ""))?.trim() ?? "";
+    return text.length > 0 && INLINE_AUTH_ERROR_PATTERN.test(text);
+  } catch {
+    return false;
+  }
+}
+
+async function hasSecurityChallenge(page) {
+  if (typeof page?.evaluate !== "function") return false;
+  try {
+    return Boolean(await page.evaluate(() => Boolean(
+      document.querySelector('iframe[src*="challenges.cloudflare.com"], #challenge-running')
+    )).catch(() => false));
+  } catch {
+    return false;
+  }
+}
+
+async function readLoginEmailInput(page) {
+  const candidates = [];
+  if (typeof page?.locator === "function") {
+    candidates.push(page.locator('input[type="email"], input[name="email"]')?.first?.());
+  }
+  if (typeof page?.getByLabel === "function") {
+    candidates.push(page.getByLabel("Email address")?.first?.());
+  }
+  for (const field of candidates) {
+    if (!field || typeof field.inputValue !== "function") continue;
+    try {
+      const visible = typeof field.isVisible === "function" ? await field.isVisible().catch(() => false) : true;
+      if (!visible) continue;
+      const value = await field.inputValue();
+      if (typeof value === "string") return value.trim().toLowerCase();
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function sleepWithSignal(ms, signal) {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = globalThis.setTimeout(() => {
+      signal?.removeEventListener?.("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      globalThis.clearTimeout(timer);
+      resolve();
+    }
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
 }

@@ -389,3 +389,47 @@ for (const selection of ["input", "button"]) {
     });
   }
 }
+
+test('inline alert errors stop automation promptly and /log-in allows resume only when email input is blank', async () => {
+  const alertPage = {
+    url: () => 'https://auth.openai.com/log-in/password',
+    isClosed: () => false,
+    evaluate: async () => false,
+    locator: (sel) => ({
+      first: () => ({
+        isVisible: async () => sel === '[role="alert"]',
+        innerText: async () => 'Incorrect password or too many attempts',
+      }),
+    }),
+  };
+  const started = Date.now();
+  const alertResult = await automateLogin(alertPage, credential, { timeoutMs: 30_000 });
+  assert.equal(alertResult.status, 'verification_required');
+  assert.ok(Date.now() - started < 2_000);
+
+  const loginEmpty = {
+    url: () => 'https://auth.openai.com/log-in',
+    evaluate: async () => false,
+    locator: (sel) => ({
+      first: () => ({
+        isVisible: async () => sel.includes('email'),
+        inputValue: async () => '',
+      }),
+    }),
+    getByLabel: () => ({ first: () => ({ isVisible: async () => false }) }),
+  };
+  assert.equal(await verifyResumableAccount(loginEmpty, credential), true);
+
+  const loginOther = {
+    url: () => 'https://auth.openai.com/log-in',
+    evaluate: async () => false,
+    locator: (sel) => ({
+      first: () => ({
+        isVisible: async () => sel.includes('email'),
+        inputValue: async () => 'other@example.test',
+      }),
+    }),
+    getByLabel: () => ({ first: () => ({ isVisible: async () => false }) }),
+  };
+  assert.equal(await verifyResumableAccount(loginOther, credential), false);
+});

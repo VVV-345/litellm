@@ -9,7 +9,7 @@ from psycopg import AsyncConnection
 from psycopg.types.json import Jsonb
 
 from account_pool.oauth_automation.models import AutomationState
-from account_pool.repository import database_connection
+from account_pool.repository import database_connection, database_operation_connection
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +56,20 @@ class PostgresAutomationRepository:
 
     @asynccontextmanager
     async def worker_lock(self) -> AsyncIterator[bool]:
-        async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute("SELECT pg_try_advisory_xact_lock(714205995) AS acquired")
-            row: Final = await cursor.fetchone()
-            yield row is not None and row["acquired"] is True
+        async with database_operation_connection(self._database_url) as connection:
+            await connection.set_autocommit(True)
+            try:
+                cursor: Final = await connection.execute("SELECT pg_try_advisory_lock(714205995) AS acquired")
+                row: Final = await cursor.fetchone()
+                acquired: Final = row is not None and row["acquired"] is True
+                try:
+                    yield acquired
+                finally:
+                    if acquired:
+                        await connection.execute("SELECT pg_advisory_unlock(714205995)")
+            finally:
+                try:
+                    await connection.set_autocommit(False)
+                except BaseException:
+                    await connection.close()
+                    raise

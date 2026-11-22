@@ -75,3 +75,27 @@ async def test_verification_reloads_without_a_redemption_record():
     assert saved["operation"] is None
     assert saved["last_verification"]["model"] == "model-a"
     assert saved["last_verification"]["result"] == verified.json()
+
+
+@pytest.mark.asyncio
+async def test_resolve_uncertain_http_route_requires_confirmation_and_unlocks():
+    service, record, _, upstream = setup_service()
+    operation = await service.prepare(record.id, None)
+    upstream.timeout = True
+    await service.consume(record.id, operation.request_id)
+    upstream.timeout = False
+    app = FastAPI()
+    app.include_router(create_quota_reset_router(service, lambda: None))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://fixture") as client:
+        root = f"/api/environments/{record.id}/quota-reset"
+        rejected = await client.post(
+            root + "/resolve-uncertain",
+            json={"request_id": str(operation.request_id), "outcome": "reset", "confirmed": False},
+        )
+        assert rejected.status_code == 422
+        resolved = await client.post(
+            root + "/resolve-uncertain",
+            json={"request_id": str(operation.request_id), "outcome": "reset", "confirmed": True},
+        )
+        assert resolved.status_code == 200
+        assert resolved.json()["status"] == "reset"

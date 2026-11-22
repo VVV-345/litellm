@@ -861,3 +861,70 @@ def test_complete_refresh_marks_snapshot_observed_now() -> None:
     merged: Final = _merge_quota_snapshots(previous, QuotaSnapshot(), active)
 
     assert merged.observed_at == attempted_at
+
+
+def test_routing_quota_filters_feature_only_windows() -> None:
+    from account_pool.application.quota_state import routing_quota
+    from account_pool.domain import QuotaWindow, SupplierKind
+    from test_account_pool import _record
+
+    windows = (
+        QuotaWindow(name="5 hour", used_percent=20, remaining_percent=80, window_minutes=300),
+        QuotaWindow(name="Weekly", used_percent=30, remaining_percent=70, window_minutes=10080),
+        QuotaWindow(name="7 day Sonnet", used_percent=100, remaining_percent=0, window_minutes=10080),
+        QuotaWindow(name="7 day Fable", used_percent=100, remaining_percent=0, window_minutes=10080),
+        QuotaWindow(name="Extra usage", used_percent=100, remaining_percent=0, window_minutes=43200),
+        QuotaWindow(name="Code review 5 hour", used_percent=100, remaining_percent=0, window_minutes=300),
+        QuotaWindow(name="Codex Spark", used_percent=100, remaining_percent=0, window_minutes=300),
+        QuotaWindow(name="Tasks: Frequent", used_percent=100, remaining_percent=0, window_minutes=1440),
+        QuotaWindow(name="On-demand", used_percent=100, remaining_percent=0, window_minutes=43200),
+    )
+    for supplier, expected in (
+        (SupplierKind.ANTHROPIC_CLAUDE, ("5 hour", "Weekly", "Code review 5 hour", "Codex Spark", "Tasks: Frequent", "On-demand")),
+        (SupplierKind.OPENAI_CODEX, ("5 hour", "Weekly", "7 day Sonnet", "7 day Fable", "Extra usage", "Tasks: Frequent", "On-demand")),
+        (SupplierKind.XAI, ("5 hour", "Weekly", "7 day Sonnet", "7 day Fable", "Extra usage", "Code review 5 hour", "Codex Spark")),
+    ):
+        record = _record(status=EnvironmentStatus.READY).model_copy(
+            update={"supplier": supplier, "quota": QuotaSnapshot(observed_at=utc_now(), windows=windows)}
+        )
+        assert tuple(w.name for w in routing_quota(record).windows) == expected
+
+
+def test_partial_refresh_retains_unexpired_exhausted_windows_and_preserves_provider_timestamp() -> None:
+    from account_pool.channels.cliproxyapi.quota_state import _merge_quota_snapshots
+    from account_pool.domain import QuotaWindow
+
+    now: Final = utc_now()
+    previous_at: Final = now - timedelta(minutes=15)
+    previous: Final = QuotaSnapshot(
+        observed_at=previous_at,
+        source="provider_api",
+        windows=(
+            QuotaWindow(name="5 hour", used_percent=50, remaining_percent=50, window_minutes=300),
+            QuotaWindow(
+                name="Weekly",
+                used_percent=100,
+                remaining_percent=0,
+                window_minutes=10080,
+                resets_at=now + timedelta(hours=2),
+            ),
+        ),
+    )
+    passive: Final = QuotaSnapshot(
+        observed_at=now,
+        source="cliproxyapi_cache",
+        windows=(QuotaWindow(name="5 hour", used_percent=10, remaining_percent=90, window_minutes=300),),
+    )
+    passive_only: Final = _merge_quota_snapshots(previous, passive, None)
+    assert passive_only.observed_at == previous_at
+    assert passive_only.windows == previous.windows
+
+    partial_active: Final = QuotaSnapshot(
+        observed_at=now,
+        refresh_attempted_at=now,
+        refresh_status="partial",
+        source="provider_api",
+        windows=(QuotaWindow(name="5 hour", used_percent=25, remaining_percent=75, window_minutes=300),),
+    )
+    merged: Final = _merge_quota_snapshots(previous, passive, partial_active)
+    assert tuple((w.name, w.remaining_percent) for w in merged.windows) == (("5 hour", 75), ("Weekly", 0))

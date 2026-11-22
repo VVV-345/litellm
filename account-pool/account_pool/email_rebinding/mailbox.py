@@ -33,7 +33,9 @@ def verification_code(sender: str, subject: str, body: str, received: datetime, 
     domain: Final = parseaddr(sender)[1].rsplit("@", 1)[-1].casefold()
     if (domain != "openai.com" and not domain.endswith(".openai.com")) or received < since:
         return None
-    text: Final = re.sub(r"<[^>]+>", " ", subject + " " + body)
+    without_blocks: Final = re.sub(r"<(style|script)\b[^>]*>[\s\S]*?</\1>", " ", body, flags=re.IGNORECASE)
+    without_hex_colors: Final = re.sub(r"#[0-9a-fA-F]{6}\b", " ", without_blocks)
+    text: Final = re.sub(r"<[^>]+>", " ", subject + " " + without_hex_colors)
     codes: Final = frozenset(re.findall(r"(?<![0-9])[0-9]{6}(?![0-9])", text))
     return next(iter(codes)) if len(codes) == 1 else None
 
@@ -201,7 +203,8 @@ class MailboxReader:
             client.login(secret.email, secret.password)
             if client.select("INBOX", readonly=True)[0] != "OK":
                 raise MailboxUnavailable("邮箱收件箱不可读")
-            status, data = client.uid("search", "SINCE", since.strftime("%d-%b-%Y"))
+            # IMAP SINCE 只按日期筛选且受服务端时区影响，向前退一天后由 received >= since 精确过滤。
+            status, data = client.uid("search", "SINCE", (since - timedelta(days=1)).strftime("%d-%b-%Y"))
             if status != "OK" or not data or not isinstance(data[0], bytes):
                 return None
             for uid in reversed(data[0].split()[-20:]):
@@ -239,7 +242,12 @@ def _imap_code(raw: bytes, since: datetime) -> str | None:
         return None
     if received.tzinfo is None:
         return None
-    body: Final = " ".join(
-        _part_text(part) for part in message.walk() if part.get_content_type() in ("text/plain", "text/html")
-    )
-    return verification_code(message.get("From", ""), message.get("Subject", ""), body, received, since)
+    sender: Final = message.get("From", "")
+    subject: Final = message.get("Subject", "")
+    plain: Final = " ".join(_part_text(part) for part in message.walk() if part.get_content_type() == "text/plain")
+    if plain:
+        plain_code: Final = verification_code(sender, subject, plain, received, since)
+        if plain_code is not None:
+            return plain_code
+    html: Final = " ".join(_part_text(part) for part in message.walk() if part.get_content_type() == "text/html")
+    return verification_code(sender, subject, html, received, since) if html else None

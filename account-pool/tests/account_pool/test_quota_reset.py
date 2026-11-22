@@ -380,3 +380,27 @@ async def test_manual_reset_can_verify_old_quota_deadline_without_clearing_indep
     assert service.environments.record.cooldown_until is None
     service.environments.record = record.model_copy(update={"cooldown_until": deadline})
     assert not (await service.verify(record.id, "model-a", True)).restored
+
+
+@pytest.mark.asyncio
+async def test_resolve_uncertain_closes_operation_and_blocks_mismatched_binding():
+    service, record, _, upstream = setup_service()
+    operation = await service.prepare(record.id, None)
+    upstream.timeout = True
+    assert (await service.consume(record.id, operation.request_id)).status == "uncertain"
+
+    upstream.timeout = False
+    resolved = await service.resolve_uncertain(record.id, operation.request_id, "reset")
+    assert resolved.status == "reset"
+    assert resolved.windows_reset == 1
+    assert resolved.after == upstream.observation
+
+    with pytest.raises(ValueError, match="不明确"):
+        await service.resolve_uncertain(record.id, operation.request_id, "no_credit")
+
+    fresh = await service.prepare(record.id, operation.request_id)
+    upstream.timeout = True
+    await service.consume(record.id, fresh.request_id)
+    service.environments.record = record.model_copy(update={"credential_fingerprints": ("changed",)})
+    with pytest.raises(ValueError, match="凭据"):
+        await service.resolve_uncertain(record.id, fresh.request_id, "no_credit")

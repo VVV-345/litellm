@@ -51,6 +51,8 @@ def _merge_quota_snapshots(
             if active is not None and active.observed_at is not None
             else active.refresh_attempted_at
             if active is not None and active.refresh_status == "complete" and active.refresh_attempted_at is not None
+            else previous.observed_at
+            if active is None and previous.source == "provider_api" and _has_quota_payload(previous)
             else passive.observed_at or previous.observed_at
         ),
         refresh_attempted_at=(
@@ -128,6 +130,18 @@ def _select_quota_windows(
     active: QuotaSnapshot | None,
 ) -> tuple[QuotaWindow, ...]:
     if active is not None and active.windows:
+        if active.refresh_status == "partial" and previous.windows:
+            now: Final = datetime.now(timezone.utc)
+            present: Final = frozenset(window.name for window in active.windows)
+            retained_exhausted: Final = tuple(
+                window
+                for window in previous.windows
+                if window.name not in present
+                and window.remaining_percent <= 0
+                and (window.resets_at is None or window.resets_at > now)
+            )
+            if retained_exhausted:
+                return (*active.windows, *retained_exhausted)
         return active.windows
     if (
         (active is None or active.refresh_status == "failed")

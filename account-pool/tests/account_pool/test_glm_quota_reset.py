@@ -250,3 +250,19 @@ async def test_account_change_after_ui_confirmation_cannot_prepare_a_different_a
         with pytest.raises(ValueError, match="账号已变化"):
             await service.prepare(record.id, None, "123", "b" * 64)
         assert not used and not store.items
+
+
+@pytest.mark.asyncio
+async def test_glm_prepare_rejects_non_coding_plan_endpoint():
+    handle, used = vendor()
+    record = card("https://open.bigmodel.cn/api/paas/v4")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as http:
+        service, _, store, _ = setup_service()
+        service = replace(
+            service,
+            environments=Environments(record),
+            upstream=GLMResetClient(http, SECRETS, public_resolver),
+        )
+        with pytest.raises(ValueError, match="Coding Plan"):
+            await service.prepare(record.id, None)
+        assert not used and not store.claims and not store.items

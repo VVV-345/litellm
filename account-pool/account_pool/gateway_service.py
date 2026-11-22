@@ -213,7 +213,15 @@ class GatewayService:
             supplier=record.supplier,
             environment_version=record.version,
             policy_version=policy.version,
-            enabled_models=endpoint.enabled_models if record.access_token_fallback.failure_source != "refresh" or ((candidate_policy.codex or CodexPolicy()).allow_valid_access_after_refresh_failure and policy.runtime_status == "synced") else (),
+            enabled_models=(
+                endpoint.enabled_models
+                if record.access_token_fallback.failure_source != "refresh"
+                or (
+                    (candidate_policy.codex or CodexPolicy()).allow_valid_access_after_refresh_failure
+                    and (policy.version == 0 or policy.runtime_status == "synced")
+                )
+                else ()
+            ),
             proxy_endpoint=record.proxy_profile_id or "default",
             api_base=endpoint.api_base,
             api_key=endpoint.api_key,
@@ -243,9 +251,9 @@ class GatewayService:
             model_cooldowns=tuple(
                 CandidateModelCooldown.model_validate(item.model_dump()) for item in record.model_cooldowns
             ),
-            plan_type=record.quota.plan_type,
-            auth_file_plan_type=record.quota.auth_file_plan_type,
-            subscription_active_until=record.quota.subscription_active_until,
+            plan_type=quota.plan_type,
+            auth_file_plan_type=quota.auth_file_plan_type,
+            subscription_active_until=quota.subscription_active_until,
             websocket_enabled=_websocket_enabled(
                 policy.policy.transport.websocket,
                 effective_settings.websocket_enabled if effective_settings is not None else False,
@@ -460,6 +468,7 @@ class GatewayService:
             model_succeeded=not failed,
             timeout_failure=request.http_status == 504,
             clear_sessions=request.failure_reason in ("quota_exhausted", "account_unavailable"),
+            failure_reason=request.failure_reason or ("rate_limit" if request.http_status == 429 else None),
         )
         if request.failure_reason == "quota_exhausted" and self.on_quota_exhausted is not None:
             try:

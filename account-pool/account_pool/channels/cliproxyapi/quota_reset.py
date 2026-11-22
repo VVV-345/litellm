@@ -1,10 +1,12 @@
 """单卡 Codex 重置传输，只读现有令牌，禁止 TOKEN 模板及隐式 OAuth 刷新。"""
 
 import hashlib
+import hmac
 import json
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Final, Literal
+from uuid import UUID
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,7 +25,7 @@ from account_pool.domain import (
 )
 from account_pool.providers.usage.codex import parse_codex_usage_quota
 from account_pool.quota_reset_models import ResetObservation, ResetOperation, ResetReply, ResetVerification
-from account_pool.shared.secrets import EnvironmentSecretDeriver
+from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
 
 _ROOT: Final = "https://chatgpt.com/backend-api/wham/"
 
@@ -211,6 +213,22 @@ class CodexResetClient:
             key=lambda item: float("inf") if item.expires_at is None else item.expires_at.timestamp(),
             default=None,
         )
+        identity_key: Final = (
+            f"codex-reset:account:{record.credential_account_id}"
+            if record.credential_account_id
+            else f"codex-reset:fp:{record.credential_fingerprints[0]}"
+            if record.credential_fingerprints
+            else None
+        )
+        scope: Final = (
+            hmac.new(
+                self.secrets.derive(UUID(int=0), SecretPurpose.CREDENTIAL_IDENTITY).encode(),
+                identity_key.encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            if identity_key is not None
+            else None
+        )
         return ResetObservation(
             available=credits.available_count,
             credit_id=None if credit is None else credit.id,
@@ -219,6 +237,7 @@ class CodexResetClient:
                 update={"source": "provider_api", "refresh_status": "complete", "refresh_attempted_at": now}
             ),
             model_quotas=quota.model_quotas,
+            provider_scope=scope,
         )
 
     async def consume(self, record: EnvironmentRecord, operation: ResetOperation) -> ResetReply:

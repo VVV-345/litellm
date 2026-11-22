@@ -1178,3 +1178,56 @@ async def test_chat_client_tools_and_signed_history_switch_on_gateway_quota_and_
         pool_identity.reset(reset)
         snapshots.replace(previous)
         router.discard()
+
+
+def test_quota_depleted_blocks_when_card_or_model_quota_is_exhausted() -> None:
+    from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
+        Candidate,
+        CandidateModelQuota,
+        CandidateQuotaWindow,
+    )
+    from litellm.proxy.management_endpoints.account_pool_management_models import AccountPolicy
+    from litellm.proxy.management_endpoints.account_pool_native_routing import quota_depleted
+    from litellm.proxy.management_endpoints.account_pool_routing import quota_available
+
+    now: Final = datetime.now(timezone.utc)
+    card_exhausted = RoutingSnapshot(
+        quota=RoutingQuota(remaining_percent=0, observed_at=now),
+        model_quotas={"gpt-5": RoutingQuota(remaining_percent=80, observed_at=now)},
+    )
+    model_exhausted = RoutingSnapshot(
+        quota=RoutingQuota(remaining_percent=80, observed_at=now),
+        model_quotas={"gpt-5": RoutingQuota(remaining_percent=0, observed_at=now)},
+    )
+    both_healthy = RoutingSnapshot(
+        quota=RoutingQuota(remaining_percent=80, observed_at=now),
+        model_quotas={"gpt-5": RoutingQuota(remaining_percent=80, observed_at=now)},
+    )
+    assert quota_depleted(card_exhausted, "gpt-5", now) is True
+    assert quota_depleted(model_exhausted, "gpt-5", now) is True
+    assert quota_depleted(both_healthy, "gpt-5", now) is False
+
+    candidate = Candidate(
+        id=uuid4(),
+        channel="openai_compatible",
+        supplier="openai_compatible",
+        environment_version=1,
+        policy_version=1,
+        enabled_models=("gpt-5",),
+        api_base="https://api.example/v1",
+        api_key="fixture",
+        concurrency_limit=1,
+        remaining_percent=0,
+        quota_observed_at=now,
+        quota_windows=(CandidateQuotaWindow(name="5 hour", remaining_percent=0, window_minutes=300),),
+        model_quotas=(
+            CandidateModelQuota(
+                model="gpt-5",
+                remaining_percent=80,
+                observed_at=now,
+                windows=(CandidateQuotaWindow(name="5 hour", remaining_percent=80, window_minutes=300),),
+            ),
+        ),
+        policy=AccountPolicy(),
+    )
+    assert quota_available(candidate, AccountPolicy(), "gpt-5") is False

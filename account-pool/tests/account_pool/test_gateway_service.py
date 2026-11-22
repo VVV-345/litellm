@@ -60,6 +60,7 @@ class MemoryLeases:
         self.model_cooldowns: dict[tuple[UUID, str], int] = {}
         self.settled_tokens: dict[UUID, int] = {}
         self.timeout_failures: tuple[tuple[UUID, str], ...] = ()
+        self.failure_reasons: tuple[str | None, ...] = ()
 
     async def sticky(self, binding_hash: str | None) -> UUID | None:
         return self.bindings.get(binding_hash) if binding_hash else None
@@ -132,8 +133,10 @@ class MemoryLeases:
         model_succeeded: bool = False,
         timeout_failure: bool = False,
         clear_sessions: bool = False,
+        failure_reason: str | None = None,
     ) -> None:
         self.leases.pop(lease.lease_id, None)
+        self.failure_reasons = (*self.failure_reasons, failure_reason)
         if timeout_failure:
             self.timeout_failures = (*self.timeout_failures, (lease.account_id, lease.model))
         if clear_sessions:

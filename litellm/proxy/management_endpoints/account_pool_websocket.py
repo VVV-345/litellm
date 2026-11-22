@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -314,10 +315,9 @@ async def _forward_candidate(
         and route_index + 1 < len(selected)
     )
     try:
-        # /v1/responses 长连接按单轮独立续租，不应用建连时刻的总 deadline 强杀健康的多轮会话。
-        responses_session: Final = websocket.url.path in ("/responses", "/v1/responses")
-        if responses_session:
-            completed = await _connect_and_relay(
+        # 建连与进入首轮对话前保留总时限防占坑不放；/v1/responses 进入对话轮次后撤销总时限改按单轮续租。
+        async with asyncio.timeout_at(deadline) as session_timeout:
+            completed: Final = await _connect_and_relay(
                 websocket,
                 public_model,
                 resolution,
@@ -333,27 +333,8 @@ async def _forward_candidate(
                 key,
                 session,
                 control,
+                on_turn_started=lambda: session_timeout.reschedule(None),
             )
-        else:
-            # 非 responses WebSocket 沿用单租约总时限，确保在 Manager 租约到期前停止占用上游。
-            async with asyncio.timeout_at(deadline):
-                completed = await _connect_and_relay(
-                    websocket,
-                    public_model,
-                    resolution,
-                    selected,
-                    dialer,
-                    request_id,
-                    route_index,
-                    seconds,
-                    route,
-                    fallback,
-                    attempt,
-                    log,
-                    key,
-                    session,
-                    control,
-                )
     except TimeoutError:
         attempt.outcome(504, "WebSocket request timed out", stage="response")
         await websocket.close(code=1001, reason="WebSocket request timed out")
@@ -422,6 +403,7 @@ async def _connect_and_relay(
     key: str,
     session: str | None,
     control: GatewayControl,
+    on_turn_started: Callable[[], None] | None = None,
 ) -> bool:
     credential: Final = select_gateway_credential(route.account.credentials, request_id, route.account.api_key)
     upstream_model: Final = (
@@ -451,6 +433,7 @@ async def _connect_and_relay(
                 await _ResponsesRelay(
                     websocket, upstream, public_model, upstream_model, key, session,
                     resolution, selected, control, dialer, request_id, route_index, attempt, log,
+                    on_turn_started=on_turn_started,
                 ).run()
                 if websocket.url.path.rstrip("/").endswith("/responses")
                 else await _relay(websocket, upstream, public_model, upstream_model, log)
@@ -507,7 +490,10 @@ class _ResponsesRelay:
         route_index: int,
         attempt: _Attempt,
         log: RequestLog,
+        *,
+        on_turn_started: Callable[[], None] | None = None,
     ) -> None:
+        self.on_turn_started = on_turn_started
         self.websocket = websocket
         self.upstream = upstream
         self.public_model = public_model
@@ -752,6 +738,9 @@ class _ResponsesRelay:
         return None
 
     async def _turn(self, original: dict[str, JsonValue], portable: dict[str, JsonValue], complete: bool) -> bool:
+        if self.on_turn_started is not None:
+            self.on_turn_started()
+            self.on_turn_started = None
         self.turn_failure_reasons = ()
         self.turn_retry_after_seconds = ()
         initial_index: Final = self.route_index

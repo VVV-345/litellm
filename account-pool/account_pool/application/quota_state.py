@@ -9,6 +9,18 @@ from account_pool.domain import EnvironmentRecord, QuotaSnapshot
 from account_pool.provider_families import provider_family_kind
 
 
+def _is_feature_only_window(family: str, name: str) -> bool:
+    if family == "glm":
+        return name == "MCP Monthly"
+    if family == "anthropic_claude":
+        return name in ("7 day Sonnet", "7 day Fable", "Extra usage")
+    if family == "openai_codex":
+        return name.startswith(("Code review ", "Codex Spark"))
+    if family == "xai":
+        return name.startswith("Tasks:") or name == "On-demand"
+    return False
+
+
 def routing_quota(record: EnvironmentRecord) -> QuotaSnapshot:
     family: Final = provider_family_kind(record)
     quota: Final = (
@@ -16,9 +28,10 @@ def routing_quota(record: EnvironmentRecord) -> QuotaSnapshot:
         if family in ("glm", "opencode") and record.display_quota is not None
         else record.quota
     )
-    if family != "glm":
+    filtered: Final = tuple(w for w in quota.windows if not _is_feature_only_window(family, w.name))
+    if len(filtered) == len(quota.windows):
         return quota
-    return quota.model_copy(update={"windows": tuple(w for w in quota.windows if w.name != "MCP Monthly")})
+    return quota.model_copy(update={"windows": filtered})
 
 
 def routing_quota_state(quota: QuotaSnapshot, now: datetime) -> tuple[float | None, datetime | None]:

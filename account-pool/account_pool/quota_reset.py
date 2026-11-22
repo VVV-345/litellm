@@ -20,6 +20,7 @@ from account_pool.domain import (
 )
 from account_pool.provider_families import provider_family_kind
 from account_pool.quota_reset_models import (
+    ResetCode,
     ResetObservation,
     ResetOperation,
     ResetReply,
@@ -228,8 +229,14 @@ class QuotaResetService:
             observation: Final = await self.upstream.observe(record)
             if provider_scope is not None and provider_scope != observation.provider_scope:
                 raise ValueError("供应商账号已变化，请重新查询并确认")
-            if provider_family_kind(record) == "glm" and (observation.provider_scope is None or not observation.cards):
-                raise ValueError("没有可确认的 GLM 重置权益")
+            if provider_family_kind(record) == "glm":
+                if (
+                    record.openai_compatible is None
+                    or "/api/coding/paas/v4" not in str(record.openai_compatible.base_url)
+                ):
+                    raise ValueError("仅 Coding Plan 接入端点支持 GLM 额度重置与验证")
+                if observation.provider_scope is None or not observation.cards:
+                    raise ValueError("没有可确认的 GLM 重置权益")
             selected: Final = next((card for card in observation.cards if card.id == credit_id and card.eligible), None)
             chosen: Final = selected.id if selected is not None else observation.credit_id if credit_id is None else None
             if not observation.eligible or observation.available == 0 or chosen is None:
@@ -288,3 +295,31 @@ class QuotaResetService:
             observed: Final = completed.model_copy(update={"after": after})
             await self.store.save(observed)
             return observed
+
+    async def resolve_uncertain(
+        self, environment_id: UUID, request_id: UUID, outcome: ResetCode
+    ) -> ResetOperation:
+        async with self.ownership.operation(environment_id):
+            record: Final = await self.record(environment_id)
+            operation: Final = await self.store.get(environment_id, request_id)
+            if operation is None:
+                raise ValueError("兑换记录不存在")
+            if operation.credential_fingerprints != record.credential_fingerprints:
+                raise ValueError("凭据已变更，禁止核销原凭据的兑换记录")
+            if operation.status != "uncertain":
+                raise ValueError("仅支持核销不明确状态的兑换记录")
+            after: ResetObservation | None = operation.after
+            try:
+                after = await self.upstream.observe(record)
+            except (httpx.HTTPError, TimeoutError, ValueError):
+                pass
+            resolved: Final = operation.model_copy(
+                update={
+                    "status": outcome,
+                    "windows_reset": 1 if outcome == "reset" else 0,
+                    "after": after,
+                    "message": f"人工核对确认：{outcome}",
+                }
+            )
+            await self.store.save(resolved)
+            return resolved

@@ -78,15 +78,53 @@ class BindingService:
             if len(tx.snapshot.mailboxes) + len(new) > 2000:
                 return Failure(FailureCode.CONFLICT, "邮箱池最多保留 2000 条资料，原数据没有覆盖")
             marked: Final = frozenset(row.secret.email for row in rows if row.bound)
-            prior: Final = tuple(
-                row.model_copy(update={"item": row.item.model_copy(update={"status": "bound", "bound_at": utc_now()})})
-                if row.item.email in marked and row.item.status == "available"
-                else row
-                for row in tx.snapshot.mailboxes
-            )
+            incoming_by_digest: Final = {
+                self.automation.identity("mailbox:" + row.secret.email): row for row in rows
+            }
+            replaced_count = 0
+            updated_rows: list[StoredMailbox] = []
+            for row in tx.snapshot.mailboxes:
+                incoming: Final = incoming_by_digest.get(row.digest)
+                can_recover_stuck = False
+                if incoming is not None and row.item.status == "available":
+                    try:
+                        current_secret: Final = MailboxSecret.model_validate_json(
+                            self.cipher.open(row.item.id, row.ciphertext)
+                        )
+                        can_recover_stuck = current_secret.refresh_pending is True
+                    except Exception:
+                        can_recover_stuck = False
+                if can_recover_stuck and incoming is not None:
+                    replaced_count += 1
+                    updated_rows.append(
+                        row.model_copy(
+                            update={
+                                "item": row.item.model_copy(
+                                    update={
+                                        "method": incoming.secret.method,
+                                        "status": "bound" if incoming.bound else "available",
+                                        "bound_at": utc_now() if incoming.bound else None,
+                                    }
+                                ),
+                                "ciphertext": self.cipher.seal(
+                                    row.item.id,
+                                    incoming.secret.model_copy(update={"refresh_pending": False}).model_dump_json(),
+                                ),
+                            }
+                        )
+                    )
+                elif row.item.email in marked and row.item.status == "available":
+                    updated_rows.append(
+                        row.model_copy(update={"item": row.item.model_copy(update={"status": "bound", "bound_at": utc_now()})})
+                    )
+                else:
+                    updated_rows.append(row)
+            prior: Final = tuple(updated_rows)
             if new or prior != tx.snapshot.mailboxes:
                 await tx.save(tx.snapshot.model_copy(update={"mailboxes": (*prior, *new)}))
-        return Success(PoolImportResult(view=await self.view(), added=len(new), existing=len(rows) - len(new)))
+        return Success(
+            PoolImportResult(view=await self.view(), added=len(new) + replaced_count, existing=len(rows) - len(new) - replaced_count)
+        )
 
     async def export(self) -> str:
         output: Final = io.StringIO()

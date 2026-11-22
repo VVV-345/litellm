@@ -64,6 +64,7 @@ class LeaseRepository(CooldownRepository, Protocol):
         model_succeeded: bool = False,
         timeout_failure: bool = False,
         clear_sessions: bool = False,
+        failure_reason: str | None = None,
     ) -> None: ...
 
 
@@ -287,6 +288,7 @@ class PostgresLeaseRepository:
         model_succeeded: bool = False,
         timeout_failure: bool = False,
         clear_sessions: bool = False,
+        failure_reason: str | None = None,
     ) -> None:
         async with database_connection(self._database_url) as connection:
             await _release_lease(
@@ -298,6 +300,7 @@ class PostgresLeaseRepository:
                 model_succeeded,
                 timeout_failure,
                 clear_sessions,
+                failure_reason,
             )
 
 
@@ -310,6 +313,7 @@ async def _release_lease(
     model_succeeded: bool = False,
     timeout_failure: bool = False,
     clear_sessions: bool = False,
+    failure_reason: str | None = None,
 ) -> None:
     environment: Final = await connection.execute(
         "SELECT id, payload FROM account_pool_environments WHERE id = %s FOR UPDATE",
@@ -333,6 +337,7 @@ async def _release_lease(
             model_succeeded,
             utc_now(),
             timeout_failure=timeout_failure,
+            failure_reason=failure_reason,
         )
         if settled != record.model_cooldowns:
             await connection.execute(
@@ -377,6 +382,7 @@ def settle_model_cooldowns(
     now: datetime,
     *,
     timeout_failure: bool = False,
+    failure_reason: str | None = None,
 ) -> tuple[ModelCooldown, ...]:
     previous: Final = next((item for item in existing if item.model == lease.model), None)
     previous_count: Final = previous.consecutive_timeouts if previous is not None else 0
@@ -402,11 +408,20 @@ def settle_model_cooldowns(
     if preserve_stale and not seconds:
         return existing
     updated_timeout_state: Final = timeout_state_at is not None
-    # 未达到冷却阈值或成功复位后的超时计数仅用于防乱序，不能触发单探针并发降级。
+    # 429 额度/限流冷却写为 rate_limit 以便额度重置与恢复调度识别；未达阈值的超时追踪不触发单探针降级。
+    default_reason: Final = (
+        "rate_limit" if failure_reason in ("rate_limit", "quota_exhausted") else "upstream_error"
+    )
     cooldown_reason: Final = (
         "consecutive_timeouts"
         if timeout_delay
-        else (previous.reason if previous is not None and previous.reason != "timeout_tracking" else "upstream_error")
+        else (
+            default_reason
+            if seconds and default_reason == "rate_limit"
+            else previous.reason
+            if previous is not None and previous.reason != "timeout_tracking"
+            else default_reason
+        )
         if cooldown_seconds or preserve_stale
         else "timeout_tracking"
     )
@@ -423,8 +438,17 @@ def settle_model_cooldowns(
         if cooldown_seconds or updated_timeout_state or preserve_stale
         else ()
     )
-    # 早于故障开始的并行成功请求不能清除较新的冷却。
-    retained: Final = tuple(item for item in existing if item.model != lease.model)
+    # 早于故障开始的并行成功请求不能清除较新的冷却；同时清理其他模型已过期且无超时计数的陈旧条目。
+    retained: Final = tuple(
+        item
+        for item in existing
+        if item.model != lease.model
+        and (
+            item.retry_at > now
+            or item.consecutive_timeouts > 0
+            or (item.timeout_state_at is not None and (now - item.timeout_state_at).total_seconds() < 3600)
+        )
+    )
     return (*retained, *updated)
 
 

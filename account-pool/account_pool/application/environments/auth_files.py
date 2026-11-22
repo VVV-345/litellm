@@ -144,11 +144,14 @@ class EnvironmentAuthFiles:
                     "desired_state": EnvironmentStatus.ERROR,
                     "auth_file_name": filename,
                     "credential_fingerprints": (),
+                    "credential_email": None,
+                    "credential_account_id": None,
                     "last_error": "认证文件替换或验证失败，卡片已停止接单，请重试上传或删除",
                     "updated_at": utc_now(),
                 }
             )
             await self._repository.save_if_version(failed, record.version)
+            await self._ownership.retain(record.id)
             await self._log_event(record, "authentication", error)
             return Failure(FailureCode.UPSTREAM, f"auth file validation failed: {_safe_error(error)}")
         completed: Final = observed.model_copy(

@@ -48,8 +48,12 @@ export async function loginWeb(page, account, { signal, locale, submitted }) {
   if (new URL(page.url()).origin === "https://auth.openai.com") {
     await automateLogin(page, account, { signal, locale, submitted, allowConsent: false, timeoutMs: 30000 });
   }
-  const result = await webIdentity(page);
-  return result?.email.toLowerCase() === account.email.toLowerCase() ? result : null;
+  for (let attempt = 0; attempt < 10 && !signal.aborted; attempt += 1) {
+    const result = await webIdentity(page);
+    if (result?.email.toLowerCase() === account.email.toLowerCase()) return result;
+    if (attempt < 9) await setTimeout(500, undefined, { signal }).catch(() => {});
+  }
+  return null;
 }
 
 export async function rebindEmail(page, account, options) {
@@ -60,10 +64,14 @@ export async function rebindEmail(page, account, options) {
   if (!await checkpoint(identity)) return { status: "stopped" };
   if (signal.aborted) return { status: "stopped" };
   await page.goto("https://chatgpt.com/#settings/Account", { waitUntil: "commit", timeout: 30000 });
-  const visibleEmail = page.getByText(account.email, { exact: true });
+  const dialog = page.locator('[role="dialog"]');
+  const scopedEmail = dialog.getByText(account.email, { exact: true }).first();
+  const visibleEmail = (await scopedEmail.count().catch(() => 0)) > 0
+    ? scopedEmail
+    : page.getByText(account.email, { exact: true }).first();
   await visibleEmail.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
   if (signal.aborted) return { status: "stopped" };
-  if (await visibleEmail.count() !== 1 || !await visibleEmail.isVisible()) return { status: "verification_required" };
+  if (!await visibleEmail.isVisible().catch(() => false)) return { status: "verification_required" };
   await visibleEmail.click({ timeout: 3000 });
   const usePassword = await button(page, [labels(locale).password, text.en.password]);
   if (usePassword) {

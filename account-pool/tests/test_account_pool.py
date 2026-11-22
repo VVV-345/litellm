@@ -3817,6 +3817,34 @@ async def test_update_operation_id_is_idempotent_and_pending_configuration_retri
 
 
 @pytest.mark.asyncio
+async def test_delete_environment_rejects_active_automation_or_rebinding(tmp_path: Path) -> None:
+    from uuid import uuid4
+
+    for updates in (
+        {"oauth_automation_operation": "automation:" + "a" * 32 + ":1"},
+        {"email_rebinding_job_id": uuid4()},
+    ):
+        record: Final = _record(status=EnvironmentStatus.READY).model_copy(update=updates)
+        repository: Final = MemoryRepository(record)
+        runtime: Final = FakeRuntime()
+        cli: Final = FakeCLIProxy()
+        service: Final = EnvironmentService(
+            settings=_settings(tmp_path),
+            repository=repository,
+            runtime=runtime,
+            cli_proxy=cli,
+            proxy_profiles=EmptyProfiles(),
+            secrets=EnvironmentSecretDeriver("s" * 32),
+            channels=_fake_channels(runtime, cli),
+        )
+        result: Final = await service.delete_environment(record.id)
+        assert isinstance(result, Failure)
+        assert result.code == FailureCode.CONFLICT
+        assert await repository.get(record.id) is not None
+        assert runtime.removed == []
+
+
+@pytest.mark.asyncio
 async def test_delete_environment_is_idempotent_and_removes_resources(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     repository: Final = MemoryRepository(record)

@@ -67,6 +67,13 @@ class ConsumeResetRequest(BaseModel):
     confirmed: Literal[True]
 
 
+class ResolveUncertainResetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_id: UUID
+    outcome: ResetCode
+    confirmed: Literal[True]
+
+
 class ResetView(BaseModel):
     credit_id: str | None = None
     request_id: UUID

@@ -41,6 +41,8 @@ def fallback_eligible(record: EnvironmentRecord, model: str) -> bool:
         and not record.manual_cooldown
         and not record.auth_file_disabled
         and not record.configuration_pending
+        and record.oauth_automation_operation is None
+        and record.email_rebinding_job_id is None
         and record.desired_configuration_version == record.observed_configuration_version
         and record.status in (EnvironmentStatus.READY, EnvironmentStatus.COOLING_DOWN)
         and record.last_error in (None, "上游认证失效，请重新认证")
@@ -113,7 +115,7 @@ class AccessTokenFallbackService:
                 or not fallback_eligible(record, model)
                 or not (policy.policy.codex or CodexPolicy()).allow_valid_access_after_refresh_failure
                 or model in policy.policy.excluded_models
-                or policy.runtime_status != "synced"
+                or (policy.version > 0 and policy.runtime_status != "synced")
                 or environment_id in await self.leases.cooling()
                 or not await self.ownership.owns(environment_id, record.credential_fingerprints)
             ):

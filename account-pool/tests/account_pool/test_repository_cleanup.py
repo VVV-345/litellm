@@ -504,3 +504,31 @@ async def test_manager_pool_timeout_is_retryable_and_never_exposes_database_deta
     assert response.status_code == 503
     assert response.headers["retry-after"] == "1"
     assert b"fixture-secret" not in response.body and b"private-database" not in response.body
+
+
+def test_settle_model_cooldowns_marks_rate_limit_and_prunes_expired_entries() -> None:
+    now: Final = utc_now()
+    active: Final = lease(uuid4(), uuid4()).model_copy(update={"started_at": now})
+    expired_rate_limit: Final = ModelCooldown(
+        model="expired-model", retry_at=now - timedelta(seconds=5), reason="rate_limit"
+    )
+    expired_tracking: Final = ModelCooldown(
+        model="tracked-model",
+        retry_at=now - timedelta(seconds=5),
+        reason="timeout_tracking",
+        consecutive_timeouts=1,
+        timeout_state_at=now - timedelta(minutes=1),
+    )
+    settled: Final = settle_model_cooldowns(
+        (expired_rate_limit, expired_tracking),
+        active,
+        60,
+        False,
+        now,
+        failure_reason="rate_limit",
+    )
+    by_model = {item.model: item for item in settled}
+    assert "expired-model" not in by_model
+    assert by_model["tracked-model"] == expired_tracking
+    assert by_model[active.model].reason == "rate_limit"
+    assert by_model[active.model].retry_at == now + timedelta(seconds=60)

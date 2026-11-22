@@ -495,3 +495,33 @@ async def test_fallback_manual_probes_share_service_concurrency_and_release_on_c
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_fallback_blocked_during_automation_or_rebinding_and_allows_default_policy_version_zero():
+    from uuid import uuid4
+
+    from account_pool.access_token_fallback import AccessTokenFallbackService, fallback_eligible
+
+    record = _record().model_copy(
+        update={
+            "auth_file_name": "fixture.json",
+            "auth_index": "fixture",
+            "credential_fingerprints": ("fixture",),
+        }
+    )
+    assert not fallback_eligible(
+        record.model_copy(update={"oauth_automation_operation": "automation:" + "a" * 32 + ":1"}),
+        "model-a",
+    )
+    assert not fallback_eligible(
+        record.model_copy(update={"email_rebinding_job_id": uuid4()}),
+        "model-a",
+    )
+    policies = FallbackPolicies()
+    policies.view = SimpleNamespace(version=0, policy=AccountPolicy(), runtime_status="pending")
+    service = AccessTokenFallbackService(
+        FallbackEnvironments(record), policies, FallbackUpstream(), FallbackOwnership(), FallbackLeases()
+    )
+    result = await service.verify(record.id, "model-a")
+    assert result.passed and result.restored

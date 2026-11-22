@@ -110,9 +110,31 @@ def quota_snapshot(account: Candidate, policy: AccountPolicy, model: str) -> Rou
 
 
 def quota_available(account: Candidate, policy: AccountPolicy, model: str) -> bool:
-    from litellm.proxy.management_endpoints.account_pool_native_routing import available
+    from litellm.proxy.management_endpoints.account_pool_native_routing import (
+        RoutingQuota,
+        RoutingQuotaWindow,
+        available,
+    )
 
-    return available(quota_snapshot(account, policy, model), model, datetime.now(timezone.utc))
+    now: Final = datetime.now(timezone.utc)
+    snapshot: Final = quota_snapshot(account, policy, model)
+    if not available(snapshot, model, now):
+        return False
+    model_quota: Final = next((quota for quota in account.model_quotas if quota.model == model), None)
+    if model_quota is None:
+        return True
+    card_snapshot: Final = snapshot.model_copy(
+        update={
+            "quota": RoutingQuota(
+                remaining_percent=account.remaining_percent,
+                observed_at=account.quota_observed_at,
+                refresh_status=account.quota_refresh_status,
+                extra_usage_enabled=account.extra_usage_enabled,
+                windows=tuple(RoutingQuotaWindow.model_validate(window.model_dump()) for window in account.quota_windows),
+            )
+        }
+    )
+    return available(card_snapshot, model, now)
 
 
 def plan_rank(account: Candidate) -> int | None:
