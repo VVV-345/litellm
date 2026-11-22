@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator, Callable, Coroutine, Iterator
 from contextlib import asynccontextmanager, contextmanager
 from contextvars import ContextVar
@@ -24,14 +25,26 @@ class _RejectCookies(DefaultCookiePolicy):
         return False
 
 
+def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw: Final = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(minimum, min(maximum, int(raw)))
+    except ValueError:
+        return default
+
+
 def http_client(proxy: str | None = None) -> httpx.AsyncClient:
+    max_connections: Final = _env_int("ACCOUNT_POOL_GATEWAY_MAX_CONNECTIONS", 100, 20, 2000)
+    max_keepalive: Final = min(max_connections, max(20, max_connections // 2))
     return httpx.AsyncClient(
         proxy=proxy,
         timeout=120,
         trust_env=False,
         follow_redirects=False,
         cookies=CookieJar(policy=_RejectCookies()),
-        limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        limits=httpx.Limits(max_connections=max_connections, max_keepalive_connections=max_keepalive),
     )
 
 
@@ -76,7 +89,7 @@ class GatewayHTTPResources:
         self,
         client_factory: Callable[[], httpx.AsyncClient] = http_client,
         proxy_factory: Callable[[str], httpx.AsyncClient] = http_client,
-        proxy_limit: int = 16,
+        proxy_limit: int | None = None,
     ) -> None:
         self.control: Final = client_factory()
         self.direct: Final = client_factory()
@@ -84,10 +97,12 @@ class GatewayHTTPResources:
             client.cookies.clear()
             client.cookies.jar.set_policy(_RejectCookies())
         self.proxy_factory: Final = proxy_factory
-        self.proxy_limit: Final = proxy_limit
+        self.proxy_limit: Final = (
+            proxy_limit if proxy_limit is not None else _env_int("ACCOUNT_POOL_GATEWAY_PROXY_LIMIT", 64, 4, 256)
+        )
         self.proxies: Final[dict[str, tuple[httpx.AsyncClient, int]]] = {}  # mutable-ok: live proxy leases
         self.available: Final = asyncio.Condition()
-        self.admission: Final = asyncio.Semaphore(100)
+        self.admission: Final = asyncio.Semaphore(_env_int("ACCOUNT_POOL_GATEWAY_MAX_ADMISSION", 100, 10, 2000))
         self.cleanup_tasks: Final[set[asyncio.Task[None]]] = set()  # mutable-ok: pending cleanup task ownership
         self._close_task: asyncio.Task[None] | None = None
 
@@ -104,14 +119,14 @@ class GatewayHTTPResources:
         if proxy is None:
             yield self.direct
             return
+        retired_clients: list[httpx.AsyncClient] = []
         async with self.available:
             while proxy not in self.proxies and len(self.proxies) >= self.proxy_limit:
                 idle: Final = next((key for key, (_, count) in self.proxies.items() if count == 0), None)
                 if idle is not None:
                     retired, _ = self.proxies.pop(idle)
+                    retired_clients.append(retired)
                     self.available.notify_all()
-                    with self.bind():
-                        await managed_cleanup(close_clients((retired,)))
                     break
                 await self.available.wait()
             if proxy not in self.proxies:
@@ -121,6 +136,10 @@ class GatewayHTTPResources:
                 self.proxies[proxy] = (created, 0)
             client, count = self.proxies.pop(proxy)
             self.proxies[proxy] = (client, count + 1)
+        # 在释放条件锁之后关闭淘汰的代理客户端，避免 5 秒关闭超时阻塞所有并发代理获取。
+        if retired_clients:
+            with self.bind():
+                await managed_cleanup(close_clients(tuple(retired_clients)))
         try:
             yield client
         finally:

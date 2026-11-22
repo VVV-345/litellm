@@ -69,19 +69,35 @@ class GatewayService:
         self.on_quota_exhausted: Final = on_quota_exhausted
         self.on_api_completed: Final = on_api_completed
 
-    async def resolve(self, request: ResolveRequest) -> Resolution:
-        key: Final = await self.keys.authenticate(request.card_key) if request.card_key else None
-        trusted: Final = request.trusted_card_id is not None and request.trusted_key_id is not None
+    async def _authenticate_card(
+        self,
+        *,
+        card_key: str | None,
+        trusted_card_id: UUID | None,
+        trusted_key_id: UUID | None,
+        binding_id: UUID | None,
+    ) -> tuple[UUID, UUID, bool]:
+        key: Final = await self.keys.authenticate(card_key) if card_key else None
+        trusted: Final = trusted_card_id is not None and trusted_key_id is not None
         if key is None and not trusted:
             raise HTTPException(401, "Invalid or revoked account pool key")
-        card_id: Final = key.card_id if key is not None else request.trusted_card_id
-        key_id: Final = key.key_id if key is not None else request.trusted_key_id
+        card_id: Final = key.card_id if key is not None else trusted_card_id
+        key_id: Final = key.key_id if key is not None else trusted_key_id
         if card_id is None or key_id is None:
             raise HTTPException(401, "Missing account pool identity")
-        if trusted and request.binding_id is not None:
+        if trusted and binding_id is not None:
             key_status: Final = await self.keys.status(card_id)
-            if key_status is None or key_status.key_id != request.binding_id or key_status.revoked_at is not None:
+            if key_status is None or key_status.key_id != binding_id or key_status.revoked_at is not None:
                 raise HTTPException(401, "Card key binding was revoked")
+        return card_id, key_id, trusted
+
+    async def resolve(self, request: ResolveRequest) -> Resolution:
+        card_id, key_id, trusted = await self._authenticate_card(
+            card_key=request.card_key,
+            trusted_card_id=request.trusted_card_id,
+            trusted_key_id=request.trusted_key_id,
+            binding_id=request.binding_id,
+        )
         card: Final = await self.environments.get(card_id)
         if (
             card is None
@@ -237,31 +253,85 @@ class GatewayService:
         )
 
     async def acquire(self, request: AcquireRequest) -> Lease:
-        resolution: Final = await self.resolve(
-            ResolveRequest(
-                card_key=request.card_key,
-                session_hash=request.session_hash,
-                trusted_card_id=request.trusted_card_id,
-                trusted_key_id=request.trusted_key_id,
-                binding_id=request.binding_id,
+        # 仅加载源卡与目标卡，避免高并发 acquire 阶段重复扫描全池卡片与所有策略。
+        card_id, key_id, trusted = await self._authenticate_card(
+            card_key=request.card_key,
+            trusted_card_id=request.trusted_card_id,
+            trusted_key_id=request.trusted_key_id,
+            binding_id=request.binding_id,
+        )
+        card: Final = await self.environments.get(card_id)
+        if (
+            card is None
+            or not card.enabled
+            or card.manual_cooldown
+            or card.status.value == "deleting"
+            or card.configuration_pending
+        ):
+            raise HTTPException(403, "Account pool card is disabled or unavailable")
+        card_policy_view: Final = await self.policies.get(card.id)
+        global_settings: Final = None if self.settings is None else (await self.settings.get()).values
+        effective_settings: Final = None if global_settings is None else settings_for_card(global_settings, card.id)
+        effective_card_policy: Final = effective_policy(
+            card_policy_view.policy,
+            effective_settings,
+            inherit=card_policy_view.version == 0,
+        )
+        same_card: Final = request.account_id == card.id
+        target: Final = card if same_card else await self.environments.get(request.account_id)
+        in_scope: Final = (
+            target is not None
+            and (
+                same_card
+                or (
+                    effective_card_policy.routing.fallback_enabled
+                    and not trusted
+                    and target.channel == card.channel
+                    and target.supplier == card.supplier
+                )
+            )
+            and target.enabled
+            and not target.manual_cooldown
+            and not target.configuration_pending
+            and self.gateway(target).routable
+        )
+        owned: Final = (
+            in_scope
+            and target is not None
+            and (
+                self.ownership is None
+                or await self.ownership.owns(target.id, target.credential_fingerprints)
             )
         )
-        candidate: Final = next((item for item in resolution.candidates if item.id == request.account_id), None)
-        if candidate is None and request.account_id == resolution.card_id:
-            raise HTTPException(409, detail=AcquireRejected(reason="cooldown").model_dump(exclude_defaults=True))
-        if candidate is None or request.model not in candidate.enabled_models:
+        if not in_scope or not owned or target is None:
+            if same_card:
+                raise HTTPException(409, detail=AcquireRejected(reason="cooldown").model_dump(exclude_defaults=True))
             raise HTTPException(403, "Account is outside the card scope or unavailable")
-        if request.model not in resolution.enabled_models:
+        target_policy_view: Final = card_policy_view if same_card else await self.policies.get(target.id)
+        candidate: Final = await self.candidate(target, global_settings, target_policy_view)
+        card_enabled_models: Final = self.gateway(card).enabled_models
+        if request.model not in candidate.enabled_models:
+            raise HTTPException(403, "Account is outside the card scope or unavailable")
+        if request.model not in card_enabled_models:
             raise HTTPException(403, "Model is outside the originating card scope")
-        if request.model in resolution.policy.excluded_models or request.model in candidate.policy.excluded_models:
+        if request.model in effective_card_policy.excluded_models or request.model in candidate.policy.excluded_models:
             raise HTTPException(403, "Model is excluded")
-        if resolution.card_version != request.card_version or resolution.policy_version != request.policy_version:
+        if card.version != request.card_version or card_policy_view.version != request.policy_version:
             raise HTTPException(409, "Card configuration changed")
         if (
             candidate.environment_version != request.account_version
             or candidate.policy_version != request.account_policy_version
         ):
             raise HTTPException(409, "Account configuration changed")
+        resolution: Final = Resolution(
+            card_id=card.id,
+            key_id=key_id,
+            card_version=card.version,
+            policy_version=card_policy_view.version,
+            policy=effective_card_policy,
+            candidates=(candidate,),
+            enabled_models=card_enabled_models,
+        )
         binding: Final = (
             binding_hash(resolution.key_id, request.session_hash)
             if resolution.policy.routing.session_affinity

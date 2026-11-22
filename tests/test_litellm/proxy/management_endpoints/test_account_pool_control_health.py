@@ -443,3 +443,22 @@ def test_stalled_control_deadline_is_service_unavailable_not_body_timeout(monkey
         assert result.status_code == 503 and time.monotonic() - started < 1
         assert result.headers["Retry-After"] == "30"
     assert control.resolve_calls == 1 and health.state is ControlState.OPEN
+
+
+def test_half_open_acquire_outage_gates_concurrent_resolve_calls() -> None:
+    clock = _Clock()
+    health = ControlHealth(failures=1, open_seconds=30.0, clock=clock)
+    obs = health.begin("acquire")
+    assert obs is not None
+    health.failed(outage=True, observation=obs)
+    clock.advance(31.0)
+    assert health.state is ControlState.HALF_OPEN
+    first_resolve = health.begin("resolve")
+    assert first_resolve is not None
+    assert health.begin("resolve") is None
+    health.succeeded(first_resolve)
+    acquire_probe = health.begin("acquire")
+    assert acquire_probe is not None
+    assert health.begin("acquire") is None
+    health.succeeded(acquire_probe)
+    assert health.state is ControlState.CLOSED

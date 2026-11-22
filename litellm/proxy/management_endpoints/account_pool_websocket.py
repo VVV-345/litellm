@@ -314,9 +314,10 @@ async def _forward_candidate(
         and route_index + 1 < len(selected)
     )
     try:
-        # 总时限覆盖建连与转发，必须在 Manager 的租约到期前停止占用上游。
-        async with asyncio.timeout_at(deadline):
-            completed: Final = await _connect_and_relay(
+        # /v1/responses 长连接按单轮独立续租，不应用建连时刻的总 deadline 强杀健康的多轮会话。
+        responses_session: Final = websocket.url.path in ("/responses", "/v1/responses")
+        if responses_session:
+            completed = await _connect_and_relay(
                 websocket,
                 public_model,
                 resolution,
@@ -333,6 +334,26 @@ async def _forward_candidate(
                 session,
                 control,
             )
+        else:
+            # 非 responses WebSocket 沿用单租约总时限，确保在 Manager 租约到期前停止占用上游。
+            async with asyncio.timeout_at(deadline):
+                completed = await _connect_and_relay(
+                    websocket,
+                    public_model,
+                    resolution,
+                    selected,
+                    dialer,
+                    request_id,
+                    route_index,
+                    seconds,
+                    route,
+                    fallback,
+                    attempt,
+                    log,
+                    key,
+                    session,
+                    control,
+                )
     except TimeoutError:
         attempt.outcome(504, "WebSocket request timed out", stage="response")
         await websocket.close(code=1001, reason="WebSocket request timed out")

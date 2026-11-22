@@ -123,6 +123,10 @@ async def query_standard_stats(sql: str, since: datetime) -> object:
         raise HTTPException(503, "LiteLLM statistics database is unavailable") from exc
 
 
+_DASHBOARD_CACHE_TTL_SECONDS: Final = 15.0
+_DASHBOARD_CACHE: dict[int, tuple[float, AccountPoolDashboardStats]] = {}
+
+
 async def standard_dashboard(
     query: StatsQuery = query_standard_stats,
     *,
@@ -130,6 +134,11 @@ async def standard_dashboard(
     days: int = 30,
     timing_query: TimingStatsQuery = query_gateway_latency_stats,
 ) -> AccountPoolDashboardStats:
+    use_cache: Final = now is None and query is query_standard_stats and timing_query is query_gateway_latency_stats
+    if use_cache:
+        cached: Final = _DASHBOARD_CACHE.get(days)
+        if cached is not None and cached[0] > asyncio.get_running_loop().time():
+            return cached[1]
     since: Final = (now or datetime.now(timezone.utc)) - timedelta(days=days)
     rows_result: Final
     gateway_latency: Final
@@ -137,9 +146,12 @@ async def standard_dashboard(
         query(_STANDARD_STATS_SQL, since), asyncio.to_thread(timing_query)
     )
     rows: Final = TypeAdapter(tuple[StandardAccountStats, ...]).validate_python(rows_result)
-    return AccountPoolDashboardStats(
+    result: Final = AccountPoolDashboardStats(
         summary=next((row.public() for row in rows if row.account_id is None), ErrorStats(statistics_source="litellm")),
         cards=tuple(row.public() for row in rows if row.account_id is not None),
         occurred_from=since,
         gateway_latency=gateway_latency,
     )
+    if use_cache:
+        _DASHBOARD_CACHE[days] = (asyncio.get_running_loop().time() + _DASHBOARD_CACHE_TTL_SECONDS, result)
+    return result

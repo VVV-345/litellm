@@ -63,6 +63,7 @@ class ControlHealth:
         self._probe_serial = 0
         self._probe: int | None = None
         self._probe_started_at: float | None = None
+        self._half_open_resolve_started_at: float | None = None
 
     @property
     def state(self) -> ControlState:
@@ -82,11 +83,20 @@ class ControlHealth:
     def begin(self, operation: Operation) -> Observation | None:
         if not self.available():
             return None
-        if self.state is ControlState.HALF_OPEN and operation == self._failed_operation:
-            self._probe_serial += 1
-            self._probe = self._probe_serial
-            self._probe_started_at = self._clock()
-            return Observation(operation, self._generation, self._probe)
+        if self.state is ControlState.HALF_OPEN:
+            if operation == self._failed_operation:
+                self._half_open_resolve_started_at = None
+                self._probe_serial += 1
+                self._probe = self._probe_serial
+                self._probe_started_at = self._clock()
+                return Observation(operation, self._generation, self._probe)
+            # acquire 触发半开时仍需放行前置 resolve，但限制同时只放行一个探测请求，避免半开惊群。
+            if (
+                self._half_open_resolve_started_at is not None
+                and self._clock() - self._half_open_resolve_started_at < self._open_seconds
+            ):
+                return None
+            self._half_open_resolve_started_at = self._clock()
         return Observation(operation, self._generation)
 
     def permits(self) -> bool:
@@ -107,9 +117,12 @@ class ControlHealth:
         )
 
     def abandon(self, observation: Observation) -> None:
-        if self._current(observation) and observation.probe is not None:
-            self._probe = None
-            self._probe_started_at = None
+        if self._current(observation):
+            if observation.operation == "resolve":
+                self._half_open_resolve_started_at = None
+            if observation.probe is not None:
+                self._probe = None
+                self._probe_started_at = None
 
     def succeeded(self, observation: Observation | None = None) -> None:
         if observation is None:
@@ -118,17 +131,20 @@ class ControlHealth:
             self._opened_at = None
             self._probe = None
             self._probe_started_at = None
+            self._half_open_resolve_started_at = None
             return
         if not self._current(observation):
             return
         if observation.operation == "resolve":
             self._resolve_failures = 0
+            self._half_open_resolve_started_at = None
         else:
             self._acquire_failures = 0
         if self._opened_at is not None and observation.probe is None:
             return
         self._probe = None
         self._probe_started_at = None
+        self._half_open_resolve_started_at = None
         if self.consecutive_failures >= self._threshold:
             self._failed_operation = "resolve" if self._resolve_failures >= self._threshold else "acquire"
         else:
@@ -151,6 +167,7 @@ class ControlHealth:
             self._failed_operation = operation
             self._probe = None
             self._probe_started_at = None
+            self._half_open_resolve_started_at = None
 
     def wrap(self, control: GatewayControl) -> GatewayControl:
         return control if isinstance(control, HealthControl) else HealthControl(control, self)

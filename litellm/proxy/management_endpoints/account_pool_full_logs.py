@@ -126,29 +126,41 @@ class FullLogStore:
     def __init__(self, root: Path) -> None:
         self.root: Final = root
         self.path: Final = root / "conversations.sqlite3"
+        self._conversations_initialized = False
+        self._timings_initialized = False
+        self._timing_writes = 0
+        self._last_timing_prune = 0.0
 
     @contextmanager
     def connection(self) -> Generator[sqlite3.Connection]:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        needs_init: Final = not self._conversations_initialized or not self.path.exists()
         connection: Final = sqlite3.connect(self.path, timeout=10)
         try:
+            connection.execute("PRAGMA busy_timeout=5000")
             with connection:
-                connection.execute("PRAGMA secure_delete=ON")
-                connection.execute("PRAGMA auto_vacuum=FULL")
-                connection.execute(
-                    "CREATE TABLE IF NOT EXISTS conversations (event_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, "
-                    "card_id TEXT NOT NULL, session_id TEXT, started_at REAL NOT NULL, summary TEXT NOT NULL, body BLOB NOT NULL)"
-                )
-                connection.execute(
-                    "CREATE INDEX IF NOT EXISTS conversations_time ON conversations(started_at, event_id)"
-                )
-                connection.execute(
-                    "CREATE INDEX IF NOT EXISTS conversations_session ON conversations(session_id, started_at)"
-                )
-                connection.execute("CREATE INDEX IF NOT EXISTS conversations_request ON conversations(request_id)")
-                connection.execute(
-                    "CREATE TABLE IF NOT EXISTS failed_requests (request_id TEXT PRIMARY KEY, expires REAL NOT NULL)"
-                )
+                if needs_init:
+                    connection.execute("PRAGMA journal_mode=WAL")
+                    connection.execute("PRAGMA synchronous=NORMAL")
+                    connection.execute("PRAGMA secure_delete=ON")
+                    connection.execute("PRAGMA auto_vacuum=FULL")
+                    connection.execute(
+                        "CREATE TABLE IF NOT EXISTS conversations (event_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, "
+                        "card_id TEXT NOT NULL, session_id TEXT, started_at REAL NOT NULL, summary TEXT NOT NULL, body BLOB NOT NULL)"
+                    )
+                    connection.execute(
+                        "CREATE INDEX IF NOT EXISTS conversations_time ON conversations(started_at, event_id)"
+                    )
+                    connection.execute(
+                        "CREATE INDEX IF NOT EXISTS conversations_session ON conversations(session_id, started_at)"
+                    )
+                    connection.execute("CREATE INDEX IF NOT EXISTS conversations_request ON conversations(request_id)")
+                    connection.execute(
+                        "CREATE TABLE IF NOT EXISTS failed_requests (request_id TEXT PRIMARY KEY, expires REAL NOT NULL)"
+                    )
+                    self._conversations_initialized = True
+                else:
+                    connection.execute("PRAGMA secure_delete=ON")
                 yield connection
         finally:
             connection.close()
@@ -156,16 +168,23 @@ class FullLogStore:
     @contextmanager
     def timing_connection(self) -> Generator[sqlite3.Connection]:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        connection: Final = sqlite3.connect(self.root / "timings.sqlite3", timeout=1)
+        timing_path: Final = self.root / "timings.sqlite3"
+        needs_init: Final = not self._timings_initialized or not timing_path.exists()
+        connection: Final = sqlite3.connect(timing_path, timeout=5)
         try:
+            connection.execute("PRAGMA busy_timeout=5000")
             with connection:
-                connection.execute("PRAGMA auto_vacuum=FULL")
-                connection.execute(
-                    "CREATE TABLE IF NOT EXISTS request_timings (request_id TEXT NOT NULL, segment_id TEXT NOT NULL, attempt INTEGER NOT NULL, "
-                    "phase TEXT NOT NULL, duration_ms REAL NOT NULL, status INTEGER NOT NULL, recorded_at REAL NOT NULL, "
-                    "PRIMARY KEY(request_id, segment_id, phase))"
-                )
-                connection.execute("CREATE INDEX IF NOT EXISTS request_timings_age ON request_timings(recorded_at)")
+                if needs_init:
+                    connection.execute("PRAGMA journal_mode=WAL")
+                    connection.execute("PRAGMA synchronous=NORMAL")
+                    connection.execute("PRAGMA auto_vacuum=FULL")
+                    connection.execute(
+                        "CREATE TABLE IF NOT EXISTS request_timings (request_id TEXT NOT NULL, segment_id TEXT NOT NULL, attempt INTEGER NOT NULL, "
+                        "phase TEXT NOT NULL, duration_ms REAL NOT NULL, status INTEGER NOT NULL, recorded_at REAL NOT NULL, "
+                        "PRIMARY KEY(request_id, segment_id, phase))"
+                    )
+                    connection.execute("CREATE INDEX IF NOT EXISTS request_timings_age ON request_timings(recorded_at)")
+                    self._timings_initialized = True
                 yield connection
         finally:
             connection.close()
@@ -191,9 +210,13 @@ class FullLogStore:
                 ),
             )
             connection.execute("DELETE FROM request_timings WHERE recorded_at < ?", (now - 7 * 86400,))
-            connection.execute(
-                "DELETE FROM request_timings WHERE rowid <= (SELECT MAX(rowid) - 100000 FROM request_timings)"
-            )
+            self._timing_writes += 1
+            if self._timing_writes >= 64 or now - self._last_timing_prune >= 60.0:
+                self._timing_writes = 0
+                self._last_timing_prune = now
+                connection.execute(
+                    "DELETE FROM request_timings WHERE rowid <= (SELECT MAX(rowid) - 100000 FROM request_timings)"
+                )
 
     def timing(self, request_id: UUID) -> tuple[TimingPhase, ...]:
         if not (self.root / "timings.sqlite3").exists():

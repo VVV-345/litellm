@@ -20,6 +20,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     networks:
       - litellm-db
 
@@ -76,6 +81,11 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     networks:
       - default
       - litellm-db
@@ -307,6 +317,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
 
 networks:
   release-socket:

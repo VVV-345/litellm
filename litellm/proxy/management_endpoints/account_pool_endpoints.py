@@ -821,10 +821,33 @@ async def _manager_request_multipart(
         await client.close()
 
 
+_SHARED_MANAGER_CLIENTS: dict[int, httpx.AsyncClient] = {}
+
+
+def _shared_manager_http_client() -> httpx.AsyncClient | None:
+    try:
+        loop_id: Final = id(asyncio.get_running_loop())
+    except RuntimeError:
+        return None
+    existing: Final = _SHARED_MANAGER_CLIENTS.get(loop_id)
+    if existing is not None and not existing.is_closed:
+        return existing
+    created: Final = httpx.AsyncClient(
+        timeout=30.0,
+        trust_env=False,
+        limits=httpx.Limits(max_connections=64, max_keepalive_connections=20),
+    )
+    if len(_SHARED_MANAGER_CLIENTS) > 8:
+        _SHARED_MANAGER_CLIENTS.clear()
+    _SHARED_MANAGER_CLIENTS[loop_id] = created
+    return created
+
+
 def _default_client() -> AccountPoolManagerClient:
     return AccountPoolManagerClient(
         base_url=os.getenv("ACCOUNT_POOL_MANAGER_URL", "http://account-pool:8091"),
         token=os.getenv("ACCOUNT_POOL_MANAGER_TOKEN"),
+        client=_shared_manager_http_client(),
     )
 
 

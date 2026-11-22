@@ -247,19 +247,68 @@ class ComposeRuntime:
             if not archive.getmembers():
                 raise ValueError("runtime volume backup is empty")
         image_process: Final = await self._runner(("docker", "image", "save", image_id), self._docker_environment())
-        image_data, _image_stderr = await communicate_with_timeout(image_process, self._settings.docker_command_timeout_seconds)
-        if image_process.returncode != 0:
-            raise ValueError("runtime image backup failed")
-        with tarfile.open(fileobj=io.BytesIO(image_data)) as archive:
-            archive.getmember("manifest.json")
-        if shutil.disk_usage(directory).free < len(image_data) * 2 + len(data):
-            raise ValueError("insufficient space for protected runtime backup")
-        files: Final = (("compose.yaml", compose), ("record.json", record.model_dump_json().encode()),
-                        ("data.tar", data), ("image.tar", image_data))
-        for name, content in files:
+        image_path: Final = directory / "image.tar"
+        image_tmp: Final = directory / ".image.tar.tmp"
+        image_stream: Final = getattr(image_process, "stdout", None)
+        if isinstance(image_stream, asyncio.StreamReader):
+            # 流式落盘镜像 tar 并计算校验和，避免 512MB Manager 进程一次性缓存整包 OOM。
+            digest = hashlib.sha256()
+            image_size = 0
+            fd: Final = os.open(image_tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    async with asyncio.timeout(self._settings.docker_command_timeout_seconds):
+                        while chunk := await image_stream.read(1024 * 1024):
+                            handle.write(chunk)
+                            digest.update(chunk)
+                            image_size += len(chunk)
+                        if image_process.stderr is not None:
+                            await image_process.stderr.read()
+                        await image_process.wait()
+            except BaseException:
+                image_tmp.unlink(missing_ok=True)
+                raise
+            if image_process.returncode != 0:
+                image_tmp.unlink(missing_ok=True)
+                raise ValueError("runtime image backup failed")
+            if shutil.disk_usage(directory).free < image_size + len(data):
+                image_tmp.unlink(missing_ok=True)
+                raise ValueError("insufficient space for protected runtime backup")
+            try:
+                with tarfile.open(image_tmp, mode="r") as archive:
+                    archive.getmember("manifest.json")
+            except Exception:
+                image_tmp.unlink(missing_ok=True)
+                raise
+            image_tmp.replace(image_path)
+            image_sha256: Final = digest.hexdigest()
+        else:
+            image_data, _image_stderr = await communicate_with_timeout(
+                image_process, self._settings.docker_command_timeout_seconds
+            )
+            if image_process.returncode != 0:
+                raise ValueError("runtime image backup failed")
+            with tarfile.open(fileobj=io.BytesIO(image_data)) as archive:
+                archive.getmember("manifest.json")
+            if shutil.disk_usage(directory).free < len(image_data) * 2 + len(data):
+                raise ValueError("insufficient space for protected runtime backup")
+            _write_private_bytes(image_path, image_data)
+            image_sha256 = hashlib.sha256(image_data).hexdigest()
+        meta_files: Final = (
+            ("compose.yaml", compose),
+            ("record.json", record.model_dump_json().encode()),
+            ("data.tar", data),
+        )
+        for name, content in meta_files:
             _write_private_bytes(directory / name, content)
         backup: Final = _RuntimeBackup(
-            image_id, running, state, tuple((name, hashlib.sha256(content).hexdigest()) for name, content in files),
+            image_id,
+            running,
+            state,
+            (
+                *((name, hashlib.sha256(content).hexdigest()) for name, content in meta_files),
+                ("image.tar", image_sha256),
+            ),
         )
         _write_private_bytes(directory / "manifest.json", _RUNTIME_BACKUP.dump_json(backup))
         return _load_runtime_backup(directory).state
