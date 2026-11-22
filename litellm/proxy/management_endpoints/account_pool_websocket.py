@@ -871,6 +871,7 @@ class _ResponsesRelay:
                     "http_status": 429,
                     "failure_reason": "quota_exhausted",
                     "upstream_code": str(error.get("code") or error.get("type")),
+                    "model_cooldown_seconds": 60,
                     "retryable": retry and not self.output_visible,
                     "switched_account": retry and not self.output_visible,
                     "next_account_id": next_account if not self.output_visible else None,

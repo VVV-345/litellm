@@ -1045,3 +1045,136 @@ def test_failed_refresh_keeps_known_exhaustion_and_reports_cached_freshness() ->
     status: Final = explain(uuid4(), RoutingSnapshot(quota=quota), "shared", now)
     assert status.eligible is False and status.reason == "quota_exhausted"
     assert status.gates[3].detail == "stale"
+
+
+@pytest.mark.asyncio
+async def test_chat_client_tools_and_signed_history_switch_on_gateway_quota_and_session_errors() -> None:
+    import httpx
+
+    from litellm.exceptions import RateLimitError, ServiceUnavailableError
+    from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
+
+    first, second = uuid4(), uuid4()
+    router = Router(model_list=[deployment(first), deployment(second, 1)], num_retries=0, max_fallbacks=2)
+    previous = snapshots.values
+    reset = pool_identity.set(PoolIdentity(key_hash="caller", request_id=uuid4()))
+    snapshots.replace(
+        {
+            str(card): RoutingSnapshot(
+                quota=RoutingQuota(remaining_percent=80, observed_at=datetime.now(timezone.utc)),
+                quota_switch_project=True,
+                fallback_enabled=True,
+            )
+            for card in (first, second)
+        }
+    )
+    attempts: list[tuple[str, object]] = []
+
+    async def quota_provider(**kwargs):
+        chosen = await router.async_get_available_deployment(model=kwargs["model"], request_kwargs=kwargs)
+        card = chosen["model_info"]["id"]
+        attempts.append((card, kwargs.get("messages")))
+        if card == str(first):
+            err = RateLimitError(
+                message="quota exhausted",
+                model="shared",
+                llm_provider="openai",
+                response=httpx.Response(
+                    429,
+                    headers={"x-account-pool-failure": "quota_exhausted"},
+                    request=httpx.Request("POST", "http://local/v1/chat/completions"),
+                ),
+            )
+            err.failed_deployment_id = card
+            raise err
+        return {"ok": True}
+
+    async def concurrency_provider(**kwargs):
+        chosen = await router.async_get_available_deployment(model=kwargs["model"], request_kwargs=kwargs)
+        card = chosen["model_info"]["id"]
+        if card == str(first):
+            err = ServiceUnavailableError(
+                message="busy",
+                model="shared",
+                llm_provider="openai",
+                response=httpx.Response(
+                    503,
+                    headers={"x-account-pool-failure": "account_unavailable", "x-account-pool-preflight": "rejected"},
+                    request=httpx.Request("POST", "http://local/v1/chat/completions"),
+                ),
+            )
+            err.failed_deployment_id = card
+            raise err
+        return {"ok": True}
+
+    async def session_provider(**kwargs):
+        chosen = await router.async_get_available_deployment(model=kwargs["model"], request_kwargs=kwargs)
+        card = chosen["model_info"]["id"]
+        if card == str(first):
+            err = AccountPoolSessionUnavailableError(
+                message="signed state unavailable", model="shared", llm_provider="account_pool"
+            )
+            err.failed_deployment_id = card
+            raise err
+        return {"ok": kwargs.get("messages")}
+
+    try:
+        # 1. Concurrency preflight rejection switches cards WITHOUT marking card A 0% depleted
+        res_busy = await router.async_function_with_fallbacks(
+            model="shared",
+            original_function=concurrency_provider,
+            messages=[{"role": "user", "content": "hi"}],
+            metadata={},
+        )
+        assert res_busy["ok"] is True
+        assert snapshots.values[str(first)].quota.remaining_percent == 80
+
+        # 2. Unscoped AccountPoolSessionUnavailableError strips thinking & switches to card B
+        res_sess = await router.async_function_with_fallbacks(
+            model="shared",
+            original_function=session_provider,
+            messages=[
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "secret", "signature": "sig-1"},
+                        {"type": "text", "text": "hello"},
+                    ],
+                },
+                {"role": "user", "content": "next"},
+            ],
+            metadata={"session_id": "sess-1"},
+        )
+        assert all(
+            block.get("type") != "thinking"
+            for msg in res_sess["ok"]
+            if isinstance(msg.get("content"), list)
+            for block in msg["content"]
+        )
+
+        # 3. Chat with client tools + thinking signature switches on real upstream 429 quota_exhausted
+        res_quota = await router.async_function_with_fallbacks(
+            model="shared",
+            original_function=quota_provider,
+            messages=[
+                {"role": "user", "content": "check weather"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "plan", "signature": "sig-2"},
+                        {"type": "text", "text": "checking"},
+                    ],
+                },
+                {"role": "user", "content": "continue"},
+            ],
+            tools=[{"type": "function", "function": {"name": "get_weather", "parameters": {"type": "object"}}}],
+            metadata={},
+        )
+        assert res_quota["ok"] is True
+        assert [card for card, _ in attempts] == [str(first), str(second)]
+        assert snapshots.values[str(first)].quota.remaining_percent == 0
+    finally:
+        pool_identity.reset(reset)
+        snapshots.replace(previous)
+        router.discard()

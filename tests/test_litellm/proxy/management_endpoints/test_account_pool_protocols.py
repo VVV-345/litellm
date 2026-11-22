@@ -457,3 +457,30 @@ async def test_websocket_continues_to_third_account_when_second_dial_fails():
     finally:
         await inbound.put({'type': 'websocket.disconnect', 'code': 1000})
         await asyncio.wait_for(task, 3)
+
+
+def test_realtime_url_and_internal_messages_auth_and_session_headers():
+    from litellm.llms.openai.realtime.handler import OpenAIRealtime
+    from litellm.llms.openai_like.messages.transformation import OpenAILikeAnthropicMessagesConfig
+    from litellm.proxy.management_endpoints.account_pool_integration import CARD_ROUTES
+
+    assert "/realtime" in CARD_ROUTES
+    realtime = OpenAIRealtime()
+    url = realtime._construct_url(
+        "http://127.0.0.1:4000/account_pool/internal/forward/card-1/v1",
+        {"model": "gpt-realtime"},
+    )
+    assert url == "ws://127.0.0.1:4000/account_pool/internal/forward/card-1/v1/realtime?model=gpt-realtime"
+
+    config = OpenAILikeAnthropicMessagesConfig()
+    headers, _ = config.validate_anthropic_messages_environment(
+        headers={"x-api-key": "client-key", "authorization": "Bearer client-key"},
+        model="claude-sonnet-4-5",
+        messages=[],
+        optional_params={},
+        litellm_params={},
+        api_key="internal-ticket-token",
+        api_base="http://127.0.0.1:4000/account_pool/internal/forward/card-1/v1",
+    )
+    assert headers["authorization"] == "Bearer internal-ticket-token"
+    assert "x-api-key" not in {k.lower() for k in headers}

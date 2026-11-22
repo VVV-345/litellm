@@ -36,13 +36,22 @@ class OpenAILikeAnthropicMessagesConfig(AnthropicMessagesConfig):
         api_base: str | None = None,
     ) -> tuple[dict[str, str], str | None]:
         present: Final = {key.lower() for key in headers}
-        needs_auth: Final = bool(api_key) and "authorization" not in present and "x-api-key" not in present
+        internal_forward: Final = bool(api_base and "/account_pool/internal/forward/" in api_base)
+        # 内部号池转发必须携带网关签发的临时票据，不能被客户端入站 authorization / x-api-key 覆盖导致 401。
+        cleaned_headers: Final = (
+            {key: value for key, value in headers.items() if key.lower() not in ("authorization", "x-api-key")}
+            if internal_forward and api_key
+            else headers
+        )
+        needs_auth: Final = bool(api_key) and (
+            internal_forward or ("authorization" not in present and "x-api-key" not in present)
+        )
         defaults: Final[dict[str, str]] = {
             **({"authorization": f"Bearer {api_key}"} if needs_auth else {}),
             **({"anthropic-version": DEFAULT_ANTHROPIC_API_VERSION} if "anthropic-version" not in present else {}),
             **({"content-type": "application/json"} if "content-type" not in present else {}),
         }
-        combined: Final = {**headers, **defaults}
+        combined: Final = {**cleaned_headers, **defaults}
         normalized: Final = {
             ("anthropic-beta" if key.lower() == "anthropic-beta" else key): value for key, value in combined.items()
         }

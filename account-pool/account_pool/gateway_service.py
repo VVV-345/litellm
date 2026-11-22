@@ -360,7 +360,7 @@ class GatewayService:
             full_log_state=request.full_log_state,
             spend_sync_state=request.spend_sync_state,
         )
-        cooldown: Final = 300 if request.http_status in (401, 403) and not request_scoped else 0
+        cooldown: Final = 300 if request.http_status in (401, 402, 403) and not request_scoped else 0
         actual_tokens: Final = (
             0
             if failed

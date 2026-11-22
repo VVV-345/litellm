@@ -122,3 +122,14 @@ def test_non_cloudflare_auth_failure_stays_account_unavailable(status, body):
 )
 def test_cloudflare_bot_block_response_uses_plain_text_only_when_json_fails(body, matched):
     assert is_cloudflare_bot_block_response(body) is matched
+
+
+def test_headers_are_case_insensitive_and_naive_retry_after_date_is_safe():
+    from litellm.proxy.management_endpoints.account_pool_failover import exception_header
+    from litellm.proxy.management_endpoints.account_pool_retry import retry_after
+
+    class DictHeaderError(Exception):
+        headers = {"X-Account-Pool-Failure": "quota_exhausted"}
+
+    assert exception_header(DictHeaderError(), "x-account-pool-failure") == "quota_exhausted"
+    assert retry_after({"retry-after": "Wed, 21 Oct 2015 07:28:00"}) == 0

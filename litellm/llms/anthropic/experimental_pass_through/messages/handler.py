@@ -579,8 +579,20 @@ def anthropic_messages_handler(
             message="GLM standard API cannot losslessly convert Messages thinking; use Chat thinking and reasoning_effort",
         )
     if anthropic_messages_provider_config is None:
+        pool_chat_only = False
+        if isinstance(deployment_info, dict) and deployment_info.get("managed_by") == "account_pool":
+            from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots as pool_snapshots
+
+            env_id = deployment_info.get("account_pool_environment_id")
+            card_snapshot = pool_snapshots.values.get(str(env_id)) if env_id is not None else None
+            if (
+                card_snapshot is not None
+                and card_snapshot.supported_protocols is not None
+                and "responses" not in card_snapshot.supported_protocols
+            ):
+                pool_chat_only = True
         # Route to Responses API for OpenAI / Azure, chat/completions for everything else.
-        if _should_route_to_responses_api(custom_llm_provider, original_model, model):
+        if not pool_chat_only and _should_route_to_responses_api(custom_llm_provider, original_model, model):
             return LiteLLMMessagesToResponsesAPIHandler.anthropic_messages_handler(
                 max_tokens=max_tokens,
                 messages=messages,

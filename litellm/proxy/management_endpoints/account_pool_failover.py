@@ -340,7 +340,16 @@ def exception_header(error: BaseException, name: str, depth: int = 0) -> str | N
         ),
         *((response.headers,) if isinstance(response, httpx.Response) else ()),
     )
-    found: Final = next((value for mapping in mappings if isinstance(value := mapping.get(name), str)), None)
+    target: Final = name.lower()
+    found: Final = next(
+        (
+            value
+            for mapping in mappings
+            for key, value in mapping.items()
+            if isinstance(key, str) and key.lower() == target and isinstance(value, str)
+        ),
+        None,
+    )
     if found is not None:
         return found
     previous: Final = error.__cause__ or error.__context__

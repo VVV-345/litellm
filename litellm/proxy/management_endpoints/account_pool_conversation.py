@@ -42,6 +42,7 @@ from litellm.proxy.management_endpoints.account_pool_native_routing import (
     quota_depleted,
     quota_failover_exclusions,
     snapshot_for,
+    unavailable_reason,
     unavailable_snapshot,
 )
 from litellm.proxy.management_endpoints.account_pool_native_routing import snapshots as quota_snapshots
@@ -69,10 +70,21 @@ _INPUT: Final = TypeAdapter(list[dict[str, JsonValue]])
 _EXCLUSIONS: Final = TypeAdapter(tuple[str, ...])
 _DEPLOYMENTS: Final = TypeAdapter(tuple[Mapping[str, object], ...])
 _FIELDS: Final = frozenset(("input", "tools", "functions", "background", "conversation", "store", "truncation", "instructions", "extra_body"))
-_MAX_BYTES: Final = 256 * 1024
+_MAX_BYTES: Final = 1024 * 1024
 _TTL: Final = 3600
 _MAX_FALLBACKS: Final = 5
 _Result = TypeVar("_Result")
+
+
+def _conversation_max_bytes() -> int:
+    raw: Final = os.getenv("ACCOUNT_POOL_CONVERSATION_MAX_BYTES", "").strip()
+    if not raw:
+        return _MAX_BYTES
+    try:
+        parsed: Final = int(raw)
+    except ValueError:
+        return _MAX_BYTES
+    return max(64 * 1024, min(8 * 1024 * 1024, parsed))
 
 
 def _degraded_continuation_enabled() -> bool:
@@ -121,12 +133,13 @@ class ConversationStore:
         return "account-pool-conversation:v1:" + hmac.new(self.secret.encode(), material, hashlib.sha256).hexdigest()
 
     async def load(self, identity: PoolIdentity, model: str, response_id: str) -> ConversationRecord | None:
+        max_bytes: Final = _conversation_max_bytes()
         try:
             cached: Final = cast(  # cast-ok: Narrow untyped cache values before validation.
                 object,
                 await self.cache.async_get_cache(self.key(identity, model, response_id)),  # pyright: ignore[reportUnknownMemberType]  # Validate untyped DualCache output below.
             )
-            if not isinstance(cached, str) or len(cached) > _MAX_BYTES * 2:
+            if not isinstance(cached, str) or len(cached) > max_bytes * 2:
                 verbose_proxy_logger.debug("Account pool conversation unavailable; reason=missing_or_invalid_record")
                 return None
             record: Final = ConversationRecord.model_validate_json(
@@ -142,7 +155,7 @@ class ConversationStore:
 
     async def save(self, identity: PoolIdentity, model: str, response_id: str, record: ConversationRecord) -> None:
         serialized: Final = record.model_dump_json()
-        if len(serialized.encode()) > _MAX_BYTES:
+        if len(serialized.encode()) > _conversation_max_bytes():
             verbose_proxy_logger.warning("Account pool conversation not retained; reason=history_too_large")
             return
         try:
@@ -358,12 +371,16 @@ class Conversation:
             return None
         deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
         origin: Final = next((item for item in deployments if deployment_id(item) == self.origin), None)
-        if origin is None:
+        origin_snapshot: Final = snapshot_for(origin, quota_snapshots.values) if origin is not None else None
+        # 原卡已下线、禁用、进入模型冷却、订阅过期或耗尽时，都可以提前迁移到健康卡。
+        origin_unavailable: Final = (
+            origin is None
+            or origin.get("blocked") is True
+            or (origin_snapshot is not None and unavailable_reason(origin_snapshot, self.model, now_utc()) is not None)
+        )
+        if not origin_unavailable:
             return None
-        snapshot: Final = snapshot_for(origin, quota_snapshots.values)
-        if snapshot is None:
-            return None
-        if not quota_depleted(snapshot, self.model, now_utc()):
+        if origin is not None and origin_snapshot is None and origin.get("blocked") is not True:
             return None
         if not self._history_replayable() or self.history is None:
             raise ConversationUnavailableError()
@@ -498,7 +515,11 @@ class Conversation:
             ),
         ):
             return True
-        if exception_failure(error) == "quota_exhausted" or exception_header(error, "x-account-pool-failure") in ("rate_limited", "budget_exhausted"):
+        failure: Final = exception_failure(error)
+        if failure == "request_rejected":
+            return False
+        raw_failure: Final = exception_header(error, "x-account-pool-failure")
+        if failure in ("quota_exhausted", "rate_limit") or raw_failure in ("rate_limit", "rate_limited", "budget_exhausted"):
             return True
         return (
             isinstance(error, ServiceUnavailableError)

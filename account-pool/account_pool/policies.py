@@ -69,7 +69,7 @@ class RoutingPolicy(BaseModel):
     @field_validator("retryable_statuses")
     @classmethod
     def safe_retry_statuses(cls, values: tuple[int, ...]) -> tuple[int, ...]:
-        if any(value not in (408, 429, 500, 502, 503, 504) for value in values):
+        if any(value not in (408, 429, 500, 502, 503, 504, 529) for value in values):
             raise ValueError("retryable_statuses contains a non-retryable status")
         return tuple(dict.fromkeys(values))
 

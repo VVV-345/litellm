@@ -152,6 +152,7 @@ def unavailable_snapshot(error: Exception, deployments: Sequence[Mapping[str, ob
     if reason in ("rate_limit", "upstream_unavailable") and replay != "retry-exhausted":
         return None
     failed: Final = getattr(error, "failed_deployment_id", None)
+    preflight: Final = preflight_rejected(error)
     return next(
         (
             snapshot
@@ -162,7 +163,7 @@ def unavailable_snapshot(error: Exception, deployments: Sequence[Mapping[str, ob
             ).get("id")
             == failed
             and (snapshot := snapshot_for(deployment, snapshots.values)) is not None
-            and snapshot.fallback_enabled
+            and (snapshot.fallback_enabled or (preflight and reason == "account_unavailable" and snapshot.quota_switch_project))
         ),
         None,
     )

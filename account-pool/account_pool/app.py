@@ -154,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         policies=policies,
         ownership=ownership,
         cleanup_browser=cleanup_browser,
+        runtime_cooldowns=leases.cooling,
     )
     batch_service: Final = BatchService(
         batches,

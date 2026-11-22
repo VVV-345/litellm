@@ -558,7 +558,7 @@ async def forward(
                 failure_headers("quota_exhausted")
                 if quota_limited
                 else failure_headers("account_unavailable")
-                if status == 503
+                if status == 503 or budget_only
                 else _EMPTY_HEADERS
             ),
             # 整个请求均未尝试发送上游时，才能承诺执行前拒绝。
@@ -641,9 +641,11 @@ async def forward_candidate(
         if lease.reason in ("configuration", "session"):
             return False, rejection_reasons | frozenset((lease.reason,))
         wait: Final = lease.retry_after_seconds
+        # 内部转发路径由外层 Router 负责多卡切换，不能在单卡冷却上死等 119 秒。
         if (
             lease.reason == "cooldown"
             and wait > 0
+            and not getattr(request.state, "account_pool_standard_accounting", False)
             and route_index + 1 >= len(selected)
             and asyncio.get_running_loop().time() + wait < deadline
         ):
@@ -760,10 +762,17 @@ async def forward_candidate(
             )
         )
         if asyncio.get_running_loop().time() + delay >= deadline:
+            deadline_reason: Final = attempt.result.failure_reason or "upstream_unavailable"
             await JSONResponse(
                 {"error": {"message": "Retry deadline exhausted", "code": "retry_deadline_exceeded"}},
                 status_code=503,
-                headers={"Retry-After": str(max(1, math.ceil(delay)))},
+                headers={
+                    "Retry-After": str(max(1, math.ceil(delay))),
+                    **failure_headers(
+                        deadline_reason,
+                        exhausted=resolution.policy.routing.fallback_enabled,
+                    ),
+                },
             )(request.scope, request.receive, attempt.emit)
             return True, frozenset()
         await asyncio.sleep(delay)
@@ -961,7 +970,7 @@ async def execute(
                         not signature_error(error_payload)
                         and failure.retryable
                         and (
-                            retry_allowed(resolution, response.status_code)
+                            retry_allowed(resolution, public_status)
                             or failure.reason in ("model_unavailable", "account_unavailable")
                         )
                         and (
@@ -1555,13 +1564,16 @@ async def guarded_stream_response(
                     resolution.sse_heartbeat_interval_seconds,
                 )
                 return True
+            retry_after_header: Final = max(
+                attempt.result.model_cooldown_seconds, attempt.result.retry_after_seconds
+            )
             await JSONResponse(
                 {"error": bootstrap.state.public_error()},
                 status_code=bootstrap.state.error_status,
                 headers={
                     **(
-                        {"Retry-After": str(attempt.result.model_cooldown_seconds)}
-                        if attempt.result.model_cooldown_seconds
+                        {"Retry-After": str(retry_after_header)}
+                        if retry_after_header
                         else {}
                     ),
                     **rebuild_headers(request, resolution, retryable and not signature_recovered),

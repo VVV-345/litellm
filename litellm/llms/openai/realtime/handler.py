@@ -89,8 +89,17 @@ class OpenAIRealtime(OpenAIChatCompletion):
         api_base = api_base.replace("https://", "wss://")
         api_base = api_base.replace("http://", "ws://")
         url = URL(api_base)
-        # Set the correct path
-        url = url.copy_with(path="/v1/realtime")
+        # Preserve internal forwarding / custom base path prefix (e.g. /account_pool/internal/forward/{id}/v1)
+        base_path = url.path.rstrip("/")
+        if base_path.endswith("/realtime"):
+            target_path = base_path
+        elif base_path.endswith("/v1"):
+            target_path = f"{base_path}/realtime"
+        elif base_path:
+            target_path = f"{base_path}/v1/realtime"
+        else:
+            target_path = "/v1/realtime"
+        url = url.copy_with(path=target_path)
         # Include all query parameters including 'model'
         if query_params:
             url = url.copy_with(params=query_params)

@@ -106,6 +106,7 @@ class EnvironmentService:
         policies: PolicyRepository | None = None,
         ownership: CredentialOwnership | None = None,
         cleanup_browser: Callable[[UUID], Awaitable[None]] | None = None,
+        runtime_cooldowns: Callable[[], Awaitable[tuple[UUID, ...]]] | None = None,
         direct_credential_validation_timeout_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
         direct_credential_validation_interval_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
     ) -> None:
@@ -127,6 +128,7 @@ class EnvironmentService:
         self._error_logs: Final = error_logs
         self._global_settings: Final = global_settings
         self._policies: Final = policies
+        self._runtime_cooldowns: Final = runtime_cooldowns
         self._direct_credential_validation_timeout_seconds: Final = direct_credential_validation_timeout_seconds
         self._direct_credential_validation_interval_seconds: Final = direct_credential_validation_interval_seconds
 
@@ -576,10 +578,12 @@ class EnvironmentService:
 
         refreshed: Final = await asyncio.gather(*(refresh_one(record) for record in records))
         policies: Final = () if self._policies is None else await self._policies.list()
+        cooling_ids: Final = frozenset() if self._runtime_cooldowns is None else frozenset(await self._runtime_cooldowns())
         by_card: Final = {entry.card_id: entry for entry in policies}
         return tuple(
             endpoint.model_copy(
                 update={
+                    "routable": endpoint.routable and record.id not in cooling_ids,
                     "policy_version": stored.version,
                     "quota": routing_quota(record),
                     "model_quotas": record.model_quotas,

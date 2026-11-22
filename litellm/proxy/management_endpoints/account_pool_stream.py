@@ -209,7 +209,11 @@ class EventStream:
             nested: Final = response.get("error") if isinstance(response, dict) else event.get("error")
             error: Final = nested if isinstance(nested, dict) else event
             self.error_info = MappingProxyType(
-                {key: error[key] for key in ("code", "type", "resets_in_seconds", "resets_at") if key in error}
+                {
+                    key: error[key]
+                    for key in ("code", "type", "resets_in_seconds", "resets_at", "retry_after", "retry_after_seconds")
+                    if key in error
+                }
             )
             from litellm.proxy.management_endpoints.account_pool_signature import signature_error
 

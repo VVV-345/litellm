@@ -491,7 +491,11 @@ async def test_cache_is_encrypted_scoped_bounded_and_expiring():
     import time
 
     from litellm.caching.dual_cache import DualCache
-    from litellm.proxy.management_endpoints.account_pool_conversation import ConversationRecord, ConversationStore
+    from litellm.proxy.management_endpoints.account_pool_conversation import (
+        _MAX_BYTES,
+        ConversationRecord,
+        ConversationStore,
+    )
 
     cache = DualCache()
     store = ConversationStore(cache, "secret-for-unit-test" * 3)
@@ -513,7 +517,7 @@ async def test_cache_is_encrypted_scoped_bounded_and_expiring():
         "oversize",
         record.model_copy(
             update={
-                "input": ({"role": "user", "content": "x" * 300000},),
+                "input": ({"role": "user", "content": "x" * (_MAX_BYTES + 4096)},),
             }
         ),
     )

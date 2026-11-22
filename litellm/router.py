@@ -7162,23 +7162,93 @@ class Router:
         if disable_fallbacks is True or original_model_group is None:
             raise e
 
-        from litellm.proxy.management_endpoints.account_pool_session import AccountPoolSessionUnavailableError
-
-        if isinstance(e, AccountPoolSessionUnavailableError):
-            raise e
-
+        from litellm.exceptions import MidStreamFallbackError
+        from litellm.proxy.management_endpoints.account_pool_failover import exception_failure, exception_header
         from litellm.proxy.management_endpoints.account_pool_integration import pool_identity
-        from litellm.proxy.management_endpoints.account_pool_native_routing import preflight_rejected
+        from litellm.proxy.management_endpoints.account_pool_native_routing import (
+            deplete_failed_deployment,
+            exhausted_snapshot,
+            preflight_rejected,
+            quota_failover_exclusions,
+            unavailable_snapshot,
+        )
         from litellm.proxy.management_endpoints.account_pool_retry import failover_rebuildable, replay_safe
-        from litellm.proxy.management_endpoints.account_pool_session import has_signed_history
+        from litellm.proxy.management_endpoints.account_pool_session import (
+            AccountPoolSessionUnavailableError,
+            has_signed_history,
+        )
         from litellm.proxy.management_endpoints.account_pool_signature import safe_signature_recovery
 
+        if isinstance(e, AccountPoolSessionUnavailableError):
+            session_identity: Final = pool_identity.get()
+            if (
+                session_identity is None
+                or session_identity.card_id is not None
+                or kwargs.get("previous_response_id")
+            ):
+                raise e
+            recovered_session: Final = safe_signature_recovery(kwargs)
+            if recovered_session is None:
+                raise e
+            session_deployments: Final = self.get_model_list(model_name=original_model_group) or []
+            session_metadata_name: Final = self._get_metadata_variable_name_from_kwargs(kwargs)
+            session_metadata: Final = {
+                key: value
+                for key, value in (kwargs.get(session_metadata_name) or {}).items()
+                if key != "session_id"
+            }
+            session_excluded: Final = quota_failover_exclusions(
+                session_deployments,
+                getattr(e, "failed_deployment_id", ""),
+                session_metadata.get("_quota_excluded_ids") or (),
+                original_model_group,
+            )
+            if not any(
+                (item.get("model_info") or {}).get("id") not in session_excluded for item in session_deployments
+            ):
+                raise e
+            session_input: Final = {
+                "litellm_router": self,
+                "original_exception": original_exception,
+                **recovered_session,
+                session_metadata_name: {
+                    **session_metadata,
+                    "account_pool_signed_continuation": False,
+                    "_quota_excluded_ids": list(session_excluded),
+                },
+                "fallback_model_group": [
+                    {"model": original_model_group, "_excluded_deployment_ids": list(session_excluded)}
+                ],
+                "original_model_group": original_model_group,
+            }
+            if "max_fallbacks" not in session_input:
+                session_input["max_fallbacks"] = self.max_fallbacks
+            if "fallback_depth" not in session_input:
+                session_input["fallback_depth"] = 0
+            if include_fallback_errors:
+                session_input["include_fallback_errors"] = True
+            return await run_async_fallback(*args, **session_input)
+
         preflight: Final = preflight_rejected(e)
-        # 带签名历史的会话原本不可跨卡；执行前被拒时上游未被调用，可以剥离推理后换卡。
+        mid_stream_output: Final = isinstance(e, MidStreamFallbackError) and (
+            not e.is_pre_first_chunk or e.generated_content
+        )
+        failure_kind: Final = exception_failure(e)
+        # Responses API 的非执行前故障统一交给 Conversation.recover 按严格/降级策略处理；
+        # Chat / Messages 在网关输出前失败时允许客户端工具与去签名历史换卡。
+        gateway_pre_output: Final = preflight or (
+            "input" not in kwargs
+            and not mid_stream_output
+            and failure_kind
+            in ("quota_exhausted", "account_unavailable", "model_unavailable", "rate_limit", "upstream_unavailable")
+            and exception_header(e, "x-account-pool-rebuild") != "disabled"
+        )
+        signed_history: Final = has_signed_history(kwargs)
+        # 带签名历史的会话在已有输出或非网关预输出分类时不可跨卡；输出前失败可剥离推理后换卡。
         if (
             pool_identity.get() is not None
-            and not preflight
-            and has_signed_history(kwargs)
+            and not gateway_pre_output
+            and signed_history
             and any(
                 (item.get("model_info") or {}).get("account_pool_environment_id")
                 for item in (self.get_model_list(model_name=original_model_group) or [])
@@ -7190,16 +7260,9 @@ class Router:
             "account_pool_attempt"
         )
 
-        from litellm.proxy.management_endpoints.account_pool_native_routing import (
-            deplete_failed_deployment,
-            exhausted_snapshot,
-            quota_failover_exclusions,
-            unavailable_snapshot,
-        )
-
-        rebuildable: Final = failover_rebuildable(kwargs)
-        # 执行前被拒说明上游未被调用，带推理签名的会话可以剥离推理后换卡继续。
-        stripped: Final = safe_signature_recovery(kwargs) if preflight and not rebuildable else None
+        rebuildable: Final = failover_rebuildable(kwargs) and not signed_history
+        # 输出前失败且含签名或无法直接原样重放时，剥离不可移植的思考签名再换卡继续。
+        stripped: Final = safe_signature_recovery(kwargs) if gateway_pre_output and (signed_history or not rebuildable) else None
         input_kwargs: Final = {
             "litellm_router": self,
             "original_exception": original_exception,
@@ -7219,8 +7282,8 @@ class Router:
         quota_settings: Final = depleted_settings or unavailable_settings
         if quota_settings is not None:
             # 额度耗尽由号池显式开关接管，不再受 weighted failover 的策略限制。
-            # 网关在执行前拒绝时上游尚未被调用，只要请求不依赖原卡状态就可以换卡。
-            if not replay_safe(kwargs) and not (preflight and (rebuildable or stripped is not None)):
+            # 网关在输出前判定失败且请求不依赖原卡服务端状态时，允许客户端工具和去签名历史换卡。
+            if not replay_safe(kwargs) and not (gateway_pre_output and (rebuildable or stripped is not None)):
                 raise e
             quota_metadata_name: Final = self._get_metadata_variable_name_from_kwargs(kwargs)
             quota_metadata: Final = kwargs.get(quota_metadata_name) or {}
@@ -7239,11 +7302,12 @@ class Router:
                 else self.fallbacks
             )
             quota_previews, _ = get_fallback_model_group(fallbacks=quota_mappings or [], model_group=original_model_group)
-            if preflight:
+            # 仅在真实额度耗尽时立即标记零额度，避免并发满或短暂异常把健康卡误打死。
+            if failure_kind == "quota_exhausted" or (depleted_settings is not None and not preflight):
                 deplete_failed_deployment(e, quota_deployments, original_model_group)
             # 网关执行前拒绝说明该卡当下不可用，即使未开启额度换卡也应排除它并重试其他卡。
             switch_cards: Final = (
-                (quota_settings.quota_switch_project or preflight_rejected(e))
+                (quota_settings.quota_switch_project or preflight)
                 if depleted_settings
                 else unavailable_settings is not None
             )
@@ -7261,7 +7325,11 @@ class Router:
                 *args,
                 **{
                     **input_kwargs,
-                    quota_metadata_name: {**quota_metadata, "_quota_excluded_ids": list(quota_excluded)},
+                    quota_metadata_name: {
+                        **quota_metadata,
+                        **({"account_pool_signed_continuation": False} if stripped is not None else {}),
+                        "_quota_excluded_ids": list(quota_excluded),
+                    },
                     "fallback_model_group": quota_targets,
                     "original_model_group": original_model_group,
                 },

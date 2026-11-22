@@ -186,13 +186,14 @@ def has_server_reference(value: object) -> bool:
 def retry_after(headers: Mapping[str, str]) -> int:
     raw: Final = headers.get("retry-after")
     try:
-        seconds: Final = (
-            float(raw)
-            if raw is not None and raw.strip().replace(".", "", 1).isdigit()
-            else (parsedate_to_datetime(raw) - datetime.now(timezone.utc)).total_seconds()
-            if raw
-            else float(headers.get("retry-after-ms", "0")) / 1000
-        )
+        if raw is not None and raw.strip().replace(".", "", 1).isdigit():
+            seconds: float = float(raw)
+        elif raw:
+            parsed: Final = parsedate_to_datetime(raw)
+            aware: Final = parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+            seconds = (aware - datetime.now(timezone.utc)).total_seconds()
+        else:
+            seconds = float(headers.get("retry-after-ms", "0")) / 1000
         return min(86400, max(0, math.ceil(seconds))) if math.isfinite(seconds) else 0
     except (ValueError, TypeError, OverflowError):
         return 0
