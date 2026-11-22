@@ -37,6 +37,7 @@ import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
 import { canManageAccountPool } from "@/features/account-pool/utils/AccountPoolPermissions";
 import { useTranslation } from "react-i18next";
+import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import useCan from "@/app/(dashboard)/hooks/useCan";
 import RequestLogsPanel from "./RequestLogsPanel";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -64,11 +65,12 @@ const DELETED_TEAMS_TAB: LogsTab = { id: "deleted teams", label: "Deleted Teams"
 
 export default function SpendLogsTable({ accessToken, token, userRole, userID, premiumUser }: SpendLogsTableProps) {
   const { t } = useTranslation();
+  const { isViewOnly } = useAuthorized();
   const [{ log_view, account_id }, setLogParams] = useQueryStates({
     log_view: parseAsString.withDefault("request logs"),
     account_id: parseAsString,
   });
-  const canManageLogs = canManageAccountPool(userRole, false);
+  const canManageLogs = canManageAccountPool(userRole, Boolean(isViewOnly));
   useEffect(() => {
     if (!canManageLogs || !accessToken) return;
     return schedulePreloads(LOG_MODULE_LOADERS);

@@ -24,7 +24,8 @@ type AccountPoolPluginSourceError = {
   message: string;
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readString = (value: unknown, fallback = "") => (typeof value === "string" ? value : fallback);
 

@@ -66,12 +66,20 @@ export function AccountPoolReleaseConfirmation({
   const heading = useRef<HTMLHeadingElement>(null);
   const [now, setNow] = useState(Date.now);
   const [forceText, setForceText] = useState("");
+  const countdownEnd = openedAt + confirmation.delay_seconds * 1000;
+  const expiresAt = openedAt + (confirmation.expires_in_seconds ?? 300) * 1000;
+  const remaining = Math.max(0, Math.ceil((countdownEnd - now) / 1000));
+  const expired = now >= expiresAt;
+  const stillCounting = remaining > 0;
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 200);
-    return () => clearInterval(timer);
-  }, []);
-  const remaining = Math.max(0, Math.ceil((openedAt + confirmation.delay_seconds * 1000 - now) / 1000));
-  const expired = now >= openedAt + (confirmation.expires_in_seconds ?? 300) * 1000;
+    if (expired) return;
+    if (stillCounting) {
+      const timer = setInterval(() => setNow(Date.now()), 200);
+      return () => clearInterval(timer);
+    }
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [expired, expiresAt, stillCounting]);
   const editing = confirmation.action.action === "note" || confirmation.action.action === "guide";
   const rollback = confirmation.action.action === "apply";
   const forced = confirmation.action.force === true;

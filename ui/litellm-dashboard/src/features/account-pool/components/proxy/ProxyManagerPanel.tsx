@@ -26,6 +26,7 @@ interface ProxyManagerPanelProps {
   enabled: boolean;
   environments: AccountPoolEnvironment[];
   environmentsLoading: boolean;
+  defaultProxyProfileId?: string | null;
 }
 
 export const ProxyManagerPanel = ({
@@ -33,6 +34,7 @@ export const ProxyManagerPanel = ({
   enabled,
   environments,
   environmentsLoading,
+  defaultProxyProfileId = null,
 }: ProxyManagerPanelProps) => {
   const { t } = useTranslation();
   const {
@@ -78,6 +80,18 @@ export const ProxyManagerPanel = ({
   const [configurationSaved, setConfigurationSaved] = useState(false);
 
   if (!enabled) return null;
+
+  const cardCountsByProfile = new Map<string, number>();
+  if (!environmentsLoading) {
+    for (const environment of environments) {
+      const targetProfileId =
+        environment.proxy_profile_id ??
+        (environment.proxy_mode === "default_gateway" ? defaultProxyProfileId : null);
+      if (targetProfileId) {
+        cardCountsByProfile.set(targetProfileId, (cardCountsByProfile.get(targetProfileId) ?? 0) + 1);
+      }
+    }
+  }
 
   const switching =
     switchMutation.isPending ||
@@ -211,7 +225,7 @@ export const ProxyManagerPanel = ({
                       variant="ghost"
                       size="sm"
                       onClick={refetchGateways}
-                      disabled={gatewaysLoading || delaysLoading}
+                      disabled={gatewaysLoading}
                     >
                       {t("accountPool.retry")}
                     </Button>
@@ -246,15 +260,14 @@ export const ProxyManagerPanel = ({
                       cardCount={
                         environmentsLoading
                           ? null
-                          : environments.filter((environment) => environment.proxy_profile_id === gateway.profile_id)
-                              .length
+                          : (cardCountsByProfile.get(gateway.profile_id) ?? 0)
                       }
                       delay={delays.find(
                         (result) => result.port === gateway.port && result.current_node === gateway.current_node,
                       )}
                       delaysLoading={delaysLoading}
                       delaysError={delaysError}
-                      disabled={switching || delaysLoading || nodesLoading || (nodes.length === 0 && isps.length === 0)}
+                      disabled={switching || nodesLoading || (nodes.length === 0 && isps.length === 0)}
                       onSelectNode={(nodeName) => switchMutation.mutate({ port: gateway.port, nodeName })}
                       onBindISP={(profileId) => bindISPMutation.mutate({ port: gateway.port, profileId })}
                       onBindFront={(nodeName) => bindFrontMutation.mutate({ port: gateway.port, nodeName })}
@@ -262,7 +275,7 @@ export const ProxyManagerPanel = ({
                     />
                   ))}
                 </div>
-                {bindISPMutation.isError && (
+                {(bindISPMutation.isError || bindFrontMutation.isError) && (
                   <p className="mt-3 text-xs text-destructive" role="alert">
                     {t("accountPool.proxyGateways.switchFailed")}
                   </p>

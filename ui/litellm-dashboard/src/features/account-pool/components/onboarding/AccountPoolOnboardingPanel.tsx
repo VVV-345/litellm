@@ -21,9 +21,12 @@ import {
   previewOnboarding,
   submitOnboarding,
   type OnboardingImport,
+  type OnboardingItem,
   type OnboardingPreview,
 } from "../../api/AccountPoolOnboardingApi";
-import { getAccountPoolSettings } from "../../api/AccountPoolManagementApi";
+import { createAccountPoolJobId, getAccountPoolSettings } from "../../api/AccountPoolManagementApi";
+
+const ACTIVE_ONBOARDING_STATES = new Set<OnboardingItem["state"]>(["queued", "running", "awaiting_authorization"]);
 import { AccountPoolOnboardingTasks } from "./AccountPoolOnboardingTasks";
 import { AccountPoolOnboardingCleanup } from "./AccountPoolOnboardingCleanup";
 import { mergeAuthFileTemplate } from "../../utils/AuthFileTemplate";
@@ -242,13 +245,21 @@ export function AccountPoolOnboardingPanel({
     missingTemplateProxy ||
     (source === "auth_file" && useTemplate && !template);
   const queryKey = accountPoolQueryKeys.onboarding(accessToken);
-  const query = useQuery({ queryKey, queryFn: () => listOnboarding(accessToken), refetchInterval: 5000 });
+  const query = useQuery({
+    queryKey,
+    queryFn: () => listOnboarding(accessToken),
+    refetchInterval: (q) =>
+      q.state.data?.some((item) => ACTIVE_ONBOARDING_STATES.has(item.state)) ? 5000 : false,
+  });
   const reset = () => {
     setRequest(null);
     setPreview([]);
   };
   const refresh = async () => {
-    await client.invalidateQueries({ queryKey: accountPoolQueryKeys.all });
+    await Promise.all([
+      client.invalidateQueries({ queryKey: accountPoolQueryKeys.onboarding(accessToken) }),
+      client.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot }),
+    ]);
   };
   const readFiles = async (files: File[]) => {
     reset();
@@ -284,7 +295,7 @@ export function AccountPoolOnboardingPanel({
           ? entries.map((entry) => ({ ...entry, content: mergeAuthFileTemplate(entry.content, template) }))
           : entries;
       const body: OnboardingImport = {
-        job_id: crypto.randomUUID(),
+        job_id: createAccountPoolJobId(),
         source,
         ...(fileFormat ? { auth_file_format: fileFormat } : {}),
         supplier,

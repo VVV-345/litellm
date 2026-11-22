@@ -218,7 +218,7 @@ export const fetchUserModels = async (
  */
 const CreateKey: React.FC<CreateKeyProps> = ({ team, teams, data, addKey, autoOpenCreate, prefillData }) => {
   const { t } = useTranslation();
-  const { accessToken, userId: userID, userRole, premiumUser } = useAuthorized();
+  const { accessToken, userId: userID, userRole, premiumUser, isViewOnly } = useAuthorized();
   const canEditGuardrails = premiumUser || (userRole != null && rolesWithWriteAccess.includes(userRole));
   const canViewPolicies = useCan("viewPolicies");
   const canViewPrompts = useCan("viewPrompts");
@@ -246,7 +246,7 @@ const CreateKey: React.FC<CreateKeyProps> = ({ team, teams, data, addKey, autoOp
   const registry = useMountRegistry();
   const mountedForm = useMemo(() => ({ control: form.control, registry }), [form.control, registry]);
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const canBindAccount = canManageAccountPool(userRole, false);
+  const canBindAccount = canManageAccountPool(userRole, isViewOnly);
   const accounts = useAccountPoolQuery(accessToken, canBindAccount && isModalVisible, false);
   const selectedAccountId = useWatch({ control: form.control, name: "account_id" }) as string | undefined;
   const selectedAccount = accounts.data?.find((account) => account.id === selectedAccountId);

@@ -151,6 +151,7 @@ describe("createAccountPoolEnvironment", () => {
     });
     expect(postMock).toHaveBeenCalledWith("/account_pool/proxy-gateways/7891/probe", {
       accessToken: "token-123",
+      invalidateOnSuccess: false,
     });
   });
 });

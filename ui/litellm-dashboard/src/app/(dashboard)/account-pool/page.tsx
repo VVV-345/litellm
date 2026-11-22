@@ -166,6 +166,7 @@ export default function AccountPoolPage() {
   };
   const [createSupplier, setCreateSupplier] = useState<AccountPoolCreationSupplier>("openai_codex");
   const [refreshingQuotas, setRefreshingQuotas] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(() => searchParams?.get("section") === "plugins");
   const canManage = canManageAccountPool(userRole, isViewOnly);
   useEffect(() => {
     if (!canManage || !accessToken) return;
@@ -201,19 +202,20 @@ export default function AccountPoolPage() {
     refetchOnWindowFocus: false,
   };
   const policiesQuery = useQuery(policiesQueryOptions);
-  const { updateMutation, authorizeMutation, deleteMutation } = useAccountPoolMutations(
-    accessToken,
-    canManage,
-    (result) => {
-      if ("job" in result) {
-        setReauthorizingJob(result.job);
-      } else {
-        setAuthorization(result.authorization);
-        setCreateOpen(true);
-      }
-    },
-    () => setDeleteEnvironment(null),
-  );
+  const { updateMutation, authorizeMutation, deleteMutation, busyCardIds, refreshingCardIds, refreshCard } =
+    useAccountPoolMutations(
+      accessToken,
+      canManage,
+      (result) => {
+        if ("job" in result) {
+          setReauthorizingJob(result.job);
+        } else {
+          setAuthorization(result.authorization);
+          setCreateOpen(true);
+        }
+      },
+      () => setDeleteEnvironment(null),
+    );
   const environments = useMemo(() => environmentsQuery.data ?? [], [environmentsQuery.data]);
   const environmentsBlocked = environmentsQuery.isLoading || environmentsQuery.isLoadingError;
   const testEnvironment = environments.find((environment) => environment.id === testEnvironmentId);
@@ -225,6 +227,14 @@ export default function AccountPoolPage() {
   const policiesByCard = useMemo(
     () => new Map((policiesQuery.data ?? []).map((item) => [item.card_id, item] as const)),
     [policiesQuery.data],
+  );
+  const ispsById = useMemo(
+    () => new Map((proxyISPsQuery.data ?? []).map((profile) => [profile.id, profile] as const)),
+    [proxyISPsQuery.data],
+  );
+  const delaysByPort = useMemo(
+    () => new Map((gatewayDelaysQuery.data ?? []).map((delay) => [delay.port, delay] as const)),
+    [gatewayDelaysQuery.data],
   );
   const [statsDays, setStatsDays] = useState(30);
   const [compactNumbers, setCompactNumbers] = useState(true);
@@ -244,7 +254,6 @@ export default function AccountPoolPage() {
   );
   const statsLoading = dashboardStatsQuery.isPending;
   const overview = useMemo(() => summarizeAccountPoolEnvironments(environments), [environments]);
-  const busy = updateMutation.isPending || deleteMutation.isPending || authorizeMutation.isPending;
   const refreshQuotas = () => {
     if (!accessToken || refreshingQuotas) return;
     setRefreshingQuotas(true);
@@ -293,6 +302,7 @@ export default function AccountPoolPage() {
           ? proxySettingsQuery.data?.values.default_proxy_profile_id
           : environment.proxy_profile_id;
       const gateway = profileId ? gatewaysByProfile.get(profileId) : undefined;
+      const ispProfile = profileId ? ispsById.get(profileId) : undefined;
       return (
         <AccountPoolCard
           key={environment.id}
@@ -300,15 +310,17 @@ export default function AccountPoolPage() {
           requestStats={requestStats}
           compactNumbers={compactNumbers}
           proxyGateway={gateway}
-          proxyName={proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.name}
-          proxyDelay={gatewayDelaysQuery.data?.find((delay) => delay.port === gateway?.port)}
-          ispProbe={!gateway ? proxyISPsQuery.data?.find((profile) => profile.id === profileId)?.last_probe : undefined}
+          proxyName={ispProfile?.name}
+          proxyDelay={gateway ? delaysByPort.get(gateway.port) : undefined}
+          ispProbe={!gateway ? ispProfile?.last_probe : undefined}
           onConfigure={setConfigEnvironment}
           onEnabledChange={handleEnabledChange}
           onAuthorize={handleAuthorize}
           onDelete={setDeleteEnvironment}
           onManageKey={handleManageKey}
           onViewLogs={handleViewLogs}
+          onRefresh={refreshCard}
+          refreshing={refreshingCardIds.has(environment.id)}
           onTest={(environment) => setTestEnvironmentId(environment.id)}
           onQuotaReset={setResetEnvironment}
           onRefreshCredentials={setRefreshCredentialEnvironment}
@@ -316,17 +328,19 @@ export default function AccountPoolPage() {
           tags={policyView?.policy?.tags}
           group={policyView?.policy?.group}
           policy={policyView}
-          disabled={busy}
+          disabled={busyCardIds.has(environment.id)}
         />
       );
     },
     [
-      busy,
+      busyCardIds,
       compactNumbers,
+      delaysByPort,
       gatewaysByProfile,
-      gatewayDelaysQuery.data,
-      proxyISPsQuery.data,
+      ispsById,
       proxySettingsQuery.data,
+      refreshCard,
+      refreshingCardIds,
       handleAuthorize,
       handleEnabledChange,
       handleManageKey,
@@ -499,6 +513,7 @@ export default function AccountPoolPage() {
                   compactNumbers={compactNumbers}
                   onCompactNumbersChange={setCompactNumbers}
                   environments={environments}
+                  policiesByCard={policiesByCard}
                   statsByCard={statsByCard}
                   statsLoading={statsLoading}
                   standardSummary={dashboardStatsQuery.data?.summary}
@@ -576,6 +591,7 @@ export default function AccountPoolPage() {
               enabled={canManage}
               environments={environments}
               environmentsLoading={environmentsBlocked}
+              defaultProxyProfileId={proxySettingsQuery.data?.values.default_proxy_profile_id ?? null}
             />
           </DeferredTabPanel>
 
@@ -636,10 +652,11 @@ export default function AccountPoolPage() {
                 <AccountPoolReleasesPanel accessToken={accessToken} />
                 <details
                   className="mt-6 rounded-lg border p-4"
-                  open={searchParams?.get("section") === "plugins" || undefined}
+                  open={pluginsOpen}
+                  onToggle={(event) => setPluginsOpen(event.currentTarget.open)}
                 >
                   <summary>运行插件管理</summary>
-                  <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />
+                  {pluginsOpen && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
                 </details>
               </>
             )}

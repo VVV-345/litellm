@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { formatCount, formatDateTime } from "../../utils/AccountPoolFormatters";
-import type { AccountPoolQuotaRefreshStatus, ErrorStats } from "../../api/AccountPoolManagementApi";
+import type { AccountPoolQuotaRefreshStatus, ErrorStats, PolicyView } from "../../api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolFamilyKind } from "../../utils/AccountPoolTypes";
 import { AccountPoolSortableCards } from "../cards/AccountPoolSortableCards";
 import dynamic from "next/dynamic";
@@ -36,6 +36,7 @@ interface AccountPoolDashboardProps {
   compactNumbers?: boolean;
   onCompactNumbersChange?: (compact: boolean) => void;
   environments: readonly AccountPoolEnvironment[];
+  policiesByCard?: ReadonlyMap<string, PolicyView>;
   statsByCard: ReadonlyMap<string, ErrorStats>;
   statsLoading: boolean;
   standardSummary?: ErrorStats;
@@ -48,7 +49,15 @@ interface AccountPoolDashboardProps {
 }
 
 const formatInteger = (value: number): string => new Intl.NumberFormat("zh-CN").format(value);
-const PAGE_SIZES = [4, 8, 12] as const;
+const proxyFilterDisplay = (
+  proxy: AccountPoolDashboardFilters["proxy"],
+  defaultGatewayLabel: string,
+): string => {
+  if (proxy === "default_gateway") return defaultGatewayLabel;
+  if (proxy === "profile") return "独立代理";
+  return "全部出口";
+};
+const PAGE_SIZES = [4, 8, 12, 24, 50] as const;
 const STATUS_FILTERS: readonly AccountPoolDashboardFilters["status"][] = [
   "all",
   "ready",
@@ -65,7 +74,7 @@ const ENABLED_FILTER_LABELS = {
   enabled: "accountPool.dashboard.onlyEnabled",
   disabled: "accountPool.dashboard.onlyDisabled",
 } as const;
-const DEFAULT_FILTERS: AccountPoolDashboardFilters = { search: "", enabled: "all", status: "all" };
+const DEFAULT_FILTERS: AccountPoolDashboardFilters = { search: "", enabled: "all", status: "all", proxy: "all" };
 
 export const AccountPoolDashboard = ({
   accessToken,
@@ -74,6 +83,7 @@ export const AccountPoolDashboard = ({
   compactNumbers = true,
   onCompactNumbersChange,
   environments,
+  policiesByCard,
   statsByCard,
   statsLoading,
   standardSummary,
@@ -89,9 +99,10 @@ export const AccountPoolDashboard = ({
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [pageSize, setPageSize] = useState<number>(4);
   const [pages, setPages] = useState<Partial<Record<AccountPoolFamilyKind, number>>>({});
+  const [quotaDetailsOpen, setQuotaDetailsOpen] = useState(false);
   const filtered = useMemo(
-    () => filterAccountPoolDashboardEnvironments(environments, filters),
-    [environments, filters],
+    () => filterAccountPoolDashboardEnvironments(environments, filters, policiesByCard),
+    [environments, filters, policiesByCard],
   );
   const visibleGroups = useMemo(() => groupAccountPoolEnvironments(filtered), [filtered]);
   const updateFilter = <K extends keyof AccountPoolDashboardFilters>(
@@ -217,17 +228,22 @@ export const AccountPoolDashboard = ({
       </div>
 
       {environments.length > 0 && (
-        <details className="rounded-lg border px-3 py-2 text-sm">
+        <details
+          className="rounded-lg border px-3 py-2 text-sm"
+          onToggle={(event) => setQuotaDetailsOpen(event.currentTarget.open)}
+        >
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground">供应商额度详情</summary>
-          <div className="mt-3">
-            <AccountPoolQuotaPanel environments={environments} />
-          </div>
+          {quotaDetailsOpen && (
+            <div className="mt-3">
+              <AccountPoolQuotaPanel environments={environments} />
+            </div>
+          )}
         </details>
       )}
 
       {environments.length > 0 && (
         <div className="grid gap-3">
-          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_10rem_11rem_8rem_auto]">
+          <div className="grid grid-cols-1 items-end gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_9.5rem_9.5rem_9.5rem_7rem_auto]">
             <div className="grid gap-1.5">
               <Label htmlFor="dashboard-card-search">{t("accountPool.dashboard.cardSearch")}</Label>
               <Input
@@ -285,6 +301,30 @@ export const AccountPoolDashboard = ({
               </Select>
             </div>
             <div className="grid gap-1.5">
+              <Label htmlFor="dashboard-proxy-filter">{t("accountPool.config.outboundProxy")}</Label>
+              <Select
+                value={filters.proxy ?? "all"}
+                onValueChange={(value) => {
+                  if (value === "all" || value === "default_gateway" || value === "profile") updateFilter("proxy", value);
+                }}
+              >
+                <SelectTrigger
+                  id="dashboard-proxy-filter"
+                  aria-label={t("accountPool.config.outboundProxy")}
+                  className="w-full"
+                >
+                  <SelectValue>
+                    {proxyFilterDisplay(filters.proxy, t("accountPool.config.defaultGateway"))}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部出口</SelectItem>
+                  <SelectItem value="default_gateway">{t("accountPool.config.defaultGateway")}</SelectItem>
+                  <SelectItem value="profile">独立代理</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
               <Label htmlFor="dashboard-page-size">{t("accountPool.dashboard.cardsPerPage")}</Label>
               <Select
                 value={String(pageSize)}
@@ -316,7 +356,7 @@ export const AccountPoolDashboard = ({
               type="button"
               variant="outline"
               onClick={clearFilters}
-              disabled={!filters.search && filters.enabled === "all" && filters.status === "all"}
+              disabled={!filters.search && filters.enabled === "all" && filters.status === "all" && (filters.proxy ?? "all") === "all"}
             >
               {t("accountPool.dashboard.clearFilters")}
             </Button>

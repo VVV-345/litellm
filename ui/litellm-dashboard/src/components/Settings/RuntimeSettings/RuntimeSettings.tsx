@@ -6,8 +6,8 @@ import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoo
 import { RuntimeSettingsSection, type RuntimeSettingsCategory } from "./RuntimeSettingsSection";
 
 export default function RuntimeSettings({ category }: { category: RuntimeSettingsCategory }) {
-  const { accessToken, userRole } = useAuthorized();
-  const allowed = canManageAccountPool(userRole, false);
+  const { accessToken, userRole, isViewOnly } = useAuthorized();
+  const allowed = canManageAccountPool(userRole, isViewOnly);
   const accounts = useAccountPoolQuery(accessToken, allowed, false);
   if (!allowed || !accessToken) return null;
   if (accounts.isPending) return <p>正在读取卡片配置…</p>;

@@ -1,6 +1,6 @@
 /** 本文件计算号池仪表盘的聚合指标与供应商分组，数据只来自已加载的卡片和请求统计。 */
 
-import type { ErrorStats } from "../api/AccountPoolManagementApi";
+import type { ErrorStats, PolicyView } from "../api/AccountPoolManagementApi";
 import type { AccountPoolEnvironment, AccountPoolFamilyKind, AccountPoolStatus } from "./AccountPoolTypes";
 import { accountPoolFamilyKind } from "./AccountPoolTypes";
 
@@ -8,18 +8,31 @@ export interface AccountPoolDashboardFilters {
   search: string;
   enabled: "all" | "enabled" | "disabled";
   status: "all" | AccountPoolStatus;
+  proxy?: "all" | "default_gateway" | "profile";
 }
 
 export const filterAccountPoolDashboardEnvironments = (
   environments: readonly AccountPoolEnvironment[],
   filters: AccountPoolDashboardFilters,
+  policiesByCard?: ReadonlyMap<string, PolicyView>,
 ): AccountPoolEnvironment[] => {
   const search = filters.search.trim().toLocaleLowerCase();
-  return environments.filter((environment) =>
-    (filters.status === "all" || environment.status === filters.status) &&
-    (filters.enabled === "all" || environment.enabled === (filters.enabled === "enabled")) &&
-    (!search || [environment.name, environment.id].some((value) => value.toLocaleLowerCase().includes(search))),
-  );
+  const proxyFilter = filters.proxy ?? "all";
+  return environments.filter((environment) => {
+    if (filters.status !== "all" && environment.status !== filters.status) return false;
+    if (filters.enabled !== "all" && environment.enabled !== (filters.enabled === "enabled")) return false;
+    if (proxyFilter !== "all" && environment.proxy_mode !== proxyFilter) return false;
+    if (!search) return true;
+    const policy = policiesByCard?.get(environment.id)?.policy;
+    const haystack = [
+      environment.name,
+      environment.id,
+      environment.proxy_profile_id ?? "",
+      policy?.group ?? "",
+      ...(policy?.tags ?? []),
+    ];
+    return haystack.some((value) => value.toLocaleLowerCase().includes(search));
+  });
 };
 
 interface AccountPoolDashboardSummary {

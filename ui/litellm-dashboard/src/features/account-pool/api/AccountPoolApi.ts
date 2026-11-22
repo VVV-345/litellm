@@ -281,6 +281,7 @@ export const deleteAccountPoolProxyConfiguration = (accessToken: string, profile
 export const probeAccountPoolISP = (accessToken: string, profileId: string): Promise<AccountPoolISPProbe> =>
   apiClient.post<AccountPoolISPProbe>(`/account_pool/proxy-isps/${encodeURIComponent(profileId)}/probe`, {
     accessToken,
+    invalidateOnSuccess: false,
   });
 
 export const listAccountPoolISPProxies = (accessToken: string): Promise<AccountPoolISPProxy[]> =>
@@ -357,7 +358,19 @@ export const probeAccountPoolProxyGatewayISP = (
   accessToken: string,
   port: number,
 ): Promise<AccountPoolGatewayISPProbe> =>
-  apiClient.post<AccountPoolGatewayISPProbe>(`/account_pool/proxy-gateways/${port}/probe`, { accessToken });
+  apiClient.post<AccountPoolGatewayISPProbe>(`/account_pool/proxy-gateways/${port}/probe`, {
+    accessToken,
+    invalidateOnSuccess: false,
+  });
+
+export const refreshAccountPoolEnvironment = (
+  accessToken: string,
+  environmentId: string,
+): Promise<AccountPoolEnvironment> =>
+  apiClient.post<AccountPoolEnvironment>(
+    `/account_pool/environments/${encodeURIComponent(environmentId)}/refresh`,
+    { accessToken },
+  );
 
 export const addAccountPoolProxyGateway = (accessToken: string): Promise<AccountPoolProxyGateway> =>
   apiClient.post<AccountPoolProxyGateway>("/account_pool/proxy-gateways", { accessToken });

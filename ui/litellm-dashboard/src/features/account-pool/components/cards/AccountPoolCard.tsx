@@ -1,6 +1,6 @@
 /** 本文件渲染单个号池环境卡片，负责展示状态与触发页面级操作。 */
 
-import { PlugZap, KeyRound, Trash2, Settings2 } from "lucide-react";
+import { PlugZap, KeyRound, RefreshCw, ShieldCheck, Trash2, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
@@ -60,6 +60,8 @@ interface AccountPoolCardProps {
   onQuotaReset?: (environment: AccountPoolEnvironment) => void;
   onRefreshCredentials?: (environment: AccountPoolEnvironment) => void;
   onVerifyAccess?: (environment: AccountPoolEnvironment) => void;
+  onRefresh?: (environment: AccountPoolEnvironment) => void;
+  refreshing?: boolean;
   onViewLogs?: (environment: AccountPoolEnvironment) => void;
   requestStats?: ErrorStats;
   compactNumbers?: boolean;
@@ -99,6 +101,8 @@ const AccountPoolCardComponent = ({
   onQuotaReset,
   onRefreshCredentials,
   onVerifyAccess,
+  onRefresh,
+  refreshing = false,
   requestStats,
   compactNumbers = true,
   tags = [],
@@ -127,7 +131,12 @@ const AccountPoolCardComponent = ({
   const hiddenModelCount = accountPoolHiddenModelCount(environment);
   const family = accountPoolFamilyKind(environment);
   const showQuota =
-    ["openai_codex", "glm", "opencode"].includes(family) || quota.balances.length > 0 || quota.prepaid_balance != null;
+    ["openai_codex", "glm", "opencode"].includes(family) ||
+    quota.windows.length > 0 ||
+    quota.balances.length > 0 ||
+    quota.prepaid_balance != null ||
+    Boolean(quota.observed_at) ||
+    Boolean(quota.refresh_error);
   const showPlan = environment.supplier !== "openai_codex" && Boolean(environment.quota.plan_type);
   const showLabels = showPlan || Boolean(group) || tags.length > 0;
   const policyValues = policy?.policy;
@@ -233,6 +242,19 @@ const AccountPoolCardComponent = ({
             />
           </div>
           <div className="flex flex-wrap justify-end gap-1">
+            {onRefresh && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onRefresh(environment)}
+                disabled={disabled || refreshing}
+                aria-label={`${t("accountPool.refresh")} ${environment.name}`}
+                title={t("accountPool.refresh")}
+              >
+                <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+              </Button>
+            )}
             {onTest && (
               <Button
                 type="button"
@@ -281,7 +303,7 @@ const AccountPoolCardComponent = ({
                 })}
                 title={authorizationAction}
               >
-                <KeyRound />
+                <ShieldCheck />
               </Button>
             )}
             <Button
@@ -305,6 +327,21 @@ const AccountPoolCardComponent = ({
             maxAgeSeconds={policyValues?.routing?.quota_snapshot_max_age}
           />
         )}
+        {(environment.manual_cooldown || environment.cooldown_until) && (
+          <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
+            {environment.manual_cooldown ? t("accountPool.config.manualCooldown") : t("accountPool.status.cooling_down")}
+            {environment.cooldown_until ? ` · ${formatDateTime(environment.cooldown_until, i18n.language)}` : ""}
+          </p>
+        )}
+        {!showQuota &&
+          (environment.model_cooldowns ?? []).map((cooldown) => (
+            <p key={cooldown.model} role="status" className="break-words text-xs text-amber-700 dark:text-amber-400">
+              {t("accountPool.quotas.modelCooldown", {
+                model: cooldown.model,
+                time: formatDateTime(cooldown.retry_at, i18n.language),
+              })}
+            </p>
+          ))}
         {environment.access_token_fallback?.active && (
           <p role="status" className="text-sm font-medium text-amber-700 dark:text-amber-400">
             {t("accountPool.credential.temporary")}

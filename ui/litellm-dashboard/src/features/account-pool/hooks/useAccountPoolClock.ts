@@ -10,10 +10,14 @@ const notify = () => {
 };
 
 const subscribe = (listener: () => void) => {
+  const wasIdle = timer === null;
   listeners.add(listener);
-  if (timer === null && typeof window !== "undefined") {
+  if (wasIdle && typeof window !== "undefined") {
     now = Date.now();
     timer = window.setInterval(notify, 60_000);
+    queueMicrotask(() => {
+      if (listeners.has(listener)) listener();
+    });
   }
   return () => {
     listeners.delete(listener);

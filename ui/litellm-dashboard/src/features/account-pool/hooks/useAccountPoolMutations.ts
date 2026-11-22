@@ -1,5 +1,6 @@
 /** 本文件集中号池环境的更新、授权和删除 mutation 编排。 */
 
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -10,6 +11,7 @@ import {
   authorizeAccountPoolEnvironment,
   deleteAccountPoolEnvironment,
   listAccountPoolEnvironments,
+  refreshAccountPoolEnvironment,
   updateAccountPoolEnvironment,
 } from "../api/AccountPoolApi";
 import { reauthorizeAutomation, type AutomationJob } from "../api/AccountPoolAutomationApi";
@@ -140,5 +142,46 @@ export const useAccountPoolMutations = (
       invalidate();
     },
   });
-  return { updateMutation, authorizeMutation, deleteMutation };
+  const refreshingCardsRef = useRef(new Set<string>());
+  const [refreshingCardIds, setRefreshingCardIds] = useState<ReadonlySet<string>>(() => new Set());
+  const refreshCard = useCallback(
+    (environment: AccountPoolEnvironment) => {
+      if (!accessToken || refreshingCardsRef.current.has(environment.id)) return;
+      refreshingCardsRef.current.add(environment.id);
+      setRefreshingCardIds(new Set(refreshingCardsRef.current));
+      void refreshAccountPoolEnvironment(accessToken, environment.id)
+        .then(() => {
+          toast.success(t("accountPool.quotas.refreshed"));
+          return queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.environmentsRoot });
+        })
+        .catch((error: unknown) => toast.fromError(error))
+        .finally(() => {
+          refreshingCardsRef.current.delete(environment.id);
+          setRefreshingCardIds(new Set(refreshingCardsRef.current));
+        });
+    },
+    [accessToken, queryClient, t],
+  );
+  const busyCardIds = useMemo(() => {
+    const ids = new Set<string>(refreshingCardIds);
+    if (updateMutation.isPending && updateMutation.variables?.environment.id) {
+      ids.add(updateMutation.variables.environment.id);
+    }
+    if (authorizeMutation.isPending && authorizeMutation.variables?.environment.id) {
+      ids.add(authorizeMutation.variables.environment.id);
+    }
+    if (deleteMutation.isPending && deleteMutation.variables?.id) {
+      ids.add(deleteMutation.variables.id);
+    }
+    return ids;
+  }, [
+    authorizeMutation.isPending,
+    authorizeMutation.variables,
+    deleteMutation.isPending,
+    deleteMutation.variables,
+    refreshingCardIds,
+    updateMutation.isPending,
+    updateMutation.variables,
+  ]);
+  return { updateMutation, authorizeMutation, deleteMutation, busyCardIds, refreshingCardIds, refreshCard };
 };

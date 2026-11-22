@@ -137,7 +137,7 @@ export function AccountPoolFeedbackPanel({ accessToken, active = true }: { acces
           <p>{deleting?.title}</p>
           {deleteError && <p role="alert" className="text-destructive">{deleteError}</p>}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={deleteBusy} onClick={() => setDeleting(null)}>{t("common.cancel")}</Button>
+            <Button variant="outline" disabled={deleteBusy} onClick={() => setDeleting(null)}>{t("accountPool.cancel")}</Button>
             <Button variant="destructive" disabled={deleteBusy} onClick={() => void confirmDelete()}>{t("feedback.confirmDelete")}</Button>
           </div>
         </DialogContent>

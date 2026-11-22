@@ -25,7 +25,11 @@ export const listRuntimeCards = (accessToken: string) =>
 export const scanReleaseImages = (accessToken: string) =>
   apiClient.get<ReleaseImageView>("/account_pool/releases/images", { accessToken });
 export const prepareRelease = (accessToken: string, body: ReleaseAction) =>
-  apiClient.post<ReleaseConfirmation>("/account_pool/releases/prepare", { accessToken, body });
+  apiClient.post<ReleaseConfirmation>("/account_pool/releases/prepare", {
+    accessToken,
+    body,
+    invalidateOnSuccess: false,
+  });
 export const executeRelease = (accessToken: string, token: string, acknowledgement = "") =>
   apiClient.post<ReleaseJob>("/account_pool/releases/execute", { accessToken, body: { token, acknowledgement } });
 export const releaseCommands = (accessToken: string, id: string) =>

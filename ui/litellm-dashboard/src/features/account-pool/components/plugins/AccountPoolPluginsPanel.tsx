@@ -38,7 +38,8 @@ import {
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
 
 const pluginStateTranslationKey = (plugin: AccountPoolRuntimePlugin) => {
   if (plugin.effectiveEnabled) return "accountPool.plugins.running";

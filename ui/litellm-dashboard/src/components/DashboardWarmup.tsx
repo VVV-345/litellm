@@ -40,7 +40,8 @@ import {
   preloadOtherLogModules,
 } from "@/components/view_logs";
 import { runPreloadStages, type PreloadStageProgress, type PreloadTask } from "@/lib/progressivePreload";
-import { all_admin_roles, rolesAllowedToViewWriteScopedPages } from "@/utils/roles";
+import { all_admin_roles, isViewOnlyRole, isViewOnlySessionRole, rolesAllowedToViewWriteScopedPages } from "@/utils/roles";
+import { checkTokenValidity, decodeToken } from "@/utils/jwtUtils";
 import { preloadModelsModules } from "@/app/(dashboard)/models-and-endpoints/preloadModels";
 import { preloadAccountPoolModules } from "@/features/account-pool/preloadModules";
 import {
@@ -121,7 +122,15 @@ interface DashboardWarmupContext {
   userId: string | null;
   userRole: string;
   token: string;
+  isViewOnly?: boolean;
 }
+
+const isWarmupViewOnly = (userRole: string, token: string, explicit?: boolean): boolean => {
+  if (explicit !== undefined) return explicit;
+  if (isViewOnlyRole(userRole) || isViewOnlySessionRole(userRole)) return true;
+  const rawRole = checkTokenValidity(token) ? decodeToken(token)?.user_role : undefined;
+  return isViewOnlySessionRole(rawRole);
+};
 
 const defaultRequestLogOptions = (context: DashboardWarmupContext, pageIndex: number) =>
   requestLogsQueryOptions({
@@ -140,9 +149,11 @@ const defaultRequestLogOptions = (context: DashboardWarmupContext, pageIndex: nu
   });
 
 const createPrimaryTasks = (
-  { queryClient, router, accessToken, userId, userRole, token }: DashboardWarmupContext,
+  { queryClient, router, accessToken, userId, userRole, token, isViewOnly }: DashboardWarmupContext,
   signal: AbortSignal,
-): readonly PreloadTask[] => [
+): readonly PreloadTask[] => {
+  const canManagePool = canManageAccountPool(userRole, isWarmupViewOnly(userRole, token, isViewOnly));
+  return [
   task("virtual-keys", () => loadApiKeysPage(router)),
   optionalTask("virtual-keys-data", async () => {
     if (signal.aborted) return;
@@ -185,11 +196,11 @@ const createPrimaryTasks = (
   }),
   task("account-pool", async () => {
     await loadAccountPoolPage(router);
-    if (signal.aborted || !canManageAccountPool(userRole, false)) return;
+    if (signal.aborted || !canManagePool) return;
     await preloadAccountPoolModules();
   }),
   optionalTask("account-pool-data", async () => {
-    if (signal.aborted || !canManageAccountPool(userRole, false)) return;
+    if (signal.aborted || !canManagePool) return;
     await Promise.all([
       runQuery(queryClient, accountPoolEnvironmentOptions(accessToken)),
       runQuery(queryClient, accountPoolPolicyOptions(accessToken)),
@@ -212,7 +223,7 @@ const createPrimaryTasks = (
       queryClient,
       defaultRequestLogOptions({ queryClient, router, accessToken, userId, userRole, token }, 0),
     );
-    if (signal.aborted || !canManageAccountPool(userRole, false)) return;
+    if (signal.aborted || !canManagePool) return;
     const filters = {};
     await runQuery(
       queryClient,
@@ -240,6 +251,7 @@ const createPrimaryTasks = (
     ]);
   }),
 ];
+};
 
 const batchesOfTwo = (tasks: readonly PreloadTask[]): PreloadTask[][] =>
   Array.from({ length: Math.ceil(tasks.length / 2) }, (_, index) => tasks.slice(index * 2, index * 2 + 2));
@@ -249,10 +261,10 @@ const createBackgroundBatches = async (
   signal: AbortSignal,
   disabledPages: readonly string[],
 ) => {
-  const { queryClient, accessToken, userRole } = context;
+  const { queryClient, accessToken, userRole, token, isViewOnly } = context;
   const tasks: PreloadTask[] = [...dashboardBackgroundTasks(context, signal, disabledPages)];
   tasks.push(task("other-log-modules", preloadOtherLogModules));
-  if (canManageAccountPool(userRole, false)) {
+  if (canManageAccountPool(userRole, isWarmupViewOnly(userRole, token, isViewOnly))) {
     tasks.unshift(
       task("full-logs-module", preloadFullLogModule),
       task("log-settings-module", preloadLogSettingsModule),

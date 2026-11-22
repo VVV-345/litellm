@@ -98,7 +98,7 @@ describe("supplier dashboard pagination and filters", () => {
     selectSupplier("Kimi");
     fireEvent.click(supplier("Kimi").getByRole("button", { name: "下一页" }));
     await user.click(screen.getByRole("combobox", { name: "每页卡片数" }));
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["4", "8", "12"]);
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["4", "8", "12", "24", "50"]);
     await user.click(screen.getByRole("option", { name: String(pageSize) }));
     selectSupplier("OpenAI Codex");
     expect(supplier("OpenAI Codex").getAllByRole("listitem")).toHaveLength(pageSize);

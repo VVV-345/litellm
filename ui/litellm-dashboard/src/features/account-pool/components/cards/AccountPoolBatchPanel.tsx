@@ -8,6 +8,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -31,6 +32,8 @@ import { AccountPoolAuthorizationPanel } from "../credentials/AccountPoolAuthori
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { ACCOUNT_POOL_ENVIRONMENTS_QUERY_KEY } from "../../hooks/useAccountPoolQuery";
+
+const MAX_BATCH_TARGETS = 100;
 
 const ACTIONS: readonly BatchAction[] = [
   "refresh",
@@ -58,6 +61,7 @@ export function AccountPoolBatchPanel({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [search, setSearch] = useState("");
   const [action, setAction] = useState<BatchAction>("refresh");
   const [policyTemplateId, setPolicyTemplateId] = useState<string | null>(null);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -67,7 +71,23 @@ export function AccountPoolBatchPanel({
       Awaited<ReturnType<typeof listAccountPoolBatches>>[number]["items"][number]["authorization"]
     >;
   } | null>(null);
-  const selectableEnvironments = useMemo(() => environments, [environments]);
+  const environmentsById = useMemo(
+    () => new Map(environments.map((environment) => [environment.id, environment] as const)),
+    [environments],
+  );
+  const policiesByCard = useMemo(
+    () => new Map(policies.map((policy) => [policy.card_id, policy] as const)),
+    [policies],
+  );
+  const selectableEnvironments = useMemo(() => {
+    const trimmed = search.trim().toLocaleLowerCase();
+    if (!trimmed) return environments;
+    return environments.filter(
+      (environment) =>
+        environment.name.toLocaleLowerCase().includes(trimmed) ||
+        environment.id.toLocaleLowerCase().includes(trimmed),
+    );
+  }, [environments, search]);
   const jobsQuery = {
     queryKey: accountPoolQueryKeys.batches(accessToken),
     queryFn: () => listAccountPoolBatches(accessToken),
@@ -95,18 +115,22 @@ export function AccountPoolBatchPanel({
       void queryClient.invalidateQueries({ queryKey: accountPoolQueryKeys.policies(accessToken) });
     }
   }, [accessToken, completedJobSignature, hasCompletedPolicyChange, queryClient]);
+  const validSelected = useMemo(
+    () => new Set([...selected].filter((id) => environmentsById.has(id))),
+    [environmentsById, selected],
+  );
   const targets = useMemo(
     () =>
       environments
-        .filter((environment) => selected.has(environment.id))
+        .filter((environment) => validSelected.has(environment.id))
         .map((environment) => ({
           account_id: environment.id,
           version: environment.version,
-          policy_version: policies.find((policy) => policy.card_id === environment.id)?.version ?? 0,
+          policy_version: policiesByCard.get(environment.id)?.version ?? 0,
         })),
-    [environments, policies, selected],
+    [environments, policiesByCard, validSelected],
   );
-  const selectedPolicy = policies.find((policy) => policy.card_id === policyTemplateId)?.policy ?? null;
+  const selectedPolicy = policyTemplateId ? (policiesByCard.get(policyTemplateId)?.policy ?? null) : null;
   const mutation = useMutation({
     mutationFn: () => submitAccountPoolBatch(accessToken, action, targets, action === "policy" ? selectedPolicy : null),
     onSuccess: () => {
@@ -117,9 +141,11 @@ export function AccountPoolBatchPanel({
     },
     onError: (error: Error) => toast.fromError(error),
   });
-  const allSelected = selectableEnvironments.length > 0 && selected.size === selectableEnvironments.length;
+  const overTargetLimit = targets.length > MAX_BATCH_TARGETS;
+  const selectableCap = selectableEnvironments.slice(0, MAX_BATCH_TARGETS);
+  const allSelected = selectableCap.length > 0 && selectableCap.every((env) => validSelected.has(env.id));
   const policyTemplateRequired = action === "policy" && selectedPolicy === null;
-  const submitDisabled = targets.length === 0 || mutation.isPending || policyTemplateRequired;
+  const submitDisabled = targets.length === 0 || overTargetLimit || mutation.isPending || policyTemplateRequired;
   const submit = () => {
     if (action === "delete") {
       setConfirmDeleteOpen(true);
@@ -127,13 +153,18 @@ export function AccountPoolBatchPanel({
     }
     mutation.mutate();
   };
-  const toggle = (id: string, checked: boolean) =>
+  const toggle = (id: string, checked: boolean) => {
+    if (checked && !validSelected.has(id) && validSelected.size >= MAX_BATCH_TARGETS) {
+      toast.error(`单次批量操作最多选择 ${MAX_BATCH_TARGETS} 张卡片`);
+      return;
+    }
     setSelected((current) => {
-      const next = new Set(current);
+      const next = new Set([...current].filter((item) => environmentsById.has(item)));
       if (checked) next.add(id);
       else next.delete(id);
       return next;
     });
+  };
 
   return (
     <div className="grid gap-4 rounded-md border p-4">
@@ -161,7 +192,7 @@ export function AccountPoolBatchPanel({
                 value: policy.card_id,
                 label: t("accountPool.batch.policyTemplateOption", {
                   name:
-                    environments.find((card) => card.id === policy.card_id)?.name ??
+                    environmentsById.get(policy.card_id)?.name ??
                     `已删除卡片 (${policy.card_id.slice(0, 8)})`,
                   version: policy.version,
                 }),
@@ -176,8 +207,7 @@ export function AccountPoolBatchPanel({
                 {policies.map((policy) => (
                   <SelectItem key={policy.card_id} value={policy.card_id} disabled={policy.policy === undefined}>
                     {t("accountPool.batch.policyTemplateOption", {
-                      name:
-                        environments.find((environment) => environment.id === policy.card_id)?.name ?? policy.card_id,
+                      name: environmentsById.get(policy.card_id)?.name ?? policy.card_id,
                       version: policy.version,
                     })}
                   </SelectItem>
@@ -192,22 +222,39 @@ export function AccountPoolBatchPanel({
           </Button>
         </div>
       </div>
-      <label className="flex items-center gap-2 text-sm">
-        <Checkbox
-          checked={allSelected}
-          onCheckedChange={(checked) =>
-            setSelected(
-              checked === true ? new Set(selectableEnvironments.map((environment) => environment.id)) : new Set(),
-            )
-          }
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox
+            checked={allSelected}
+            onCheckedChange={(checked) =>
+              setSelected(
+                checked === true ? new Set(selectableCap.map((environment) => environment.id)) : new Set(),
+              )
+            }
+          />
+          {t("accountPool.batch.selectAll")}
+          {selectableEnvironments.length > MAX_BATCH_TARGETS && (
+            <span className="text-xs text-muted-foreground">（全选上限 {MAX_BATCH_TARGETS}）</span>
+          )}
+        </label>
+        <Input
+          aria-label="筛选批量卡片"
+          placeholder="按卡片名称或 ID 筛选"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="h-8 w-full sm:w-64"
         />
-        {t("accountPool.batch.selectAll")}
-      </label>
+      </div>
+      {overTargetLimit && (
+        <p role="alert" className="text-xs text-destructive">
+          单次批量操作最多选择 {MAX_BATCH_TARGETS} 张卡片，当前已选 {targets.length} 张。
+        </p>
+      )}
       <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">
         {selectableEnvironments.map((environment) => (
           <label key={environment.id} className="flex items-center gap-2 rounded border p-2 text-sm">
             <Checkbox
-              checked={selected.has(environment.id)}
+              checked={validSelected.has(environment.id)}
               onCheckedChange={(checked) => toggle(environment.id, checked === true)}
             />
             <span className="truncate">{environment.name}</span>
@@ -233,8 +280,7 @@ export function AccountPoolBatchPanel({
                   .filter((item) => item.status === "failed")
                   .map((item) => (
                     <li key={item.account_id}>
-                      {environments.find((environment) => environment.id === item.account_id)?.name ?? item.account_id}:{" "}
-                      {item.message}
+                      {environmentsById.get(item.account_id)?.name ?? item.account_id}: {item.message}
                     </li>
                   ))}
               </ul>
@@ -246,8 +292,7 @@ export function AccountPoolBatchPanel({
                   .map((item) => (
                     <li key={item.account_id} className="flex items-center justify-between gap-2">
                       <span className="truncate">
-                        {environments.find((environment) => environment.id === item.account_id)?.name ??
-                          item.account_id}
+                        {environmentsById.get(item.account_id)?.name ?? item.account_id}
                       </span>
                       <Button
                         type="button"
@@ -275,7 +320,7 @@ export function AccountPoolBatchPanel({
             <DialogDescription>
               {t("accountPool.batch.authorizationDescription", {
                 name:
-                  environments.find((environment) => environment.id === authorizationItem?.accountId)?.name ??
+                  (authorizationItem ? environmentsById.get(authorizationItem.accountId)?.name : undefined) ??
                   authorizationItem?.accountId,
               })}
             </DialogDescription>

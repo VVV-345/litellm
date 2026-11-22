@@ -37,15 +37,20 @@ export function AccountPoolQuotaResetDialog({ accessToken, environment, onClose 
   const { t, i18n } = useTranslation();
   const cache = useQueryClient();
   const key = accountPoolQueryKeys.quotaReset(accessToken, environment.id);
+  const [lastObservation, setLastObservation] = useState<Awaited<ReturnType<typeof getQuotaResetStatus>>["observation"]>(null);
   const status = useQuery({
     queryKey: key,
-    queryFn: () => getQuotaResetStatus(accessToken, environment.id),
+    queryFn: async () => {
+      const data = await getQuotaResetStatus(accessToken, environment.id);
+      if (data.observation) setLastObservation(data.observation);
+      return data;
+    },
     retry: false,
     refetchOnWindowFocus: false,
   });
   const operation = status.data?.operation;
-  const observation = status.data?.observation;
-  const queryFailed = status.isError || (status.isSuccess && !observation);
+  const observation = status.data?.observation ?? lastObservation;
+  const queryFailed = status.isError || (status.isSuccess && !status.data?.observation);
   const [confirmed, setConfirmed] = useState(false);
   const [creditId, setCreditId] = useState("");
   const [confirmedChoice, setConfirmedChoice] = useState("");

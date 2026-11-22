@@ -511,7 +511,14 @@ const Sidebar_: React.FC<SidebarProps> = ({
         // to its own page id, which is not a real route. Drop it instead.
         if (item.children && item.children.length === 0) return false;
         if (item.key === "llm-playground" && isViewOnly) return false;
-        if (item.key === "account-pool" && isViewOnly) return false;
+        if (
+          (item.key === "account-pool" ||
+            item.key === "policy-center" ||
+            item.key === "feedback" ||
+            item.key === "manager-logs") &&
+          isViewOnly
+        )
+          return false;
         if (item.key === "organizations" || item.key === "users") {
           const hasRoleAccess = !item.roles || item.roles.includes(userRole) || isOrgAdmin;
           if (!hasRoleAccess) return false;

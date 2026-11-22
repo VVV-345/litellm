@@ -323,11 +323,21 @@ export function OperationLogsPanel({
           <div className="grid gap-3 border-t bg-muted/10 p-4 sm:grid-cols-2 lg:grid-cols-4">
             {choice(
               "channel",
-              ["cliproxyapi"].map((value) => ({ value, label: t(`accountPool.channel.${value}`) })),
+              ["cliproxyapi", "openai_compatible"].map((value) => ({ value, label: t(`accountPool.channel.${value}`) })),
             )}
             {choice(
               "supplier",
-              ["openai_codex", "anthropic_claude", "google_antigravity", "kimi", "xai"].map((value) => ({
+              [
+                "openai_codex",
+                "anthropic_claude",
+                "google_antigravity",
+                "kimi",
+                "xai",
+                "gemini",
+                "gemini_interactions",
+                "vertex",
+                "openai_compatible",
+              ].map((value) => ({
                 value,
                 label: t(`accountPool.supplier.${value}`),
               })),

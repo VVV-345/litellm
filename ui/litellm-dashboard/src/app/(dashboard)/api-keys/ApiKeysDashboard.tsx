@@ -13,10 +13,10 @@ import { useEffect, useMemo, useState } from "react";
 export default function ApiKeysDashboard() {
   // Identity comes from useAuthorized (synchronous cookie decode) so userID is set whenever the
   // route is authorized; useAuth only supplies the backfill setters UserDashboard still expects.
-  const { userId: userID, userRole, userEmail, accessToken, premiumUser } = useAuthorized();
+  const { userId: userID, userRole, userEmail, accessToken, premiumUser, isViewOnly } = useAuthorized();
   const { setUserRole, setUserEmail } = useAuth();
   const searchParams = useSearchParams()!;
-  const canManageAccounts = canManageAccountPool(userRole, false);
+  const canManageAccounts = canManageAccountPool(userRole, isViewOnly);
   const accountId = canManageAccounts ? searchParams.get("account_id") : null;
 
   const [teams, setTeams] = useState<Team[] | null>(null);
