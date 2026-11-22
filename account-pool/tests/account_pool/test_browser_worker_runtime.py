@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import importlib.util
 import socket
+import socketserver
 import subprocess
 import sys
 import threading
@@ -93,6 +94,10 @@ def test_browser_compose_keeps_worker_internal_and_binds_only_selected_proxy(tmp
         "control": {"aliases": [f"oauth-control-{session.id.hex}"]},
     }
     assert callback["environment"]["CALLBACK_TOKEN"] == "callback-ticket-secret"
+    assert callback["environment"]["VNC_RELAY_TOKEN"]
+    assert settings.manager_token not in str(services)
+    assert "VNC_RELAY_TOKEN" not in browser["environment"]
+    assert "VNC_RELAY_TOKEN" not in relay["environment"]
     assert callback["environment"]["MANAGER_CALLBACK_URL"].startswith(
         f"http://{settings.manager_container}:8091/internal/oauth-browser-sessions/"
     )
@@ -593,3 +598,75 @@ def test_callback_relay_preserves_http_status_without_response_body(
         finally:
             server.shutdown()
             thread.join(timeout=2)
+
+
+def test_authenticated_relay_proxy_enforces_token_and_strips_auth_headers(worker: ModuleType) -> None:
+    expected_token: Final = "a" * 64
+    received_requests: list[bytes] = []
+
+    class Upstream(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+
+    class UpstreamHandler(socketserver.BaseRequestHandler):
+        def handle(self) -> None:
+            chunk = self.request.recv(4096)
+            received_requests.append(chunk)
+            if b"Upgrade: websocket" in chunk:
+                self.request.sendall(b"HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n")
+                payload = self.request.recv(4096)
+                self.request.sendall(payload[::-1])
+                return
+            self.request.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok")
+
+    from contextlib import ExitStack
+
+    with ExitStack() as stack:
+        upstream = Upstream(("127.0.0.1", 0), UpstreamHandler)
+        stack.callback(upstream.server_close)
+        stack.callback(upstream.shutdown)
+        upstream_thread = threading.Thread(target=upstream.serve_forever, daemon=True)
+        upstream_thread.start()
+        proxy = worker._start_authenticated_relay(
+            ("127.0.0.1", 0),
+            ("127.0.0.1", upstream.server_address[1]),
+            expected_token,
+            stack,
+        )
+        proxy_port: Final = proxy.server_address[1]
+
+        with socket.create_connection(("127.0.0.1", proxy_port), timeout=3) as client:
+            client.sendall(b"GET /vnc.html HTTP/1.1\r\nHost: relay\r\n\r\n")
+            assert client.recv(4096).startswith(b"HTTP/1.1 403 Forbidden")
+
+        with socket.create_connection(("127.0.0.1", proxy_port), timeout=3) as client:
+            client.sendall(b"GET /vnc.html HTTP/1.1\r\nHost: relay\r\nX-Account-Pool-Relay-Auth: wrong\r\n\r\n")
+            assert client.recv(4096).startswith(b"HTTP/1.1 403 Forbidden")
+
+        assert received_requests == []
+
+        with socket.create_connection(("127.0.0.1", proxy_port), timeout=3) as client:
+            client.sendall(
+                f"GET /vnc.html HTTP/1.1\r\nHost: relay\r\nConnection: keep-alive\r\nX-Account-Pool-Relay-Auth: {expected_token}\r\n\r\n".encode(
+                    "ascii"
+                )
+            )
+            client.shutdown(socket.SHUT_WR)
+            reply = b""
+            while part := client.recv(4096):
+                reply += part
+            assert reply.endswith(b"\r\n\r\nok")
+
+        forwarded_http = received_requests[-1].decode("latin-1")
+        assert "X-Account-Pool-Relay-Auth" not in forwarded_http
+        assert "Connection: close" in forwarded_http
+        assert "Connection: keep-alive" not in forwarded_http
+
+        with socket.create_connection(("127.0.0.1", proxy_port), timeout=3) as client:
+            client.sendall(
+                f"GET /websockify HTTP/1.1\r\nHost: relay\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nX-Account-Pool-Relay-Auth: {expected_token}\r\n\r\n".encode(
+                    "ascii"
+                )
+            )
+            assert client.recv(4096).startswith(b"HTTP/1.1 101 Switching Protocols")
+            client.sendall(b"RFB-ping")
+            assert client.recv(4096) == b"gnip-BFR"

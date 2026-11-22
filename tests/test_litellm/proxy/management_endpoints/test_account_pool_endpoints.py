@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -1402,6 +1404,12 @@ def test_browser_static_assets_keep_relative_paths_and_do_not_forward_credential
     assert response.headers["cache-control"] == "no-store"
     assert str(calls[0].url).endswith("/vnc.html?resize=scale")
     assert "authorization" not in calls[0].headers and "cookie" not in calls[0].headers
+    expected_relay_token = hmac.new(
+        _MANAGER_TOKEN.encode("utf-8"),
+        f"oauth-browser-relay:{session_id.hex}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    assert calls[0].headers["x-account-pool-relay-auth"] == expected_relay_token
 
 
 @pytest.mark.parametrize("origin", [None, "https://evil.example"])
@@ -1513,6 +1521,70 @@ def test_browser_websocket_relays_binary_and_closes_after_upstream_disconnect() 
                     websocket.receive_bytes()
         server.shutdown()
         worker.join(timeout=5)
+
+
+def test_browser_websocket_forwards_derived_relay_auth_header() -> None:
+    import hashlib
+    import hmac
+    import threading
+    from websockets.sync.server import serve
+    import litellm.proxy.management_endpoints.account_pool_endpoints as endpoints
+
+    session_id = uuid4()
+    seen_headers: list[dict[str, str]] = []
+    expected_token = hmac.new(
+        _MANAGER_TOKEN.encode("utf-8"),
+        f"oauth-browser-relay:{session_id.hex}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+    def manager(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": str(session_id),
+                "environment_id": str(_ENVIRONMENT_ID),
+                "status": "active",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(),
+            },
+        )
+
+    def echo(connection):
+        seen_headers.append({k.lower(): v for k, v in connection.request.headers.items()})
+        assert connection.recv() == b"RFB hi"
+        connection.send(b"RFB ok")
+
+    with serve(echo, "127.0.0.1", 0) as server:
+        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker.start()
+        port = server.socket.getsockname()[1]
+
+        def dial(url: str, *, headers=None):
+            assert url == f"ws://oauth-control-{session_id.hex}:8093/websockify"
+            return endpoints.connect(f"ws://127.0.0.1:{port}/websockify", additional_headers=headers, proxy=None)
+
+        app = FastAPI()
+        app.include_router(
+            create_account_pool_router(
+                lambda: AccountPoolManagerClient(
+                    "http://manager.test",
+                    _MANAGER_TOKEN,
+                    client=httpx.AsyncClient(transport=httpx.MockTransport(manager)),
+                ),
+                browser_websocket_connect=dial,
+            )
+        )
+        with TestClient(app) as client:
+            with client.websocket_connect(
+                f"/account_pool/oauth-browser-sessions/{session_id}/browser/websockify",
+                headers={"Origin": "http://testserver", "Cookie": "account_pool_browser_ticket=temporary-ticket"},
+            ) as websocket:
+                websocket.send_bytes(b"RFB hi")
+                assert websocket.receive_bytes() == b"RFB ok"
+        server.shutdown()
+        worker.join(timeout=5)
+    assert seen_headers[0]["x-account-pool-relay-auth"] == expected_token
 
 
 def test_browser_start_has_timeout_for_worker_health_gate() -> None:

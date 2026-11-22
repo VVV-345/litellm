@@ -843,8 +843,7 @@ def _replace_compose_service_image(content: str, image: str) -> str:
 
 
 def _write_private(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8", newline="\n")
-    path.chmod(0o600)
+    _write_private_bytes(path, content.replace("\r\n", "\n").encode("utf-8"))
 
 
 async def communicate_with_timeout(process: DockerProcess, timeout_seconds: float) -> tuple[bytes, bytes]:

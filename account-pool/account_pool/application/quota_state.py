@@ -9,11 +9,11 @@ from account_pool.domain import EnvironmentRecord, QuotaSnapshot
 from account_pool.provider_families import provider_family_kind
 
 
-def _is_feature_only_window(family: str, name: str) -> bool:
+def _is_feature_only_window(family: str, name: str, *, extra_usage_enabled: bool | None = None) -> bool:
     if family == "glm":
         return name == "MCP Monthly"
     if family == "anthropic_claude":
-        return name in ("7 day Sonnet", "7 day Fable", "Extra usage")
+        return name in ("7 day Sonnet", "7 day Fable") or (name == "Extra usage" and extra_usage_enabled is not True)
     if family == "openai_codex":
         return name.startswith(("Code review ", "Codex Spark"))
     if family == "xai":
@@ -28,7 +28,11 @@ def routing_quota(record: EnvironmentRecord) -> QuotaSnapshot:
         if family in ("glm", "opencode") and record.display_quota is not None
         else record.quota
     )
-    filtered: Final = tuple(w for w in quota.windows if not _is_feature_only_window(family, w.name))
+    filtered: Final = tuple(
+        w
+        for w in quota.windows
+        if not _is_feature_only_window(family, w.name, extra_usage_enabled=quota.extra_usage_enabled)
+    )
     if len(filtered) == len(quota.windows):
         return quota
     return quota.model_copy(update={"windows": filtered})

@@ -889,6 +889,14 @@ def test_routing_quota_filters_feature_only_windows() -> None:
         )
         assert tuple(w.name for w in routing_quota(record).windows) == expected
 
+    claude_extra_enabled = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "supplier": SupplierKind.ANTHROPIC_CLAUDE,
+            "quota": QuotaSnapshot(observed_at=utc_now(), extra_usage_enabled=True, windows=windows),
+        }
+    )
+    assert "Extra usage" in tuple(w.name for w in routing_quota(claude_extra_enabled).windows)
+
 
 def test_partial_refresh_retains_unexpired_exhausted_windows_and_preserves_provider_timestamp() -> None:
     from account_pool.channels.cliproxyapi.quota_state import _merge_quota_snapshots

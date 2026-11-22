@@ -8,7 +8,9 @@ import hmac
 import ipaddress
 import json
 import os
+import select
 import socket
+import socketserver
 import ssl
 import subprocess
 import sys
@@ -358,7 +360,150 @@ def _valid_relay_fields(fields: Mapping[str, str]) -> bool:
     )
 
 
-def _run_callback_relay(manager_callback_url: str, callback_token: str) -> None:
+_RELAY_AUTH_HEADER: Final = "x-account-pool-relay-auth"
+_MAX_PROXY_HEADER_BYTES: Final = 65_536
+
+
+def _read_http_head(client_socket: socket.socket) -> tuple[bytes, bytes] | None:
+    buffer = bytearray()
+    while b"\r\n\r\n" not in buffer:
+        if len(buffer) >= _MAX_PROXY_HEADER_BYTES:
+            return None
+        chunk = client_socket.recv(4096)
+        if not chunk:
+            if not buffer:
+                return b"", b""
+            return None
+        buffer.extend(chunk)
+    head, trailing = bytes(buffer).split(b"\r\n\r\n", 1)
+    return head, trailing
+
+
+def _rewrite_authenticated_head(head: bytes, expected_token: str) -> tuple[bool, bytes | None]:
+    lines = head.decode("latin-1").split("\r\n")
+    if not lines or not lines[0]:
+        return False, None
+    request_line = lines[0]
+    supplied: str | None = None
+    is_websocket = False
+    kept: list[str] = []
+    for line in lines[1:]:
+        if ":" not in line:
+            continue
+        name, value = line.split(":", 1)
+        lowered = name.strip().lower()
+        if lowered == _RELAY_AUTH_HEADER:
+            supplied = value.strip()
+            continue
+        if lowered == "upgrade" and value.strip().lower() == "websocket":
+            is_websocket = True
+        kept.append(line)
+    if supplied is None or not hmac.compare_digest(supplied, expected_token):
+        return False, None
+    if not is_websocket:
+        kept = [
+            line
+            for line in kept
+            if line.split(":", 1)[0].strip().lower() not in {"connection", "proxy-connection", "keep-alive"}
+        ]
+        kept.append("Connection: close")
+    rebuilt = "\r\n".join((request_line, *kept)) + "\r\n\r\n"
+    return True, rebuilt.encode("latin-1")
+
+
+def _splice_sockets(client_socket: socket.socket, upstream: socket.socket) -> None:
+    active: list[socket.socket] = [client_socket, upstream]
+    while active:
+        readable, _, exceptional = select.select(active, (), active, 60.0)
+        if exceptional:
+            return
+        if not readable:
+            continue
+        for source in readable:
+            data = source.recv(65_536)
+            if not data:
+                if source is client_socket and upstream in active:
+                    try:
+                        upstream.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
+                    active.remove(client_socket)
+                    continue
+                return
+            target = upstream if source is client_socket else client_socket
+            target.sendall(data)
+
+
+def _handle_authenticated_relay_connection(
+    client_socket: socket.socket,
+    upstream_address: tuple[str, int],
+    expected_token: str,
+) -> None:
+    try:
+        client_socket.settimeout(10.0)
+        parsed = _read_http_head(client_socket)
+        if parsed is None:
+            client_socket.sendall(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            return
+        head, trailing = parsed
+        if not head:
+            return
+        authorized, rewritten = _rewrite_authenticated_head(head, expected_token)
+        if not authorized or rewritten is None:
+            client_socket.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+            return
+        with socket.create_connection(upstream_address, timeout=10.0) as upstream:
+            client_socket.settimeout(None)
+            upstream.settimeout(None)
+            upstream.sendall(rewritten + trailing)
+            _splice_sockets(client_socket, upstream)
+    except OSError:
+        return
+
+
+class _AuthenticatedRelayProxy(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(
+        self,
+        bind_address: tuple[str, int],
+        upstream_address: tuple[str, int],
+        expected_token: str,
+    ) -> None:
+        self.upstream_address: Final = upstream_address
+        self.expected_token: Final = expected_token
+
+        class Handler(socketserver.BaseRequestHandler):
+            def handle(handler_self) -> None:
+                _handle_authenticated_relay_connection(
+                    handler_self.request,
+                    upstream_address,
+                    expected_token,
+                )
+
+        super().__init__(bind_address, Handler)
+
+
+def _start_authenticated_relay(
+    bind_address: tuple[str, int],
+    upstream_address: tuple[str, int],
+    expected_token: str,
+    stack: ExitStack,
+) -> _AuthenticatedRelayProxy:
+    server: Final = _AuthenticatedRelayProxy(bind_address, upstream_address, expected_token)
+    stack.callback(server.server_close)
+    stack.callback(server.shutdown)
+    thread: Final = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server
+
+
+def _run_callback_relay(
+    manager_callback_url: str,
+    callback_token: str,
+    vnc_relay_token: str | None = None,
+) -> None:
     server: Final = _CallbackServer(
         ("0.0.0.0", 8092),
         _ManagerCallbackRelayHandler,
@@ -368,11 +513,24 @@ def _run_callback_relay(manager_callback_url: str, callback_token: str) -> None:
     )
     process_environment: Final = {"HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
     with ExitStack() as processes:
-        _start_process(
-            ("websockify", "--web=/usr/share/novnc", "0.0.0.0:8093", "browser:5900"),
-            process_environment,
-            processes,
-        )
+        if vnc_relay_token:
+            _start_process(
+                ("websockify", "--web=/usr/share/novnc", "127.0.0.1:8094", "browser:5900"),
+                process_environment,
+                processes,
+            )
+            _start_authenticated_relay(
+                ("0.0.0.0", 8093),
+                ("127.0.0.1", 8094),
+                vnc_relay_token,
+                processes,
+            )
+        else:
+            _start_process(
+                ("websockify", "--web=/usr/share/novnc", "0.0.0.0:8093", "browser:5900"),
+                process_environment,
+                processes,
+            )
         with server:
             server.serve_forever()
 
@@ -538,7 +696,11 @@ def main() -> None:
         case "egress-relay":
             asyncio.run(_run_egress_relay(_required_environment("PROXY_URL")))
         case "callback-relay":
-            _run_callback_relay(_required_environment("MANAGER_CALLBACK_URL"), _required_environment("CALLBACK_TOKEN"))
+            _run_callback_relay(
+                _required_environment("MANAGER_CALLBACK_URL"),
+                _required_environment("CALLBACK_TOKEN"),
+                os.environ.get("VNC_RELAY_TOKEN"),
+            )
         case "generate-profile":
             environment: Final = {"DISPLAY": ":99", "HOME": "/tmp", "PATH": os.environ.get("PATH", "")}
             with ExitStack() as processes:

@@ -426,3 +426,42 @@ async def test_reconcile_keeps_extra_usage_permission_and_hard_limit_window_iden
         assert available(snapshot, environment.enabled_models[0], now)
     finally:
         snapshots.replace(previous)
+
+
+@pytest.mark.asyncio
+async def test_policy_center_weight_and_order_changes_sync_and_preserve_later_native_edits() -> None:
+    from unittest.mock import AsyncMock
+
+    from litellm.models.model import LiteLLM_ProxyModelTable
+    from litellm.proxy.management_endpoints.account_pool_reconciler import LiteLLMDeploymentStore
+    from litellm.repositories.model_repository import ModelRepository
+
+    environment = _environment(routable=True).model_copy(update={"routing_weight": 5, "routing_order": -10})
+    initial = desired_deployments((environment,))[0]
+    row = LiteLLM_ProxyModelTable(
+        model_id=initial.id,
+        model_name=initial.model_name,
+        litellm_params={**initial.litellm_params, **initial.routing_defaults},
+        model_info={**initial.model_info, "account_pool_synced_routing": initial.routing_defaults},
+        blocked=False,
+    )
+    repository = AsyncMock(spec=ModelRepository)
+    repository.find_by_id.return_value = row
+    store = LiteLLMDeploymentStore(None, repository)
+
+    assert await store.upsert(initial) is False
+
+    updated_policy = desired_deployments(
+        (environment.model_copy(update={"routing_weight": 15, "routing_order": 20001}),)
+    )[0]
+    assert await store.upsert(updated_policy) is True
+    saved = repository.update_model.call_args.kwargs
+    assert saved["litellm_params"]["weight"] == 15
+    assert saved["litellm_params"]["order"] == 20001
+    assert saved["model_info"]["account_pool_synced_routing"] == {"weight": 15, "order": 20001}
+
+    edited_params = {**saved["litellm_params"], "weight": 99, "timeout": 45}
+    repository.find_by_id.return_value = row.model_copy(
+        update={"litellm_params": edited_params, "model_info": saved["model_info"]}
+    )
+    assert await store.upsert(updated_policy) is False

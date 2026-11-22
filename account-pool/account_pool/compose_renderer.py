@@ -1,5 +1,7 @@
 """本模块只负责生成号池 CLIProxyAPI 配置及 Compose 描述，不执行 Docker 操作。"""
 
+import hashlib
+import hmac
 import re
 from typing import Final
 from urllib.parse import urlsplit
@@ -16,6 +18,14 @@ from account_pool.oauth_browser import (
     OAuthBrowserSession,
     oauth_browser_control_host,
 )
+
+
+def oauth_browser_relay_token(manager_token: str, session_id: UUID) -> str:
+    return hmac.new(
+        manager_token.encode("utf-8"),
+        f"oauth-browser-relay:{session_id.hex}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
 
 
 def render_cli_proxy_config(management_key: str, gateway_key: str, *, proxy_url: str = "") -> str:
@@ -176,6 +186,7 @@ def render_oauth_browser_compose(
                 "tmpfs": ["/tmp:rw,noexec,nosuid,size=8m"],
                 "environment": {
                     "CALLBACK_TOKEN": callback_token,
+                    "VNC_RELAY_TOKEN": oauth_browser_relay_token(settings.manager_token, session.id),
                     **({"OAUTH_AUTOMATION_TOKEN": automation.worker_token} if automation else {}),
                     "MANAGER_CALLBACK_URL": (
                         f"http://{settings.manager_container}:8091/internal/oauth-browser-sessions/"

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
+import inspect
 import json
 import os
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -97,8 +100,49 @@ def _browser_relay_url(
     return str(target_url.copy_merge_params(filtered_params))
 
 
-def _connect_browser_websocket(url: str) -> AbstractAsyncContextManager[_BrowserWebSocket]:
-    return connect(url, proxy=None, open_timeout=30, close_timeout=10, max_size=16 * 1024 * 1024)
+_RELAY_AUTH_HEADER: Final = "X-Account-Pool-Relay-Auth"
+
+
+def _browser_relay_auth_token(manager_token: str | None, session_id: UUID) -> str | None:
+    if manager_token is None or len(manager_token) < 32:
+        return None
+    return hmac.new(
+        manager_token.encode("utf-8"),
+        f"oauth-browser-relay:{session_id.hex}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def _connect_browser_websocket(
+    url: str,
+    *,
+    headers: Mapping[str, str] | None = None,
+) -> AbstractAsyncContextManager[_BrowserWebSocket]:
+    return connect(
+        url,
+        proxy=None,
+        open_timeout=30,
+        close_timeout=10,
+        max_size=16 * 1024 * 1024,
+        additional_headers=headers,
+    )
+
+
+def _open_browser_websocket(
+    connector: Callable[..., AbstractAsyncContextManager[_BrowserWebSocket]],
+    url: str,
+    headers: Mapping[str, str] | None,
+) -> AbstractAsyncContextManager[_BrowserWebSocket]:
+    if connector is _connect_browser_websocket:
+        return _connect_browser_websocket(url, headers=headers)
+    if headers:
+        signature: Final = inspect.signature(connector)
+        params: Final = signature.parameters.values()
+        if "headers" in signature.parameters or any(
+            param.kind is inspect.Parameter.VAR_KEYWORD for param in params
+        ):
+            return connector(url, headers=headers)
+    return connector(url)
 
 
 async def _close_browser_websocket(websocket: WebSocket, code: int, reason: str) -> None:
@@ -705,6 +749,9 @@ class AccountPoolManagerClient:
         if self._owns_client:
             await self._client.aclose()
 
+    def relay_auth_token(self, session_id: UUID) -> str | None:
+        return _browser_relay_auth_token(self._token, session_id)
+
     async def request(
         self,
         method: _Method,
@@ -862,7 +909,7 @@ def create_account_pool_router(
     release_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_client_factory: Callable[[], httpx.AsyncClient] = lambda: httpx.AsyncClient(timeout=30, trust_env=False),
     browser_websocket_connect: Callable[
-        [str], AbstractAsyncContextManager[_BrowserWebSocket]
+        ..., AbstractAsyncContextManager[_BrowserWebSocket]
     ] = _connect_browser_websocket,
 ) -> APIRouter:
     router: Final = APIRouter(prefix="/account_pool", tags=["Account Pool"])
@@ -1379,9 +1426,10 @@ def create_account_pool_router(
         ticket: str,
         *,
         consume: bool,
-    ) -> AccountPoolOAuthBrowserSession:
+    ) -> tuple[AccountPoolOAuthBrowserSession, str | None]:
         suffix: Final = "consume" if consume else "validate"
         client: Final = client_factory()
+        relay_token: Final = client.relay_auth_token(session_id)
         try:
             response: Final = await client.request_with_token(
                 "POST", f"/internal/oauth-browser-sessions/{session_id}/ticket/{suffix}", ticket
@@ -1390,7 +1438,7 @@ def create_account_pool_router(
             await client.close()
         if response.is_error:
             raise HTTPException(response.status_code, "OAuth browser session is unavailable")
-        return _validate_response(response, _OAUTH_BROWSER_SESSION)
+        return _validate_response(response, _OAUTH_BROWSER_SESSION), relay_token
 
     @router.post("/oauth-browser-sessions/{session_id}/browser", status_code=204)
     async def connect_oauth_browser(
@@ -1401,7 +1449,7 @@ def create_account_pool_router(
         scheme, _, ticket = (authorization or "").partition(" ")
         if scheme.lower() != "bearer" or not ticket:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "OAuth browser ticket is required")
-        session: Final = await browser_ticket(session_id, ticket, consume=True)
+        session, _ = await browser_ticket(session_id, ticket, consume=True)
         expires: Final = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
         seconds: Final = max(0, int((expires - datetime.now(timezone.utc)).total_seconds()))
         if session.status != "active" or seconds == 0:
@@ -1425,15 +1473,16 @@ def create_account_pool_router(
         supplied: Final = request.cookies.get("account_pool_browser_ticket")
         if supplied is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "OAuth browser ticket is required")
-        session: Final = await browser_ticket(session_id, supplied, consume=False)
+        session, relay_token = await browser_ticket(session_id, supplied, consume=False)
         if session.status != "active":
             raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
         if not path or any(part in {".", ".."} for part in path.split("/")) or "\\" in path:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "OAuth browser asset not found")
         target_url: Final = _browser_relay_url(session_id, quote(path, safe="/"), request.query_params.multi_items())
+        relay_headers: Final = {_RELAY_AUTH_HEADER: relay_token} if relay_token is not None else None
         relay_client: Final = browser_client_factory()
         try:
-            upstream: Final = await relay_client.get(target_url)
+            upstream: Final = await relay_client.get(target_url, headers=relay_headers)
         except httpx.HTTPError as error:
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, "OAuth browser relay is unavailable") from error
         finally:
@@ -1470,22 +1519,29 @@ def create_account_pool_router(
             await _close_browser_websocket(websocket, 1008, "OAuth browser ticket is required")
             return
 
-        async def validate_session() -> AccountPoolOAuthBrowserSession:
-            session: Final = await browser_ticket(session_id, supplied, consume=False)
+        async def validate_session() -> tuple[AccountPoolOAuthBrowserSession, str | None]:
+            session, token = await browser_ticket(session_id, supplied, consume=False)
             if session.status != "active":
                 raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
+            return session, token
+
+        async def validate_active() -> AccountPoolOAuthBrowserSession:
+            session, _ = await validate_session()
             return session
 
         try:
-            session: Final = await validate_session()
+            session, relay_token = await validate_session()
             expires: Final = datetime.fromisoformat(session.expires_at.replace("Z", "+00:00"))
             seconds: Final = max(0, (expires - datetime.now(timezone.utc)).total_seconds())
             protocols: Final = websocket.scope.get("subprotocols", ())
+            relay_headers: Final = {_RELAY_AUTH_HEADER: relay_token} if relay_token is not None else None
             await websocket.accept(subprotocol="binary" if "binary" in protocols else None)
-            async with browser_websocket_connect(
+            async with _open_browser_websocket(
+                browser_websocket_connect,
                 _browser_relay_url(session_id, "websockify", (), scheme="ws"),
+                relay_headers,
             ) as upstream:
-                await asyncio.wait_for(_relay_browser_websocket(websocket, upstream, validate_session), timeout=seconds)
+                await asyncio.wait_for(_relay_browser_websocket(websocket, upstream, validate_active), timeout=seconds)
             await _close_browser_websocket(websocket, 1000, "OAuth browser session closed")
         except HTTPException:
             await _close_browser_websocket(websocket, 1008, "OAuth browser session is unavailable")

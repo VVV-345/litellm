@@ -133,14 +133,19 @@ class ManagedDeployment:
     supported_endpoints: tuple[str, ...] = ()
     sse_heartbeat_interval_seconds: float | None = None
     glm_standard_api: bool = False
+    synced_routing: tuple[tuple[str, int], ...] | None = field(default=None, compare=False)
+
+    @property
+    def routing_items(self) -> tuple[tuple[str, int], ...]:
+        return tuple(
+            (name, value)
+            for name, value in (("weight", self.routing_weight), ("order", self.routing_order))
+            if value is not None
+        )
 
     @property
     def routing_defaults(self) -> dict[str, object]:
-        return {
-            name: value
-            for name, value in (("weight", self.routing_weight), ("order", self.routing_order))
-            if value is not None
-        }
+        return dict(self.routing_items)
 
     @property
     def litellm_params(self) -> dict[str, object]:
@@ -243,12 +248,18 @@ class LiteLLMDeploymentStore:
             raise RuntimeError(f"deployment id {deployment.id} is already owned outside the account pool")
         if _matches(current_deployment, deployment):
             return False
+        sync_routing: Final = _routing_needs_sync(current_deployment, deployment)
         if current is None:
             try:
+                synced_meta: Final = (
+                    {"account_pool_synced_routing": deployment.routing_defaults}
+                    if deployment.routing_defaults
+                    else {}
+                )
                 await self._repository.create_model(
                     model_name=deployment.model_name,
                     litellm_params={**deployment.litellm_params, **deployment.routing_defaults},
-                    model_info=deployment.model_info,
+                    model_info={**deployment.model_info, **synced_meta},
                     model_id=deployment.id,
                     created_by=_CREATED_BY,
                     blocked=deployment.blocked,
@@ -292,17 +303,28 @@ class LiteLLMDeploymentStore:
             **{key: value for key, value in preserved.litellm_params.items() if key not in heartbeat_keys},
             **native_keepalive,
         }
+        routing_override: Final = deployment.routing_defaults if sync_routing else MappingProxyType({})
+        preserved_info: Final = preserved.model_info or {}
+        synced_routing_info: Final = (
+            {"account_pool_synced_routing": deployment.routing_defaults}
+            if sync_routing
+            else (
+                {"account_pool_synced_routing": preserved_info["account_pool_synced_routing"]}
+                if "account_pool_synced_routing" in preserved_info
+                else {}
+            )
+        )
         await self._repository.update_model(
             model_id=deployment.id,
             model_name=deployment.model_name,
             litellm_params={
-                **deployment.routing_defaults,
                 **inherited_params,
                 **deployment.litellm_params,
+                **routing_override,
                 **allowed_override,
             },
             model_info={
-                **(preserved.model_info or {}),
+                **preserved_info,
                 **deployment.model_info,
                 **(
                     MappingProxyType(
@@ -320,6 +342,7 @@ class LiteLLMDeploymentStore:
                 ),
                 "account_pool_native_routing": deployment.native_routing_migrated
                 or (current_deployment is not None and current_deployment.native_routing_migrated),
+                **synced_routing_info,
             },
             blocked=deployment.blocked,
             updated_by=_CREATED_BY,
@@ -517,9 +540,27 @@ def _deployment(environment: GatewayEnvironment, model: str) -> ManagedDeploymen
         routing_weight=environment.routing_weight,
         routing_order=environment.routing_order,
         native_routing_migrated=environment.routing_weight is not None and environment.routing_order is not None,
+        synced_routing=tuple(
+            (name, value)
+            for name, value in (("weight", environment.routing_weight), ("order", environment.routing_order))
+            if value is not None
+        )
+        or None,
         sse_heartbeat_interval_seconds=environment.sse_heartbeat_interval_seconds,
         glm_standard_api=is_glm_standard_api_base(environment.api_base),
     )
+
+
+def _routing_needs_sync(current: ManagedDeployment | None, desired: ManagedDeployment) -> bool:
+    if not desired.routing_items:
+        return False
+    if current is None:
+        return True
+    if not current.native_routing_migrated and desired.native_routing_migrated:
+        return True
+    if current.synced_routing is None:
+        return True
+    return current.synced_routing != desired.routing_items
 
 
 def _matches(current: ManagedDeployment | None, desired: ManagedDeployment) -> bool:
@@ -527,8 +568,21 @@ def _matches(current: ManagedDeployment | None, desired: ManagedDeployment) -> b
 
     if current is None:
         return False
+    if _routing_needs_sync(current, desired):
+        return False
     expected: Final = replace(desired, native_routing_migrated=current.native_routing_migrated)
     return current == expected and (current.native_routing_migrated or not desired.native_routing_migrated)
+
+
+def _parse_synced_routing(raw: object) -> tuple[tuple[str, int], ...] | None:
+    if not isinstance(raw, Mapping):
+        return None
+    items: list[tuple[str, int]] = []
+    for key in ("weight", "order"):
+        value = raw.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            items.append((key, value))
+    return tuple(items)
 
 
 def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
@@ -569,6 +623,11 @@ def _from_row(row: LiteLLM_ProxyModelTable) -> ManagedDeployment | None:
         supported_endpoints=TypeAdapter(tuple[str, ...]).validate_python(info.get("supported_endpoints", ())),
         sse_heartbeat_interval_seconds=heartbeat.account_pool_sse_heartbeat,
         glm_standard_api=info.get("account_pool_glm_standard_api") is True,
+        synced_routing=(
+            _parse_synced_routing(info.get("account_pool_synced_routing"))
+            if "account_pool_synced_routing" in info
+            else None
+        ),
     )
 
 
