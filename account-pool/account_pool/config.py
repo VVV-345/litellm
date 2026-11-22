@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     manager_container: str = Field(default="litellm-account-pool", pattern=r"^[a-zA-Z0-9_.-]+$")
     gateway_container: str = Field(default="litellm", pattern=r"^[a-zA-Z0-9_.-]+$")
     control_network: str = Field(default="litellm-control", max_length=255, pattern=r"^[a-zA-Z0-9_.-]+$")
+    runtime_network: str = Field(default="account-pool-runtime", max_length=255, pattern=r"^[a-zA-Z0-9_.-]+$")
     ssh_host: str = Field(min_length=1, max_length=255)
     ssh_user: str = Field(min_length=1, pattern=r"^[a-zA-Z0-9_.-]+$")
     callback_bind_host: str = Field(default="127.0.0.1")

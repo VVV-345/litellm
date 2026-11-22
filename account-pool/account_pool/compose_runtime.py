@@ -130,6 +130,7 @@ class ComposeRuntime:
         _write_private(environment_dir / "compose.yaml", selected_compose)
         await self._create_data_volume(record.id)
         await self._write_data_volume(record.id, selected_config)
+        await self._ensure_runtime_network()
         pull: Final = "missing" if "@sha256:" in self._settings.cli_proxy_image else "always"
         await self._compose(record.id, "up", "-d", "--pull", pull, "--remove-orphans")
         await self.ensure_control_plane_connections(record.id)
@@ -187,9 +188,40 @@ class ComposeRuntime:
             stdin_content=config,
         )
 
+    def _uses_legacy_network(self, environment_id: UUID) -> bool:
+        compose_file: Final = self.environment_dir(environment_id) / "compose.yaml"
+        if not compose_file.is_file():
+            return False
+        try:
+            document: Final = yaml.safe_load(compose_file.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        if not isinstance(document, dict):
+            return False
+        networks: Final = document.get("networks")
+        environment: Final = networks.get("environment") if isinstance(networks, dict) else None
+        return isinstance(environment, dict) and environment.get("name") == f"account-pool-{environment_id.hex}"
+
+    async def _ensure_runtime_network(self) -> None:
+        process: Final = await self._runner(
+            ("docker", "network", "create", "--driver", "bridge", self._settings.runtime_network),
+            self._docker_environment(),
+        )
+        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        detail: Final = (
+            stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        )
+        already_exists: Final = "already exists" in detail.lower()
+        if process.returncode != 0 and not already_exists:
+            raise RuntimeError(f"failed to create runtime network {self._settings.runtime_network}: {detail[:500]}")
+
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
-        await self._connect_control_plane(environment_id, self._settings.manager_container)
-        await self._connect_control_plane(environment_id, self._settings.gateway_container)
+        await self._ensure_runtime_network()
+        await self._connect_network(self._settings.runtime_network, self._settings.manager_container)
+        await self._connect_network(self._settings.runtime_network, self._settings.gateway_container)
+        if self._uses_legacy_network(environment_id):
+            await self._connect_control_plane(environment_id, self._settings.manager_container)
+            await self._connect_control_plane(environment_id, self._settings.gateway_container)
 
     async def missing_control_plane_connections(self, environment_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
         if not environment_ids:
@@ -199,10 +231,12 @@ class ComposeRuntime:
         if manager_networks is None or gateway_networks is None:
             return environment_ids
         both: Final = manager_networks & gateway_networks
+        if self._settings.runtime_network not in both:
+            return environment_ids
         return tuple(
             environment_id
             for environment_id in environment_ids
-            if f"account-pool-{environment_id.hex}" not in both
+            if self._uses_legacy_network(environment_id) and f"account-pool-{environment_id.hex}" not in both
         )
 
     async def _connected_networks(self, container: str) -> frozenset[str] | None:
@@ -686,6 +720,7 @@ class ComposeRuntime:
         await self._disconnect_control_plane(record.id, self._settings.manager_container)
         await self._disconnect_control_plane(record.id, self._settings.gateway_container)
         await self._compose(record.id, "down", "--remove-orphans")
+        await self._remove_legacy_network(f"account-pool-{record.id.hex}")
         await self._remove_data_volume(record.id)
 
     async def _remove_data_volume(self, environment_id: UUID) -> None:
@@ -704,8 +739,10 @@ class ComposeRuntime:
 
     async def remove_legacy(self, project_name: str, directory: Path) -> None:
         _validate_project_directory(project_name, directory, self._settings.data_root)
-        await self._disconnect_control_plane_by_network(project_name.removeprefix("account-pool-"))
+        slug: Final = project_name.removeprefix("account-pool-")
+        await self._disconnect_control_plane_by_network(slug)
         await self._compose_at(project_name, directory, "down", "--remove-orphans")
+        await self._remove_legacy_network(f"account-pool-{slug}")
         _remove_environment_directory(directory, self._settings.data_root)
 
     async def remove_directory(self, environment_id: UUID) -> None:
@@ -716,7 +753,9 @@ class ComposeRuntime:
         )
 
     async def _connect_control_plane(self, environment_id: UUID, container: str) -> None:
-        network: Final = f"account-pool-{environment_id.hex}"
+        await self._connect_network(f"account-pool-{environment_id.hex}", container)
+
+    async def _connect_network(self, network: str, container: str) -> None:
         process: Final = await self._runner(
             ("docker", "network", "connect", "--gw-priority=-1", network, container), self._docker_environment()
         )
@@ -727,6 +766,22 @@ class ComposeRuntime:
         already_connected: Final = "already exists in network" in detail.lower()
         if process.returncode != 0 and not already_connected:
             raise RuntimeError(f"failed to attach {container} to {network}: {detail[:500]}")
+
+    async def _remove_legacy_network(self, network: str) -> None:
+        if network == self._settings.runtime_network:
+            return
+        process: Final = await self._runner(("docker", "network", "rm", network), self._docker_environment())
+        stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
+        detail: Final = (
+            stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        )
+        ignorable: Final = (
+            "not found" in detail.lower()
+            or "no such network" in detail.lower()
+            or "has active endpoints" in detail.lower()
+        )
+        if process.returncode != 0 and not ignorable:
+            raise RuntimeError(f"failed to remove legacy network {network}: {detail[:500]}")
 
     async def _disconnect_control_plane(self, environment_id: UUID, container: str) -> None:
         network: Final = f"account-pool-{environment_id.hex}"

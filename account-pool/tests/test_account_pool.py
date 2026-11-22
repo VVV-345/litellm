@@ -1709,9 +1709,8 @@ def test_render_compose_uses_uuid_identity_and_retains_upstream_egress(tmp_path:
     assert rendered == rerendered
     assert rendered["name"] == f"account-pool-{record.id.hex}"
     assert rendered["networks"]["environment"] == {
-        "name": f"account-pool-{record.id.hex}",
-        "driver": "bridge",
-        "internal": False,
+        "name": settings.runtime_network,
+        "external": True,
     }
     assert service["networks"] == {"environment": {"aliases": [f"cliproxy-{record.id.hex}"]}}
     assert rendered["volumes"] == {"cliproxy-data": {"name": f"account-pool-{record.id.hex}-data"}}
@@ -1940,7 +1939,8 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     assert "config.yaml" in seed[-1]
     assert not any("secret-key" in argument for argument in seed)
     assert runner.stdin_payloads and b"secret-key" in runner.stdin_payloads[0]
-    assert arguments[3][:6] == (
+    assert arguments[3] == ("docker", "network", "create", "--driver", "bridge", settings.runtime_network)
+    assert arguments[4][:6] == (
         "docker",
         "compose",
         "--project-name",
@@ -1948,8 +1948,42 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
         "--file",
         str(runtime.environment_dir(record.id) / "compose.yaml"),
     )
+    assert ("docker", "network", "connect", "--gw-priority=-1", settings.runtime_network, settings.manager_container) in arguments
+    assert ("docker", "network", "connect", "--gw-priority=-1", settings.runtime_network, settings.gateway_container) in arguments
     compose_text: Final = (runtime.environment_dir(record.id) / "compose.yaml").read_text(encoding="utf-8")
     assert "./" not in yaml.safe_load(compose_text)["services"]["cli-proxy-api"]["volumes"][0]
+
+
+@pytest.mark.asyncio
+async def test_shared_runtime_network_keeps_legacy_fallback_and_cleans_legacy_network_on_remove(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+    legacy: Final = _record(status=EnvironmentStatus.READY)
+    modern: Final = _record(status=EnvironmentStatus.READY)
+    runner: Final = RecordingDockerRunner()
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=runner)
+    legacy_dir: Final = runtime.environment_dir(legacy.id)
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "compose.yaml").write_text(
+        yaml.safe_dump({"name": f"account-pool-{legacy.id.hex}", "networks": {"environment": {"name": f"account-pool-{legacy.id.hex}"}}}),
+        encoding="utf-8",
+    )
+    modern_dir: Final = runtime.environment_dir(modern.id)
+    modern_dir.mkdir(parents=True)
+    (modern_dir / "compose.yaml").write_text(render_compose(modern, settings), encoding="utf-8")
+
+    await runtime.ensure_control_plane_connections(legacy.id)
+    await runtime.remove_compose(legacy)
+
+    calls: Final = tuple(arguments for arguments, _ in runner.calls)
+    assert ("docker", "network", "connect", "--gw-priority=-1", f"account-pool-{legacy.id.hex}", settings.manager_container) in calls
+    assert ("docker", "network", "rm", f"account-pool-{legacy.id.hex}") in calls
+    assert ("docker", "network", "rm", settings.runtime_network) not in calls
+    assert not any(call[:3] == ("docker", "network", "disconnect") and call[3] == settings.runtime_network for call in calls)
+
+    runner.calls.clear()
+    await runtime.ensure_control_plane_connections(modern.id)
+    modern_calls: Final = tuple(arguments for arguments, _ in runner.calls)
+    assert ("docker", "network", "connect", "--gw-priority=-1", f"account-pool-{modern.id.hex}", settings.manager_container) not in modern_calls
 
 
 @pytest.mark.asyncio

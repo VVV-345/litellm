@@ -90,6 +90,7 @@ services:
       - default
       - litellm-db
       - litellm-control
+      - account-pool-runtime
 
   docker-socket-proxy:
     container_name: litellm-account-pool-socket-proxy
@@ -194,6 +195,7 @@ services:
       ACCOUNT_POOL_MANAGER_CONTAINER: litellm-account-pool
       ACCOUNT_POOL_GATEWAY_CONTAINER: litellm
       ACCOUNT_POOL_CONTROL_NETWORK: ${ACCOUNT_POOL_CONTROL_NETWORK:-litellm-control}
+      ACCOUNT_POOL_RUNTIME_NETWORK: ${ACCOUNT_POOL_RUNTIME_NETWORK:-account-pool-runtime}
       ACCOUNT_POOL_SSH_HOST: ${ACCOUNT_POOL_SSH_HOST:?set ACCOUNT_POOL_SSH_HOST}
       ACCOUNT_POOL_SSH_USER: ${ACCOUNT_POOL_SSH_USER:?set ACCOUNT_POOL_SSH_USER}
       ACCOUNT_POOL_CALLBACK_PORT: ${ACCOUNT_POOL_CALLBACK_PORT:-8091}
@@ -241,6 +243,7 @@ services:
       - account-pool-manager-db
       - litellm-control
       - account-pool-public
+      - account-pool-runtime
     depends_on:
       docker-socket-proxy:
         condition: service_healthy
@@ -341,6 +344,10 @@ networks:
   account-pool-manager-db:
     name: account-pool-manager-db
     internal: true
+  account-pool-runtime:
+    name: ${ACCOUNT_POOL_RUNTIME_NETWORK:-account-pool-runtime}
+    driver: bridge
+    internal: false
 
 volumes:
   account_pool_full_logs:

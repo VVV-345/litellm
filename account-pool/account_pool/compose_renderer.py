@@ -59,7 +59,6 @@ def render_cli_proxy_config(management_key: str, gateway_key: str, *, proxy_url:
 def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
     environment_slug: Final = record.id.hex
     service_name: Final = f"cliproxy-{environment_slug}"
-    network_name: Final = f"account-pool-{environment_slug}"
     volume_name: Final = data_volume_name(record.id)
     compose: Final = {
         "name": f"account-pool-{environment_slug}",
@@ -89,7 +88,7 @@ def render_compose(record: EnvironmentRecord, settings: Settings) -> str:
             }
         },
         "networks": {
-            "environment": {"name": network_name, "driver": "bridge", "internal": False},
+            "environment": {"name": settings.runtime_network, "external": True},
         },
         "volumes": {"cliproxy-data": {"name": volume_name}},
     }
