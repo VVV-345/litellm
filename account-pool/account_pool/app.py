@@ -79,7 +79,7 @@ from account_pool.repository import (
 )
 from account_pool.service import EnvironmentService
 from account_pool.settings import AccountPoolSettings, PostgresAccountPoolSettingsRepository
-from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose
+from account_pool.shared.secrets import EnvironmentSecretDeriver
 from account_pool.upstream_sync import GitHubUpstreamSyncService
 
 _LOGGER: Final = logging.getLogger(__name__)
@@ -183,7 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     binding_reader: Final = MailboxReader(automation_http)
     email_rebinding: Final = EmailBindingRunner(
         BindingService(binding_repository, automation.registry), automation, binding_reader,
-        LoginScriptStore(resolved.data_root / ".email-rebinding-package.json", secrets.derive(UUID(int=1), SecretPurpose.OAUTH_STATE)),
+        LoginScriptStore(resolved.data_root / ".email-rebinding-package.json", resolved.oauth_login_script_publish_key),
     )
     quota_scheduler: Final = QuotaRefreshScheduler(
         settings_repository,
@@ -338,7 +338,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
-        async with database_pool(resolved.database_url), manager_lifespan(application):
+        async with database_pool(
+            resolved.database_url,
+            max_size=resolved.database_pool_max_size,
+            operation_max_size=resolved.database_operation_pool_max_size,
+        ), manager_lifespan(application):
             yield
 
     app: Final = FastAPI(title="LiteLLM Account Pool Manager", version="0.1.0", lifespan=lifespan)
@@ -432,18 +436,19 @@ async def _restore_control_plane_connections_until_cancelled(
     channels: ChannelRegistry,
     repository: EnvironmentRepository,
     stopped: asyncio.Event,
-    retry_seconds: float = 5.0,
+    retry_seconds: float = 60.0,
 ) -> None:
     while not stopped.is_set():
+        try:
+            await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
+            continue
+        except TimeoutError:
+            pass
         try:
             records: Final = await repository.list()
             await _restore_control_plane_connections(channels, records)
         except Exception as error:
             _LOGGER.warning("Account pool network reconcile failed: %s", error.__class__.__name__)
-        try:
-            await asyncio.wait_for(stopped.wait(), timeout=retry_seconds)
-        except TimeoutError:
-            continue
 
 
 async def _reap_oauth_browser_sessions_until_cancelled(
@@ -487,13 +492,32 @@ async def _restore_control_plane_connections(
     channels: ChannelRegistry,
     records: tuple[EnvironmentRecord, ...],
 ) -> None:
-    await asyncio.gather(
-        *(
-            _restore_control_plane_connection(channels, record)
-            for record in records
-            if record.status is not EnvironmentStatus.DELETING and record.channel is ChannelKind.CLIPROXYAPI
-        )
+    targets: Final = tuple(
+        record
+        for record in records
+        if record.status is not EnvironmentStatus.DELETING and record.channel is ChannelKind.CLIPROXYAPI
     )
+    if not targets:
+        return
+    try:
+        channel: Final = channels.channel(ChannelKind.CLIPROXYAPI)
+    except UnsupportedChannelError:
+        return
+    missing_lookup: Final = getattr(channel, "missing_control_plane_connections", None)
+    missing_ids: Final = (
+        frozenset(await missing_lookup(tuple(record.id for record in targets)))
+        if callable(missing_lookup)
+        else frozenset(record.id for record in targets)
+    )
+    if not missing_ids:
+        return
+    semaphore: Final = asyncio.Semaphore(2)
+
+    async def restore(record: EnvironmentRecord) -> None:
+        async with semaphore:
+            await _restore_control_plane_connection(channels, record)
+
+    await asyncio.gather(*(restore(record) for record in targets if record.id in missing_ids))
 
 
 async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:

@@ -52,11 +52,28 @@ async def test_manager_import_confirm_and_script_upload_require_admin_and_never_
             "entrypoint": "rebind.mjs",
             "files": [{"path": "rebind.mjs", "data": base64.b64encode(source.encode()).decode()}],
         }
-        uploaded = await client.put("/api/email-rebinding/script", headers=headers, json={"package": package})
+        publish_key = "server-only-key-" * 3
+        missing_key = await client.put("/api/email-rebinding/script", headers=headers, json={"package": package})
+        assert missing_key.status_code == 422
+        wrong_key = await client.put(
+            "/api/email-rebinding/script",
+            headers=headers,
+            json={"publisher_key": "wrong-publish-key-" * 3, "package": package},
+        )
+        assert wrong_key.status_code == 409
+        uploaded = await client.put(
+            "/api/email-rebinding/script",
+            headers=headers,
+            json={"publisher_key": publish_key, "package": package},
+        )
         assert uploaded.status_code == 200 and uploaded.json()["active"]["entrypoint"] == "rebind.mjs"
-        assert "server-only-key-" * 3 not in uploaded.text and "export async" not in uploaded.text
+        assert publish_key not in uploaded.text and "export async" not in uploaded.text
         malicious = {"entrypoint": "../escape.mjs", "files": [{"path": "../escape.mjs", "data": "eA=="}]}
-        rejected = await client.put("/api/email-rebinding/script", headers=headers, json={"package": malicious})
+        rejected = await client.put(
+            "/api/email-rebinding/script",
+            headers=headers,
+            json={"publisher_key": publish_key, "package": malicious},
+        )
         assert rejected.status_code == 422 and "eA==" not in rejected.text
         assert (await client.get("/api/email-rebinding/script", headers=headers)).json()["active"] == uploaded.json()[
             "active"

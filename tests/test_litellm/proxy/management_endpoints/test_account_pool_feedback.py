@@ -164,3 +164,16 @@ def test_admin_upload_uses_multipart_and_machine_download_preserves_binary_respo
     assert downloaded.headers["content-disposition"] == 'attachment; filename="capture.png"'
     body = seen[-1][2]
     assert body["token"] == "limited-token"
+
+
+def test_admin_upload_rejects_oversized_attachment_before_manager_forward():
+    from litellm.proxy.management_endpoints.account_pool_feedback import MAX_FEEDBACK_ATTACHMENT_SIZE
+
+    client, seen = client_for(admin=True)
+    response = client.post(
+        f"/account_pool/feedback/issues/{uuid4()}/attachments",
+        data={"expected_revision": "1"},
+        files={"file": ("huge.png", b"x" * (MAX_FEEDBACK_ATTACHMENT_SIZE + 1), "image/png")},
+    )
+    assert response.status_code == 413
+    assert seen == []

@@ -175,6 +175,8 @@ def create_feedback_router(
         identity: Final = admin(user)
         content: Final = await file.read(MAX_FEEDBACK_ATTACHMENT_SIZE + 1)
         await file.close()
+        if len(content) > MAX_FEEDBACK_ATTACHMENT_SIZE:
+            raise HTTPException(413, "Attachment exceeds maximum allowed size")
         response: Final = await request_multipart(
             f"/api/feedback/issues/{issue_id}/attachments?" + urlencode({"_actor": identity}),
             {"expected_revision": str(expected_revision)},

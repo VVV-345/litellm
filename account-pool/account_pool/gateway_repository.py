@@ -170,7 +170,16 @@ class PostgresLeaseRepository:
                     reason="cooldown",
                     retry_after_seconds=min(86400, math.ceil((model_cooling.retry_at - now).total_seconds())),
                 )
-            if model_cooling is not None:
+            needs_recovery_probe: Final = (
+                model_cooling is not None
+                and model_cooling.reason != "timeout_tracking"
+                and not (
+                    model_cooling.timeout_state_at is not None
+                    and model_cooling.consecutive_timeouts == 0
+                    and model_cooling.reason == "consecutive_timeouts"
+                )
+            )
+            if needs_recovery_probe:
                 probe: Final = await connection.execute(
                     "SELECT 1 FROM account_pool_leases WHERE account_id = %s "
                     "AND expires_at > now() AND payload->>'model' = %s LIMIT 1",
@@ -393,13 +402,20 @@ def settle_model_cooldowns(
     if preserve_stale and not seconds:
         return existing
     updated_timeout_state: Final = timeout_state_at is not None
-    cooldown_reason: Final = previous.reason if previous is not None else "upstream_error"
+    # 未达到冷却阈值或成功复位后的超时计数仅用于防乱序，不能触发单探针并发降级。
+    cooldown_reason: Final = (
+        "consecutive_timeouts"
+        if timeout_delay
+        else (previous.reason if previous is not None and previous.reason != "timeout_tracking" else "upstream_error")
+        if cooldown_seconds or preserve_stale
+        else "timeout_tracking"
+    )
     updated: Final = (
         (
             ModelCooldown(
                 model=lease.model,
                 retry_at=active_retry_at,
-                reason="consecutive_timeouts" if timeout_delay else cooldown_reason,
+                reason=cooldown_reason,
                 consecutive_timeouts=timeout_count,
                 timeout_state_at=timeout_state_at,
             ),

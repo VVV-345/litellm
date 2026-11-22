@@ -75,7 +75,8 @@ async def _configure_database_connection(connection: psycopg.AsyncConnection[Map
 async def database_pool(
     database_url: str,
     *,
-    max_size: int = 10,
+    max_size: int = 20,
+    operation_max_size: int = 16,
     timeout: float = 30.0,
 ) -> AsyncGenerator[AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]], None]:
     key: Final = (asyncio.get_running_loop(), database_url)
@@ -91,12 +92,13 @@ async def database_pool(
         open=False,
         configure=_configure_database_connection,
     )
+    resolved_operation_size: Final = max(1, operation_max_size)
     operation_pool: Final = AsyncConnectionPool[psycopg.AsyncConnection[Mapping[str, object]]](
         database_url,
         connection_class=psycopg.AsyncConnection[Mapping[str, object]],
         kwargs={"row_factory": dict_row},
         min_size=0,
-        max_size=6,
+        max_size=resolved_operation_size,
         timeout=timeout,
         open=False,
         configure=_configure_database_connection,
@@ -105,7 +107,7 @@ async def database_pool(
         # lifespan 与请求是不同任务，按事件循环和完整 DSN 绑定，避免临时库复用正式连接。
         _DATABASE_POOLS[key] = pool
         _DATABASE_OPERATION_POOLS[key] = operation_pool
-        _DATABASE_OPERATION_SLOTS[key] = asyncio.Semaphore(6)
+        _DATABASE_OPERATION_SLOTS[key] = asyncio.Semaphore(resolved_operation_size)
         try:
             yield pool
         finally:

@@ -170,7 +170,15 @@ class BindingService:
                     ),
                     None,
                 )
-                if mailbox is None or len(tx.snapshot.jobs) >= 200:
+                if mailbox is None:
+                    return Failure(FailureCode.CONFLICT, "没有可分配邮箱或任务记录已满；不会重复使用已绑定邮箱")
+                existing_jobs: Final = tx.snapshot.jobs
+                pruned_jobs: Final = (
+                    existing_jobs
+                    if len(existing_jobs) < 200
+                    else _prune_oldest_terminal_job(existing_jobs)
+                )
+                if pruned_jobs is None:
                     return Failure(FailureCode.CONFLICT, "没有可分配邮箱或任务记录已满；不会重复使用已绑定邮箱")
                 now: Final = utc_now()
                 item: Final = BindingView(
@@ -201,7 +209,7 @@ class BindingService:
                                 reserved if m.item.id == mailbox.item.id else m for m in tx.snapshot.mailboxes
                             ),
                             "jobs": (
-                                *tx.snapshot.jobs,
+                                *pruned_jobs,
                                 StoredBinding(
                                     item=item,
                                     profile_id=profile.item.id,
@@ -388,6 +396,81 @@ class BindingService:
             )
             return Success(updated)
 
+    async def abort(self, job_id: UUID) -> Result[BindingView]:
+        row: Final = next((j for j in (await self.repository.read()).jobs if j.item.id == job_id), None)
+        if row is None:
+            return Failure(FailureCode.NOT_FOUND, "换绑任务不存在")
+        if row.item.stage in {"completed", "cancelled"}:
+            return Success(row.item)
+        async with self.automation.ownership.operation(row.item.environment_id), self.repository.transaction() as tx:
+            latest: Final = next(j for j in tx.snapshot.jobs if j.item.id == job_id)
+            if latest.item.stage in {"completed", "cancelled"}:
+                return Success(latest.item)
+            record: Final = await self.automation.environments.get(row.item.environment_id)
+            if record is not None and (
+                record.oauth_automation_operation == operation(job_id) or record.email_rebinding_job_id == job_id
+            ):
+                saved: Final = await self.automation.environments.save_if_version(
+                    record.model_copy(
+                        update={
+                            "version": record.version + 1,
+                            **(
+                                {"oauth_automation_operation": None}
+                                if record.oauth_automation_operation == operation(job_id)
+                                else {}
+                            ),
+                            **(
+                                {"email_rebinding_job_id": None}
+                                if record.email_rebinding_job_id == job_id
+                                else {}
+                            ),
+                        }
+                    ),
+                    record.version,
+                )
+                if saved is None:
+                    return Failure(FailureCode.CONFLICT, "卡片已改变，请刷新")
+            # 已进入不可逆边界的任务强制解除卡片占用，但保留目标邮箱占用防止重复分配。
+            updated: Final = latest.item.model_copy(
+                update={
+                    "stage": "cancelled",
+                    "browser_session_id": None,
+                    "version": latest.item.version + 1,
+                    "updated_at": utc_now(),
+                    "message": (
+                        "管理员已强制终止并解除卡片占用；目标邮箱保留占用状态，避免重复分配"
+                        if latest.item.irreversible_started or latest.item.email_changed
+                        else "已取消，未执行换绑"
+                    ),
+                }
+            )
+            release_mailbox: Final = not latest.item.irreversible_started and not latest.item.email_changed
+            await tx.save(
+                tx.snapshot.model_copy(
+                    update={
+                        "jobs": tuple(
+                            j.model_copy(update={"item": updated, "worker_ciphertext": None})
+                            if j.item.id == job_id
+                            else j
+                            for j in tx.snapshot.jobs
+                        ),
+                        "mailboxes": tuple(
+                            m.model_copy(
+                                update={
+                                    "item": m.item.model_copy(
+                                        update={"status": "available", "job_id": None, "environment_id": None}
+                                    )
+                                }
+                            )
+                            if release_mailbox and m.item.job_id == job_id and m.item.status == "reserved"
+                            else m
+                            for m in tx.snapshot.mailboxes
+                        ),
+                    }
+                )
+            )
+            return Success(updated)
+
     async def mail_secret(self, mailbox_id: UUID) -> MailboxSecret:
         row: Final = next(m for m in (await self.repository.read()).mailboxes if m.item.id == mailbox_id)
         return MailboxSecret.model_validate_json(self.cipher.open(mailbox_id, row.ciphertext))
@@ -408,3 +491,10 @@ class BindingService:
                     }
                 )
             )
+
+
+def _prune_oldest_terminal_job(jobs: tuple[StoredBinding, ...]) -> tuple[StoredBinding, ...] | None:
+    oldest: Final = next((index for index, job in enumerate(jobs) if job.item.stage in {"completed", "cancelled"}), None)
+    if oldest is None:
+        return None
+    return (*jobs[:oldest], *jobs[oldest + 1 :])

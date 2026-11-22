@@ -1,5 +1,6 @@
 """转发管理员确认的邮箱换绑操作，复用统一 Manager 传输与权限，不进入推理链路。"""
 
+import json
 from collections.abc import Callable
 from types import MappingProxyType
 from typing import Annotated, Final, Literal, TypeVar
@@ -94,7 +95,14 @@ def create_rebinding_router(
         return await call("GET", "/script", TypeAdapter(LoginScriptStatus))
 
     async def update_script(request: RebindingScriptUpdate) -> LoginScriptStatus:
-        return await call("PUT", "/script", TypeAdapter(LoginScriptStatus), request.model_dump_json().encode())
+        package: Final = request.package
+        body: Final = json.dumps(
+            {
+                "publisher_key": request.publisher_key.get_secret_value(),
+                "package": package.model_dump(mode="json") if package else None,
+            }
+        ).encode()
+        return await call("PUT", "/script", TypeAdapter(LoginScriptStatus), body)
 
     router.get("")(view)
     router.post("/mailboxes")(upload)

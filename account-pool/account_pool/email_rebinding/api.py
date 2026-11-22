@@ -40,6 +40,7 @@ def _unwrap(result: Result[T]) -> T:
 
 class RebindingScriptUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+    publisher_key: SecretStr = Field(min_length=32, max_length=128, repr=False)
     package: LoginScriptPackage | None = Field(repr=False)
 
 
@@ -86,7 +87,7 @@ def create_rebinding_router(runner: EmailBindingRunner, authorize: Callable[...,
         return _unwrap(
             runner.scripts.update(
                 LoginScriptUpdate(
-                    publisher_key=SecretStr(runner.scripts.publisher_key),
+                    publisher_key=request.publisher_key,
                     package=request.package,
                 )
             )

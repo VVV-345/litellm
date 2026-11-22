@@ -200,13 +200,24 @@ class EmailBindingRunner:
             )
             durable: Final = next(j for j in (await self.service.repository.read()).jobs if j.item.id == row.item.id)
             if isinstance(started, Failure):
-                await self._progress(durable, "failed", started.message)
+                cleaned: Final = await self._cleanup(durable)
+                target: Final = (
+                    durable.model_copy(update={"worker_ciphertext": None, "item": durable.item.model_copy(update={"browser_session_id": None})})
+                    if cleaned
+                    else durable
+                )
+                await self._progress(target, "failed", started.message)
                 return
             if not await self.oauth.worker.confirm_binding_script(
                 started.value.session.id, token, script.value.info.sha256 if script.value else None
             ):
-                await self._cleanup(durable)
-                await self._progress(durable, "failed", "浏览器镜像不支持当前换绑协议或脚本未匹配；没有发送登录资料")
+                cleaned_script: Final = await self._cleanup(durable)
+                target_script: Final = (
+                    durable.model_copy(update={"worker_ciphertext": None, "item": durable.item.model_copy(update={"browser_session_id": None})})
+                    if cleaned_script
+                    else durable
+                )
+                await self._progress(target_script, "failed", "浏览器镜像不支持当前换绑协议或脚本未匹配；没有发送登录资料")
                 return
             logging_in: Final = await self.service.save(
                 durable.model_copy(
@@ -233,8 +244,14 @@ class EmailBindingRunner:
             )
         except Exception:
             failed_row: Final = next(j for j in (await self.service.repository.read()).jobs if j.item.id == row.item.id)
+            cleaned_exc: Final = await self._cleanup(failed_row)
+            target_exc: Final = (
+                failed_row.model_copy(update={"worker_ciphertext": None, "item": failed_row.item.model_copy(update={"browser_session_id": None})})
+                if cleaned_exc
+                else failed_row
+            )
             await self._progress(
-                failed_row,
+                target_exc,
                 "uncertain" if failed_row.item.irreversible_started else "failed",
                 "浏览器响应未确认，保留原卡与邮箱；不会自动重新换绑，请查看画面或核实",
             )
@@ -243,14 +260,26 @@ class EmailBindingRunner:
         try:
             status: Final = await self._command(row, "status")
         except Exception:
+            cleaned_err: Final = await self._cleanup(row)
+            target_err: Final = (
+                row.model_copy(update={"worker_ciphertext": None, "item": row.item.model_copy(update={"browser_session_id": None})})
+                if cleaned_err
+                else row
+            )
             await self._progress(
-                row, "uncertain" if row.item.irreversible_started else "failed",
+                target_err, "uncertain" if row.item.irreversible_started else "failed",
                 "浏览器连接不可用；提交前可清理后重试，提交后仅核实，不重放换绑",
             )
             return
         if status.status in {"failed", "expired", "cancelled"}:
+            cleaned_stop: Final = await self._cleanup(row)
+            target_stop: Final = (
+                row.model_copy(update={"worker_ciphertext": None, "item": row.item.model_copy(update={"browser_session_id": None})})
+                if cleaned_stop
+                else row
+            )
             await self._progress(
-                row, "uncertain" if row.item.irreversible_started else "failed",
+                target_stop, "uncertain" if row.item.irreversible_started else "failed",
                 "浏览器已停止；提交前可清理后重试，提交后仅核实，不重放换绑",
             )
             return
@@ -351,10 +380,19 @@ class EmailBindingRunner:
         profile: Final = next(
             (p for p in (await self.service.automation.repository.read()).profiles if p.item.id == row.profile_id), None
         )
+        # 尚未入队重新授权前要求配置版本严格不变；入队后 OAuth 验收完成会正常递增配置版本，允许单调增长。
+        version_invalid: Final = (
+            current is not None
+            and (
+                current.observed_configuration_version != row.configuration_version
+                if row.item.oauth_job_id is None
+                else current.observed_configuration_version < row.configuration_version
+            )
+        )
         if (
             current is None
             or current.proxy_profile_id != row.proxy_profile_id
-            or current.observed_configuration_version != row.configuration_version
+            or version_invalid
             or profile is None
             or profile.item.digest != row.profile_digest
             or profile.item.bound_environment_id != row.item.environment_id
@@ -435,6 +473,9 @@ class EmailBindingRunner:
             row: Final = next((j for j in (await self.service.repository.read()).jobs if j.item.id == job_id), None)
             if row is None:
                 return Failure(FailureCode.NOT_FOUND, "换绑任务不存在")
+            if action == "abort":
+                await self._cleanup(row)
+                return await self.service.abort(job_id)
             if action == "cancel":
                 if not row.item.irreversible_started and await self._cleanup(row):
                     cleared: Final = await self.service.save(
@@ -484,8 +525,17 @@ class EmailBindingRunner:
             if action == "retry" and row.item.stage == "waiting_code":
                 outcome_4: Final = await self.service.save(row.model_copy(update={"mail_poll_failed": False}))
                 return Success(outcome_4.item)
-            if action in {"takeover", "resume"} and row.item.browser_session_id is not None:
-                await self._command(row, action)
+            if (
+                action in {"takeover", "resume"}
+                and row.item.browser_session_id is not None
+                and row.item.stage in {"starting", "changing", "waiting_code", "manual"}
+            ):
+                try:
+                    worker_status: Final = await self._command(row, action)
+                except Exception:
+                    return Failure(FailureCode.UPSTREAM, "浏览器控制通道不可用，请稍后重试或核实任务状态")
+                if action == "resume" and worker_status.status in {"waiting", "manual", "failed", "expired", "cancelled"}:
+                    return Failure(FailureCode.CONFLICT, "当前页面尚未通过账号核对或浏览器已停止，不能交回自动化")
                 outcome_5: Final = await self._progress(
                     row,
                     "manual" if action == "takeover" else "changing",
@@ -501,12 +551,19 @@ class EmailBindingRunner:
             row: Final = next((j for j in (await self.service.repository.read()).jobs if j.item.id == job_id), None)
             if row is None or row.item.stage != "waiting_code":
                 return Failure(FailureCode.CONFLICT, "任务当前不等待目标邮箱验证码")
-            await self._command(row, "code", {"code": code})
+            try:
+                await self._command(row, "code", {"code": code})
+            except Exception:
+                return Failure(FailureCode.UPSTREAM, "浏览器暂未接收验证码，请检查画面状态后重试")
             return Success(row.item)
 
     async def screen(self, job_id: UUID) -> Result[AutomationScreen]:
         row: Final = next((j for j in (await self.service.repository.read()).jobs if j.item.id == job_id), None)
-        if row is None or row.item.browser_session_id is None:
+        if (
+            row is None
+            or row.item.browser_session_id is None
+            or row.item.stage in {"completed", "cancelled", "failed", "email_changed", "reauthorizing", "verification_failed"}
+        ):
             return Failure(FailureCode.CONFLICT, "换绑浏览器尚未就绪")
         grant: Final = await self.oauth.browser.sessions.renew_ticket(row.item.browser_session_id)
         if grant is None:

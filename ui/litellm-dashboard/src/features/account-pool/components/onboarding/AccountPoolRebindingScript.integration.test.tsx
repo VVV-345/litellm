@@ -1,4 +1,4 @@
-/** 验证换绑脚本从网页直接发布，新增辅助文件不拒收、不要求发布密钥。 */
+/** 验证换绑脚本从网页发布时要求脚本发布密钥，新增辅助文件不拒收。 */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ vi.mock("../../api/AccountPoolEmailRebindingApi", () => ({
   getEmailBindingScript: vi.fn(),
   updateEmailBindingScript: vi.fn(),
 }));
-it("publishes rebind.mjs and extra directory data without a publisher-key field", async () => {
+it("publishes rebind.mjs and extra directory data with a required publisher-key field", async () => {
   vi.mocked(getEmailBindingScript).mockResolvedValue({ upload_enabled: true, invalid: false, active: null });
   vi.mocked(updateEmailBindingScript).mockResolvedValue({
     upload_enabled: true,
@@ -29,10 +29,11 @@ it("publishes rebind.mjs and extra directory data without a publisher-key field"
   fireEvent.change(screen.getByLabelText("上传目录"), {
     target: { files: [file("rebind.mjs", "x"), file("added.json", "{}")] },
   });
-  expect(screen.queryByLabelText("脚本发布密钥")).not.toBeInTheDocument();
+  const publisherKey = "p".repeat(32);
+  fireEvent.change(screen.getByLabelText("脚本发布密钥"), { target: { value: publisherKey } });
   fireEvent.click(screen.getByRole("button", { name: "发布脚本" }));
   await screen.findByText("已发布，下次换绑使用新脚本");
-  expect(updateEmailBindingScript).toHaveBeenCalledWith("fixture-admin", {
+  expect(updateEmailBindingScript).toHaveBeenCalledWith("fixture-admin", publisherKey, {
     entrypoint: "rebind.mjs",
     files: [
       { path: "rebind.mjs", data: "eA==" },

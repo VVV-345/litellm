@@ -276,7 +276,8 @@ function BindingProgress({
     queryKey: accountPoolQueryKeys.automation(accessToken),
     queryFn: () => getAutomation(accessToken),
     enabled: Boolean(job?.oauth_job_id),
-    refetchInterval: job?.oauth_job_id && job.stage !== "completed" ? 2000 : false,
+    refetchInterval:
+      job?.oauth_job_id && !["completed", "cancelled", "failed", "uncertain"].includes(job.stage) ? 2000 : false,
   });
   const oauthJob = authorized.data?.jobs.find((j) => j.id === job?.oauth_job_id);
   const submitCode = (event: FormEvent<HTMLFormElement>) => {
@@ -347,6 +348,16 @@ function BindingProgress({
             onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "reconcile"))}
           >
             仅核实结果，不再次换绑
+          </Button>
+        )}
+        {job.irreversible_started && ["uncertain", "failed", "verification_failed"].includes(job.stage) && (
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "abort"))}
+          >
+            强制解除卡片占用
           </Button>
         )}
         {job.browser_session_id && !job.email_changed && (

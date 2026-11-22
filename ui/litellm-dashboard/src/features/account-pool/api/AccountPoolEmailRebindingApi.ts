@@ -7,7 +7,7 @@ import type { LoginScriptPackage, LoginScriptStatus } from "./AccountPoolAutomat
 export type BindingView = components["schemas"]["BindingView"];
 export type BindingPoolView = components["schemas"]["BindingPoolView"];
 type ImportResult = components["schemas"]["PoolImportResult"];
-type Action = components["schemas"]["BindingAction"]["action"];
+type Action = components["schemas"]["BindingAction"]["action"] | "abort";
 const root = "/account_pool/email-rebinding";
 
 export const getEmailBindings = (accessToken: string) =>
@@ -39,5 +39,12 @@ export const openEmailBindingScreen = async (accessToken: string, id: string) =>
 };
 export const getEmailBindingScript = (accessToken: string) =>
   apiClient.get<LoginScriptStatus>(`${root}/script`, { accessToken, cache: "no-store" });
-export const updateEmailBindingScript = (accessToken: string, bundle: LoginScriptPackage | null) =>
-  apiClient.put<LoginScriptStatus>(`${root}/script`, { accessToken, body: { package: bundle } });
+export const updateEmailBindingScript = (
+  accessToken: string,
+  publisherKey: string,
+  bundle: LoginScriptPackage | null,
+) =>
+  apiClient.put<LoginScriptStatus>(`${root}/script`, {
+    accessToken,
+    body: { publisher_key: publisherKey, package: bundle },
+  });

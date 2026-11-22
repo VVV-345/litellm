@@ -72,6 +72,9 @@ class CLIProxyAPIChannel:
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._runtime.ensure_control_plane_connections(environment_id)
 
+    async def missing_control_plane_connections(self, environment_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
+        return await self._runtime.missing_control_plane_connections(environment_ids)
+
     async def set_running(self, record: EnvironmentRecord, running: bool) -> None:
         await self._runtime.set_running(record, running)
 

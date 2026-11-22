@@ -59,6 +59,7 @@ class EnvironmentConfigurationOperations:
     _refresh_if_needed: RefreshIfNeededOperation
     _repository: EnvironmentRepository
     delete_environment: DeleteEnvironmentOperation
+    _fanout_slots: asyncio.Semaphore | None = None
 
     async def update_environment(
         self,
@@ -187,21 +188,29 @@ class EnvironmentConfigurationOperations:
     async def reconcile_pending_configurations(self) -> tuple[EnvironmentView, ...]:
         """Manager 启动或后台循环时重复收敛所有未完成配置操作。"""
         records: Final = await self._repository.list()
+        slots: Final = self._fanout_slots or asyncio.Semaphore(4)
+
+        async def reconcile_one(record: EnvironmentRecord) -> Result[EnvironmentView]:
+            async with slots:
+                return await self.reconcile_configuration(record)
+
         results: Final = await asyncio.gather(
-            *(
-                self.reconcile_configuration(record)
-                for record in records
-                if _configuration_requires_reconciliation(record)
-            )
+            *(reconcile_one(record) for record in records if _configuration_requires_reconciliation(record))
         )
         return tuple(result.value for result in results if isinstance(result, Success))
 
     async def reconcile_pending_authorizations(self) -> None:
         """关闭页面后仍由后台继续验证已接收的授权，不重复领取或写入凭据。"""
         records: Final = await self._repository.list()
+        slots: Final = self._fanout_slots or asyncio.Semaphore(4)
+
+        async def refresh_one(record: EnvironmentRecord) -> EnvironmentRecord:
+            async with slots:
+                return await self._refresh_if_needed(record)
+
         await asyncio.gather(
             *(
-                self._refresh_if_needed(record)
+                refresh_one(record)
                 for record in records
                 if record.status is EnvironmentStatus.VALIDATING
                 or (record.status is EnvironmentStatus.AWAITING_AUTHORIZATION and record.oauth_state is not None)
@@ -211,12 +220,14 @@ class EnvironmentConfigurationOperations:
     async def reconcile_pending_deletions(self) -> None:
         """后台重试已进入删除态但尚未完成资源回收的卡片。"""
         records: Final = await self._repository.list()
+        slots: Final = self._fanout_slots or asyncio.Semaphore(4)
+
+        async def delete_one(record: EnvironmentRecord) -> Result[None]:
+            async with slots:
+                return await self.delete_environment(record.id, record.operation_id)
+
         await asyncio.gather(
-            *(
-                self.delete_environment(record.id, record.operation_id)
-                for record in records
-                if record.status is EnvironmentStatus.DELETING
-            )
+            *(delete_one(record) for record in records if record.status is EnvironmentStatus.DELETING)
         )
 
     async def reconcile_configuration(self, record: EnvironmentRecord) -> Result[EnvironmentView]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import logging
 import os
 import re
@@ -189,6 +190,36 @@ class ComposeRuntime:
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._connect_control_plane(environment_id, self._settings.manager_container)
         await self._connect_control_plane(environment_id, self._settings.gateway_container)
+
+    async def missing_control_plane_connections(self, environment_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
+        if not environment_ids:
+            return ()
+        manager_networks: Final = await self._connected_networks(self._settings.manager_container)
+        gateway_networks: Final = await self._connected_networks(self._settings.gateway_container)
+        if manager_networks is None or gateway_networks is None:
+            return environment_ids
+        both: Final = manager_networks & gateway_networks
+        return tuple(
+            environment_id
+            for environment_id in environment_ids
+            if f"account-pool-{environment_id.hex}" not in both
+        )
+
+    async def _connected_networks(self, container: str) -> frozenset[str] | None:
+        try:
+            process: Final = await self._runner(
+                ("docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", container),
+                self._docker_environment(),
+            )
+            stdout, _stderr = await communicate_with_timeout(process, min(10.0, self._settings.docker_command_timeout_seconds))
+            if process.returncode != 0:
+                return None
+            parsed: Final = json.loads(stdout.decode("utf-8", errors="replace").strip() or "{}")
+            if not isinstance(parsed, dict):
+                return None
+            return frozenset(name for name in parsed if isinstance(name, str))
+        except Exception:
+            return None
 
     async def backup_runtime(
         self, record: EnvironmentRecord, directory: Path,

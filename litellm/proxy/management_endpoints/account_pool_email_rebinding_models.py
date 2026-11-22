@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Literal, TypeAlias
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
 from litellm.proxy.management_endpoints.account_pool_automation_models import LoginScriptPackage
 
@@ -99,7 +99,7 @@ class ConfirmBinding(BaseModel):
 
 class BindingAction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    action: Literal["cancel", "retry", "takeover", "resume", "reconcile"]
+    action: Literal["cancel", "retry", "takeover", "resume", "reconcile", "abort"]
 
 
 class MailboxCode(BaseModel):
@@ -109,4 +109,5 @@ class MailboxCode(BaseModel):
 
 class RebindingScriptUpdate(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+    publisher_key: SecretStr = Field(min_length=32, max_length=128, repr=False)
     package: LoginScriptPackage | None = Field(repr=False)

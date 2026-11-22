@@ -121,6 +121,9 @@ class EnvironmentService:
         self._locks: dict[UUID, asyncio.Lock] = {}
         self._locks_guard: Final = asyncio.Lock()
         self._quota_refresh_slots: Final = asyncio.Semaphore(max(1, settings.quota_refresh_max_concurrency))
+        self._operation_fanout_slots: Final = asyncio.Semaphore(
+            max(1, min(4, settings.database_operation_pool_max_size // 2))
+        )
         self._error_logs: Final = error_logs
         self._global_settings: Final = global_settings
         self._policies: Final = policies
@@ -136,6 +139,7 @@ class EnvironmentService:
             _proxy_profiles=self._proxy_profiles,
             _repository=self._repository,
             update_environment=self.update_environment,
+            _fanout_slots=self._operation_fanout_slots,
         )
         self._plugins_operations: Final = EnvironmentPlugins(
             _cli_proxy=self._cli_proxy,
@@ -203,6 +207,7 @@ class EnvironmentService:
             _refresh_if_needed=self._refresh_if_needed,
             _repository=self._repository,
             delete_environment=self.delete_environment,
+            _fanout_slots=self._operation_fanout_slots,
         )
         self._deletion_operations: Final = EnvironmentDeletion(
             _cleanup_browser=cleanup_browser,
@@ -321,16 +326,18 @@ class EnvironmentService:
     async def refresh_auth_files(self) -> tuple[UUID, ...]:
         records: Final = await self._repository.list()
         auth_file_records: Final = tuple(record for record in records if record.auth_file_name is not None)
-        results: Final = await asyncio.gather(
-            *(
-                self._refresh_if_needed(
+
+        async def refresh_one(record: EnvironmentRecord) -> EnvironmentRecord:
+            async with self._operation_fanout_slots:
+                return await self._refresh_if_needed(
                     record,
                     credential_state_changed=True,
                     raise_on_error=True,
                     wait_for_lock=True,
                 )
-                for record in auth_file_records
-            ),
+
+        results: Final = await asyncio.gather(
+            *(refresh_one(record) for record in auth_file_records),
             return_exceptions=True,
         )
         return tuple(
@@ -562,7 +569,12 @@ class EnvironmentService:
     async def list_gateway_environments(self) -> tuple[GatewayEnvironment, ...]:
         records: Final = await self._repository.list()
         settings: Final = await self._account_pool_settings()
-        refreshed: Final = await asyncio.gather(*(self._refresh_if_needed(record) for record in records))
+
+        async def refresh_one(record: EnvironmentRecord) -> EnvironmentRecord:
+            async with self._operation_fanout_slots:
+                return await self._refresh_if_needed(record)
+
+        refreshed: Final = await asyncio.gather(*(refresh_one(record) for record in records))
         policies: Final = () if self._policies is None else await self._policies.list()
         by_card: Final = {entry.card_id: entry for entry in policies}
         return tuple(

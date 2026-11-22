@@ -1420,6 +1420,34 @@ def test_browser_websocket_rejects_missing_or_cross_origin_even_with_ticket(orig
     assert closed.value.code == 1008
 
 
+def test_browser_websocket_accepts_https_origin_behind_forwarded_proto() -> None:
+    session_id = uuid4()
+    headers = {
+        "Origin": "https://testserver",
+        "X-Forwarded-Proto": "https",
+        "Cookie": "account_pool_browser_ticket=temporary-ticket",
+    }
+
+    def manager(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"detail": "missing"})
+
+    app = _app(
+        UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN),
+        lambda: AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(manager)),
+        ),
+    )
+    with TestClient(app) as client:
+        with pytest.raises(WebSocketDisconnect) as closed:
+            with client.websocket_connect(
+                f"/account_pool/oauth-browser-sessions/{session_id}/browser/websockify", headers=headers
+            ):
+                pass
+    assert closed.value.code == 1008 and closed.value.reason == "OAuth browser session is unavailable"
+
+
 def test_browser_query_ticket_cannot_authenticate_static_assets() -> None:
     app = _app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), _manager_factory)
     with TestClient(app) as client:

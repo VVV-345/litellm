@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Final, Literal, TypeVar
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 from uuid import UUID
 
 import httpx
@@ -154,19 +154,22 @@ def create_management_router(
 
     @router.post("/plugins/{plugin_id}/enable", response_model=AccountPoolPluginRecord)
     async def enable_plugin(plugin_id: str) -> AccountPoolPluginRecord:
+        encoded: Final = quote(plugin_id, safe=".-_")
         return parse_response(
-            await call("POST", f"/api/plugins/{plugin_id}/enable"), TypeAdapter(AccountPoolPluginRecord)
+            await call("POST", f"/api/plugins/{encoded}/enable"), TypeAdapter(AccountPoolPluginRecord)
         )
 
     @router.post("/plugins/{plugin_id}/disable", response_model=AccountPoolPluginRecord)
     async def disable_plugin(plugin_id: str) -> AccountPoolPluginRecord:
+        encoded: Final = quote(plugin_id, safe=".-_")
         return parse_response(
-            await call("POST", f"/api/plugins/{plugin_id}/disable"), TypeAdapter(AccountPoolPluginRecord)
+            await call("POST", f"/api/plugins/{encoded}/disable"), TypeAdapter(AccountPoolPluginRecord)
         )
 
     @router.delete("/plugins/{plugin_id}", status_code=204)
     async def uninstall_plugin(plugin_id: str) -> None:
-        await call("DELETE", f"/api/plugins/{plugin_id}")
+        encoded: Final = quote(plugin_id, safe=".-_")
+        await call("DELETE", f"/api/plugins/{encoded}")
 
     @router.get("/environments/{card_id}/policy")
     async def get_policy(card_id: UUID) -> PolicyView:

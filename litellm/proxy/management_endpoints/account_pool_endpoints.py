@@ -1385,12 +1385,13 @@ def create_account_pool_router(
             raise HTTPException(status.HTTP_409_CONFLICT, "OAuth browser session is not active")
         response: Final = Response(status_code=204, headers={"Cache-Control": "no-store"})
         root_path: Final = value.rstrip("/") if isinstance(value := request.scope.get("root_path"), str) else ""
+        forwarded_proto: Final = (request.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip().lower()
         response.set_cookie(
             "account_pool_browser_ticket",
             ticket,
             max_age=min(600, seconds),
             httponly=True,
-            secure=request.url.scheme == "https",
+            secure=request.url.scheme == "https" or forwarded_proto == "https",
             samesite="strict",
             path=f"{root_path}/account_pool/oauth-browser-sessions/{session_id}/browser/",
         )
@@ -1433,8 +1434,10 @@ def create_account_pool_router(
     @router.websocket("/oauth-browser-sessions/{session_id}/browser/websockify")
     async def browser_websocket(websocket: WebSocket, session_id: UUID) -> None:
         origin: Final = websocket.headers.get("origin")
+        forwarded_proto: Final = (websocket.headers.get("x-forwarded-proto") or "").split(",", 1)[0].strip().lower()
+        expected_scheme: Final = "https" if websocket.url.scheme == "wss" or forwarded_proto == "https" else "http"
         expected_origin: Final = str(
-            websocket.url.replace(scheme="https" if websocket.url.scheme == "wss" else "http", path="", query="")
+            websocket.url.replace(scheme=expected_scheme, path="", query="")
         )
         if origin != expected_origin:
             await _close_browser_websocket(websocket, 1008, "OAuth browser origin is invalid")

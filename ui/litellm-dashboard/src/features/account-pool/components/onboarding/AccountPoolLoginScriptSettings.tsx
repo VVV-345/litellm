@@ -22,6 +22,15 @@ const maxBytes = 65_536;
 const maxFiles = 64;
 const isEntry = (path: string) => /\.(?:mjs|js)$/.test(path);
 
+function encodeBase64(bytes: Uint8Array): string {
+  const chunks: string[] = [];
+  const step = 8192;
+  for (let index = 0; index < bytes.length; index += step) {
+    chunks.push(String.fromCharCode(...bytes.subarray(index, index + step)));
+  }
+  return btoa(chunks.join(""));
+}
+
 export function SettingsForm({
   settings,
   disabled,
@@ -141,9 +150,9 @@ export function AccountPoolLoginScriptSettings({
   const submit = async (form: HTMLFormElement, reset: boolean) => {
     const keyInput = form.elements.namedItem("publisher-key");
     const entryMissing = !reset && !entrypoint;
-    if (entryMissing || (!rebinding && (!(keyInput instanceof HTMLInputElement) || !keyInput.reportValidity()))) return;
-    const publisherKey = keyInput instanceof HTMLInputElement ? keyInput.value : "";
-    if (keyInput instanceof HTMLInputElement) keyInput.value = "";
+    if (entryMissing || !(keyInput instanceof HTMLInputElement) || !keyInput.reportValidity()) return;
+    const publisherKey = keyInput.value;
+    keyInput.value = "";
     setBusy(true);
     setNotice("");
     setError("");
@@ -155,12 +164,12 @@ export function AccountPoolLoginScriptSettings({
             files: await Promise.all(
               files.map(async ({ file, path }) => {
                 const bytes = new Uint8Array(await file.arrayBuffer());
-                return { path, data: btoa(String.fromCharCode(...bytes)) };
+                return { path, data: encodeBase64(bytes) };
               }),
             ),
           };
       const current = rebinding
-        ? await updateEmailBindingScript(accessToken, bundle)
+        ? await updateEmailBindingScript(accessToken, publisherKey, bundle)
         : await updateAutomationLoginScript(accessToken, publisherKey, bundle);
       client.setQueryData(queryKey, current);
       const successNotice = rebinding ? "已发布，下次换绑使用新脚本" : "已发布，下次启动自动授权时使用";
@@ -169,11 +178,7 @@ export function AccountPoolLoginScriptSettings({
       setEntrypoint("");
       form.reset();
     } catch {
-      setError(
-        rebinding
-          ? "未能保存，请检查入口、文件大小或 Manager 日志"
-          : "未能保存。请检查发布密钥、入口、文件大小或 Manager 日志",
-      );
+      setError("未能保存。请检查发布密钥、入口、文件大小或 Manager 日志");
     } finally {
       setBusy(false);
     }
@@ -199,7 +204,7 @@ export function AccountPoolLoginScriptSettings({
       )}
       <p className="text-sm text-muted-foreground">
         {rebinding
-          ? "选 rebind.mjs（也支持 .js），入口导出 rebindEmail；有辅助文件就上传整个目录，不用打包，也不用输入发布密钥。"
+          ? "选 rebind.mjs（也支持 .js），入口导出 rebindEmail；有辅助文件就上传整个目录，不用打包，发布时须填写脚本发布密钥。"
           : "独立脚本：选 login.mjs（也支持 .js）。有相对引用：选包含入口和依赖文件的目录，不用打包。入口须导出 automateLogin 和 verifyResumableAccount。"}
       </p>
       {!publishingNotConfigured && (
@@ -244,21 +249,17 @@ export function AccountPoolLoginScriptSettings({
               </select>
             </div>
           )}
-          {!rebinding && (
-            <>
-              <Label htmlFor={`${id}-oauth-script-key`}>脚本发布密钥</Label>
-              <Input
-                id={`${id}-oauth-script-key`}
-                name="publisher-key"
-                type="password"
-                autoComplete="off"
-                required
-                minLength={32}
-                maxLength={128}
-                disabled={disabled}
-              />
-            </>
-          )}
+          <Label htmlFor={`${id}-oauth-script-key`}>脚本发布密钥</Label>
+          <Input
+            id={`${id}-oauth-script-key`}
+            name="publisher-key"
+            type="password"
+            autoComplete="off"
+            required
+            minLength={32}
+            maxLength={128}
+            disabled={disabled}
+          />
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={disabled || !entrypoint}>
               发布脚本

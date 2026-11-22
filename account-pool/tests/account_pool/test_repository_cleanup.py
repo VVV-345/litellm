@@ -159,18 +159,21 @@ def test_repeated_model_timeouts_cool_across_minutes_and_ignore_stale_results() 
     first: Final = settle_model_cooldowns((), first_lease, 0, False, started, timeout_failure=True)
     assert first[0].consecutive_timeouts == 1
     assert first[0].retry_at == started
+    assert first[0].reason == "timeout_tracking"
 
     second_started: Final = started + timedelta(minutes=30)
     second_lease: Final = lease(card_id, account_id).model_copy(update={"started_at": second_started})
     second: Final = settle_model_cooldowns(first, second_lease, 0, False, second_started, timeout_failure=True)
     assert second[0].consecutive_timeouts == 2
     assert second[0].retry_at == second_started
+    assert second[0].reason == "timeout_tracking"
 
     third_started: Final = second_started + timedelta(days=1)
     third_lease: Final = lease(card_id, account_id).model_copy(update={"started_at": third_started})
     third: Final = settle_model_cooldowns(second, third_lease, 0, False, third_started, timeout_failure=True)
     assert third[0].consecutive_timeouts == 3
     assert third[0].retry_at == third_started + timedelta(minutes=5)
+    assert third[0].reason == "consecutive_timeouts"
 
     stale_success: Final = lease(card_id, account_id).model_copy(
         update={"started_at": third_started - timedelta(seconds=1)}
@@ -182,6 +185,7 @@ def test_repeated_model_timeouts_cool_across_minutes_and_ignore_stale_results() 
     reset: Final = settle_model_cooldowns(third, success_lease, 0, True, success_started, timeout_failure=False)
     assert reset[0].consecutive_timeouts == 0
     assert reset[0].retry_at == success_started
+    assert reset[0].reason == "timeout_tracking"
     assert (
         settle_model_cooldowns(
             reset, third_lease, 0, False, success_started + timedelta(seconds=1), timeout_failure=True

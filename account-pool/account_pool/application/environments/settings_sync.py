@@ -48,6 +48,7 @@ class EnvironmentSettingsSync:
     _proxy_profiles: ProxyProfileRepository
     _repository: EnvironmentRepository
     update_environment: UpdateEnvironmentOperation
+    _fanout_slots: asyncio.Semaphore | None = None
 
     async def sync_global_settings(
         self,
@@ -59,16 +60,19 @@ class EnvironmentSettingsSync:
         policies: Final = () if self._policies is None else await self._policies.list()
         policies_by_card: Final = {policy.card_id: policy for policy in policies}
         updates: Final = tuple(self.explicit_profile_update(record, settings) for record in records)
-        results: Final = await asyncio.gather(
-            *(
-                self.sync_global_settings_for_record(
+        slots: Final = self._fanout_slots or asyncio.Semaphore(4)
+
+        async def sync_one(record: EnvironmentRecord, update: _ExplicitProfileUpdate | None) -> None:
+            async with slots:
+                await self.sync_global_settings_for_record(
                     record,
                     settings,
                     update,
                     policies_by_card.get(record.id),
                 )
-                for record, update in zip(records, updates)
-            ),
+
+        results: Final = await asyncio.gather(
+            *(sync_one(record, update) for record, update in zip(records, updates)),
             return_exceptions=True,
         )
         failed: Final = tuple(record.id for record, result in zip(records, results) if isinstance(result, Exception))
@@ -79,8 +83,13 @@ class EnvironmentSettingsSync:
             for record, update in zip(records, updates)
             if update is not None and update.request.operation_id is not None
         )
+
+        async def rollback_one(record: EnvironmentRecord, operation_id: str) -> None:
+            async with slots:
+                await self.restore_settings_configuration(record, operation_id)
+
         rollback_results: Final = await asyncio.gather(
-            *(self.restore_settings_configuration(record, operation_id) for record, operation_id in rollback_targets),
+            *(rollback_one(record, operation_id) for record, operation_id in rollback_targets),
             return_exceptions=True,
         )
         rollback_failed: Final = tuple(

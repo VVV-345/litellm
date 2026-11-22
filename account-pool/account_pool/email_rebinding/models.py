@@ -139,7 +139,7 @@ class ConfirmBinding(BaseModel):
 
 class BindingAction(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
-    action: Literal["cancel", "retry", "takeover", "resume", "reconcile"]
+    action: Literal["cancel", "retry", "takeover", "resume", "reconcile", "abort"]
 
 
 class MailboxCode(BaseModel):

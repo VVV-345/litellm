@@ -588,3 +588,71 @@ async def test_cleanup_pending_cannot_release_card_or_start_second_browser(bindi
     assert browser.starts == 1 and runner.oauth.browser.starts == 0
     assert (await service.automation.environments.get(card.id)).email_rebinding_job_id == row.item.id
     assert (await service.view()).mailboxes[0].status == "reserved"
+
+
+@pytest.mark.asyncio
+async def test_reauthorization_configuration_version_increment_completes_rebinding(bindings, tmp_path):
+    service, card, profiles = bindings
+    await confirmed_row(service, card)
+    runner, _, worker = binding_runner(service, tmp_path)
+    await runner.run_once()
+    worker.step = "awaiting_commit"
+    await runner.run_once()
+    worker.step = "changed"
+    await runner.run_once()
+    linked = profiles.state.jobs[-1]
+    current = await service.automation.environments.get(card.id)
+    assert current is not None
+    await service.automation.environments.save(
+        current.model_copy(
+            update={
+                "credential_email": "new@outlook.com",
+                "observed_configuration_version": current.observed_configuration_version + 1,
+                "desired_configuration_version": current.desired_configuration_version + 1,
+            }
+        )
+    )
+    profiles.state = profiles.state.model_copy(
+        update={
+            "jobs": (
+                linked.model_copy(
+                    update={
+                        "item": linked.item.model_copy(
+                            update={
+                                "stage": "completed",
+                                "credentials_saved": True,
+                                "chat_verified": True,
+                                "responses_verified": True,
+                            }
+                        )
+                    }
+                ),
+            )
+        }
+    )
+    await runner.run_once()
+    assert (await service.view()).jobs[-1].stage == "completed"
+    updated_card = await service.automation.environments.get(card.id)
+    assert updated_card is not None and updated_card.email_rebinding_job_id is None
+
+
+@pytest.mark.asyncio
+async def test_abort_releases_stuck_irreversible_card_while_preserving_reserved_mailbox(bindings, tmp_path):
+    from account_pool.shared.result import Success
+
+    service, card, _ = bindings
+    row = await confirmed_row(service, card)
+    runner, browser, worker = binding_runner(service, tmp_path)
+    await runner.run_once()
+    worker.step = "awaiting_commit"
+    await runner.run_once()
+    stored = (await service.repository.read()).jobs[-1]
+    await service.save(stored.model_copy(update={"item": stored.item.model_copy(update={"stage": "uncertain"})}))
+    aborted = await runner.action(row.item.id, "abort")
+    assert isinstance(aborted, Success) and aborted.value.stage == "cancelled"
+    assert len(browser.cleaned) == 1
+    updated_card = await service.automation.environments.get(card.id)
+    assert updated_card is not None
+    assert updated_card.oauth_automation_operation is None
+    assert updated_card.email_rebinding_job_id is None
+    assert (await service.view()).mailboxes[0].status == "reserved"
