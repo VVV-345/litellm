@@ -107,6 +107,7 @@ class EnvironmentService:
         ownership: CredentialOwnership | None = None,
         cleanup_browser: Callable[[UUID], Awaitable[None]] | None = None,
         runtime_cooldowns: Callable[[], Awaitable[tuple[UUID, ...]]] | None = None,
+        runtime_in_flight: Callable[[], Awaitable[Mapping[UUID, int]]] | None = None,
         direct_credential_validation_timeout_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
         direct_credential_validation_interval_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
     ) -> None:
@@ -129,6 +130,7 @@ class EnvironmentService:
         self._global_settings: Final = global_settings
         self._policies: Final = policies
         self._runtime_cooldowns: Final = runtime_cooldowns
+        self._runtime_in_flight: Final = runtime_in_flight
         self._direct_credential_validation_timeout_seconds: Final = direct_credential_validation_timeout_seconds
         self._direct_credential_validation_interval_seconds: Final = direct_credential_validation_interval_seconds
 
@@ -252,15 +254,30 @@ class EnvironmentService:
     async def _spend_by_environment(self) -> dict[UUID, float]:
         return {} if self._error_logs is None else await self._error_logs.spend_by_environment()
 
+    async def _in_flight_by_environment(self) -> dict[UUID, int]:
+        return {} if self._runtime_in_flight is None else dict(await self._runtime_in_flight())
+
+    def _view_with_metrics(
+        self,
+        record: EnvironmentRecord,
+        spends: Mapping[UUID, float],
+        in_flight: Mapping[UUID, int],
+    ) -> EnvironmentView:
+        return to_view(record).model_copy(
+            update={
+                "spend_usd": spends.get(record.id, 0.0),
+                "in_flight": max(0, int(in_flight.get(record.id, 0))),
+            }
+        )
+
     async def list_environment_provider_families(self) -> tuple[str, ...]:
         return tuple(provider_family_kind(record) for record in await self._repository.list())
 
     async def list_environments(self) -> tuple[EnvironmentView, ...]:
         records: Final = await self._repository.list()
         spends: Final = await self._spend_by_environment()
-        return tuple(
-            to_view(record).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}) for record in records
-        )
+        in_flight: Final = await self._in_flight_by_environment()
+        return tuple(self._view_with_metrics(record, spends, in_flight) for record in records)
 
     def _channel(self, record: EnvironmentRecord) -> EnvironmentChannel:
         try:
@@ -276,7 +293,8 @@ class EnvironmentService:
             return Failure(FailureCode.NOT_FOUND, "environment not found")
         refreshed: Final = await self._refresh_if_needed(record)
         spends: Final = await self._spend_by_environment()
-        return Success(to_view(refreshed).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}))
+        in_flight: Final = await self._in_flight_by_environment()
+        return Success(self._view_with_metrics(refreshed, spends, in_flight))
 
     async def refresh_environment(self, environment_id: UUID) -> Result[EnvironmentView]:
         record: Final = await self._repository.get(environment_id)
@@ -288,7 +306,8 @@ class EnvironmentService:
         except Exception:
             return Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
         spends: Final = await self._spend_by_environment()
-        return Success(to_view(refreshed).model_copy(update={"spend_usd": spends.get(record.id, 0.0)}))
+        in_flight: Final = await self._in_flight_by_environment()
+        return Success(self._view_with_metrics(refreshed, spends, in_flight))
 
     async def refresh_quota_after_failure(self, environment_id: UUID) -> bool:
         record: Final = await self._repository.get(environment_id)

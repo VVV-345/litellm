@@ -46,6 +46,7 @@ class CooldownRepository(Protocol):
 class LeaseRepository(CooldownRepository, Protocol):
     async def sticky(self, binding_hash: str | None) -> UUID | None: ...
     async def cooling(self) -> tuple[UUID, ...]: ...
+    async def in_flight_counts(self) -> dict[UUID, int]: ...
     async def acquire(
         self,
         request: AcquireRequest,
@@ -104,6 +105,18 @@ class PostgresLeaseRepository:
             )
             rows: Final = await cursor.fetchall()
         return tuple(TypeAdapter(UUID).validate_python(row["account_id"]) for row in rows)
+
+    async def in_flight_counts(self) -> dict[UUID, int]:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                "SELECT account_id, count(*)::int AS used "
+                "FROM account_pool_leases WHERE expires_at > now() GROUP BY account_id",
+            )
+            rows: Final = await cursor.fetchall()
+        return {
+            TypeAdapter(UUID).validate_python(row["account_id"]): TypeAdapter(int).validate_python(row["used"])
+            for row in rows
+        }
 
     async def clear_cooldown(self, account_id: UUID) -> None:
         async with database_connection(self._database_url) as connection:

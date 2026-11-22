@@ -532,3 +532,15 @@ it("shows saved-but-unverified OAuth credentials instead of silently looking rou
   renderCard({ supplier: "openai_codex", oauth_verification_pending: true, auth_file_bound: true });
   expect(screen.getByText(/凭据已保存，等待授权验收，暂不接单/)).toBeVisible();
 });
+
+it("displays live in-flight concurrency alongside the configured concurrency limit", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({ in_flight: 3, concurrency_limit: 10 });
+  expect(screen.getByText("3 / 10")).toBeVisible();
+});
+
+it("displays live in-flight concurrency alongside unlimited concurrency when limit is zero", async () => {
+  await i18n.changeLanguage("zh-CN");
+  renderCard({ in_flight: 2, concurrency_limit: 0 });
+  expect(screen.getByText(`2 / ${i18n.t("accountPool.config.unlimited")}`)).toBeVisible();
+});

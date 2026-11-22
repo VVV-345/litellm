@@ -393,6 +393,7 @@ class AccountPoolEnvironment(BaseModel):
     enabled: bool
     manual_cooldown: bool
     concurrency_limit: int = Field(ge=0, le=1000)
+    in_flight: int = Field(default=0, ge=0)
     proxy_mode: Literal["default_gateway", "profile"]
     proxy_profile_id: str | None
     available_models: tuple[str, ...]

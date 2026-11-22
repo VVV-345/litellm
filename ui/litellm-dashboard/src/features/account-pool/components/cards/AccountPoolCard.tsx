@@ -143,6 +143,12 @@ const AccountPoolCardComponent = ({
   const completedRequests = (requestStats?.succeeded_requests ?? 0) + (requestStats?.failed_requests ?? 0);
   const successRate =
     completedRequests === 0 ? null : ((requestStats?.succeeded_requests ?? 0) / completedRequests) * 100;
+  const concurrencyLimitLabel =
+    environment.concurrency_limit === 0 ? t("accountPool.config.unlimited") : String(environment.concurrency_limit);
+  const concurrencyDisplay =
+    typeof environment.in_flight === "number"
+      ? `${environment.in_flight} / ${concurrencyLimitLabel}`
+      : concurrencyLimitLabel;
   const providerSummary = (() => {
     if (environment.supplier === "kimi" && !policyValues?.kimi) {
       return t("accountPool.policy.kimiDeviceIdAuto");
@@ -438,9 +444,7 @@ const AccountPoolCardComponent = ({
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{t("accountPool.config.concurrencyLimit")}</p>
-            <p className="mt-1 font-medium">
-              {environment.concurrency_limit === 0 ? t("accountPool.config.unlimited") : environment.concurrency_limit}
-            </p>
+            <p className="mt-1 font-medium tabular-nums">{concurrencyDisplay}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">{t("accountPool.dashboard.cardSuccessRate")}</p>

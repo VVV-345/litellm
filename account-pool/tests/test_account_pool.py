@@ -1016,6 +1016,38 @@ async def test_environment_listing_includes_card_spend(tmp_path: Path) -> None:
     views: Final = await service.list_environments()
 
     assert views[0].spend_usd == 1.25
+    assert views[0].in_flight == 0
+
+
+@pytest.mark.asyncio
+async def test_environment_views_include_runtime_in_flight_concurrency(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    other: Final = _record(status=EnvironmentStatus.READY)
+
+    async def in_flight_counts() -> dict[UUID, int]:
+        return {record.id: 4}
+
+    runtime: Final = FakeRuntime()
+    repository: Final = MemoryRepository(record)
+    await repository.save(other)
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=repository,
+        runtime=runtime,
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, FakeCLIProxy()),
+        runtime_in_flight=in_flight_counts,
+    )
+
+    listed: Final = {item.id: item for item in await service.list_environments()}
+    single: Final = await service.get_environment(record.id)
+
+    assert listed[record.id].in_flight == 4
+    assert listed[other.id].in_flight == 0
+    assert isinstance(single, Success)
+    assert single.value.in_flight == 4
 
 
 @pytest.mark.asyncio

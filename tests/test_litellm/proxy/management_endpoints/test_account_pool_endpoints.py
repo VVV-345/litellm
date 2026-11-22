@@ -1705,3 +1705,29 @@ def test_glm_reset_proxy_preserves_credit_selection_without_breaking_legacy_code
         assert response.status_code == 200
         assert response.json()["before"]["cards"][0]["reset_type"] == "FIVE_HOUR"
     assert json.loads(calls[0].content) == ({"credit_id": credit_id} if credit_id is not None else {})
+
+
+def test_list_environments_preserves_and_defaults_in_flight_concurrency() -> None:
+    base: Final = json.loads(
+        _manager_response(httpx.Request("GET", "http://manager.test/api/environments")).content
+    )[0]
+    with_in_flight: Final = {**base, "in_flight": 3}
+    without_in_flight: Final = {**base, "id": str(uuid4())}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/environments"
+        return httpx.Response(200, json=[with_in_flight, without_in_flight])
+
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient(
+            "http://manager.test",
+            _MANAGER_TOKEN,
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response: Final = client.get("/account_pool/environments")
+        assert response.status_code == 200
+        items: Final = response.json()
+        assert items[0]["in_flight"] == 3
+        assert items[1]["in_flight"] == 0

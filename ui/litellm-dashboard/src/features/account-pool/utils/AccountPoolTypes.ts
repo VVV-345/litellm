@@ -16,6 +16,7 @@ export type AccountPoolEnvironment = Omit<
   model_cooldowns?: GeneratedAccountPoolEnvironment["model_cooldowns"];
   provider_family?: string;
   spend_usd?: number;
+  in_flight?: number;
 };
 export type AccountPoolAuthorization = Omit<GeneratedAccountPoolAuthorization, "environment"> & {
   environment: AccountPoolEnvironment;
