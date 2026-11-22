@@ -210,6 +210,7 @@ def test_settings_for_card_resolves_custom_modules_and_global_inheritance() -> N
         max_attempts=2,
         oauth_excluded_models=("global-model",),
         quota_switch_project=True,
+        quota_switch_preview_model=False,
         plugins_enabled=True,
         streaming_enabled=True,
         common_profiles=(
@@ -249,7 +250,7 @@ def test_settings_for_card_resolves_custom_modules_and_global_inheritance() -> N
                 name="独立配额",
                 card_ids=(card_id,),
                 inherit_global=False,
-                values=QuotaSettingsValues(quota_switch_preview_model=True),
+                values=QuotaSettingsValues(quota_switch_project=False, quota_switch_preview_model=True),
             ),
         ),
         streaming_profiles=(
@@ -290,6 +291,32 @@ def test_settings_for_card_resolves_custom_modules_and_global_inheritance() -> N
 def test_new_settings_default_to_three_gateway_attempts() -> None:
     assert AccountPoolSettings().max_attempts == 3
     assert NetworkSettingsValues().max_attempts == 3
+
+
+def test_new_settings_and_policies_enable_failover_switches_by_default() -> None:
+    from account_pool.domain import GatewayEnvironment
+    from account_pool.policies import RoutingPolicy
+
+    settings: Final = AccountPoolSettings()
+    quota_values: Final = QuotaSettingsValues()
+    routing: Final = RoutingPolicy()
+    environment: Final = GatewayEnvironment(
+        id=uuid4(),
+        routable=True,
+        concurrency_limit=0,
+        enabled_models=("gpt-5",),
+        api_base="http://gateway.local",
+        api_key="k",
+    )
+
+    assert settings.quota_switch_project is True
+    assert settings.quota_switch_preview_model is True
+    assert quota_values.quota_switch_project is True
+    assert quota_values.quota_switch_preview_model is True
+    assert routing.fallback_enabled is True
+    assert environment.quota_switch_project is True
+    assert environment.quota_switch_preview_model is True
+    assert environment.fallback_enabled is True
 
 
 def test_payload_and_oauth_error_rules_use_cliproxy_wire_names() -> None:

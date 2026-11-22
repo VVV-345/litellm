@@ -253,7 +253,10 @@ async def test_reconcile_refreshes_quota_switches_without_recreating_deployments
         assert snapshots.values[str(environment.id)].quota_switch_project is True
         assert snapshots.values[str(environment.id)].quota_switch_preview_model is True
         assert snapshots.values[str(environment.id)].fallback_enabled is True
-        await reconcile(FakeGatewayClient((environment,)), store)
+        disabled = environment.model_copy(update={
+            "quota_switch_project": False, "quota_switch_preview_model": False, "fallback_enabled": False,
+        })
+        await reconcile(FakeGatewayClient((disabled,)), store)
         assert snapshots.values[str(environment.id)].quota_switch_project is False
         assert snapshots.values[str(environment.id)].quota_switch_preview_model is False
         assert snapshots.values[str(environment.id)].fallback_enabled is False

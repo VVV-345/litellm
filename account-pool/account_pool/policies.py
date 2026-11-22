@@ -64,7 +64,7 @@ class RoutingPolicy(BaseModel):
     max_attempts: int = Field(default=1, ge=1, le=5)
     retryable_statuses: tuple[int, ...] = (429, 502, 503, 504)
     backoff_ms: int = Field(default=1000, ge=0, le=60000)
-    fallback_enabled: bool = False
+    fallback_enabled: bool = True
 
     @field_validator("retryable_statuses")
     @classmethod

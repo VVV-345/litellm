@@ -107,8 +107,8 @@ class NetworkSettingsValues(BaseModel):
 class QuotaSettingsValues(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    quota_switch_project: bool = False
-    quota_switch_preview_model: bool = False
+    quota_switch_project: bool = True
+    quota_switch_preview_model: bool = True
 
 
 class StreamingSettingsValues(BaseModel):
@@ -255,8 +255,8 @@ class AccountPoolSettings(BaseModel):
     usage_statistics_enabled: bool = False
     logs_max_total_size_mb: int = Field(default=0, ge=0, le=100000)
     error_logs_max_files: int = Field(default=10, ge=0, le=10000)
-    quota_switch_project: bool = False
-    quota_switch_preview_model: bool = False
+    quota_switch_project: bool = True
+    quota_switch_preview_model: bool = True
     oauth_excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
     oauth_model_aliases: Mapping[str, tuple[tuple[str, str], ...]] = Field(default_factory=dict)
     oauth_request_scoped_errors: Mapping[str, tuple[OAuthRequestScopedErrorRule, ...]] = Field(default_factory=dict)

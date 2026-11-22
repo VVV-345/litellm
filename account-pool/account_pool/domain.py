@@ -632,9 +632,9 @@ class GatewayEnvironment(BaseModel):
     web_search_history: bool = False
     supported_protocols: tuple[Literal["chat", "responses", "messages", "images"], ...] | None = None
     passthrough_enabled: bool = False
-    quota_switch_project: bool = False
-    quota_switch_preview_model: bool = False
-    fallback_enabled: bool = False
+    quota_switch_project: bool = True
+    quota_switch_preview_model: bool = True
+    fallback_enabled: bool = True
     sse_heartbeat_interval_seconds: float | None = Field(default=None, ge=0, le=300, allow_inf_nan=False)
     api_base: str
     api_key: str = Field(repr=False)

@@ -173,7 +173,7 @@ class RoutingPolicy(BaseModel):
     max_attempts: int = Field(default=1, ge=1, le=5)
     retryable_statuses: tuple[int, ...] = (429, 502, 503, 504)
     backoff_ms: int = Field(default=1000, ge=0, le=60000)
-    fallback_enabled: bool = False
+    fallback_enabled: bool = True
 
     @field_validator("retryable_statuses")
     @classmethod
@@ -445,8 +445,8 @@ class NetworkSettingsValues(BaseModel):
 class QuotaSettingsValues(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    quota_switch_project: bool = False
-    quota_switch_preview_model: bool = False
+    quota_switch_project: bool = True
+    quota_switch_preview_model: bool = True
 
 
 class StreamingSettingsValues(BaseModel):
@@ -593,8 +593,8 @@ class AccountPoolSettings(BaseModel):
     usage_statistics_enabled: bool = False
     logs_max_total_size_mb: int = Field(default=0, ge=0, le=100000)
     error_logs_max_files: int = Field(default=10, ge=0, le=10000)
-    quota_switch_project: bool = False
-    quota_switch_preview_model: bool = False
+    quota_switch_project: bool = True
+    quota_switch_preview_model: bool = True
     oauth_excluded_models: tuple[str, ...] = Field(default=(), max_length=500)
     oauth_model_aliases: dict[str, tuple[tuple[str, str], ...]] = Field(default_factory=dict)
     oauth_request_scoped_errors: dict[str, tuple[OAuthRequestScopedErrorRule, ...]] = Field(default_factory=dict)

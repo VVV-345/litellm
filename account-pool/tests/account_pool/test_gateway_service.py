@@ -619,7 +619,10 @@ async def test_card_membership_key_revocation_policy_version_and_completion() ->
     issued: Final = await keys.issue(card.id)
     assert isinstance(issued, Success)
     policies: Final = MemoryPolicies()
-    await policies.save(card.id, PolicyUpdate(version=0, policy=AccountPolicy(account_ids=(other.id,))))
+    await policies.save(
+        card.id,
+        PolicyUpdate(version=0, policy=AccountPolicy(account_ids=(other.id,), routing=RoutingPolicy(fallback_enabled=False))),
+    )
     logs: Final = MemoryLogs()
     leases: Final = MemoryLeases()
     service: Final = GatewayService(keys, environments, policies, leases, ErrorLogService(logs), gateway)
@@ -1011,7 +1014,7 @@ async def test_full_card_cannot_borrow_a_legacy_bound_account() -> None:
             version=0,
             policy=AccountPolicy(
                 account_ids=(other.id,),
-                routing=RoutingPolicy(session_affinity=True),
+                routing=RoutingPolicy(session_affinity=True, fallback_enabled=False),
             ),
         ),
     )

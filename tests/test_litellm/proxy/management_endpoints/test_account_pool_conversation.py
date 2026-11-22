@@ -325,7 +325,14 @@ async def test_missing_or_unauthorized_history_does_not_cross_cards(pool, blocke
         )
     )
     if blocked == "disabled":
-        snapshots.replace({str(card): RoutingSnapshot() for card in (first, second)})
+        snapshots.replace(
+            {
+                str(card): RoutingSnapshot(
+                    quota_switch_project=False, quota_switch_preview_model=False, fallback_enabled=False
+                )
+                for card in (first, second)
+            }
+        )
     try:
         with pytest.raises(Exception):
             await router._aresponses_with_streaming_fallbacks(
@@ -708,7 +715,14 @@ async def test_card_bound_key_keeps_switch_gate(degraded, monkeypatch):
     from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 
     router, cards = degraded
-    snapshots.replace({str(card): RoutingSnapshot() for card in cards})
+    snapshots.replace(
+        {
+            str(card): RoutingSnapshot(
+                quota_switch_project=False, quota_switch_preview_model=False, fallback_enabled=False
+            )
+            for card in cards
+        }
+    )
     token = pool_identity.set(PoolIdentity(key_hash="bound", request_id=uuid4(), card_id=uuid4()))
     try:
         assert await Conversation.start(router, {"model": "shared", "input": "hello"}) is None
