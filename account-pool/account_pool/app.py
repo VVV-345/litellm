@@ -476,26 +476,6 @@ async def _reap_oauth_browser_sessions_until_cancelled(
             continue
 
 
-async def _refresh_ready_quotas_until_cancelled(
-    service: EnvironmentService,
-    stopped: asyncio.Event,
-    refresh_seconds: float = 300.0,
-    max_concurrency: int = 3,
-) -> None:
-    while not stopped.is_set():
-        try:
-            await asyncio.wait_for(stopped.wait(), timeout=refresh_seconds)
-            continue
-        except TimeoutError:
-            pass
-        try:
-            failed: Final = await service.refresh_ready_quotas(max_concurrency)
-            if failed:
-                _LOGGER.warning("Account pool quota refresh failed for %d ready cards", len(failed))
-        except Exception as error:
-            _LOGGER.warning("Account pool quota refresh failed: %s", error.__class__.__name__)
-
-
 async def _restore_control_plane_connections(
     channels: ChannelRegistry,
     records: tuple[EnvironmentRecord, ...],

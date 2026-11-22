@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { apiClient } from "@/components/networking";
 import { Button } from "@/components/ui/button";
 import { migratedHref } from "@/utils/migratedPages";
@@ -34,33 +36,41 @@ import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePan
 import { ModuleVisibilityPanel } from "./ModuleVisibilityPanel";
 import { AccountPoolWorkspace } from "../shared/AccountPoolWorkspace";
 
+type SettingsGroupKey =
+  | "common"
+  | "access"
+  | "network"
+  | "logs"
+  | "quota"
+  | "auth"
+  | "streaming"
+  | "advanced"
+  | "payload"
+  | "plugins";
+
 type SettingsGroup = {
+  key: SettingsGroupKey;
   icon: LucideIcon;
-  title: string;
   href: string;
-  scope: string;
   fields: readonly (keyof AccountPoolSettings)[];
 };
 const groups: readonly SettingsGroup[] = [
   {
-    title: "新账号默认值",
+    key: "common",
     icon: UserPlus,
     href: "policy-center?section=common",
-    scope: "创建账号时采用；已有账号以卡片配置为准",
     fields: ["default_concurrency_limit", "default_model_discovery", "common_profiles"],
   },
   {
-    title: "供应商模型与访问",
+    key: "access",
     icon: Boxes,
     href: "policy-center?section=access",
-    scope: "供应商模型别名、排除规则及按卡片绑定的命名配置",
     fields: ["oauth_excluded_models", "oauth_model_aliases", "oauth_request_scoped_errors", "access_profiles"],
   },
   {
-    title: "出站网络",
+    key: "network",
     icon: Network,
     href: "policy-center?section=network",
-    scope: "网关安全重试和传输时限；卡片及命名配置可覆盖未绑定卡片的全局默认值",
     fields: [
       "default_proxy_profile_id",
       "max_attempts",
@@ -70,10 +80,9 @@ const groups: readonly SettingsGroup[] = [
     ],
   },
   {
-    title: "日常日志与完整日志",
+    key: "logs",
     icon: ScrollText,
     href: "logs?log_view=settings",
-    scope: "完整日志与供应商运行日志配置；费用统计取自 LiteLLM 调用记录",
     fields: [
       "full_logging_enabled",
       "full_log_skip_failed",
@@ -102,10 +111,9 @@ const groups: readonly SettingsGroup[] = [
     ],
   },
   {
-    title: "额度与刷新",
+    key: "quota",
     icon: Gauge,
     href: "account-pool?tab=dashboard",
-    scope: "回退策略与额度阈值在策略中心；刷新间隔在号池仪表盘",
     fields: [
       "quota_switch_project",
       "quota_switch_preview_model",
@@ -118,149 +126,45 @@ const groups: readonly SettingsGroup[] = [
     ],
   },
   {
-    title: "认证刷新",
+    key: "auth",
     icon: KeyRound,
     href: "account-pool?tab=credentials",
-    scope: "认证文件定时刷新",
     fields: ["auth_refresh_interval_minutes"],
   },
   {
-    title: "流式传输",
+    key: "streaming",
     icon: Waves,
     href: "policy-center?section=streaming",
-    scope: "全局流式开关，可由卡片绑定的命名配置覆盖",
     fields: ["streaming_enabled", "streaming_profiles", "streaming_rules", "sse_heartbeat_interval_seconds"],
   },
   {
-    title: "高级运行设置",
+    key: "advanced",
     icon: SlidersHorizontal,
     href: "policy-center?section=advanced",
-    scope: "供应商运行参数；旧重试字段不再决定网关重试",
     fields: ["websocket_auth_enabled", "force_model_prefix", "advanced_profiles"],
   },
   {
-    title: "请求参数",
+    key: "payload",
     icon: ListFilter,
     href: "policy-center?section=payload",
-    scope: "默认参数、强制覆盖、过滤规则及命名配置",
     fields: ["payload", "payload_profiles"],
   },
   {
-    title: "运行插件",
+    key: "plugins",
     icon: Puzzle,
     href: "account-pool?tab=releases&section=plugins",
-    scope: "号池运行插件列表；插件启用开关在 Router Settings 的通用设置中",
     fields: ["plugins_enabled"],
   },
 ];
 
-const fieldLabels: Partial<Record<keyof AccountPoolSettings, string>> = {
-  default_concurrency_limit: "默认并发上限",
-  default_model_discovery: "默认自动发现模型",
-  default_proxy_profile_id: "默认出站代理",
-  request_timeout_seconds: "请求超时（秒）",
-  websocket_enabled: "默认允许 WebSocket",
-  oauth_excluded_models: "供应商排除模型",
-  oauth_model_aliases: "供应商模型别名",
-  oauth_request_scoped_errors: "请求范围错误规则",
-  full_logging_enabled: "完整日志",
-  full_log_skip_failed: "完整日志跳过失败请求",
-  full_log_success_enabled: "保存成功正文",
-  full_log_sample_percent: "成功正文采样（%）",
-  full_log_max_body_kb: "单方向正文上限（KB）",
-  full_log_max_storage_mb: "正文与摘要容量上限（MB）",
-  daily_log_max_rows: "日常日志最多记录数",
-  log_redact_fields: "额外脱敏字段",
-  runtime_log_level: "LiteLLM 日志级别",
-  runtime_log_format: "LiteLLM 日志格式",
-  runtime_log_console: "LiteLLM 控制台输出",
-  runtime_log_file: "LiteLLM 文件输出",
-  runtime_log_max_mb: "运行日志单文件上限（MB）",
-  runtime_log_backups: "每个进程保留轮转文件数",
-  runtime_log_stacktrace: "运行日志异常堆栈",
-  runtime_log_quiet_dependencies: "第三方库仅警告和错误",
-  daily_log_retention_days: "日常日志保留天数",
-  full_log_retention_days: "完整日志保留天数",
-  file_logging_enabled: "写入日志文件",
-  debug_logging_enabled: "供应商调试日志",
-  request_log_enabled: "供应商请求日志",
-  usage_statistics_enabled: "供应商用量统计",
-  logs_max_total_size_mb: "日志容量上限（MB）",
-  error_logs_max_files: "错误日志文件上限",
-  quota_switch_project: "额度不足切换项目（授权卡片）",
-  quota_switch_preview_model: "额度不足切换预览模型（显式映射）",
-  quota_reserve_percent: "通用路由保留额度（%）",
-  quota_reserve_5h_percent: "5 小时窗口保留额度（%）",
-  quota_reserve_weekly_percent: "周窗口保留额度（%）",
-  quota_snapshot_max_age: "额度快照最大有效时长（秒）",
-  quota_refresh_interval_minutes: "额度刷新间隔（分钟）",
-  auth_refresh_interval_minutes: "认证刷新间隔（分钟）",
-  streaming_enabled: "允许流式传输",
-  sse_heartbeat_interval_seconds: "SSE 心跳间隔（秒，0 为关闭）",
-  streaming_rules: "历史流式规则",
-  websocket_auth_enabled: "WebSocket 鉴权",
-  force_model_prefix: "强制模型前缀",
-  payload: "请求参数规则",
-  plugins_enabled: "运行插件启用",
-  max_attempts: "网关最多尝试次数（含首次）",
-};
-
-const nativeLabels: Record<string, string> = {
-  account_pool_routing: "号池账号选择与会话亲和性",
-  routing_strategy: "负载均衡策略",
-  num_retries: "失败重试次数",
-  retry_after: "重试等待（秒）",
-  timeout: "请求超时（秒）",
-  allowed_fails: "冷却前允许失败次数",
-  cooldown_time: "冷却时间（秒）",
-  fallbacks: "模型回退规则",
-  context_window_fallbacks: "上下文超限回退",
-  model_group_alias: "模型别名",
-  model_group_retry_policy: "按模型重试策略",
-  retry_policy: "按错误类型重试策略",
-  routing_strategy_args: "负载均衡参数",
-  max_parallel_requests: "最大并发请求",
-  max_retries: "最大重试次数",
-  model_group_affinity_config: "按模型会话亲和性",
-  routing_groups: "路由分组",
-  enable_tag_filtering: "标签过滤",
-  tag_routing_prefix: "标签路由前缀",
-  stream_timeout: "流式超时（秒）",
-  max_fallbacks: "最大回退次数",
-  content_policy_fallbacks: "内容策略回退",
-  disable_cooldowns: "禁用冷却",
-  enable_pre_call_checks: "调用前检查",
-  enable_health_check_routing: "健康检查选路",
-  health_check_staleness_threshold: "健康快照有效期（秒）",
-  health_check_ignore_transient_errors: "忽略临时健康错误",
-  enable_weighted_failover: "同模型部署故障切换",
-  deployment_affinity_ttl_seconds: "会话亲和性有效期（秒）",
-  optional_pre_call_checks: "可选调用前检查",
-  set_verbose: "详细诊断日志",
-  drop_params: "过滤不支持的参数",
-  request_timeout: "默认请求超时",
-  global_max_parallel_requests: "全局最大并发",
-  master_key: "管理密钥",
-  database_url: "数据库连接",
-  alerting: "告警渠道",
-  store_model_in_db: "数据库模型配置",
-  background_health_checks: "后台健康检查",
-  health_check_interval: "健康检查间隔",
-  max_request_size_mb: "请求大小上限（MB）",
-  max_batch_file_size_mb: "批处理文件上限（MB）",
-  max_response_size_mb: "响应大小上限（MB）",
-  proxy_config_reload_interval_seconds: "配置刷新间隔（秒）",
-  allow_requests_on_db_unavailable: "数据库不可用时允许请求",
-};
-
-function SettingValue({ value }: { value: unknown }) {
+function SettingValue({ value, t }: { value: unknown; t: TFunction }) {
   if (typeof value === "boolean")
     return (
       <span
         className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${value ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}
       >
         {value && <Check className="size-3" aria-hidden="true" />}
-        {value ? "开启" : "关闭"}
+        {t(value ? "accountPool.settingsOverview.enabled" : "accountPool.settingsOverview.disabled")}
       </span>
     );
   const hasEntries = value !== null && typeof value === "object" && Object.keys(value).length > 0;
@@ -268,17 +172,19 @@ function SettingValue({ value }: { value: unknown }) {
     return (
       <details className="group/value w-full rounded-lg bg-muted/40 text-left">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2 text-xs text-muted-foreground">
-          {Array.isArray(value) ? `${value.length} 项配置` : `${Object.keys(value).length} 项规则`}
+          {Array.isArray(value)
+            ? t("accountPool.settingsOverview.entriesCount", { count: value.length })
+            : t("accountPool.settingsOverview.rulesCount", { count: Object.keys(value).length })}
           <ChevronDown className="size-3.5 transition-transform group-open/value:rotate-180" aria-hidden="true" />
         </summary>
         <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-all border-t px-3 py-2 text-xs leading-relaxed">
-          {valueText(value)}
+          {valueText(value, t)}
         </pre>
       </details>
     );
   return (
     <span className={`text-sm ${value == null ? "text-muted-foreground" : "font-medium tabular-nums"}`}>
-      {valueText(value)}
+      {valueText(value, t)}
     </span>
   );
 }
@@ -290,12 +196,14 @@ function OverviewCard({
   scope,
   children,
   legacy = false,
+  legacyNotice,
 }: {
   title: string;
   href: string;
   scope: string;
   children: ReactNode;
   legacy?: boolean;
+  legacyNotice?: string;
   icon: LucideIcon;
 }) {
   return (
@@ -318,7 +226,9 @@ function OverviewCard({
           <ArrowUpRight className="size-4 shrink-0 text-muted-foreground group-hover:text-primary" aria-hidden="true" />
         </Link>
         <p className="mt-2 text-xs leading-5 text-muted-foreground">{scope}</p>
-        {legacy && <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">保留旧值 · 未完整接入</p>}
+        {legacy && legacyNotice && (
+          <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-400">{legacyNotice}</p>
+        )}
       </div>
       <div className="p-4">{children}</div>
     </section>
@@ -326,11 +236,13 @@ function OverviewCard({
 }
 
 type NativeField = { field_name: string; field_value: unknown };
-const valueText = (value: unknown): string => {
-  if (value === undefined) return "接口未返回";
-  if (value === null) return "未设置 / 继承默认";
-  if (typeof value === "boolean") return value ? "开启" : "关闭";
-  if (typeof value === "object" && Object.keys(value).length === 0) return "无";
+const valueText = (value: unknown, t: TFunction): string => {
+  if (value === undefined) return t("accountPool.settingsOverview.notReturned");
+  if (value === null) return t("accountPool.settingsOverview.unsetOrDefault");
+  if (typeof value === "boolean") {
+    return t(value ? "accountPool.settingsOverview.enabled" : "accountPool.settingsOverview.disabled");
+  }
+  if (typeof value === "object" && Object.keys(value).length === 0) return t("accountPool.settingsOverview.none");
   if (typeof value === "object") return JSON.stringify(value, null, 2);
   return String(value);
 };
@@ -340,6 +252,7 @@ const settingHref = (target: string) => {
 };
 
 export function AccountPoolSettingsOverview({ accessToken }: { accessToken: string }) {
+  const { t } = useTranslation();
   const runtime = useQuery({
     queryKey: accountPoolQueryKeys.settings(accessToken),
     queryFn: () => getAccountPoolSettings(accessToken),
@@ -363,89 +276,114 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
   };
   const busy = runtime.isFetching || router.isFetching || general.isFetching;
   const failures = [runtime, router, general].filter((query) => query.isError).length;
-  const runtimeFallback = runtime.isError ? "读取失败" : "正在读取…";
-  const syncStatus = runtime.data?.requires_reload
-    ? "需重新加载，请检查账号同步状态"
-    : "已保存，执行状态以账号同步结果为准";
-  const sources = busy ? "正在读取服务端" : "运行配置 · 路由 · 全局设置";
+  const runtimeFallback = t(
+    runtime.isError ? "accountPool.settingsOverview.loadFailed" : "accountPool.settingsOverview.loading",
+  );
+  const syncStatus = t(
+    runtime.data?.requires_reload
+      ? "accountPool.settingsOverview.reloadRequired"
+      : "accountPool.settingsOverview.savedCheckSync",
+  );
+  const sources = t(
+    busy ? "accountPool.settingsOverview.readingServer" : "accountPool.settingsOverview.sourcesSummary",
+  );
   const nativeSections = [
     {
       value: "router",
-      title: "LiteLLM 路由、重试与回退",
+      title: t("accountPool.settingsOverview.nativeRouterTitle"),
       icon: Route,
       query: router,
       fields: router.data?.fields,
       href: "policy-center?section=router",
-      scope: "原生路由当前值；团队或密钥可配置独立规则",
+      scope: t("accountPool.settingsOverview.nativeRouterScope"),
     },
     {
       value: "general",
-      title: "LiteLLM 全局设置",
+      title: t("accountPool.settingsOverview.nativeGeneralTitle"),
       icon: Settings2,
       query: general,
       fields: general.data,
       href: "policy-center",
-      scope: "网关全局默认值，未设置项沿用系统默认",
+      scope: t("accountPool.settingsOverview.nativeGeneralScope"),
     },
   ];
   return (
     <div className="grid min-w-0 gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">全局设置总览</h2>
+          <h2 className="text-lg font-semibold tracking-tight">{t("accountPool.settingsOverview.title")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {runtime.data ? `配置版本 ${runtime.data.version} · ${syncStatus}` : runtimeFallback}
+            {runtime.data
+              ? t("accountPool.settingsOverview.versionAndStatus", {
+                  version: runtime.data.version,
+                  status: syncStatus,
+                })
+              : runtimeFallback}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">{failures ? `${failures} 个来源读取失败` : sources}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {failures ? t("accountPool.settingsOverview.sourcesFailed", { count: failures }) : sources}
+          </p>
         </div>
         <Button size="sm" variant="outline" onClick={refresh} disabled={busy}>
           <RefreshCw className={`size-4 ${busy ? "animate-spin" : ""}`} />
-          {busy ? "正在刷新" : "刷新总览"}
+          {t(busy ? "accountPool.settingsOverview.refreshing" : "accountPool.settingsOverview.refresh")}
         </Button>
       </div>
       {runtime.isError && (
         <p role="alert" className="text-sm text-destructive">
-          运行配置读取失败，请刷新重试
+          {t("accountPool.settingsOverview.runtimeLoadFailed")}
         </p>
       )}
       <AccountPoolWorkspace
-        title="设置分类"
+        title={t("accountPool.settingsOverview.workspaceTitle")}
         items={[
           {
             value: "modules",
             icon: LayoutGrid,
-            label: "模块显示",
-            summary: "导航与入口",
+            label: t("accountPool.settingsOverview.modulesTab"),
+            summary: t("accountPool.settingsOverview.modulesSummary"),
             content: <ModuleVisibilityPanel accessToken={accessToken} />,
           },
           {
             value: "updates",
             icon: RefreshCw,
-            label: "自动更新",
-            summary: "检查与部署",
+            label: t("accountPool.settingsOverview.updatesTab"),
+            summary: t("accountPool.settingsOverview.updatesSummary"),
             content: <AccountPoolAutoUpdatePanel key={accessToken} accessToken={accessToken} />,
           },
           ...nativeSections.map((section) => ({
             value: section.value,
             label: section.title,
             icon: section.icon,
-            summary: section.query.isError ? "读取失败" : `${section.fields?.length ?? 0} 项`,
+            summary: section.query.isError
+              ? t("accountPool.settingsOverview.loadFailed")
+              : t("accountPool.settingsOverview.itemsCount", { count: section.fields?.length ?? 0 }),
             content: (
-              <OverviewCard icon={section.icon} title={section.title} href={section.href} scope={section.scope}>
-                {section.query.isPending && <p className="text-sm text-muted-foreground">正在读取…</p>}
+              <OverviewCard
+                icon={section.icon}
+                title={section.title}
+                href={section.href}
+                scope={section.scope}
+                legacyNotice={t("accountPool.settingsOverview.legacyNotice")}
+              >
+                {section.query.isPending && (
+                  <p className="text-sm text-muted-foreground">{t("accountPool.settingsOverview.loading")}</p>
+                )}
                 {section.query.isError && (
                   <p role="alert" className="text-sm text-destructive">
-                    {section.title}读取失败，请刷新重试
+                    {t("accountPool.settingsOverview.sectionLoadFailed", { title: section.title })}
                   </p>
                 )}
                 <dl className="divide-y divide-border/60">
                   {section.fields?.map((field) => (
                     <div key={field.field_name} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
                       <dt className="text-sm text-muted-foreground" title={field.field_name}>
-                        {nativeLabels[field.field_name] ?? field.field_name}
+                        {t(`accountPool.settingsOverview.nativeFields.${field.field_name}`, {
+                          defaultValue: field.field_name,
+                        })}
                       </dt>
                       <dd className="min-w-0 max-w-full text-right">
-                        <SettingValue value={field.field_value} />
+                        <SettingValue value={field.field_value} t={t} />
                       </dd>
                     </div>
                   ))}
@@ -453,33 +391,47 @@ export function AccountPoolSettingsOverview({ accessToken }: { accessToken: stri
               </OverviewCard>
             ),
           })),
-          ...groups.map((group) => ({
-            value: group.title,
-            label: group.title,
-            icon: group.icon,
-            summary: `${group.fields.length} 项`,
-            content: (
-              <OverviewCard icon={group.icon} title={group.title} href={group.href} scope={group.scope}>
-                <dl className="divide-y divide-border/60">
-                  {group.fields.map((field) => (
-                    <div key={field} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
-                      <dt className="text-sm text-muted-foreground">
-                        {fieldLabels[field] ?? (field.endsWith("_profiles") ? "命名配置与卡片绑定" : field)}
-                      </dt>
-                      <dd className="min-w-0 max-w-full text-right">
-                        <SettingValue value={runtime.data ? runtime.data.values[field] : runtimeFallback} />
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              </OverviewCard>
-            ),
-          })),
+          ...groups.map((group) => {
+            const title = t(`accountPool.settingsOverview.groups.${group.key}.title`);
+            const scope = t(`accountPool.settingsOverview.groups.${group.key}.scope`);
+            return {
+              value: group.key,
+              label: title,
+              icon: group.icon,
+              summary: t("accountPool.settingsOverview.itemsCount", { count: group.fields.length }),
+              content: (
+                <OverviewCard
+                  icon={group.icon}
+                  title={title}
+                  href={group.href}
+                  scope={scope}
+                  legacyNotice={t("accountPool.settingsOverview.legacyNotice")}
+                >
+                  <dl className="divide-y divide-border/60">
+                    {group.fields.map((field) => (
+                      <div key={field} className="flex flex-wrap items-start justify-between gap-3 py-2.5">
+                        <dt className="text-sm text-muted-foreground">
+                          {t(`accountPool.settingsOverview.fields.${field}`, {
+                            defaultValue: field.endsWith("_profiles")
+                              ? t("accountPool.settingsOverview.namedProfiles")
+                              : field,
+                          })}
+                        </dt>
+                        <dd className="min-w-0 max-w-full text-right">
+                          <SettingValue value={runtime.data ? runtime.data.values[field] : runtimeFallback} t={t} />
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </OverviewCard>
+              ),
+            };
+          }),
         ]}
       />
       <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
         <CircleHelp className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-        展示服务端保存值，点击分类标题进入编辑；单卡、模型、团队或密钥配置可覆盖默认。保存后请检查卡片同步状态。
+        {t("accountPool.settingsOverview.footerHint")}
       </p>
     </div>
   );

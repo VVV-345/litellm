@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from http.client import HTTPResponse
 from pathlib import Path
 from types import MappingProxyType
-from typing import Final, Protocol, cast
+from typing import Final, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
@@ -35,32 +35,6 @@ class ProxyTarget:
     host: str
     port: int
     ssl_context: ssl.SSLContext | None
-
-
-class BrowserPage(Protocol):
-    def goto(self, url: str, *, wait_until: str, timeout: int) -> object: ...
-
-    def wait_for_timeout(self, timeout: int) -> None: ...
-
-
-class Browser(Protocol):
-    def new_page(self) -> BrowserPage: ...
-
-    def close(self) -> None: ...
-
-
-class Chromium(Protocol):
-    def launch(self, *, headless: bool, proxy: dict[str, str]) -> Browser: ...
-
-
-class Playwright(Protocol):
-    chromium: Chromium
-
-
-class PlaywrightContext(Protocol):
-    def __enter__(self) -> Playwright: ...
-
-    def __exit__(self, exception_type: object, exception: object, traceback: object) -> None: ...
 
 
 class _CallbackServer(http.server.ThreadingHTTPServer):
@@ -592,28 +566,6 @@ def _check_health(
             check_port(8080)
         case _:
             raise ValueError("unsupported browser healthcheck")
-
-
-def _run_browser_page(chromium: Chromium, authorization_url: str, proxy_server: str, ready_file: Path) -> None:
-    ready_file.unlink(missing_ok=True)
-    browser: Final = chromium.launch(
-        headless=False,
-        proxy={"server": proxy_server, "bypass": "localhost,127.0.0.1,[::1]"},
-    )
-    try:
-        page: Final = browser.new_page()
-        page.goto(
-            authorization_url, wait_until="domcontentloaded",
-            timeout=int(os.environ.get("OAUTH_BROWSER_NAVIGATION_TIMEOUT_SECONDS", "60")) * 1000,
-        )
-        ready_file.touch()
-        while True:
-            page.wait_for_timeout(30_000)
-    except Exception:
-        raise RuntimeError("OAuth browser failed while opening the authorization page") from None
-    finally:
-        ready_file.unlink(missing_ok=True)
-        browser.close()
 
 
 def _run_browser() -> None:

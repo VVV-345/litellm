@@ -3,6 +3,7 @@
 
 import { useId, useState, type ReactNode } from "react";
 import { ChevronDown, type LucideIcon } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { DeferredTabPanel } from "@/components/shared/DeferredTabPanel";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -18,6 +19,7 @@ export function AccountPoolWorkspace({
   defaultValue?: string;
   defaultOpen?: boolean;
 }) {
+  const { t } = useTranslation();
   const id = useId();
   const [selection, setSelection] = useState(defaultValue ?? items[0]?.value ?? "");
   const value = items.some((item) => item.value === selection) ? selection : items[0]?.value ?? "";
@@ -54,12 +56,14 @@ export function AccountPoolWorkspace({
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`${expanded ? "收起" : "展开"}${title}`}
+            aria-label={t(expanded ? "accountPool.workspace.collapseAria" : "accountPool.workspace.expandAria", {
+              title,
+            })}
             aria-expanded={expanded}
             aria-controls={id}
             onClick={() => (expanded ? setExpanded(false) : open(value))}
           >
-            {expanded ? "收起" : "展开"}
+            {t(expanded ? "accountPool.workspace.collapse" : "accountPool.workspace.expand")}
             <ChevronDown className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
           </Button>
         </div>

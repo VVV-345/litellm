@@ -23,7 +23,6 @@ def _validate_hostname(value: str) -> str:
 
 class Settings(BaseSettings):
     log_retention_days: int = Field(default=30, ge=1, le=365)
-    quota_refresh_interval_seconds: float = Field(default=300.0, ge=30.0, le=86400.0)
     quota_refresh_max_concurrency: int = Field(default=3, ge=1, le=32)
     database_pool_max_size: int = Field(default=20, ge=10, le=100)
     database_operation_pool_max_size: int = Field(default=16, ge=6, le=64)

@@ -1190,6 +1190,28 @@ def candidate(
     )
 
 
+def _dispatch_card(middleware: AccountPoolGatewayMiddleware):
+    from litellm.proxy.management_endpoints.account_pool_integration import CARD_KEY_PREFIXES
+
+    async def dispatch(scope, receive, send) -> None:
+        if scope["type"] == "lifespan":
+            await middleware.lifespan(scope, receive, send)
+            return
+        if scope["type"] not in ("http", "websocket"):
+            await middleware.app(scope, receive, send)
+            return
+        scheme, _, key = Headers(scope=scope).get("authorization", "").partition(" ")
+        if scheme.lower() != "bearer" or not key.strip().startswith(CARD_KEY_PREFIXES):
+            await middleware.app(scope, receive, send)
+            return
+        if scope["type"] == "websocket":
+            await middleware._dispatch_websocket(scope, receive, send, key.strip())
+            return
+        await middleware._dispatch_http(scope, receive, send, key.strip())
+
+    return dispatch
+
+
 def setup_gateway(
     handler: Callable[[httpx.Request], httpx.Response],
     *,
@@ -1219,7 +1241,7 @@ def setup_gateway(
         return {"route": "ordinary"}
 
     app.add_middleware(
-        lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
+        lambda app, **kwargs: _dispatch_card(AccountPoolGatewayMiddleware(app, **kwargs)),
         control_factory=lambda _: control,
         client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(handler)),
         websocket_dialer=websocket_dialer,
@@ -2924,7 +2946,7 @@ def test_sticky_backup_is_kept_while_it_remains_eligible() -> None:
     )
     app: Final = FastAPI()
     app.add_middleware(
-        lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
+        lambda app, **kwargs: _dispatch_card(AccountPoolGatewayMiddleware(app, **kwargs)),
         control_factory=lambda _: control,
         client_factory=lambda: httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _: httpx.Response(200, json={"output": []}))
@@ -4669,7 +4691,7 @@ def test_gateway_lifespan_reuses_clients_and_resolves_session_once():
 
     app = FastAPI()
     app.add_middleware(
-        lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
+        lambda app, **kwargs: _dispatch_card(AccountPoolGatewayMiddleware(app, **kwargs)),
         control_factory=lambda _: control, client_factory=client_factory,
     )
     with TestClient(app) as client:
@@ -4911,7 +4933,7 @@ async def test_gateway_slow_body_cannot_exhaust_shared_admission():
     body_scope = {"type": "http", "path": "/v1/responses", "method": "POST", "query_string": b"",
                   "headers": [(b"authorization", b"Bearer cpk_invalid-but-well-shaped-key"),
                               (b"content-type", b"application/json")]}
-    slow = asyncio.create_task(middleware.dispatch_card(body_scope, slow_receive, discard))
+    slow = asyncio.create_task(_dispatch_card(middleware)(body_scope, slow_receive, discard))
     try:
         await started.wait()
         assert resources.admission._value == 1
@@ -4920,7 +4942,7 @@ async def test_gateway_slow_body_cannot_exhaust_shared_admission():
             messages.append(message)
         models_scope = {**body_scope, "path": "/v1/models", "method": "GET",
                         "headers": [(b"authorization", f"Bearer {_KEY}".encode())]}
-        await asyncio.wait_for(middleware.dispatch_card(models_scope, slow_receive, send), 0.5)
+        await asyncio.wait_for(_dispatch_card(middleware)(models_scope, slow_receive, send), 0.5)
         assert messages[0]["status"] == 200
         assert not control.acquisitions
     finally:
@@ -4963,7 +4985,7 @@ async def test_gateway_body_timeout_is_bounded_and_keeps_auth_error_priority(val
     original_timeout = asyncio.timeout
     monkeypatch.setattr(module.asyncio, "timeout", lambda seconds: original_timeout(0.02 if seconds == 10 else seconds))
     try:
-        await asyncio.wait_for(middleware.dispatch_card(scope, receive, send), 1)
+        await asyncio.wait_for(_dispatch_card(middleware)(scope, receive, send), 1)
         assert messages[0]["status"] == (408 if valid_key else 401)
         assert len(resolutions) == 1
         assert resources.admission._value == 100

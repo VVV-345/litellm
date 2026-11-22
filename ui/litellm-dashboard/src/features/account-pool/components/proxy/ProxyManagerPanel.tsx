@@ -198,13 +198,15 @@ export const ProxyManagerPanel = ({
         </div>
       </div>
       <AccountPoolWorkspace
-        title="代理层"
+        title={t("accountPool.proxyWorkspace.title")}
         items={[
           {
             value: "gateways",
             icon: Network,
-            label: "网关出口",
-            summary: gatewaysError ? "读取失败" : `${gateways.length} 个端口`,
+            label: t("accountPool.proxyWorkspace.gatewaysTab"),
+            summary: gatewaysError
+              ? t("accountPool.proxyWorkspace.loadFailed")
+              : t("accountPool.proxyWorkspace.portsSummary", { count: gateways.length }),
             content: (
               <div className="grid gap-3">
                 <Button
@@ -286,8 +288,10 @@ export const ProxyManagerPanel = ({
           {
             value: "isp",
             icon: Globe,
-            label: "ISP 代理",
-            summary: ispsError ? "读取失败" : `${isps.length} 个节点`,
+            label: t("accountPool.proxyWorkspace.ispTab"),
+            summary: ispsError
+              ? t("accountPool.proxyWorkspace.loadFailed")
+              : t("accountPool.proxyWorkspace.nodesSummary", { count: isps.length }),
             content: (
               <>
                 <ISPProxyCatalogPanel
@@ -335,8 +339,8 @@ export const ProxyManagerPanel = ({
           {
             value: "configuration",
             icon: Settings2,
-            label: "订阅与配置",
-            summary: `${configurations.length} 份配置`,
+            label: t("accountPool.proxyWorkspace.configTab"),
+            summary: t("accountPool.proxyWorkspace.configsSummary", { count: configurations.length }),
             content: (
               <>
                 <div className="mt-4 grid gap-3 border-t border-border/60 pt-4">

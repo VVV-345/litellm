@@ -216,7 +216,32 @@ async def test_ordinary_api_through_manager_persists_call_proof(database, endpoi
         return httpx.Response(200, content=wire, headers={"content-type": "text/event-stream"}) if stream else httpx.Response(200, json=body)
     async with httpx.AsyncClient(transport=httpx.ASGITransport(manager), base_url="http://manager") as manager_http:
         app = FastAPI()
-        app.add_middleware(lambda app, **kwargs: AccountPoolGatewayMiddleware(app, **kwargs).dispatch_card,
+
+        def card_middleware(inner_app, **kwargs):
+            from starlette.datastructures import Headers
+            from litellm.proxy.management_endpoints.account_pool_integration import CARD_KEY_PREFIXES
+
+            middleware = AccountPoolGatewayMiddleware(inner_app, **kwargs)
+
+            async def dispatch(scope, receive, send):
+                if scope["type"] == "lifespan":
+                    await middleware.lifespan(scope, receive, send)
+                    return
+                if scope["type"] not in ("http", "websocket"):
+                    await middleware.app(scope, receive, send)
+                    return
+                scheme, _, key = Headers(scope=scope).get("authorization", "").partition(" ")
+                if scheme.lower() != "bearer" or not key.strip().startswith(CARD_KEY_PREFIXES):
+                    await middleware.app(scope, receive, send)
+                    return
+                if scope["type"] == "websocket":
+                    await middleware._dispatch_websocket(scope, receive, send, key.strip())
+                    return
+                await middleware._dispatch_http(scope, receive, send, key.strip())
+
+            return dispatch
+
+        app.add_middleware(card_middleware,
             control_factory=lambda _: ManagerControl(manager_http, "http://manager", "fixture-manager"),
             client_factory=lambda: httpx.AsyncClient(transport=httpx.MockTransport(respond)))
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app), base_url="http://proxy") as client:

@@ -356,7 +356,7 @@ const AccountPoolCardComponent = ({
         {environment.access_token_fallback?.enabled &&
           environment.access_token_fallback.failure_source === "refresh" && (
             <p className="text-xs text-muted-foreground">
-              仅显示验证通过的模型；后台自动检查，失败模型每 5 分钟重试，独立冷却不会解除
+              {t("accountPool.cardUi.fallbackVerifiedOnlyHint")}
             </p>
           )}
         {environment.credential_refresh?.access_expires_at && (
@@ -425,7 +425,7 @@ const AccountPoolCardComponent = ({
         </div>
         <div className="grid grid-cols-2 gap-2 @sm/card:grid-cols-4">
           <div>
-            <p className="text-xs text-muted-foreground">失败请求</p>
+            <p className="text-xs text-muted-foreground">{t("accountPool.cardUi.failedRequests")}</p>
             <p className="mt-1 font-medium">
               {requestStats ? formatCount(requestStats.failed_requests, compactNumbers) : "-"}
             </p>
@@ -521,7 +521,7 @@ const AccountPoolCardComponent = ({
               </div>
             )}
             <p className="border-t border-border pt-2 text-xs text-muted-foreground">
-              路由策略、权重和优先级在 LiteLLM 模型设置中管理
+              {t("accountPool.cardUi.routingManagedInLiteLLM")}
             </p>
             {providerSummary && (
               <div className="grid gap-1 border-t border-border pt-2">

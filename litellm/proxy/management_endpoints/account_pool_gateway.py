@@ -37,7 +37,6 @@ from litellm.proxy.management_endpoints.account_pool_gateway_contracts import (
 from litellm.proxy.management_endpoints.account_pool_gateway_forwarder import forward
 from litellm.proxy.management_endpoints.account_pool_gateway_resources import GatewayHTTPResources, http_client
 from litellm.proxy.management_endpoints.account_pool_integration import (
-    CARD_KEY_PREFIXES,
     INTERNAL_PREFIX,
     ForwardTicket,
     pool_identity,
@@ -315,23 +314,6 @@ class AccountPoolGatewayMiddleware:
                     error.status_code if isinstance(error, HTTPException) else 400,
                     "Invalid internal account pool request",
                 )(scope, receive, send)
-
-    async def dispatch_card(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "lifespan":
-            await self.lifespan(scope, receive, send)
-            return
-        if scope["type"] not in ("http", "websocket"):
-            await self.app(scope, receive, send)
-            return
-        headers: Final = Headers(scope=scope)
-        scheme, _, key = headers.get("authorization", "").partition(" ")
-        if scheme.lower() != "bearer" or not key.strip().startswith(CARD_KEY_PREFIXES):
-            await self.app(scope, receive, send)
-            return
-        if scope["type"] == "websocket":
-            await self._dispatch_websocket(scope, receive, send, key.strip())
-            return
-        await self._dispatch_http(scope, receive, send, key.strip())
 
     async def _dispatch_websocket(self, scope: Scope, receive: Receive, send: Send, key: str) -> None:
         websocket: Final = WebSocket(scope, receive, send)

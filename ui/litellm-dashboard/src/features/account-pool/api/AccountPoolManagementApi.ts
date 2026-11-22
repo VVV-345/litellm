@@ -153,23 +153,6 @@ export const cancelAccountPoolOAuthSession = (accessToken: string, cardId: strin
     { accessToken },
   );
 
-export const startAccountPoolOAuthBrowserSession = async (
-  accessToken: string,
-  cardId: string,
-): Promise<AccountPoolOAuthBrowserSession> => {
-  const { ticket, ...session } = await apiClient.post<AccountPoolOAuthBrowserSessionStart>(
-    `/account_pool/environments/${encodeURIComponent(cardId)}/oauth-browser-sessions`,
-    { accessToken },
-  );
-  try {
-    await attachAccountPoolOAuthBrowserSession({ ...session, ticket });
-  } catch (error) {
-    await cancelAccountPoolOAuthBrowserSession(accessToken, session.id).catch(() => undefined);
-    throw error;
-  }
-  return session;
-};
-
 export const attachAccountPoolOAuthBrowserSession = async ({
   ticket,
   ...session
@@ -179,18 +162,6 @@ export const attachAccountPoolOAuthBrowserSession = async ({
   });
   return session;
 };
-
-export const getAccountPoolOAuthBrowserSession = (accessToken: string, sessionId: string, signal?: AbortSignal) =>
-  apiClient.get<AccountPoolOAuthBrowserSession>(
-    `/account_pool/oauth-browser-sessions/${encodeURIComponent(sessionId)}`,
-    { accessToken, signal, cache: "no-store" },
-  );
-
-export const cancelAccountPoolOAuthBrowserSession = (accessToken: string, sessionId: string) =>
-  apiClient.delete<AccountPoolOAuthBrowserSession>(
-    `/account_pool/oauth-browser-sessions/${encodeURIComponent(sessionId)}`,
-    { accessToken },
-  );
 
 export const getAccountPoolOAuthBrowserUrl = (sessionId: string) => {
   const path = `${normalizeRootPath(serverRootPath)}/account_pool/oauth-browser-sessions/${encodeURIComponent(sessionId)}/browser`;

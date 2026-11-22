@@ -141,7 +141,7 @@ export const AccountPoolProviderFamilies = ({
             <div className="flex flex-wrap gap-2">
               {canAutomate && onAutomation && (
                 <Button type="button" size="sm" variant="outline" onClick={onAutomation}>
-                  浏览器自动化授权
+                  {t("accountPool.providersUi.browserAutomation")}
                 </Button>
               )}
               <Button

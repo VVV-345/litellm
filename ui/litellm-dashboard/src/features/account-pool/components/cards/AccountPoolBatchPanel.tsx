@@ -155,7 +155,7 @@ export function AccountPoolBatchPanel({
   };
   const toggle = (id: string, checked: boolean) => {
     if (checked && !validSelected.has(id) && validSelected.size >= MAX_BATCH_TARGETS) {
-      toast.error(`单次批量操作最多选择 ${MAX_BATCH_TARGETS} 张卡片`);
+      toast.error(t("accountPool.batchUi.maxTargetsError", { max: MAX_BATCH_TARGETS }));
       return;
     }
     setSelected((current) => {
@@ -193,7 +193,7 @@ export function AccountPoolBatchPanel({
                 label: t("accountPool.batch.policyTemplateOption", {
                   name:
                     environmentsById.get(policy.card_id)?.name ??
-                    `已删除卡片 (${policy.card_id.slice(0, 8)})`,
+                    t("accountPool.batchUi.deletedCard", { id: policy.card_id.slice(0, 8) }),
                   version: policy.version,
                 }),
               }))}
@@ -234,12 +234,14 @@ export function AccountPoolBatchPanel({
           />
           {t("accountPool.batch.selectAll")}
           {selectableEnvironments.length > MAX_BATCH_TARGETS && (
-            <span className="text-xs text-muted-foreground">（全选上限 {MAX_BATCH_TARGETS}）</span>
+            <span className="text-xs text-muted-foreground">
+              {t("accountPool.batchUi.selectAllLimit", { max: MAX_BATCH_TARGETS })}
+            </span>
           )}
         </label>
         <Input
-          aria-label="筛选批量卡片"
-          placeholder="按卡片名称或 ID 筛选"
+          aria-label={t("accountPool.batchUi.filterAriaLabel")}
+          placeholder={t("accountPool.batchUi.filterPlaceholder")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className="h-8 w-full sm:w-64"
@@ -247,7 +249,7 @@ export function AccountPoolBatchPanel({
       </div>
       {overTargetLimit && (
         <p role="alert" className="text-xs text-destructive">
-          单次批量操作最多选择 {MAX_BATCH_TARGETS} 张卡片，当前已选 {targets.length} 张。
+          {t("accountPool.batchUi.overLimitAlert", { max: MAX_BATCH_TARGETS, count: targets.length })}
         </p>
       )}
       <div className="grid max-h-52 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">

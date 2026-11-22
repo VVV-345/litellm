@@ -20,7 +20,6 @@ from account_pool.api import _credential_views
 from account_pool.app import (
     _notify_refresh_schedulers_after_settings_sync,
     _reconcile_pending_configurations_until_cancelled,
-    _refresh_ready_quotas_until_cancelled,
     _restore_control_plane_connections_until_cancelled,
 )
 from account_pool.channels.base import ChannelDefinition
@@ -1267,25 +1266,6 @@ async def test_background_quota_refresh_only_reads_ready_cards_and_preserves_las
     assert cli.refresh_quota_calls == [True]
     assert durable is not None
     assert durable.quota.plan_type == "SuperGrok"
-
-
-@pytest.mark.asyncio
-async def test_background_quota_refresh_waits_for_interval_before_first_run(tmp_path: Path) -> None:
-    record: Final = _record(status=EnvironmentStatus.READY)
-    cli: Final = FakeCLIProxy()
-    service: Final = _service(record, cli, tmp_path)
-    stopped: Final = asyncio.Event()
-    task: Final = asyncio.create_task(
-        _refresh_ready_quotas_until_cancelled(service, stopped, refresh_seconds=0.01, max_concurrency=3)
-    )
-    try:
-        await asyncio.wait_for(asyncio.sleep(0.03), timeout=1)
-    finally:
-        stopped.set()
-        await task
-
-    assert cli.refresh_quota_calls
-    assert all(cli.refresh_quota_calls)
 
 
 @pytest.mark.asyncio

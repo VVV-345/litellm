@@ -435,54 +435,6 @@ async def test_browser_startup_diagnostics_are_safe_bounded_and_precede_cleanup(
     assert not runtime.oauth_browser_dir(session.id).exists()
 
 
-@pytest.mark.parametrize("navigation_fails", (False, True))
-def test_browser_uses_loopback_bypass_and_becomes_ready_only_after_navigation(
-    worker: ModuleType, tmp_path: Path, navigation_fails: bool
-) -> None:
-    ready: Final = tmp_path / "browser-ready"
-    launches: list[dict[str, object]] = []
-    closed: list[bool] = []
-
-    class Finished(BaseException):
-        pass
-
-    class Page:
-        def goto(self, url: str, *, wait_until: str, timeout: int) -> None:
-            assert not ready.exists()
-            assert (url, wait_until, timeout) == ("https://auth.example/authorize", "domcontentloaded", 60_000)
-            if navigation_fails:
-                raise RuntimeError("navigation failed with private details")
-
-        def wait_for_timeout(self, timeout: int) -> None:
-            assert ready.exists()
-            raise Finished()
-
-    class Browser:
-        def new_page(self) -> Page:
-            return Page()
-
-        def close(self) -> None:
-            closed.append(True)
-
-    class Chromium:
-        def launch(self, *, headless: bool, proxy: dict[str, str]) -> Browser:
-            launches.append({"headless": headless, "proxy": proxy})
-            return Browser()
-
-    with pytest.raises(RuntimeError if navigation_fails else Finished) as error:
-        worker._run_browser_page(Chromium(), "https://auth.example/authorize", "http://egress-relay:8080", ready)
-
-    assert launches == [
-        {
-            "headless": False,
-            "proxy": {"server": "http://egress-relay:8080", "bypass": "localhost,127.0.0.1,[::1]"},
-        }
-    ]
-    assert closed == [True]
-    assert not ready.exists()
-    assert "private details" not in str(error.value)
-
-
 def test_browser_health_requires_page_and_listeners(worker: ModuleType, tmp_path: Path) -> None:
     ready: Final = tmp_path / "browser-ready"
     ports: list[int] = []

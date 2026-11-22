@@ -51,11 +51,11 @@ interface AccountPoolDashboardProps {
 const formatInteger = (value: number): string => new Intl.NumberFormat("zh-CN").format(value);
 const proxyFilterDisplay = (
   proxy: AccountPoolDashboardFilters["proxy"],
-  defaultGatewayLabel: string,
+  labels: { defaultGateway: string; profile: string; all: string },
 ): string => {
-  if (proxy === "default_gateway") return defaultGatewayLabel;
-  if (proxy === "profile") return "独立代理";
-  return "全部出口";
+  if (proxy === "default_gateway") return labels.defaultGateway;
+  if (proxy === "profile") return labels.profile;
+  return labels.all;
 };
 const PAGE_SIZES = [4, 8, 12, 24, 50] as const;
 const STATUS_FILTERS: readonly AccountPoolDashboardFilters["status"][] = [
@@ -129,20 +129,20 @@ export const AccountPoolDashboard = ({
   return (
     <div className="grid gap-5" data-testid="account-pool-dashboard">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-xs font-medium text-muted-foreground">调用统计</span>
+        <span className="text-xs font-medium text-muted-foreground">{t("accountPool.dashboardUi.callStats")}</span>
         <Select
           value={String(statsDays)}
           onValueChange={(value) => {
             if (value) onStatsDaysChange?.(Number(value));
           }}
         >
-          <SelectTrigger aria-label="统计天数" className="w-32">
-            <SelectValue>近 {statsDays} 天</SelectValue>
+          <SelectTrigger aria-label={t("accountPool.dashboardUi.statsDaysLabel")} className="w-32">
+            <SelectValue>{t("accountPool.dashboardUi.lastDays", { days: statsDays })}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {[1, 7, 14, 30, 90].map((days) => (
               <SelectItem key={days} value={String(days)}>
-                近 {days} 天
+                {t("accountPool.dashboardUi.lastDays", { days })}
               </SelectItem>
             ))}
           </SelectContent>
@@ -153,12 +153,12 @@ export const AccountPoolDashboard = ({
           aria-pressed={compactNumbers}
           onClick={() => onCompactNumbersChange?.(!compactNumbers)}
         >
-          {compactNumbers ? "数字：K/M/B" : "数字：完整"}
+          {t(compactNumbers ? "accountPool.dashboardUi.numbersCompact" : "accountPool.dashboardUi.numbersFull")}
         </Button>
       </div>
       {statsError && (
         <p role="alert" className="text-sm text-destructive">
-          调用统计读取失败，暂不可用；请刷新重试
+          {t("accountPool.dashboardUi.statsLoadFailed")}
         </p>
       )}
       <div className="grid grid-cols-2 divide-x divide-y overflow-hidden rounded-xl border bg-card sm:grid-cols-3 lg:grid-cols-6">
@@ -217,8 +217,8 @@ export const AccountPoolDashboard = ({
           </Button>
         </div>
         <details className="basis-full text-xs text-muted-foreground">
-          <summary className="cursor-pointer">更多统计</summary>
-          <p className="pt-2">LiteLLM 标准调用日志，近 {statsDays} 天；供应商额度独立刷新，网关延迟为近 7 天。</p>
+          <summary className="cursor-pointer">{t("accountPool.dashboardUi.moreStats")}</summary>
+          <p className="pt-2">{t("accountPool.dashboardUi.moreStatsHint", { days: statsDays })}</p>
           <p className="pt-2">
             {t("accountPool.dashboard.gatewayP99")}：{latencyMetric(gatewayLatency?.p99_ms)} ·{" "}
             {t("accountPool.dashboard.successes")}：{metric(summary.successfulRequests)} ·{" "}
@@ -232,7 +232,9 @@ export const AccountPoolDashboard = ({
           className="rounded-lg border px-3 py-2 text-sm"
           onToggle={(event) => setQuotaDetailsOpen(event.currentTarget.open)}
         >
-          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">供应商额度详情</summary>
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            {t("accountPool.dashboardUi.providerQuotaDetails")}
+          </summary>
           {quotaDetailsOpen && (
             <div className="mt-3">
               <AccountPoolQuotaPanel environments={environments} />
@@ -314,13 +316,17 @@ export const AccountPoolDashboard = ({
                   className="w-full"
                 >
                   <SelectValue>
-                    {proxyFilterDisplay(filters.proxy, t("accountPool.config.defaultGateway"))}
+                    {proxyFilterDisplay(filters.proxy, {
+                      defaultGateway: t("accountPool.config.defaultGateway"),
+                      profile: t("accountPool.dashboardUi.proxyProfile"),
+                      all: t("accountPool.dashboardUi.proxyAll"),
+                    })}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">全部出口</SelectItem>
+                  <SelectItem value="all">{t("accountPool.dashboardUi.proxyAll")}</SelectItem>
                   <SelectItem value="default_gateway">{t("accountPool.config.defaultGateway")}</SelectItem>
-                  <SelectItem value="profile">独立代理</SelectItem>
+                  <SelectItem value="profile">{t("accountPool.dashboardUi.proxyProfile")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -373,7 +379,7 @@ export const AccountPoolDashboard = ({
         </div>
       ) : (
         <AccountPoolWorkspace
-          title="卡片"
+          title={t("accountPool.dashboardUi.cardsSectionTitle")}
           defaultValue={
             visibleGroups.some((group) => group.family === "openai_codex") ? "openai_codex" : visibleGroups[0]?.family
           }
