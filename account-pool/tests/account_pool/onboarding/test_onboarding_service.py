@@ -861,3 +861,179 @@ async def test_expanded_package_and_two_factor_file_keep_their_assigned_proxies(
     assert [(await environments.get(item.card_id)).proxy_profile_id for item in result.items] == [
         "proxy-a", "proxy-a", "proxy-b",
     ]
+
+
+class _FakeAutomationRegistry:
+    def __init__(self) -> None:
+        from account_pool.oauth_automation.models import JobView
+
+        self._job_view_cls = JobView
+        self.jobs: dict[object, object] = {}
+        self.submitted: list[object] = []
+        self.deleted: list[object] = []
+
+    async def get_job(self, job_id):
+        return self.jobs.get(job_id)
+
+    async def delete_job(self, job_id):
+        self.deleted.append(job_id)
+        self.jobs.pop(job_id, None)
+        return Success(None)
+
+    async def submit(self, request):
+        self.submitted.append(request)
+        now = utc_now()
+        view = self._job_view_cls(
+            id=request.id,
+            environment_id=request.environment_id,
+            profile_id=uuid4(),
+            stage="queued",
+            message="等待开启自动化后串行执行",
+            proxy_profile_id=request.draft.proxy_profile_id if request.draft is not None else "proxy-existing",
+            configuration_version=0,
+            draft_pending=request.draft is not None,
+            created_at=now,
+            updated_at=now,
+        )
+        self.jobs[request.id] = view
+        return Success(view)
+
+
+async def test_two_factor_onboarding_auto_enqueues_oauth_automation_and_tracks_lifecycle(tmp_path):
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    automation = _FakeAutomationRegistry()
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="auto@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    submitted = await service.submit(request)
+    assert len(submitted.items) == 1
+    item = submitted.items[0]
+
+    await service.run_once()
+    current = (await service.list())[0]
+    assert current.state == "awaiting_authorization"
+    assert "自动队列" in current.message
+    assert await environments.get(item.card_id) is None
+    assert len(automation.submitted) == 1
+    job_request = automation.submitted[0]
+    assert job_request.id == item.card_id
+    assert job_request.environment_id == item.card_id
+    assert job_request.credentials == "auto@example.test----secret-pass----JBSWY3DPEHPK3PXP"
+    assert job_request.draft is not None
+    assert job_request.draft.proxy_profile_id == "proxy-auto"
+
+    # Draft card does not exist yet while queued/manual in automation; _observe must not fail with missing card.
+    automation.jobs[item.card_id] = automation.jobs[item.card_id].model_copy(
+        update={"stage": "manual", "message": "等待验证码"}
+    )
+    stored = await tasks.get(item.id)
+    await tasks.save(
+        stored.model_copy(update={"item": stored.item.model_copy(update={"updated_at": utc_now() - timedelta(minutes=1)})})
+    )
+    await service.run_once()
+    manual_view = (await service.list())[0]
+    assert manual_view.state == "awaiting_authorization"
+    assert "人工接管" in manual_view.message
+
+    # Terminal failure in automation propagates to onboarding item and retry cleans up stale draft job.
+    automation.jobs[item.card_id] = automation.jobs[item.card_id].model_copy(
+        update={"stage": "failed", "message": "登录脚本超时"}
+    )
+    stored = await tasks.get(item.id)
+    await tasks.save(
+        stored.model_copy(update={"item": stored.item.model_copy(update={"updated_at": utc_now() - timedelta(minutes=1)})})
+    )
+    await service.run_once()
+    failed_view = (await service.list())[0]
+    assert failed_view.state == "failed"
+    assert "登录脚本超时" in failed_view.message
+
+    retried = await service.action(item.id, OnboardingAction(action="retry"))
+    assert isinstance(retried, Success)
+    await service.run_once()
+    assert automation.deleted == [item.card_id]
+    assert len(automation.submitted) == 2
+
+    # Once automation completes and provisions the ready card, onboarding item transitions to ready.
+    ready_card = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "id": item.card_id,
+            "credential_email": "auto@example.test",
+            "proxy_mode": "profile",
+            "proxy_profile_id": "proxy-auto",
+        }
+    )
+    await environments.save(ready_card)
+    automation.jobs[item.card_id] = automation.jobs[item.card_id].model_copy(
+        update={"stage": "completed", "message": "已完成"}
+    )
+    stored = await tasks.get(item.id)
+    await tasks.save(
+        stored.model_copy(update={"item": stored.item.model_copy(update={"updated_at": utc_now() - timedelta(minutes=1)})})
+    )
+    await service.run_once()
+    completed_view = (await service.list())[0]
+    assert completed_view.state == "ready"
+
+
+async def test_two_factor_onboarding_requires_proxy_when_enqueuing_automation(tmp_path):
+    from account_pool.onboarding.repository import StoredOnboarding
+    from account_pool.onboarding.service import OnboardingPayload
+
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    automation = _FakeAutomationRegistry()
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="noproxy@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    submitted = await service.submit(request)
+    item = submitted.items[0]
+    stored = await tasks.get(item.id)
+    without_proxy = OnboardingPayload(
+        entry=service._payload(stored).entry.model_copy(update={"proxy_profile_id": None}),
+        mailbox_ready=True,
+        proxy_profile_id=None,
+    )
+    await tasks.save(
+        StoredOnboarding(
+            item=stored.item,
+            ciphertext=service._cipher.seal(item.id, without_proxy.model_dump_json()),
+            fingerprints=stored.fingerprints,
+        )
+    )
+    await service.run_once()
+    failed_view = (await service.list())[0]
+    assert failed_view.state == "failed"
+    assert "代理配置" in failed_view.message
+    assert not automation.submitted

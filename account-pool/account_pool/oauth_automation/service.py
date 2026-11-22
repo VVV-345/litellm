@@ -98,6 +98,11 @@ class AutomationRegistry:
             image_checked=state.checked_image is not None and state.checked_image == self.worker.image,
         )
 
+    async def get_job(self, job_id: UUID) -> JobView | None:
+        state: Final = await self.repository.read()
+        row: Final = next((job for job in state.jobs if job.item.id == job_id), None)
+        return None if row is None else row.item.model_copy(update={"cleanup_pending": row.cleanup_pending})
+
     async def self_check(self) -> Result[AutomationView]:
         if self.worker.image is None:
             return Failure(FailureCode.CONFLICT, "请先配置按 digest 固定的服务端浏览器镜像")

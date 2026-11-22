@@ -166,8 +166,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         leases,
         sync_policy=service.sync_policy,
     )
-    onboarding_repository: Final = PostgresOnboardingRepository(resolved.database_url)
-    onboarding_service: Final = OnboardingService(onboarding_repository, environments, service, secrets)
     automation_repository: Final = PostgresAutomationRepository(resolved.database_url)
     automation_http: Final = httpx.AsyncClient(timeout=30, trust_env=False, transport=httpx.AsyncHTTPTransport(retries=0))
     automation_worker: Final = AutomationWorker(browser_runtime, automation_http)
@@ -180,6 +178,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ),
         ),
         browser_controller, automation_worker, record_diagnostic=manager_logs.record,
+    )
+    onboarding_repository: Final = PostgresOnboardingRepository(resolved.database_url)
+    onboarding_service: Final = OnboardingService(
+        onboarding_repository,
+        environments,
+        service,
+        secrets,
+        automation=automation.registry,
     )
     binding_repository: Final = PostgresBindingRepository(resolved.database_url)
     binding_reader: Final = MailboxReader(automation_http)

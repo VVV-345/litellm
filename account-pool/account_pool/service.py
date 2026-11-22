@@ -240,6 +240,11 @@ class EnvironmentService:
             return Failure(FailureCode.INVALID, "default proxy profile URL is invalid")
         return Success((ProxyMode.PROFILE, settings.default_proxy_profile_id, validated_url))
 
+    async def default_proxy_profile_id(self) -> str | None:
+        settings: Final = await self._account_pool_settings()
+        default_proxy: Final = await self._default_proxy(settings)
+        return default_proxy.value[1] if isinstance(default_proxy, Success) else None
+
     async def _log_event(
         self,
         record: EnvironmentRecord,
