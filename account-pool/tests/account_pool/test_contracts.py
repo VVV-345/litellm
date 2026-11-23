@@ -240,6 +240,7 @@ def test_authorization_view_contract_has_only_public_authorization_instructions(
             "enabled": True,
             "manual_cooldown": False,
             "concurrency_limit": 1,
+            "in_flight": 0,
             "proxy_mode": "default_gateway",
             "proxy_profile_id": None,
             "available_models": [],
