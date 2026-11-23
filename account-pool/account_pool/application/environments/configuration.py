@@ -101,7 +101,9 @@ class EnvironmentConfigurationOperations:
             ):
                 return Failure(FailureCode.CONFLICT, "environment configuration is still being applied")
             codex_catalog: Final = uses_codex_model_catalog(record) and record.auth_file_name is not None
-            known_models: Final = frozenset(record.available_models).union(configured_models(record) if codex_catalog else ())
+            known_models: Final = frozenset(record.available_models).union(
+                configured_models(record) if codex_catalog or record.channel is ChannelKind.OPENAI_COMPATIBLE else ()
+            )
             unknown_models: Final = frozenset(request.enabled_models).difference(known_models)
             if unknown_models:
                 return Failure(FailureCode.INVALID, "enabled_models contains unsupported models")

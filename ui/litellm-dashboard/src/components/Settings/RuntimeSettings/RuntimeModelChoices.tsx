@@ -17,8 +17,10 @@ const changesBetween = (before: string[], after: string[]) => ({
 export function useRuntimeModelCatalog(accessToken: string | null, environment: AccountPoolEnvironment, open: boolean) {
   const queryClient = useQueryClient();
   const isCodex = environment.channel === "cliproxyapi" && environment.supplier === "openai_codex";
+  const sourceDiscovery = environment.channel === "openai_compatible";
+  const supportedChannel = isCodex || sourceDiscovery;
   const lifecycleReady = ["ready", "cooling_down", "disabled", "error"].includes(environment.status);
-  const supportsDiscovery = isCodex && lifecycleReady && !environment.configuration_pending;
+  const supportsDiscovery = supportedChannel && lifecycleReady && !environment.configuration_pending;
   const [lastChanges, setLastChanges] = useState<ReturnType<typeof changesBetween>>();
   const options = {
     queryKey: accountPoolQueryKeys.modelCatalog(accessToken, environment.id, environment.version),
@@ -49,6 +51,7 @@ export function useRuntimeModelCatalog(accessToken: string | null, environment: 
   return {
     models,
     supportsDiscovery,
+    sourceDiscovery,
     loading: catalog.isFetching,
     error: catalog.isError,
     changes: lastChanges ?? (catalog.data ? changesBetween(environment.available_models, models) : undefined),
@@ -71,7 +74,8 @@ export function RuntimeModelChoices({
   onChange: (models: string[]) => void;
 }) {
   const { t } = useTranslation();
-  const { models, supportsDiscovery, loading, error, changes, discover } = catalog;
+  const { models, supportsDiscovery, sourceDiscovery, loading, error, changes, discover } = catalog;
+  const discoveryKey = sourceDiscovery ? "accountPool.config.fetchModels" : "accountPool.config.discoverModels";
   let message: string | null = null;
   if (error) {
     message = t("accountPool.config.modelCatalogFailed");
@@ -97,7 +101,7 @@ export function RuntimeModelChoices({
               disabled={disabled || loading}
               onClick={() => void discover()}
             >
-              {t(loading ? "accountPool.config.discoveringModels" : "accountPool.config.discoverModels")}
+              {t(loading ? "accountPool.config.discoveringModels" : discoveryKey)}
             </Button>
             <Button
               type="button"

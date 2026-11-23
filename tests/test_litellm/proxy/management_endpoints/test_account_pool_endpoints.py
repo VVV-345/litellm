@@ -38,6 +38,32 @@ _MANAGER_TOKEN: Final = "m" * 32
 _ENVIRONMENT_ID: Final = uuid4()
 
 
+def test_bound_model_catalog_proxy_keeps_manager_auth_and_admin_scope() -> None:
+    requests: Final[list[httpx.Request]] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json=["model-a", "model-new"])
+
+    def factory() -> AccountPoolManagerClient:
+        return AccountPoolManagerClient(
+            "http://manager.test", _MANAGER_TOKEN, client=httpx.AsyncClient(transport=httpx.MockTransport(handle)),
+        )
+
+    path: Final = f"/account_pool/environments/{_ENVIRONMENT_ID}/model-catalog"
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.PROXY_ADMIN), factory)) as client:
+        response: Final = client.post(path)
+        assert response.status_code == 200 and response.json() == ["model-a", "model-new"]
+        assert _MANAGER_TOKEN not in response.text
+    assert len(requests) == 1
+    assert requests[0].method == "POST"
+    assert requests[0].url.path == f"/api/environments/{_ENVIRONMENT_ID}/model-catalog"
+    assert requests[0].headers["Authorization"] == f"Bearer {_MANAGER_TOKEN}"
+    with TestClient(_app(UserAPIKeyAuth(user_role=LitellmUserRoles.INTERNAL_USER), factory)) as client:
+        assert client.post(path).status_code == 403
+    assert len(requests) == 1
+
+
 @pytest.mark.parametrize("action,extra", [("quota-reset", {"recover": True}), ("access-token-fallback", {})])
 def test_quota_verification_proxy_preserves_confirmation_binding_and_admin_guard(action, extra) -> None:
     calls = []

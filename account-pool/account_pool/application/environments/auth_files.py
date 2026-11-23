@@ -20,6 +20,7 @@ from account_pool.application.environments.contracts import (
     RefreshIfNeededOperation,
     WaitForDirectCredentialOperation,
 )
+from account_pool.channels.openai_compatible import OpenAICompatibleChannel
 from account_pool.config import validate_proxy_profile_url
 from account_pool.credential_import import normalize_auth_file
 from account_pool.credential_ownership import CredentialConflict, CredentialOwnership, credential_identity
@@ -377,18 +378,24 @@ class EnvironmentAuthFiles:
             record: Final = await self._repository.get(environment_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "environment not found")
-            if not uses_codex_model_catalog(record) or record.auth_file_name is None:
-                return Failure(FailureCode.INVALID, "card has no bound Codex credential")
+            channel: Final = self._channel(record) if record.channel is ChannelKind.OPENAI_COMPATIBLE else None
+            if not isinstance(channel, OpenAICompatibleChannel) and (
+                not uses_codex_model_catalog(record) or record.auth_file_name is None
+            ):
+                return Failure(FailureCode.INVALID, "card does not support model catalog discovery")
             if record.configuration_pending or record.oauth_automation_operation or record.status in (
                 EnvironmentStatus.PROVISIONING, EnvironmentStatus.VALIDATING,
                 EnvironmentStatus.AWAITING_AUTHORIZATION, EnvironmentStatus.DELETING,
             ):
                 return Failure(FailureCode.CONFLICT, "card operation is in progress")
             try:
-                models: Final = await self._cli_proxy.discover_model_catalog(record, record.auth_file_name)
+                models: Final = (
+                    await channel.discover_model_catalog(record) if isinstance(channel, OpenAICompatibleChannel)
+                    else await self._cli_proxy.discover_model_catalog(record, record.auth_file_name or "")
+                )
             except Exception as error:
                 await self._log_event(record, "configuration", error)
-                return Failure(FailureCode.UPSTREAM, "Codex model catalog query failed")
+                return Failure(FailureCode.UPSTREAM, "upstream model catalog query failed")
             if models != record.available_models:
                 # 只写目录；与正在编辑的配置共用锁，但不改勾选、版本、认证和额度。
                 saved: Final = await self._repository.save_if_version(

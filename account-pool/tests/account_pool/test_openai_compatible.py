@@ -44,6 +44,77 @@ async def private_resolver(_: str, __: int) -> tuple[str, ...]:
     return ("10.0.0.8",)
 
 
+@pytest.mark.parametrize("failure", ("http", "empty", "format"))
+@pytest.mark.parametrize(("base", "endpoint"), (
+    ("https://api.z.ai/api/coding/paas/v4", "https://api.z.ai/api/coding/paas/v4/models"),
+    ("https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4/models"),
+    ("https://opencode.ai/zen/go/v1", "https://opencode.ai/inference/go/v1/models"),
+    ("https://api.example.com/v1", "https://api.example.com/v1/models"),
+))
+def test_bound_compatible_model_catalog_preserves_card_and_last_catalog(
+    tmp_path: Path, base: str, endpoint: str, failure: str,
+) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    original: Final = _compatible_card(base, secrets)
+    assert original.openai_compatible is not None
+    record: Final = original.model_copy(update={
+        "auth_file_name": "encrypted-api-keys",
+        "openai_compatible": original.openai_compatible.model_copy(update={
+            "prefix": "vendor/", "custom_models": ("model-a", "manual-model"),
+        }),
+        "available_models": ("vendor/model-a", "vendor/retired"),
+        "enabled_models": ("vendor/model-a",),
+    })
+    repository: Final = MemoryRepository(record)
+    calls: Final[list[str]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        assert request.method == "GET" and str(request.url) == endpoint
+        assert request.headers["Authorization"] == "Bearer synthetic-glm-key"
+        if len(calls) > 1:
+            if failure == "empty":
+                return httpx.Response(200, json={"data": []})
+            return httpx.Response(503 if failure == "http" else 200, json={"error": "private-upstream-body"})
+        return httpx.Response(200, json={"data": [{"id": " model-a "}, {"id": "model-new"}, {"id": "model-new"}]})
+
+    channel: Final = OpenAICompatibleChannel(
+        secrets, httpx.AsyncClient(transport=httpx.MockTransport(upstream)), public_resolver,
+    )
+    registry: Final = replace(
+        ChannelRegistry.default(), implementations=MappingProxyType({ChannelKind.OPENAI_COMPATIBLE: channel}),
+    )
+    service: Final = EnvironmentService(
+        _settings(tmp_path), repository, FakeRuntime(), FakeCLIProxy(), EmptyProfiles(), secrets, channels=registry,
+    )
+    app: Final = FastAPI()
+    app.include_router(create_router(service, "fixture-manager", environments=repository))
+    with TestClient(app) as client:
+        path: Final = f"/api/environments/{record.id}/model-catalog"
+        assert client.post(path).status_code in (401, 403)
+        assert not calls
+        response: Final = client.post(path, headers={"Authorization": "Bearer fixture-manager"})
+        assert response.status_code == 200
+        assert response.json() == ["vendor/model-a", "vendor/model-new"]
+        expected: Final = record.model_copy(update={"available_models": ("vendor/model-a", "vendor/model-new")})
+        assert repository.records[record.id] == expected
+        failed: Final = client.post(path, headers={"Authorization": "Bearer fixture-manager"})
+        assert failed.status_code == 502
+        assert "synthetic-glm-key" not in failed.text and "private-upstream-body" not in failed.text
+        assert repository.records[record.id] == expected
+        assert calls == [endpoint, endpoint]
+        selected: Final = client.put(
+            f"/api/environments/{record.id}", headers={"Authorization": "Bearer fixture-manager"}, json={
+                "version": record.version, "name": record.name, "enabled": True, "manual_cooldown": False,
+                "concurrency_limit": record.concurrency_limit, "proxy_mode": "default_gateway",
+                "enabled_models": ["vendor/model-new"],
+            },
+        )
+        assert selected.status_code == 200
+        assert selected.json()["enabled_models"] == ["vendor/model-new"]
+        assert repository.records[record.id].openai_compatible == record.openai_compatible
+
+
 def _compatible_card(base_url: str, secrets: EnvironmentSecretDeriver) -> EnvironmentRecord:
     record: Final = _record(status=EnvironmentStatus.READY)
     return record.model_copy(update={
@@ -57,6 +128,38 @@ def _compatible_card(base_url: str, secrets: EnvironmentSecretDeriver) -> Enviro
             ),),
         ),
     })
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", ((), ("vendor/model-new",)))
+async def test_compatible_refresh_keeps_discovered_models_and_explicit_empty_selection(
+    enabled: tuple[str, ...],
+) -> None:
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    original: Final = _compatible_card("https://api.example.com/v1", secrets)
+    assert original.openai_compatible is not None
+    record: Final = original.model_copy(update={
+        "auth_file_name": "encrypted-api-keys",
+        "openai_compatible": original.openai_compatible.model_copy(update={
+            "prefix": "vendor/", "custom_models": ("manual-model",),
+        }),
+        "available_models": ("vendor/model-a", "vendor/model-new"), "enabled_models": enabled,
+    })
+    calls: Final[list[str]] = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        calls.append(request.method)
+        if len(calls) == 1:
+            return httpx.Response(200, json={"data": [{"id": "model-a"}, {"id": "model-new"}]})
+        return httpx.Response(503)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        channel: Final = OpenAICompatibleChannel(secrets, http, public_resolver)
+        refreshed: Final = await channel.read_account(record)
+        assert refreshed.available_models == ("vendor/manual-model", "vendor/model-a", "vendor/model-new")
+        assert refreshed.enabled_models == enabled
+        failed: Final = await channel.read_account(refreshed)
+        assert failed.available_models == refreshed.available_models and failed.enabled_models == enabled
 
 
 @pytest.mark.parametrize("issuer", ["open.bigmodel.cn", "api.z.ai"])

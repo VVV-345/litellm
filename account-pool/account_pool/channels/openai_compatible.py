@@ -246,7 +246,8 @@ class OpenAICompatibleChannel:
         if not models:
             raise RuntimeError("OpenAI-compatible upstream did not report any models")
         enabled: Final = (
-            tuple(model for model in record.enabled_models if model in models) if record.enabled_models else models
+            tuple(model for model in record.enabled_models if model in models)
+            if record.enabled_models or record.auth_file_name is not None else models
         )
         status: Final = (
             EnvironmentStatus.DISABLED
@@ -378,10 +379,31 @@ class OpenAICompatibleChannel:
             )
         )
         discovered: Final = tuple(dict.fromkeys(model for models in discoveries for model in models))
-        raw: Final = configuration.custom_models or discovered
-        return tuple(
+        raw: Final = tuple(dict.fromkeys((*configuration.custom_models, *discovered)))
+        models: Final = tuple(
             dict.fromkeys(f"{configuration.prefix}{model}" if configuration.prefix else model for model in raw)
         )
+        return models if discovered else tuple(dict.fromkeys((*record.available_models, *models)))
+
+    async def discover_model_catalog(self, record: EnvironmentRecord) -> tuple[str, ...]:
+        configuration: Final = self._configuration(record)
+        if len(configuration.credentials) != 1:
+            raise CredentialConflict("一张卡片只能使用一个 API Key，请先删除多余凭证")
+        credential: Final = configuration.credentials[0]
+        headers: Final = (
+            _HEADERS.validate_json(self._cipher.open(record.id, configuration.headers_ciphertext))
+            if configuration.headers_ciphertext else ()
+        )
+        models: Final = await self.discover_models_from_source(
+            configuration.base_url, self._cipher.open(record.id, credential.api_key_ciphertext), headers,
+            credential.proxy_url or configured_proxy_url(record) or None,
+        )
+        if not models:
+            raise ModelListDiscoveryError("model_list_empty")
+        return tuple(dict.fromkeys(
+            f"{configuration.prefix}{model}" if configuration.prefix else model
+            for model in models
+        ))
 
     async def _discover_models_for_credential(
         self,
