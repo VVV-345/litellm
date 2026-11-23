@@ -1453,3 +1453,38 @@ def test_glm_reset_claim_is_an_exact_additive_upgrade_without_dropping_protectio
     assert not additive_manager_schema_upgrade(after, before)
     assert not additive_manager_schema_upgrade(before, (*before, (added[0], added[1].replace(b"credit_id text", b"credit_id uuid"))))
     assert not additive_manager_schema_upgrade(before, (*after, ("bad.py", b'SQL="DROP TABLE account_pool_quota_reset_claims"')))
+
+
+def test_reviewed_enabled_defaults_allow_upgrade_with_or_without_glm_claim_table() -> None:
+    from account_pool.release_compatibility import GLM_RESET_CLAIM_SCHEMA_ADDITIONS
+
+    settings = b'''SQL = "CREATE TABLE IF NOT EXISTS account_pool_settings (payload jsonb NOT NULL)"
+class QuotaSettingsValues(BaseModel):
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
+class AccountPoolSettings(BaseModel):
+    quota_switch_project: bool = False
+    quota_switch_preview_model: bool = False
+'''
+    policies = b'''SQL = "CREATE TABLE IF NOT EXISTS account_pool_policies (payload jsonb NOT NULL)"
+class RoutingPolicy(BaseModel):
+    fallback_enabled: bool = False
+    custom_enabled: bool = False
+'''
+    before = (("schema.prisma", b"model A { id String @id }"),
+              ("account_pool/settings.py", settings), ("account_pool/policies.py", policies))
+    defaults = (before[0], (before[1][0], settings.replace(b"= False", b"= True")),
+                (before[2][0], policies.replace(b"fallback_enabled: bool = False", b"fallback_enabled: bool = True")))
+    added = ("glm.py", repr(GLM_RESET_CLAIM_SCHEMA_ADDITIONS[0].decode()).encode())
+    assert additive_manager_schema_upgrade(before, defaults)
+    assert additive_manager_schema_upgrade(before, (*defaults, added))
+    assert not additive_manager_schema_upgrade(defaults, before)
+    assert not additive_manager_schema_upgrade((*defaults, added), before)
+    assert not additive_manager_schema_upgrade(before, (*defaults, (added[0], added[1].replace(b"credit_id text", b"credit_id uuid"))))
+    assert not additive_manager_schema_upgrade(before, (*defaults, added, ("bad.py", b'SQL="DROP TABLE old"')))
+    assert not additive_manager_schema_upgrade(before, (defaults[0], defaults[1],
+        (defaults[2][0], defaults[2][1].replace(b"custom_enabled: bool = False", b"custom_enabled: bool = True")), added))
+    assert not additive_manager_schema_upgrade(before, (defaults[0],
+        (defaults[1][0], defaults[1][1].replace(b"quota_switch_project: bool", b"quota_switch_project: int")), defaults[2], added))
+    assert not additive_manager_schema_upgrade(before, (defaults[0],
+        ("other.py", defaults[1][1]), defaults[2], added))

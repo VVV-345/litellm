@@ -272,8 +272,18 @@ def additive_manager_schema_upgrade(
     if not current or not target or _source_named(current, "schema.prisma") != _source_named(target, "schema.prisma"):
         return False
     try:
-        before: Final = manager_schema_contract(current)
         after: Final = manager_schema_contract(target)
+        before: Final = b"\n".join(sorted(
+            _reviewed_enabled_default_contract(name, line, target_contract)
+            for name, source in current
+            for target_contract in (
+                schema_member_contract(name, _source_named(target, PurePosixPath(name).name)).splitlines(),
+            )
+            for line in schema_member_contract(name, source).splitlines()
+            if line
+        ))
+        if before == after:
+            return before != manager_schema_contract(current)
     except SyntaxError:
         return False
     additions: Final = tuple(line for line in after.splitlines() if line not in before.splitlines())
@@ -329,6 +339,27 @@ def additive_manager_schema_upgrade(
         or line in QUOTA_CALL_SCHEMA_ADDITIONS
         for line in additions
     ) and all(line in after.splitlines() for line in before.splitlines())
+
+
+def _reviewed_enabled_default_contract(name: str, contract: bytes, target: list[bytes]) -> bytes:
+    if contract in target:
+        return contract
+    for filename, model, fields in (
+        ("settings.py", "QuotaSettingsValues", ("quota_switch_project", "quota_switch_preview_model")),
+        ("settings.py", "AccountPoolSettings", ("quota_switch_project", "quota_switch_preview_model")),
+        ("policies.py", "RoutingPolicy", ("fallback_enabled",)),
+    ):
+        if PurePosixPath(name).name != filename or not contract.startswith(f"{model}:".encode()):
+            continue
+        reviewed = contract
+        for field in fields:
+            reviewed = reviewed.replace(
+                ast.dump(ast.parse(f"{field}: bool = False").body[0]).encode(),
+                ast.dump(ast.parse(f"{field}: bool = True").body[0]).encode(),
+            )
+        # 只接受整个模型除此之外完全不变的已审阅单向默认值升级，不改全局指纹或回退判断。
+        return reviewed if reviewed in target else contract
+    return contract
 
 
 def forward_compatible_manager_upgrade(
