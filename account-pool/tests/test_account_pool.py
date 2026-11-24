@@ -1960,7 +1960,7 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     assert "config.yaml" in seed[-1]
     assert not any("secret-key" in argument for argument in seed)
     assert runner.stdin_payloads and b"secret-key" in runner.stdin_payloads[0]
-    assert arguments[3] == ("docker", "network", "create", "--driver", "bridge", settings.runtime_network)
+    assert arguments[3] == ("docker", "network", "inspect", settings.runtime_network)
     assert arguments[4][:6] == (
         "docker",
         "compose",
@@ -2005,6 +2005,90 @@ async def test_shared_runtime_network_keeps_legacy_fallback_and_cleans_legacy_ne
     await runtime.ensure_control_plane_connections(modern.id)
     modern_calls: Final = tuple(arguments for arguments, _ in runner.calls)
     assert ("docker", "network", "connect", "--gw-priority=-1", f"account-pool-{modern.id.hex}", settings.manager_container) not in modern_calls
+
+
+@pytest.mark.asyncio
+async def test_ensure_runtime_network_reuses_existing_or_inherits_compose_labels(tmp_path: Path) -> None:
+    settings: Final = _settings(tmp_path)
+    seen_calls: list[tuple[str, ...]] = []
+
+    async def missing_with_compose_label(arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
+        seen_calls.append(arguments)
+        if arguments[:3] == ("docker", "network", "inspect"):
+            return CompletedDockerProcess(returncode=1, stderr=b"Error: No such network")
+        if arguments[:2] == ("docker", "inspect"):
+            return CompletedDockerProcess(returncode=0, stdout=b"litellm-prod\n")
+        return CompletedDockerProcess(returncode=0)
+
+    runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=missing_with_compose_label)
+    await runtime.ensure_runtime_network_connected()
+    assert (
+        "docker",
+        "network",
+        "create",
+        "--driver",
+        "bridge",
+        "--label",
+        "com.docker.compose.project=litellm-prod",
+        "--label",
+        "com.docker.compose.network=account-pool-runtime",
+        settings.runtime_network,
+    ) in seen_calls
+
+    seen_calls.clear()
+
+    async def already_exists_runner(arguments: tuple[str, ...], environment: dict[str, str]) -> CompletedDockerProcess:
+        seen_calls.append(arguments)
+        return CompletedDockerProcess(returncode=0)
+
+    existing_runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=already_exists_runner)
+    await existing_runtime._ensure_runtime_network()
+    assert not any(call[:3] == ("docker", "network", "create") for call in seen_calls)
+
+
+@pytest.mark.asyncio
+async def test_restore_control_plane_connections_recovers_shared_network_once_for_many_cards() -> None:
+    from account_pool.app import _restore_control_plane_connections
+
+    records: Final = tuple(_record(status=EnvironmentStatus.READY) for _ in range(5))
+    shared_calls = 0
+    per_card_calls: list[UUID] = []
+    shared_connected = False
+
+    class FakeChannel:
+        async def missing_control_plane_connections(self, environment_ids: tuple[UUID, ...]) -> tuple[UUID, ...]:
+            return () if shared_connected else environment_ids
+
+        async def ensure_runtime_network_connected(self) -> None:
+            nonlocal shared_calls, shared_connected
+            shared_calls += 1
+            shared_connected = True
+
+        async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
+            per_card_calls.append(environment_id)
+
+    class FakeRegistry:
+        def channel(self, kind: ChannelKind):
+            return FakeChannel()
+
+        def get(self, kind: ChannelKind):
+            return kind
+
+    await _restore_control_plane_connections(FakeRegistry(), records)
+    assert shared_calls == 1
+    assert per_card_calls == []
+
+
+@pytest.mark.asyncio
+async def test_delete_environment_releases_card_lock_entry(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    service: Final = _service(record, FakeCLIProxy(), tmp_path)
+    await service._lock_for(record.id)
+    assert record.id in service._locks
+
+    deleted: Final = await service.delete_environment(record.id)
+    assert isinstance(deleted, Success)
+    assert record.id not in service._locks
 
 
 @pytest.mark.asyncio

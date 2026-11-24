@@ -170,6 +170,7 @@ class OAuthBrowserSessionService:
         clock: Callable[[], datetime] = utc_now,
         token_factory: Callable[[], str] = lambda: secrets.token_urlsafe(32),
         session_id_factory: Callable[[], UUID] = uuid4,
+        max_active_sessions: int = 8,
     ) -> None:
         self._repository: Final = repository
         self._fingerprint_key: Final = fingerprint_key
@@ -177,6 +178,7 @@ class OAuthBrowserSessionService:
         self._clock: Final = clock
         self._token_factory: Final = token_factory
         self._session_id_factory: Final = session_id_factory
+        self._max_active_sessions: Final = max(1, max_active_sessions)
 
     async def get(self, session_id: UUID) -> OAuthBrowserSession | None:
         return await self._repository.get(session_id)
@@ -203,6 +205,9 @@ class OAuthBrowserSessionService:
         normalized_proxy_profile_id: Final = proxy_profile_id.strip()
         if not normalized_proxy_profile_id:
             return Failure(FailureCode.INVALID, "proxy profile is required")
+        count_active: Final = getattr(self._repository, "count_active", None)
+        if callable(count_active) and await count_active(now) >= self._max_active_sessions:
+            return Failure(FailureCode.CONFLICT, "当前并发 OAuth 浏览器会话已达上限，请等待已有会话完成后重试")
         ticket: Final = self._token_factory()
         callback_token: Final = self._token_factory()
         session: Final = OAuthBrowserSession(

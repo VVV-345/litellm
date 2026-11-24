@@ -422,6 +422,25 @@ class PostgresOAuthBrowserSessionRepository:
             row: Final = await cursor.fetchone()
         return None if row is None else _OAUTH_BROWSER_SESSION_ADAPTER.validate_python(row["payload"])
 
+    async def count_active(self, now: datetime) -> int:
+        async with database_connection(self._database_url) as connection:
+            cursor: Final = await connection.execute(
+                """
+                SELECT count(*)::int AS active_count
+                FROM account_pool_oauth_browser_sessions
+                WHERE status IN (%s, %s, %s)
+                  AND expires_at > %s
+                """,
+                (
+                    OAuthBrowserSessionStatus.STARTING.value,
+                    OAuthBrowserSessionStatus.ACTIVE.value,
+                    OAuthBrowserSessionStatus.CALLBACK_PENDING.value,
+                    now,
+                ),
+            )
+            row: Final = await cursor.fetchone()
+        return 0 if row is None else int(row["active_count"])
+
     async def consume_ticket(
         self,
         session_id: UUID,

@@ -492,13 +492,25 @@ async def _restore_control_plane_connections(
     except UnsupportedChannelError:
         return
     missing_lookup: Final = getattr(channel, "missing_control_plane_connections", None)
-    missing_ids: Final = (
-        frozenset(await missing_lookup(tuple(record.id for record in targets)))
+    target_ids: Final = tuple(record.id for record in targets)
+    missing_ids = (
+        frozenset(await missing_lookup(target_ids))
         if callable(missing_lookup)
-        else frozenset(record.id for record in targets)
+        else frozenset(target_ids)
     )
     if not missing_ids:
         return
+    ensure_shared: Final = getattr(channel, "ensure_runtime_network_connected", None)
+    if callable(ensure_shared):
+        try:
+            await ensure_shared()
+        except Exception as error:
+            _LOGGER.warning("Failed to restore shared account pool runtime network: %s", error.__class__.__name__)
+        else:
+            if callable(missing_lookup):
+                missing_ids = frozenset(await missing_lookup(target_ids))
+                if not missing_ids:
+                    return
     semaphore: Final = asyncio.Semaphore(2)
 
     async def restore(record: EnvironmentRecord) -> None:

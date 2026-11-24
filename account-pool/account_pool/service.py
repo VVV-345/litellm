@@ -849,7 +849,10 @@ class EnvironmentService:
         return await self._configuration_operations.apply_and_persist_configuration(record, desired)
 
     async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Result[None]:
-        return await self._deletion_operations.delete_environment(environment_id, operation_id)
+        result: Final = await self._deletion_operations.delete_environment(environment_id, operation_id)
+        if isinstance(result, Success):
+            await self._release_lock_entry(environment_id)
+        return result
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
         return await self._deletion_operations.remove_compose_step(record)
@@ -1048,6 +1051,12 @@ class EnvironmentService:
             created: Final = asyncio.Lock()
             self._locks[environment_id] = created
             return created
+
+    async def _release_lock_entry(self, environment_id: UUID) -> None:
+        async with self._locks_guard:
+            existing: Final = self._locks.get(environment_id)
+            if existing is not None and not existing.locked():
+                self._locks.pop(environment_id, None)
 
 
 def _oauth_proxy_in_use(record: EnvironmentRecord, now: datetime) -> bool:

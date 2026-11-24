@@ -208,6 +208,41 @@ async def test_cancelled_session_cannot_be_activated_or_consume_its_ticket() -> 
 
 
 @pytest.mark.asyncio
+async def test_session_service_enforces_global_max_active_sessions() -> None:
+    from account_pool.shared.result import FailureCode
+
+    class CountingRepository(MemoryBrowserSessions):
+        async def count_active(self, now: datetime) -> int:
+            return sum(
+                1
+                for session in self.sessions.values()
+                if session.status in {
+                    OAuthBrowserSessionStatus.STARTING,
+                    OAuthBrowserSessionStatus.ACTIVE,
+                    OAuthBrowserSessionStatus.CALLBACK_PENDING,
+                }
+                and session.expires_at > now
+            )
+
+    now: Final = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
+    repository: Final = CountingRepository({}, asyncio.Lock())
+    service: Final = OAuthBrowserSessionService(
+        repository,
+        fingerprint_key=b"f" * 32,
+        clock=lambda: now,
+        max_active_sessions=2,
+    )
+    first: Final = await service.start(uuid4(), "proxy-1", "http://proxy.example:8080")
+    second: Final = await service.start(uuid4(), "proxy-1", "http://proxy.example:8080")
+    third: Final = await service.start(uuid4(), "proxy-1", "http://proxy.example:8080")
+    assert not isinstance(first, Failure)
+    assert not isinstance(second, Failure)
+    assert isinstance(third, Failure)
+    assert third.code is FailureCode.CONFLICT
+    assert "上限" in third.message
+
+
+@pytest.mark.asyncio
 async def test_postgres_repository_enforces_active_session_and_ticket_uniqueness() -> None:
     database_url: Final[str | None] = os.getenv("ACCOUNT_POOL_TEST_DATABASE_URL")
     if database_url is None:

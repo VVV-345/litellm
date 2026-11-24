@@ -40,12 +40,12 @@
 - **验收**：`test_onboarding_service.py`（`63 passed`）、`test_oauth_automation.py`（`67 passed, 25 skipped`）
 
 ### 批次 2：共享 runtime 网络治理、恢复优化与资源防泄漏（P1 #3, P2 #8, P3 #11, P3 #12）
-- [ ] `ComposeRuntime._ensure_runtime_network()` 先 `inspect` 复用，缺失建网时继承 Compose 项目标签
-- [ ] `ComposeRuntime.ensure_runtime_network_connected()` 消除共享网络缺失时的 `O(N)` 恢复放大
-- [ ] `ComposeRuntime.backup_runtime()` 超时/取消时终止并回收 `docker image save` 子进程
-- [ ] `ControlledOAuthBrowser` / `OAuthBrowserSessionManager` 限制并发浏览器会话上限，防止子网池耗尽
-- [ ] `EnvironmentService` 删除卡片后安全回收 `_locks`
-- **验收**：`test_compose_renderer.py`、`test_runtime_maintenance.py`、`test_oauth_browser.py`、`test_account_pool.py`
+- [x] `ComposeRuntime._ensure_runtime_network()` 先 `inspect` 复用，缺失建网时继承 Compose 项目标签
+- [x] `ComposeRuntime.ensure_runtime_network_connected()` 消除共享网络缺失时的 `O(N)` 恢复放大
+- [x] `ComposeRuntime.backup_runtime()` 超时/取消时终止并回收 `docker image save` 子进程
+- [x] `ControlledOAuthBrowser` / `OAuthBrowserSessionService` 限制并发浏览器会话上限，防止子网池耗尽
+- [x] `EnvironmentService` 删除卡片后安全回收 `_locks`
+- **验收**：`test_compose_renderer.py`、`test_runtime_maintenance.py`、`test_oauth_browser.py`、`test_account_pool.py` 共 `283 passed, 1 skipped`（Postgres 跳过项为无测试库环境）
 
 ### 批次 3：存量默认开关升级兼容与 `/v1/responses` 错误透传（P1 #4, P2 #7）
 - [ ] `PostgresAccountPoolSettingsRepository.initialize()` 仅刷新未修改的 `version = 0` 存量初始行至最新默认开关

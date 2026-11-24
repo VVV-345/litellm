@@ -12,6 +12,7 @@ import re
 import shutil
 import tarfile
 from collections.abc import Awaitable, Callable
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, Protocol
@@ -202,11 +203,49 @@ class ComposeRuntime:
         environment: Final = networks.get("environment") if isinstance(networks, dict) else None
         return isinstance(environment, dict) and environment.get("name") == f"account-pool-{environment_id.hex}"
 
+    async def _compose_project_label(self) -> str | None:
+        try:
+            process: Final = await self._runner(
+                (
+                    "docker",
+                    "inspect",
+                    "--format",
+                    '{{index .Config.Labels "com.docker.compose.project"}}',
+                    self._settings.manager_container,
+                ),
+                self._docker_environment(),
+            )
+            stdout, _stderr = await communicate_with_timeout(
+                process, min(10.0, self._settings.docker_command_timeout_seconds)
+            )
+            if process.returncode != 0:
+                return None
+            label: Final = stdout.decode("utf-8", errors="replace").strip()
+            return label if label and label != "<no value>" else None
+        except Exception:
+            return None
+
     async def _ensure_runtime_network(self) -> None:
-        process: Final = await self._runner(
-            ("docker", "network", "create", "--driver", "bridge", self._settings.runtime_network),
+        inspect_process: Final = await self._runner(
+            ("docker", "network", "inspect", self._settings.runtime_network),
             self._docker_environment(),
         )
+        await communicate_with_timeout(inspect_process, min(10.0, self._settings.docker_command_timeout_seconds))
+        if inspect_process.returncode == 0:
+            return
+        create_args: list[str] = ["docker", "network", "create", "--driver", "bridge"]
+        project: Final = await self._compose_project_label()
+        if project is not None:
+            create_args.extend(
+                [
+                    "--label",
+                    f"com.docker.compose.project={project}",
+                    "--label",
+                    "com.docker.compose.network=account-pool-runtime",
+                ]
+            )
+        create_args.append(self._settings.runtime_network)
+        process: Final = await self._runner(tuple(create_args), self._docker_environment())
         stdout, stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         detail: Final = (
             stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
@@ -215,10 +254,13 @@ class ComposeRuntime:
         if process.returncode != 0 and not already_exists:
             raise RuntimeError(f"failed to create runtime network {self._settings.runtime_network}: {detail[:500]}")
 
-    async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
+    async def ensure_runtime_network_connected(self) -> None:
         await self._ensure_runtime_network()
         await self._connect_network(self._settings.runtime_network, self._settings.manager_container)
         await self._connect_network(self._settings.runtime_network, self._settings.gateway_container)
+
+    async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
+        await self.ensure_runtime_network_connected()
         if self._uses_legacy_network(environment_id):
             await self._connect_control_plane(environment_id, self._settings.manager_container)
             await self._connect_control_plane(environment_id, self._settings.gateway_container)
@@ -300,6 +342,10 @@ class ComposeRuntime:
                             await image_process.stderr.read()
                         await image_process.wait()
             except BaseException:
+                if image_process.returncode is None:
+                    with suppress(Exception):
+                        image_process.kill()
+                        await image_process.wait()
                 image_tmp.unlink(missing_ok=True)
                 raise
             if image_process.returncode != 0:

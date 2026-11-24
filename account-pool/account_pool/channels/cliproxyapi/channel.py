@@ -69,6 +69,9 @@ class CLIProxyAPIChannel:
             ),
         )
 
+    async def ensure_runtime_network_connected(self) -> None:
+        await self._runtime.ensure_runtime_network_connected()
+
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self._runtime.ensure_control_plane_connections(environment_id)
 
