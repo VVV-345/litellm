@@ -1,6 +1,6 @@
 # 号池系统工程实施计划书与防回归治理规范
 
-- **文档版本**：`v1.2`
+- **文档版本**：`v1.3`
 - **主工作分支**：`CLIProxyAPI分支`（本地分批验证后提交，收到用户明确指令后才执行 `push`）
 - **基线提交**：`1e13b2c7a7`
 - **最后更新**：`2026-11-24`
@@ -73,18 +73,19 @@
 - **验收**：Manager `test_onboarding_service.py` + `test_oauth_automation.py`（`133 passed, 25 skipped`）；LiteLLM `test_account_pool_conversation.py`（`163 passed`）；UI `AccountPoolOnboardingPanel.integration.test.tsx`（`10 passed`）+ `eslint --quiet`（`0` 错误）
 
 ### 批次 7：索引、DNS 总超时、网络与资源回收加固（#5、#6、#3/#8、#11/#12）
-- 本轮以 `a2ecd561ae` 及已有的 5 个后端工作区改动为起点；先验证第 7 批，再验证第 8 批，不改动线上网络或部署。
+- 本轮以 `a2ecd561ae` 及已有的 5 个后端工作区改动为起点；两批均已在本地提交，未推送、未部署。
 - [x] `management_repository.py` 新增部分表达式索引 `account_pool_log_spend_env_idx` 并与 `spend_by_environment()` 查询谓词对齐
 - [x] `OpenAICompatibleChannel._discover_models()` 与 `discover_models_from_source()` 将 `_validate_destination()` 前置 DNS 解析纳入 20 秒总超时
 - [x] `ComposeRuntime._ensure_runtime_network()` 检测既有无标签共享网络并告警；`OAuthBrowserSessionRepository.count_active()` 将未清理 `cleanup_pending` 会话计入并发上限
 - [x] `ComposeRuntime.backup_runtime()` 超时/取消时关闭管道并限时等待子进程；`EnvironmentService._locks` 使用弱引用注册表，仅由使用者和等待者持有锁，在 `NOT_FOUND` 与删卡/异常退出后零残留
-- **本地验收**：Manager venv 下 `pytest -q -rs` 运行上述 5 个模块与 `test_cliproxy_runtime_image.py`，401 通过、1 跳过（未配置独立 PostgreSQL 测试库）。取消备份用真实本地子进程和管道；未启动 Docker，宿主 Docker 服务不可用。隔离的 PGlite 实例插入 12,000 条费用记录后，执行实际单卡 SQL 的 `EXPLAIN` 命中 `account_pool_log_spend_env_idx`；同一数据库验证过期未清理会话仍占一个名额。
+- **本地验收**：Manager venv 下 `pytest -q -rs` 运行 `test_openai_compatible.py`、`test_compose_renderer.py`、`test_runtime_maintenance.py`、`test_oauth_browser.py`、`test_account_pool.py`、`test_cliproxy_runtime_image.py`，401 通过、1 跳过（未配置独立 PostgreSQL 测试库）。取消备份用真实本地子进程和管道；未启动 Docker，宿主 Docker 服务不可用。隔离的 PGlite 实例插入 12,000 条费用记录后，执行实际单卡 SQL 的 `EXPLAIN` 命中 `account_pool_log_spend_env_idx`；同一数据库验证过期未清理会话仍占一个名额。
 
 ### 批次 8：补齐剩余前端面板中英文 i18n（#10）
-- [ ] `AccountPoolAutoUpdatePanel.tsx` 接入 `useTranslation()` 并按 `i18n.language` 格式化时间
-- [ ] `AccountPoolAutomationPanel.tsx` 接入 `useTranslation()` 并控制文件行数 `< 780`（远离 `max-lines: 800` 红线）
-- [ ] `zh-CN.json` 与 `en.json` 成对新增 `accountPool.autoUpdate` 与 `accountPool.automation`
-- **验收**：`check_locales.js` 0 重复键 0 缺失、`AccountPoolAutomationPanel.tsx < 780` 行、`tsc --noEmit` 0 错误、全量 `eslint --quiet` 0 错误、全量 `vitest` 通过
+- [x] `AccountPoolAutoUpdatePanel.tsx` 接入 `useTranslation()` 并按 `i18n.language` 格式化时间
+- [x] `AccountPoolAutomationPanel.tsx` 接入 `useTranslation()` 并控制文件行数 `< 780`（远离 `max-lines: 800` 红线）
+- [x] `zh-CN.json` 与 `en.json` 成对新增 `accountPool.autoUpdate` 与 `accountPool.automation`
+- **号池验收通过**：Dashboard 目录运行 `node scripts/check_locales.js`：中英各 1,885 个键，0 重复、0 缺失；自动化主面板 706 行。`tsc --noEmit --incremental false`、`eslint . --quiet --no-cache` 均退出 0。`vitest run src/features/account-pool account-pool/page.integration.test.tsx --maxWorkers=4`：53 个文件、444 个测试通过。新增测试覆盖英文交互、日期随语言切换以及代理和节点名称原样保留。
+- **全 Dashboard 门禁未绿**：`vitest run --bail=1 --maxWorkers=2` 在 `mcp_server_edit.test.tsx` 因找不到英文标签 `Server Configuration` 退出 1；在修复前的 `a2ecd561ae` 导出副本中，同一用例复现同一失败。另在基线复现 SSO 编辑弹窗的 4 个失败。本批没有修改这些模块，不把全库门禁记作通过。
 
 ---
 
@@ -95,3 +96,4 @@
 | `v1.0` | `2026-11-24` | 建立号池系统全面加固 5 阶段计划书、十条防回归红线与需求变更同步规则，并完成批次 1 | `1a2dda8daf` |
 | `v1.1` | `2026-11-24` | 完成批次 2–5 全部加固与回归验证；按 `docs/handbook/provider-standard.md` 明确兼容卡 `custom_models` 与显式目录发现边界；红线 #9 新增 JSON 重复键门禁 | `13a3dec3d2`、`29955707a9`、`e853735f84`、`4a558f66d3` |
 | `v1.2` | `2026-11-24` | 依据 `4a558f66d3` 复核结论新增批次 6–8（#2 保留原卡重试验收、#1 队列停用观察与前端透传、#7 `preempt()` 备卡前移、#9 上号 `worker_lock` 缩锁、#5 部分索引、#6 DNS 总超时、#3/#8 未清理会话计数与无标签告警、#11/#12 限时子进程回收与引用计数锁、#10 剩余两面板 i18n），并强化红线 #2/#3/#5/#6/#7/#8 | 批次 6–8 进行中 |
+| `v1.3` | `2026-11-24` | 批次 6 已提交；批次 7、8 实现及号池回归完成。独立 PostgreSQL 会话测试因环境跳过，Dashboard 全库旧失败单独保留。 | 批次 6 `a2ecd561ae`、批次 7 `6e2cf145c4`、批次 8 `ff4b72e0f9` |
