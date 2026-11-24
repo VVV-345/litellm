@@ -1,9 +1,26 @@
 /** 验证邮箱导入不会混淆两类密码或接受错误格式。 */
-import { describe, expect, it, vi } from "vitest";
+import i18n from "@/i18n";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/components/networking", () => ({ apiClient: {} }));
 import { parseMailboxAccounts } from "./AccountPoolOnboardingApi";
 
 describe("parseMailboxAccounts", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
+  });
+
+  it("reports invalid input in the active language", async () => {
+    const previous = i18n.language;
+    try {
+      await i18n.changeLanguage("en");
+      expect(() => parseMailboxAccounts("not-json")).toThrow("Provide a JSON array of accounts or email----password----2FA secret text.");
+      await i18n.changeLanguage("zh-CN");
+      expect(() => parseMailboxAccounts("not-json")).toThrow("请提供账号 JSON 数组或邮箱----密码----2FA密钥文本");
+    } finally {
+      await i18n.changeLanguage(previous);
+    }
+  });
+
   it.each(["\ufeff", "卡密导出\n\n", "\ufeff \r\n 卡密导出 \r\n\r\n"])(
     "recognizes two-factor lines with prefix %j without mixing passwords",
     (prefix) => {

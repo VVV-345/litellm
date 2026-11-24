@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import i18n from "@/i18n";
+import { toast } from "@/lib/toast";
 
 import { AccountPoolCredentialsPanel } from "./AccountPoolCredentialsPanel";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
@@ -83,7 +84,9 @@ describe("AccountPoolCredentialsPanel", () => {
     expect(screen.getByRole("button", { name: "Bulk edit (0)" })).toBeDisabled();
   });
 
-  it("accepts a two-factor text upload and shows the pending authorization instead of claiming a token was imported", async () => {
+  it("shows an English pending-authorization notice after a credential upload", async () => {
+    await i18n.changeLanguage("en");
+    const notice = vi.spyOn(toast, "success");
     const user = userEvent.setup();
     listCredentials.mockResolvedValue([]);
     uploadAuthFile.mockResolvedValue({ ...environment, status: "awaiting_authorization" });
@@ -92,15 +95,17 @@ describe("AccountPoolCredentialsPanel", () => {
         <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
       </QueryClientProvider>,
     );
-    await user.click(await screen.findByRole("button", { name: /上传认证文件/ }));
-    await user.selectOptions(screen.getByLabelText("目标卡片"), environment.id);
+    await user.click(await screen.findByRole("button", { name: /Upload auth file/i }));
+    await user.selectOptions(screen.getByLabelText("Target card"), environment.id);
     const file = new File(["fixture@example.test----password----JBSWY3DPEHPK3PXP"], "account.txt", {
       type: "text/plain",
     });
-    await user.upload(screen.getByLabelText("认证文件"), file);
-    await user.click(screen.getByRole("button", { name: "上传认证文件" }));
+    await user.upload(screen.getByLabelText("Auth file"), file);
+    await user.click(screen.getByRole("button", { name: "Upload auth file" }));
     await waitFor(() => expect(uploadAuthFile).toHaveBeenCalledWith("token", environment.id, file, false));
-    expect(await screen.findByText(/登录资料已保存，尚未完成认证/)).toBeVisible();
+    expect(await screen.findByText(/Login details saved; authentication is not complete/i)).toBeVisible();
+    expect(notice).toHaveBeenCalledWith("Login details saved. Complete authorization in the OAuth onboarding task.");
+    notice.mockRestore();
   });
   beforeEach(() => {
     void i18n.changeLanguage("zh-CN");

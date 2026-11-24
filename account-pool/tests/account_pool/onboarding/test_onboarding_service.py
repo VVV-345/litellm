@@ -348,15 +348,34 @@ async def test_sub2api_multi_account_package_expands_and_enforces_batch_limit(tm
     assert (await service.preview(oversized))[0].status == "invalid"
 
 
-async def test_two_factor_pending_card_does_not_use_credentials_before_authorization_completes(tmp_path):
+@pytest.mark.parametrize("busy", [False, True])
+async def test_two_factor_pending_card_does_not_use_credentials_before_authorization_completes(tmp_path, monkeypatch, busy):
+    import asyncio
     from account_pool.domain import ProxyMode
 
-    service, _, environments, _, cli, _ = setup_service(tmp_path)
+    service, repo, environments, _, cli, _ = setup_service(tmp_path)
+    if busy:
+        first = True
+
+        @asynccontextmanager
+        async def busy_after_import():
+            nonlocal first
+            acquired, first = first, False
+            yield acquired
+
+        monkeypatch.setattr(repo, "worker_lock", busy_after_import)
+        monkeypatch.setattr("account_pool.onboarding.service._WRITEBACK_LOCK_TIMEOUT", 0.02, raising=False)
     record = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
         update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "onboarding-proxy"}
     )
     await environments.save(record)
-    result = await service.import_login_file(record.id, "fixture@example.test----password----JBSWY3DPEHPK3PXP")
+    result = await asyncio.wait_for(
+        service.import_login_file(record.id, "fixture@example.test----password----JBSWY3DPEHPK3PXP"), timeout=1
+    )
+    if busy:
+        assert isinstance(result, Failure) and result.code.value == "conflict" and "回写锁" in result.message
+        assert not service._active_item_ids
+        return
     assert isinstance(result, Success)
     assert result.value.status is EnvironmentStatus.AWAITING_AUTHORIZATION
     assert not cli.authorization_status_calls
@@ -1304,18 +1323,21 @@ async def test_queued_onboarding_item_stops_and_surfaces_readiness_error_when_au
     assert automation.jobs[item.card_id].stage == "cancelled"
 
 
-async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on_pause(tmp_path):
+@pytest.mark.parametrize("contention", ["released", "timeout", "shutdown"])
+async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on_pause(tmp_path, monkeypatch, contention):
     import asyncio
 
     _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
     lock_held = False
     denied = 0
+    waiting = asyncio.Event()
 
     class TrackedOnboarding(MemoryOnboarding):
         @asynccontextmanager
         async def worker_lock(self):
             nonlocal lock_held, denied
             if denied:
+                waiting.set()
                 denied -= 1
                 yield False
                 return
@@ -1370,9 +1392,22 @@ async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on
     assert paused.value.state == "disabled"
 
     denied = 26
+    if contention == "timeout":
+        monkeypatch.setattr("account_pool.onboarding.service._WRITEBACK_LOCK_TIMEOUT", 0.02, raising=False)
     allow_submit_finish.set()
-    await worker_task
-    assert denied == 0
+    if contention == "shutdown":
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        worker_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await worker_task
+        assert not service._processing_batch
+    elif contention == "timeout":
+        with pytest.raises(TimeoutError, match="回写锁"):
+            await asyncio.wait_for(worker_task, timeout=1)
+        assert not service._processing_batch
+    else:
+        await worker_task
+        assert denied == 0
 
     final_item = (await service.list())[0]
     assert final_item.state == "disabled"

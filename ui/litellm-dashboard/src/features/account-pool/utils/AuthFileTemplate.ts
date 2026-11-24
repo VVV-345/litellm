@@ -1,4 +1,5 @@
 /** 把手动表单转换为非敏感模板，只合并用户明确选择的认证元数据。 */
+import i18n from "@/i18n";
 import type { AccountPoolSettings } from "../api/AccountPoolManagementApi";
 
 export type AuthFileTemplate = NonNullable<AccountPoolSettings["auth_file_template"]>;
@@ -26,9 +27,9 @@ export function authFileTemplateFromForm(form: AuthFileTemplateForm): AuthFileTe
     form.applyPriority &&
     (!/^-?\d+$/.test(form.priority) || !Number.isInteger(priority) || priority < -2147483648 || priority > 2147483647)
   ) {
-    throw new Error("优先级必须是 32 位整数");
+    throw new Error(i18n.t("accountPool.inputValidation.priorityInt32"));
   }
-  if (form.applyPrefix && form.prefix.length > 256) throw new Error("模型前缀最多 256 个字符");
+  if (form.applyPrefix && form.prefix.length > 256) throw new Error(i18n.t("accountPool.inputValidation.prefixLength"));
   return {
     priority: form.applyPriority ? priority : null,
     prefix: form.applyPrefix ? form.prefix : null,
@@ -45,21 +46,21 @@ export const authFileTemplateFields = (template: AuthFileTemplate): Record<strin
 export function mergeAuthFileTemplate(content: string, template: AuthFileTemplate): string {
   const input = content.trimStart();
   if (!input.startsWith("{") && !input.startsWith("[") && input.includes("----")) {
-    throw new Error("2FA 文本不适用认证模板，请取消认证模板后导入");
+    throw new Error(i18n.t("accountPool.inputValidation.templateNotForText"));
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(content);
   } catch {
-    throw new Error("认证文件必须是有效的 JSON 对象");
+    throw new Error(i18n.t("accountPool.inputValidation.credentialJson"));
   }
   if (Array.isArray(parsed) && parsed.length > 0) {
-    throw new Error("认证模板仅支持单账号 JSON，请取消模板后导入整包");
+    throw new Error(i18n.t("accountPool.inputValidation.singleAccountTemplate"));
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("认证文件必须是有效的 JSON 对象");
+    throw new Error(i18n.t("accountPool.inputValidation.credentialJson"));
   }
-  if ("accounts" in parsed) throw new Error("认证模板仅支持单账号 JSON，请取消模板后导入整包");
+  if ("accounts" in parsed) throw new Error(i18n.t("accountPool.inputValidation.singleAccountTemplate"));
   return JSON.stringify({
     ...parsed,
     ...(template.priority != null ? { priority: template.priority } : {}),

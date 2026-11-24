@@ -88,7 +88,7 @@ export const useAccountPoolCredentials = (
       setPendingLogin(pending);
       toast.success(
         pending
-          ? "登录资料已保存，请在 OAuth 上号任务中完成授权"
+          ? t("accountPool.credentials.loginDetailsSaved")
           : t(replaceCredential ? "accountPool.credentials.replaced" : "accountPool.credentials.uploaded"),
       );
       setUploadOpen(false);

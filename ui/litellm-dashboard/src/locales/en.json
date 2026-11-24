@@ -6557,6 +6557,20 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused"
   },
   "accountPool": {
+    "inputValidation": {
+      "priorityInt32": "Priority must be a 32-bit integer.",
+      "prefixLength": "Model prefix must be 256 characters or fewer.",
+      "templateNotForText": "Credential templates cannot be applied to 2FA text. Deselect the template before importing.",
+      "credentialJson": "Credential file must be a valid JSON object.",
+      "singleAccountTemplate": "Credential templates support single-account JSON only. Deselect the template to import a full bundle.",
+      "batchLimit": "Import no more than 100 accounts per batch.",
+      "invalidTwoFactor": "Invalid 2FA format or secret.",
+      "accountInput": "Provide a JSON array of accounts or email----password----2FA secret text.",
+      "arraySize": "Provide a JSON array containing 1 to 100 accounts.",
+      "accountObject": "Each account must be a JSON object.",
+      "accountFields": "Each account requires email and mailbox_password. Use supplier_password for the optional provider password.",
+      "passwordString": "supplier_password must be a string."
+    },
     "credentialFields": {
       "noFieldsSelected": "No fields selected",
       "previewSummary": "Will update {{total}} entries: {{fields}}",
@@ -7572,6 +7586,7 @@
       "automateAction": "Automate"
     },
     "credentials": {
+      "loginDetailsSaved": "Login details saved. Complete authorization in the OAuth onboarding task.",
       "accountIdentity": "Account",
       "identityUnknown": "Account identity pending; refresh authentication files",
       "exclusiveHint": "One credential per card. Requests only use this card’s account.",

@@ -6557,6 +6557,20 @@
     "Total the whole group may spend. Once its shared spend reaches this, every key that draws from the group is refused": "整个组可支出的总额。共享支出达到上限后，所有使用该组的密钥都会被拒绝"
   },
   "accountPool": {
+    "inputValidation": {
+      "priorityInt32": "优先级必须是 32 位整数",
+      "prefixLength": "模型前缀最多 256 个字符",
+      "templateNotForText": "2FA 文本不适用认证模板，请取消认证模板后导入",
+      "credentialJson": "认证文件必须是有效的 JSON 对象",
+      "singleAccountTemplate": "认证模板仅支持单账号 JSON，请取消模板后导入整包",
+      "batchLimit": "每批最多导入 100 个账号",
+      "invalidTwoFactor": "2FA 格式或密钥无效",
+      "accountInput": "请提供账号 JSON 数组或邮箱----密码----2FA密钥文本",
+      "arraySize": "请提供包含 1～100 个账号的 JSON 数组",
+      "accountObject": "账号必须为 JSON 对象",
+      "accountFields": "每个账号必须包含 email 和 mailbox_password，供应商密码可填 supplier_password",
+      "passwordString": "supplier_password 必须是字符串"
+    },
     "credentialFields": {
       "noFieldsSelected": "未选择字段",
       "previewSummary": "将修改 {{total}} 项：{{fields}}",
@@ -7572,6 +7586,7 @@
       "automateAction": "自动化授权"
     },
     "credentials": {
+      "loginDetailsSaved": "登录资料已保存，请在 OAuth 上号任务中完成授权",
       "accountIdentity": "对应账号",
       "identityUnknown": "账号信息待同步，请刷新认证文件",
       "exclusiveHint": "一卡一凭证，仅使用本卡账号，不共享其他卡片凭证",

@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets as random_secrets
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -58,8 +59,13 @@ from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver, SecretPurpose, StateCipher
 
 _LOGGER: Final = logging.getLogger(__name__)
+_WRITEBACK_LOCK_TIMEOUT: Final = 30.0
 _ACTIVE: Final = frozenset({"queued", "running", "awaiting_authorization"})
 _COMPLETED: Final = frozenset({"ready", "cooling_down", "disabled"})
+
+
+class _WritebackLockTimeout(TimeoutError):
+    pass
 
 
 class OnboardingPayload(BaseModel):
@@ -403,6 +409,39 @@ class OnboardingService:
         await self.repository.save(row.model_copy(update={"item": item}))
         return item
 
+    async def _cancel_untracked_job(self, job_id: UUID) -> None:
+        if self._automation is None:
+            return
+        try:
+            async with asyncio.timeout(5):
+                result = await self._automation.cancel(job_id)
+            if isinstance(result, Failure) and result.code is not FailureCode.NOT_FOUND:
+                _LOGGER.warning("Could not confirm cancellation of the untracked onboarding job")
+        except Exception as error:
+            _LOGGER.warning("Could not confirm onboarding job cancellation: %s", type(error).__name__)
+
+    @asynccontextmanager
+    async def _writeback_lock(self, job_id: UUID | None) -> AsyncIterator[None]:
+        acquired = False
+        try:
+            async with asyncio.timeout(_WRITEBACK_LOCK_TIMEOUT) as deadline:
+                while True:
+                    async with self.repository.worker_lock() as acquired:
+                        if acquired:
+                            # 只对等锁计时，不中断取得锁后的事务。
+                            deadline.reschedule(None)
+                            yield
+                            return
+                    await asyncio.sleep(0.05)
+        except (TimeoutError, asyncio.CancelledError) as error:
+            if acquired:
+                raise
+            if job_id is not None:
+                await self._cancel_untracked_job(job_id)
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            raise _WritebackLockTimeout("等待上号回写锁超时，未更新任务状态，请稍后核对") from error
+
     async def _persist_unlocked(
         self,
         row: StoredOnboarding,
@@ -413,29 +452,24 @@ class OnboardingService:
     ) -> OnboardingItem | None:
         cancel_after_unlock: UUID | None = None
         saved_item: OnboardingItem | None = None
-        while True:
-            async with self.repository.worker_lock() as acquired:
-                if acquired:
-                    latest = await self.repository.get(row.item.id)
-                    if latest is None or latest.history_cleared or latest.paused or latest.item.state == "disabled":
-                        cancel_after_unlock = created_automation_job_id
-                    else:
-                        merged = latest.model_copy(
+        async with self._writeback_lock(created_automation_job_id):
+            latest = await self.repository.get(row.item.id)
+            if latest is None or latest.history_cleared or latest.paused or latest.item.state == "disabled":
+                cancel_after_unlock = created_automation_job_id
+            else:
+                merged = latest.model_copy(
+                    update={
+                        "ciphertext": row.ciphertext,
+                        "item": row.item.model_copy(
                             update={
-                                "ciphertext": row.ciphertext,
-                                "item": row.item.model_copy(
-                                    update={
-                                        "attempts": row.item.attempts,
-                                        "card_name": row.item.card_name or latest.item.card_name,
-                                        "models": row.item.models or latest.item.models,
-                                    }
-                                ),
+                                "attempts": row.item.attempts,
+                                "card_name": row.item.card_name or latest.item.card_name,
+                                "models": row.item.models or latest.item.models,
                             }
-                        )
-                        saved_item = await self._save(merged, state, message)
-                    break
-            # 未拿到锁时先释放数据库连接；不能用旧快照覆盖已经确认的暂停。
-            await asyncio.sleep(0.05)
+                        ),
+                    }
+                )
+                saved_item = await self._save(merged, state, message)
         if cancel_after_unlock is not None and self._automation is not None:
             await self._automation.cancel(cancel_after_unlock)
         return saved_item
@@ -559,6 +593,8 @@ class OnboardingService:
             if persisted_manual is None:
                 return Failure(FailureCode.CONFLICT, "任务已被暂停或清理")
             return Success(authorization.value.environment)
+        except _WritebackLockTimeout as error:
+            return Failure(FailureCode.CONFLICT, str(error))
         finally:
             if item_id is not None:
                 self._active_item_ids.discard(item_id)
@@ -985,6 +1021,8 @@ class OnboardingService:
             self._active_item_ids.add(selected.item.id)
         try:
             await self._process(selected)
+        except _WritebackLockTimeout:
+            raise
         except Exception:
             await self._persist_unlocked(selected, "failed", "后台任务未完成，检查卡片后可重试")
         finally:

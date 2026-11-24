@@ -1,8 +1,25 @@
 /** 验证表单模板只改显式字段，不改变账号身份、令牌或未选配置。 */
-import { describe, expect, it } from "vitest";
+import i18n from "@/i18n";
+import { beforeEach, describe, expect, it } from "vitest";
 import { authFileTemplateFromForm, authFileTemplateToForm, mergeAuthFileTemplate } from "./AuthFileTemplate";
 
 describe("auth-file form templates", () => {
+  beforeEach(async () => {
+    await i18n.changeLanguage("zh-CN");
+  });
+
+  it("reports invalid input in the active language", async () => {
+    const previous = i18n.language;
+    try {
+      await i18n.changeLanguage("en");
+      expect(() => mergeAuthFileTemplate("not-json", {})).toThrow("Credential file must be a valid JSON object.");
+      await i18n.changeLanguage("zh-CN");
+      expect(() => mergeAuthFileTemplate("not-json", {})).toThrow("认证文件必须是有效的 JSON 对象");
+    } finally {
+      await i18n.changeLanguage(previous);
+    }
+  });
+
   it("rejects package templates rather than silently losing selected settings during account expansion", () => {
     expect(() =>
       mergeAuthFileTemplate(

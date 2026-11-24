@@ -1,4 +1,5 @@
 /** 自动化上号的类型和传输，凭据只保留在当前操作内存中。 */
+import i18n from "@/i18n";
 import { apiClient } from "@/components/networking";
 import type { components } from "@/lib/http/schema";
 
@@ -52,17 +53,17 @@ export function parseMailboxAccounts(text: string): OnboardingImport["entries"] 
   if (!input.startsWith("{") && !input.startsWith("[") && input.includes("----")) {
     const nonemptyLines = input.split(/\r?\n/).filter((line) => line.trim());
     const lines = nonemptyLines[0]?.trim() === "卡密导出" ? nonemptyLines.slice(1) : nonemptyLines;
-    if (lines.length > 100) throw new Error("每批最多导入 100 个账号");
+    if (lines.length > 100) throw new Error(i18n.t("accountPool.inputValidation.batchLimit"));
     return lines.map((line) => {
       const fields = line.trim().split("----");
-      if (fields.length !== 3) throw new Error("2FA 格式或密钥无效");
+      if (fields.length !== 3) throw new Error(i18n.t("accountPool.inputValidation.invalidTwoFactor"));
       const [email, password, key] = fields;
       if (
         !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
         !password ||
         !/^[A-Z2-7]{16,128}$/i.test(key.trim())
       ) {
-        throw new Error("2FA 格式或密钥无效");
+        throw new Error(i18n.t("accountPool.inputValidation.invalidTwoFactor"));
       }
       return {
         label: email.trim(),
@@ -77,21 +78,21 @@ export function parseMailboxAccounts(text: string): OnboardingImport["entries"] 
   try {
     values = JSON.parse(input);
   } catch {
-    throw new Error("请提供账号 JSON 数组或邮箱----密码----2FA密钥文本");
+    throw new Error(i18n.t("accountPool.inputValidation.accountInput"));
   }
   if (!Array.isArray(values) || values.length === 0 || values.length > 100) {
-    throw new Error("请提供包含 1～100 个账号的 JSON 数组");
+    throw new Error(i18n.t("accountPool.inputValidation.arraySize"));
   }
   return values.map((value: unknown) => {
-    if (typeof value !== "object" || value === null) throw new Error("账号必须为 JSON 对象");
+    if (typeof value !== "object" || value === null) throw new Error(i18n.t("accountPool.inputValidation.accountObject"));
     const validEmail = "email" in value && typeof value.email === "string";
     const validPassword =
       "mailbox_password" in value && typeof value.mailbox_password === "string" && Boolean(value.mailbox_password);
     if (!validEmail || !validPassword) {
-      throw new Error("每个账号必须包含 email 和 mailbox_password，供应商密码可填 supplier_password");
+      throw new Error(i18n.t("accountPool.inputValidation.accountFields"));
     }
     const supplierPassword = "supplier_password" in value ? value.supplier_password : "";
-    if (typeof supplierPassword !== "string") throw new Error("supplier_password 必须是字符串");
+    if (typeof supplierPassword !== "string") throw new Error(i18n.t("accountPool.inputValidation.passwordString"));
     return {
       label: (value.email as string).trim(),
       content: "",
