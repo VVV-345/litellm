@@ -1,6 +1,6 @@
 # 号池系统工程实施计划书与防回归治理规范
 
-- **文档版本**：`v1.0`
+- **文档版本**：`v1.1`
 - **主工作分支**：`CLIProxyAPI分支`（本地分批验证后提交，收到用户明确指令后才执行 `push`）
 - **基线提交**：`1e13b2c7a7`
 - **最后更新**：`2026-11-24`
@@ -22,7 +22,7 @@
 6. **对话迁移错误透传边界**：`Conversation.rebuild()` 抛出 `ConversationUnavailableError`（503）前，必须先确认存在除失败卡外的其他可用备卡；无备卡（含卡绑虚拟 Key）时透传上游原始错误（如 429）。
 7. **外部上游请求必须有界**：所有 `/models` 等外部拉取（含健康检查）必须施加总超时与响应体字节上限，防止 512MB Manager OOM 或长期占锁；目录刷新遵循 `docs/handbook/provider-standard.md` 契约（普通刷新合并 `custom_models` 与上游发现，显式目录发现返回上游目录且不改动卡内 `custom_models`）。
 8. **子进程与内存锁回收**：流式子进程（如 `docker image save`）在超时/取消时必须 `kill()` + `wait()`；卡片删除后在锁保护下安全回收内存锁。
-9. **前端契约、i18n 与大文件红线**：后端新增字段同步 `schema.d.ts`；`zh-CN.json` 与 `en.json` 的 `accountPool` 键完全一致；大组件文件须低于 ESLint `max-lines: 800` 红线。
+9. **前端契约、i18n 与大文件红线**：后端新增字段同步 `schema.d.ts`；`zh-CN.json` 与 `en.json` 的 `accountPool` 键完全一致且零重复键（避免同名嵌套对象覆盖既有字符串键）；大组件文件须低于 ESLint `max-lines: 800` 红线。
 10. **分支与提交纪律**：直接修改并提交到 `CLIProxyAPI分支`，不自动 `push`，不触碰无关未跟踪文件及既定升级兼容白名单策略。
 
 ---
@@ -60,10 +60,10 @@
 - **验收**：Manager `test_openai_compatible.py` + `test_account_pool.py`（`350 passed`）；LiteLLM `test_account_pool_endpoints.py -k "in_flight or discover"`（`1 passed`）
 
 ### 批次 5：前端契约同步、次级面板 i18n 补齐与 `page.tsx` 行数防线（P2 #10）
-- [ ] `schema.d.ts` 的 `AccountPoolEnvironment` 补齐 `in_flight?: number`
-- [ ] `page.tsx` 拆分辅助逻辑，控制行数 `< 760`
-- [ ] 补齐 `ManagerLogsPanel.tsx`、`AccountPoolOnboarding*`、`AccountPoolCreateDialog.tsx`、`AccountPoolQuotaResetDialog.tsx`、`AccountPoolAuthorizationOverview.tsx` 的中英文 i18n
-- **验收**：`zh-CN.json` / `en.json` 键 parity 0 缺失、`tsc --noEmit` 0 错误、全量 `eslint --quiet` 0 错误、全量 `vitest run src/features/account-pool` 通过
+- [x] `schema.d.ts` 的 `AccountPoolEnvironment` 补齐 `in_flight?: number`
+- [x] `page.tsx` 抽出 `AccountPoolPageDialogs.tsx`，行数从 `809` 行降至 `701` 行（`< 760` 行防线，远离 `max-lines: 800`）并补齐首页剩余标签 i18n
+- [x] 补齐 `ManagerLogsPanel.tsx`、`AccountPoolOnboardingPanel.tsx`、`AccountPoolOnboardingTasks.tsx`、`AccountPoolOnboardingCleanup.tsx`、`AccountPoolOnboardingTarget.tsx`、`AccountPoolCreateDialog.tsx`、`AccountPoolAuthorizationOverview.tsx` 的中英文 i18n（核实 `AccountPoolQuotaResetDialog.tsx` 已全量接入 `useTranslation`）
+- **验收**：`zh-CN.json` / `en.json` 重复键 `0`、键数 `1694 / 1694`（0 缺失）；`page.tsx` `701` 行；`tsc --noEmit` 0 错误；全量 `eslint --quiet` 0 错误；全量 `vitest run src/features/account-pool src/app/(dashboard)/account-pool/page.integration.test.tsx` `53 passed (440 passed, Type Errors: no errors)`
 
 ---
 
@@ -71,4 +71,5 @@
 
 | 版本 | 日期 | 变更说明 | 对应提交 |
 | :--- | :--- | :--- | :--- |
-| `v1.0` | `2026-11-24` | 建立号池系统全面加固 5 阶段计划书、十条防回归红线与需求变更同步规则 | 待提交 |
+| `v1.0` | `2026-11-24` | 建立号池系统全面加固 5 阶段计划书、十条防回归红线与需求变更同步规则，并完成批次 1 | `1a2dda8daf` |
+| `v1.1` | `2026-11-24` | 完成批次 2–5 全部加固与回归验证；按 `docs/handbook/provider-standard.md` 明确兼容卡 `custom_models` 与显式目录发现边界；红线 #9 增加 JSON 重复键门禁 | `13a3dec3d2`、`29955707a9`、`e853735f84` 及批次 5 提交 |

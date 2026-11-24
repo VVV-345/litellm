@@ -20,8 +20,6 @@ import {
   loadAccountPoolUpstreamSyncPanel,
   loadAccountPoolPluginsPanel,
   loadAccountPoolReleasesPanel,
-  loadRuntimeConfigDialog,
-  loadAccountPoolCreateDialog,
   loadProxyManagerPanel,
   ACCOUNT_POOL_MODULE_LOADERS,
 } from "@/features/account-pool/preloadModules";
@@ -32,8 +30,6 @@ const AccountPoolOnboardingPanel = dynamic(loadAccountPoolOnboardingPanel, { loa
 const AccountPoolUpstreamSyncPanel = dynamic(loadAccountPoolUpstreamSyncPanel, { loading: ModuleLoading });
 const AccountPoolPluginsPanel = dynamic(loadAccountPoolPluginsPanel, { loading: ModuleLoading });
 const AccountPoolReleasesPanel = dynamic(loadAccountPoolReleasesPanel, { loading: ModuleLoading });
-const RuntimeConfigDialog = dynamic(loadRuntimeConfigDialog, { loading: ModuleLoading });
-const AccountPoolCreateDialog = dynamic(loadAccountPoolCreateDialog, { loading: ModuleLoading });
 const ProxyManagerPanel = dynamic(loadProxyManagerPanel, { loading: ModuleLoading });
 
 import { Boxes, KeyRound, ListChecks, RefreshCw } from "lucide-react";
@@ -46,19 +42,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import useAuthorized from "@/app/(dashboard)/hooks/useAuthorized";
 import { AdminOnlyNotice } from "@/components/shared/AdminOnlyNotice";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
@@ -84,6 +69,7 @@ import type {
   AccountPoolCreationSupplier,
 } from "@/features/account-pool/utils/AccountPoolTypes";
 import { summarizeAccountPoolEnvironments } from "@/features/account-pool/utils/accountPoolSelectors";
+import { AccountPoolPageDialogs } from "@/features/account-pool/components/shared/AccountPoolPageDialogs";
 import { AccountPoolWorkspace } from "@/features/account-pool/components/shared/AccountPoolWorkspace";
 import { useAccountPoolMutations } from "@/features/account-pool/hooks/useAccountPoolMutations";
 import { useAccountPoolQuery } from "@/features/account-pool/hooks/useAccountPoolQuery";
@@ -92,24 +78,6 @@ import {
   useProxyGatewayDelays,
   useProxyISPQuery,
 } from "@/features/account-pool/hooks/useProxyGateways";
-
-const AccountPoolModelTestDialog = dynamic(
-  () =>
-    import("@/features/account-pool/components/cards/AccountPoolModelTestDialog").then(
-      (module) => module.AccountPoolModelTestDialog,
-    ),
-  { loading: ModuleLoading },
-);
-const AccountPoolQuotaResetDialog = dynamic(() =>
-  import("@/features/account-pool/components/cards/AccountPoolQuotaResetDialog").then(
-    (module) => module.AccountPoolQuotaResetDialog,
-  ),
-);
-const AccountPoolCredentialDialog = dynamic(() =>
-  import("@/features/account-pool/components/cards/AccountPoolCredentialDialog").then(
-    (module) => module.AccountPoolCredentialDialog,
-  ),
-);
 
 const POOL_TABS = [
   "dashboard",
@@ -441,7 +409,7 @@ export default function AccountPoolPage() {
               value="providers"
               className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
             >
-              提供商与 OAuth
+              {t("accountPool.pageSections.providersAndOAuth")}
             </TabsTrigger>
 
             <TabsTrigger
@@ -454,7 +422,7 @@ export default function AccountPoolPage() {
               value="onboarding"
               className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
             >
-              自动化上号
+              {t("accountPool.pageSections.automatedOnboarding")}
             </TabsTrigger>
 
             <TabsTrigger
@@ -473,13 +441,13 @@ export default function AccountPoolPage() {
               value="releases"
               className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
             >
-              版本管理
+              {t("accountPool.pageSections.releases")}
             </TabsTrigger>
             <TabsTrigger
               value="settings-overview"
               className="h-auto flex-none rounded-lg border-border bg-background px-4 py-2 data-active:border-blue-300 data-active:bg-blue-50 data-active:text-blue-900 dark:data-active:border-blue-700 dark:data-active:bg-blue-950/40 dark:data-active:text-blue-200"
             >
-              全局设置总览
+              {t("accountPool.pageSections.settingsOverview")}
             </TabsTrigger>
           </TabsList>
           <DeferredTabPanel
@@ -535,15 +503,15 @@ export default function AccountPoolPage() {
           >
             <AccountPoolWorkspace
               key={legacyTab === "oauth" ? "oauth" : "providers"}
-              title="提供商与 OAuth"
+              title={t("accountPool.pageSections.providersAndOAuth")}
               defaultValue={legacyTab === "oauth" ? "oauth" : "catalog"}
               defaultOpen
               items={[
                 {
                   value: "catalog",
                   icon: Boxes,
-                  label: "AI 提供商",
-                  summary: "认证方式与新建",
+                  label: t("accountPool.tabs.providers"),
+                  summary: t("accountPool.pageSections.authAndCreate"),
                   content: (
                     <AccountPoolProviderFamilies
                       accessToken={accessToken}
@@ -555,8 +523,11 @@ export default function AccountPoolPage() {
                 {
                   value: "oauth",
                   icon: KeyRound,
-                  label: "OAuth 登录",
-                  summary: `${environments.filter((environment) => environment.authorization_flow !== "direct_credential").length} 张卡片`,
+                  label: t("accountPool.tabs.oauth"),
+                  summary: t("accountPool.pageSections.cardsCount", {
+                    count: environments.filter((environment) => environment.authorization_flow !== "direct_credential")
+                      .length,
+                  }),
                   content: (
                     <AccountPoolAuthorizationOverview
                       accessToken={accessToken}
@@ -571,8 +542,8 @@ export default function AccountPoolPage() {
                 {
                   value: "batch",
                   icon: ListChecks,
-                  label: "批量操作",
-                  summary: `${environments.length} 张卡片`,
+                  label: t("accountPool.pageSections.batchOperations"),
+                  summary: t("accountPool.pageSections.cardsCount", { count: environments.length }),
                   content: accessToken && (
                     <AccountPoolBatchPanel accessToken={accessToken} environments={environments} policies={policies} />
                   ),
@@ -612,23 +583,23 @@ export default function AccountPoolPage() {
             {accessToken && (
               <AccountPoolWorkspace
                 key={`${legacyTab === "oauth-automation"}:${automationSelection?.visit ?? 0}`}
-                title="自动化上号"
+                title={t("accountPool.pageSections.automatedOnboarding")}
                 defaultValue={legacyTab === "oauth-automation" || automationSelection ? "authorize" : "cpa"}
                 defaultOpen
                 items={[
                   {
                     value: "cpa",
-                    label: "CPA 文件导入",
+                    label: t("accountPool.pageSections.cpaImport"),
                     content: <AccountPoolOnboardingPanel accessToken={accessToken} fileFormat="cpa" />,
                   },
                   {
                     value: "sub2api",
-                    label: "Sub2API 文件导入",
+                    label: t("accountPool.pageSections.sub2apiImport"),
                     content: <AccountPoolOnboardingPanel accessToken={accessToken} fileFormat="sub2api" />,
                   },
                   {
                     value: "authorize",
-                    label: "2FA / OAuth 授权",
+                    label: t("accountPool.pageSections.twoFactorOAuth"),
                     content: (
                       <AccountPoolAutomationPanel
                         accessToken={accessToken}
@@ -655,7 +626,7 @@ export default function AccountPoolPage() {
                   open={pluginsOpen}
                   onToggle={(event) => setPluginsOpen(event.currentTarget.open)}
                 >
-                  <summary>运行插件管理</summary>
+                  <summary>{t("accountPool.pageSections.runtimePlugins")}</summary>
                   {pluginsOpen && <AccountPoolPluginsPanel accessToken={accessToken} environments={environments} />}
                 </details>
               </>
@@ -669,7 +640,7 @@ export default function AccountPoolPage() {
           >
             {accessToken && (
               <AccountPoolWorkspace
-                title="上游同步"
+                title={t("accountPool.pageSections.upstreamSyncTitle")}
                 items={[
                   {
                     value: "cliproxyapi",
@@ -695,115 +666,35 @@ export default function AccountPoolPage() {
           </DeferredTabPanel>
         </Tabs>
       </div>
-      {createOpen && (
-        <AccountPoolCreateDialog
-          key={authorization?.environment.id ?? "create"}
-          accessToken={accessToken}
-          initialAuthorization={authorization}
-          initialSupplier={createSupplier}
-          environments={environments}
-          open
-          onOpenChange={(open) => {
-            setCreateOpen(open);
-            if (!open) setAuthorization(null);
-          }}
-          onCreated={() => void environmentsQuery.refetch()}
-          onAutomation={openCreatedCardAutomation}
-        />
-      )}
-      {reauthorizingJob && accessToken && (
-        <Dialog open onOpenChange={(open) => !open && setReauthorizingJob(null)}>
-          <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>{t("accountPool.mutation.automaticReauthorization")}</DialogTitle>
-              <DialogDescription>{t("accountPool.mutation.automaticReauthorizationDescription")}</DialogDescription>
-            </DialogHeader>
-            <AccountPoolAutomationPanel
-              key={reauthorizingJob.id}
-              accessToken={accessToken}
-              reauthorizingJob={reauthorizingJob}
-            />
-          </DialogContent>
-        </Dialog>
-      )}
-      {testEnvironment && accessToken && (
-        <AccountPoolModelTestDialog
-          key={testEnvironment.id}
-          accessToken={accessToken}
-          environment={testEnvironment}
-          onClose={() => setTestEnvironmentId(null)}
-        />
-      )}
-      {resetEnvironment && accessToken && (
-        <AccountPoolQuotaResetDialog
-          key={resetEnvironment.id}
-          accessToken={accessToken}
-          environment={resetEnvironment}
-          onClose={() => setResetEnvironment(null)}
-        />
-      )}
-      {refreshCredentialEnvironment && accessToken && (
-        <AccountPoolCredentialDialog
-          key={refreshCredentialEnvironment.id}
-          mode="refresh"
-          accessToken={accessToken}
-          environment={refreshCredentialEnvironment}
-          onClose={() => setRefreshCredentialEnvironment(null)}
-        />
-      )}
-      {verifyAccessEnvironment && accessToken && (
-        <AccountPoolCredentialDialog
-          key={verifyAccessEnvironment.id}
-          mode="verify"
-          accessToken={accessToken}
-          environment={verifyAccessEnvironment}
-          onClose={() => setVerifyAccessEnvironment(null)}
-        />
-      )}
-      {configEnvironment && (
-        <RuntimeConfigDialog
-          key={configEnvironment.id}
-          accessToken={accessToken}
-          environment={configEnvironment}
-          open
-          onOpenChange={(open) => !open && setConfigEnvironment(null)}
-          onRefresh={() => void environmentsQuery.refetch()}
-          onSaved={() => {
-            setConfigEnvironment(null);
-            void environmentsQuery.refetch();
-          }}
-        />
-      )}
-
-      <AlertDialog
-        open={deleteEnvironment !== null}
-        onOpenChange={(open) => {
-          if (!open && !deleteMutation.isPending) setDeleteEnvironment(null);
+      <AccountPoolPageDialogs
+        accessToken={accessToken}
+        environments={environments}
+        createOpen={createOpen}
+        onCreateOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) setAuthorization(null);
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("accountPool.confirmDeleteTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteEnvironment
-                ? t("accountPool.confirmDeleteDescription", { name: deleteEnvironment.name })
-                : t("accountPool.confirmDeleteUnavailable")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={deleteMutation.isPending}>{t("accountPool.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              disabled={deleteMutation.isPending || deleteEnvironment === null}
-              onClick={() => {
-                if (deleteEnvironment) deleteMutation.mutate(deleteEnvironment);
-              }}
-            >
-              {deleteMutation.isPending ? t("accountPool.deleting") : t("accountPool.confirmDelete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        authorization={authorization}
+        createSupplier={createSupplier}
+        reauthorizingJob={reauthorizingJob}
+        onCloseReauthorizingJob={() => setReauthorizingJob(null)}
+        testEnvironment={testEnvironment}
+        onCloseTestEnvironment={() => setTestEnvironmentId(null)}
+        resetEnvironment={resetEnvironment}
+        onCloseResetEnvironment={() => setResetEnvironment(null)}
+        refreshCredentialEnvironment={refreshCredentialEnvironment}
+        onCloseRefreshCredentialEnvironment={() => setRefreshCredentialEnvironment(null)}
+        verifyAccessEnvironment={verifyAccessEnvironment}
+        onCloseVerifyAccessEnvironment={() => setVerifyAccessEnvironment(null)}
+        configEnvironment={configEnvironment}
+        onCloseConfigEnvironment={() => setConfigEnvironment(null)}
+        deleteEnvironment={deleteEnvironment}
+        onCloseDeleteEnvironment={() => setDeleteEnvironment(null)}
+        deleting={deleteMutation.isPending}
+        onConfirmDelete={(environment) => deleteMutation.mutate(environment)}
+        onRefetchEnvironments={() => void environmentsQuery.refetch()}
+        onOpenCreatedCardAutomation={openCreatedCardAutomation}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { migratedHref } from "@/utils/migratedPages";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { FileJson, Mail, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -65,6 +66,7 @@ const OnboardingProxySelector = ({
   disabled,
   onChange,
 }: OnboardingProxySelectorProps) => {
+  const { t } = useTranslation();
   const environmentsQuery = useQuery(accountPoolEnvironmentOptions(accessToken));
   const gatewaysQuery = useQuery(proxyGatewayQueryOptions(accessToken));
   const settingsQueryOptions = {
@@ -81,7 +83,7 @@ const OnboardingProxySelector = ({
     settingsQuery.isSuccess && defaultProxyProfileConfigured && !defaultProxyProfileExists;
   const gateways = gatewaysQuery.data ?? [];
   const profileOptions = [
-    ...(optional ? [{ value: "__keep__", label: "沿用文件 / 默认配置" }] : []),
+    ...(optional ? [{ value: "__keep__", label: t("accountPool.onboarding.proxy.keepDefault") }] : []),
     ...profiles.map((profile) => ({
       value: profile.id,
       label: proxyOptionLabel(
@@ -93,9 +95,13 @@ const OnboardingProxySelector = ({
     })),
   ];
 
+  const proxyFieldLabel = optional
+    ? t("accountPool.onboarding.proxy.authFileProxyLabel")
+    : t("accountPool.onboarding.proxy.oauthProxyLabel");
+
   return (
     <div className="space-y-2">
-      <Label htmlFor="onboarding-proxy-profile">{optional ? "认证文件出站代理" : "OAuth 出站代理"}</Label>
+      <Label htmlFor="onboarding-proxy-profile">{proxyFieldLabel}</Label>
       <Select
         items={profileOptions}
         value={optional && !value ? "__keep__" : value}
@@ -104,10 +110,10 @@ const OnboardingProxySelector = ({
       >
         <SelectTrigger
           id="onboarding-proxy-profile"
-          aria-label={optional ? "认证文件出站代理" : "OAuth 出站代理"}
+          aria-label={proxyFieldLabel}
           className="w-full min-w-0"
         >
-          <SelectValue placeholder="选择代理节点" />
+          <SelectValue placeholder={t("accountPool.onboarding.proxy.selectProxyPlaceholder")} />
         </SelectTrigger>
         <SelectContent align="start" className="min-w-[min(24rem,calc(100vw-2rem))]">
           {profileOptions.map((profile) => (
@@ -123,14 +129,12 @@ const OnboardingProxySelector = ({
           disabled={disabled || profilesLoading}
           onCheckedChange={(checked) => onRotationChange(checked ? [value].filter(Boolean) : null)}
         />
-        多代理轮换
+        {t("accountPool.onboarding.proxy.multiProxyRotation")}
       </label>
       {rotation !== null && (
         <div className="grid gap-2 rounded-lg border p-3">
-          <p className="text-xs text-muted-foreground">
-            按选择顺序轮换，每份文件 / 账号的任务及重试固定使用分配的节点。只选一个即单代理。
-          </p>
-          <div className="grid max-h-40 gap-2 overflow-y-auto" aria-label="轮换代理">
+          <p className="text-xs text-muted-foreground">{t("accountPool.onboarding.proxy.rotationHint")}</p>
+          <div className="grid max-h-40 gap-2 overflow-y-auto" aria-label={t("accountPool.onboarding.proxy.rotationAria")}>
             {profileOptions
               .filter((profile) => profile.value !== "__keep__")
               .map((profile) => (
@@ -153,24 +157,30 @@ const OnboardingProxySelector = ({
                 </label>
               ))}
           </div>
-          {rotation.length === 0 && <p className="text-xs text-muted-foreground">请选择至少一个代理</p>}
+          {rotation.length === 0 && (
+            <p className="text-xs text-muted-foreground">{t("accountPool.onboarding.proxy.rotationEmpty")}</p>
+          )}
         </div>
       )}
       {profilesError && (
         <p role="alert" className="text-sm text-destructive">
-          代理目录读取失败，请刷新重试
+          {t("accountPool.onboarding.proxy.profilesLoadError")}
         </p>
       )}
-      {profilesSuccess && profiles.length === 0 && <p className="text-sm text-muted-foreground">暂无可用代理节点</p>}
-      {defaultProxyNotConfigured && <p className="text-sm text-muted-foreground">号池默认出站代理未配置</p>}
+      {profilesSuccess && profiles.length === 0 && (
+        <p className="text-sm text-muted-foreground">{t("accountPool.onboarding.proxy.noProfiles")}</p>
+      )}
+      {defaultProxyNotConfigured && (
+        <p className="text-sm text-muted-foreground">{t("accountPool.onboarding.proxy.defaultNotConfigured")}</p>
+      )}
       {defaultProxyUnavailable && (
         <p className="text-sm text-destructive" role="alert">
-          号池默认出站代理当前不可用
+          {t("accountPool.onboarding.proxy.defaultUnavailable")}
         </p>
       )}
       {settingsQuery.isError && (
         <p className="text-sm text-muted-foreground" role="status">
-          号池默认出站代理状态读取失败
+          {t("accountPool.onboarding.proxy.defaultStatusError")}
         </p>
       )}
     </div>
@@ -186,6 +196,7 @@ export function AccountPoolOnboardingPanel({
   fileFormat?: "cpa" | "sub2api";
   legacyOAuth?: boolean;
 }) {
+  const { t } = useTranslation();
   const client = useQueryClient();
   const [source, setSource] = useState<"auth_file" | "oauth">(legacyOAuth ? "oauth" : "auth_file");
   const [supplier, setSupplier] = useState<OnboardingImport["supplier"]>("openai_codex");
@@ -216,10 +227,13 @@ export function AccountPoolOnboardingPanel({
   const effectiveProxyId = rotationProfiles === null ? singleProxyId : rotationProfiles[0] ?? "";
   const proxyProfiles = proxyProfilesQuery.data ?? [];
   const templateProxyLabel = () => {
-    if (rotationProfiles !== null || proxyProfileId) return "使用本次选择";
-    if (template?.proxy_profile_id === "") return "沿用卡片代理";
-    if (!template?.proxy_profile_id) return "保留";
-    return proxyProfiles.find((profile) => profile.id === template.proxy_profile_id)?.name ?? "原节点不可用";
+    if (rotationProfiles !== null || proxyProfileId) return t("accountPool.onboarding.panel.templateProxySelected");
+    if (template?.proxy_profile_id === "") return t("accountPool.onboarding.panel.templateProxyCard");
+    if (!template?.proxy_profile_id) return t("accountPool.onboarding.panel.templateKeep");
+    return (
+      proxyProfiles.find((profile) => profile.id === template.proxy_profile_id)?.name ??
+      t("accountPool.onboarding.panel.templateProxyUnavailable")
+    );
   };
   const rotationInvalid =
     rotationProfiles !== null &&
@@ -265,18 +279,18 @@ export function AccountPoolOnboardingPanel({
     reset();
     setBusy(true);
     try {
-      if (rotationInvalid) throw new Error("请选择有效的轮换代理");
-      if (!supported) throw new Error("当前供应商不支持此上号方式，请选择其他供应商");
-      if (source === "oauth" && !proxyProfileSelected) throw new Error("请选择有效的 OAuth 出站代理");
-      if (source === "auth_file" && useTemplate && !template) throw new Error("请先保存默认认证模板");
-      if (missingTemplateProxy) throw new Error("默认模板的代理不可用，请重新选择节点");
+      if (rotationInvalid) throw new Error(t("accountPool.onboarding.panel.errInvalidRotation"));
+      if (!supported) throw new Error(t("accountPool.onboarding.panel.errUnsupportedSupplier"));
+      if (source === "oauth" && !proxyProfileSelected) throw new Error(t("accountPool.onboarding.panel.errInvalidOAuthProxy"));
+      if (source === "auth_file" && useTemplate && !template) throw new Error(t("accountPool.onboarding.panel.errSaveTemplateFirst"));
+      if (missingTemplateProxy) throw new Error(t("accountPool.onboarding.panel.templateProxyMissingError"));
       if (files.length === 0 || files.length > (source === "oauth" ? 1 : 100))
-        throw new Error("认证文件每批最多 100 个，邮箱账号表每批选择一个文件");
+        throw new Error(t("accountPool.onboarding.panel.errBatchLimit"));
       if (
         files.some((file) => file.size > 1024 * 1024) ||
         files.reduce((size, file) => size + file.size, 0) > 8 * 1024 * 1024
       ) {
-        throw new Error("单文件最多 1 MiB，每批最多 8 MiB");
+        throw new Error(t("accountPool.onboarding.panel.errFileSizeLimit"));
       }
       const entries =
         source === "auth_file"
@@ -312,7 +326,7 @@ export function AccountPoolOnboardingPanel({
       setRequest(body);
       setPreview(checked);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "文件检查失败");
+      toast.error(error instanceof Error ? error.message : t("accountPool.onboarding.panel.errFileCheckFailed"));
     } finally {
       setBusy(false);
     }
@@ -322,44 +336,44 @@ export function AccountPoolOnboardingPanel({
     setBusy(true);
     try {
       const result = await submitOnboarding(accessToken, request);
-      toast.success(`已接收 ${result.items.length} 项，任务进度会自动更新`);
+      toast.success(t("accountPool.onboarding.panel.submitSuccessToast", { count: result.items.length }));
       if (result.items.some((item) => item.source !== request.source)) {
-        toast.info("2FA 登录资料已归入 OAuth 上号；Token 导入结果在认证文件任务中查看");
+        toast.info(t("accountPool.onboarding.panel.submitSplitInfoToast"));
       }
       if (result.items.length > 0 && result.items.every((item) => item.source === "oauth")) setSource("oauth");
       reset();
       await refresh();
     } catch {
-      toast.error("提交未确认，请重试同一批次；系统会去重");
+      toast.error(t("accountPool.onboarding.panel.submitFailedToast"));
     } finally {
       setBusy(false);
     }
   };
 
-  let importTitle = "导入邮箱账号库存";
-  let importDescription =
-    "邮箱账号与供应商账号分别保存。沿用现有 OAuth 授权，登录、验证码和二次验证由你完成，后台自动验证并更新卡片。";
+  let importTitle = t("accountPool.onboarding.panel.titleOAuth");
+  let importDescription = t("accountPool.onboarding.panel.descOAuth");
   if (fileFormat === "cpa") {
-    importTitle = "批量导入 CPA 认证文件";
-    importDescription = "上传 CPA 导出的认证 JSON。2FA 登录资料请使用 2FA / OAuth 授权。";
+    importTitle = t("accountPool.onboarding.panel.titleCpa");
+    importDescription = t("accountPool.onboarding.panel.descCpa");
   } else if (fileFormat === "sub2api") {
-    importTitle = "批量导入 Sub2API 认证文件";
-    importDescription = "上传 Sub2API 导出的 OpenAI OAuth JSON，支持多账号整包。";
+    importTitle = t("accountPool.onboarding.panel.titleSub2Api");
+    importDescription = t("accountPool.onboarding.panel.descSub2Api");
   } else if (source === "auth_file") {
-    importTitle = "批量导入认证文件";
-    importDescription =
-      "自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。Token 文件创建卡片并验证模型；2FA 登录资料进入 OAuth 任务，需人工完成登录和二次验证。";
+    importTitle = t("accountPool.onboarding.panel.titleAuthFile");
+    importDescription = t("accountPool.onboarding.panel.descAuthFile");
   }
-  const fileTasksTitle = fileFormat ? "认证文件任务（CPA / Sub2API）" : "认证文件任务";
+  const fileTasksTitle = fileFormat
+    ? t("accountPool.onboarding.panel.fileTasksTitleFormatted")
+    : t("accountPool.onboarding.panel.fileTasksTitle");
 
   return (
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
-        供应商目录与卡片统一；仅支持 API Key 或服务账号的供应商，请到
+        {t("accountPool.onboarding.panel.providerLinkPrefix")}
         <Link href={migratedHref("account-pool?tab=providers")} className="ml-1 underline">
-          提供商设置
+          {t("accountPool.onboarding.panel.providerLinkLabel")}
         </Link>
-        添加凭证。
+        {t("accountPool.onboarding.panel.providerLinkSuffix")}
       </p>
       <Tabs
         value={source}
@@ -377,11 +391,11 @@ export function AccountPoolOnboardingPanel({
           <TabsList>
             <TabsTrigger value="auth_file">
               <FileJson className="size-4" />
-              认证文件导入
+              {t("accountPool.onboarding.panel.tabAuthFile")}
             </TabsTrigger>
             <TabsTrigger value="oauth">
               <Mail className="size-4" />
-              OAuth 上号
+              {t("accountPool.onboarding.panel.tabOAuth")}
             </TabsTrigger>
           </TabsList>
         )}
@@ -394,7 +408,7 @@ export function AccountPoolOnboardingPanel({
             <CardContent className="space-y-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label htmlFor="onboarding-supplier">模型供应商</Label>
+                  <Label htmlFor="onboarding-supplier">{t("accountPool.onboarding.panel.supplierLabel")}</Label>
                   <select
                     id="onboarding-supplier"
                     className="h-9 w-full rounded-md border bg-background px-3"
@@ -414,7 +428,9 @@ export function AccountPoolOnboardingPanel({
                         {item.display_name}
                         {item[source === "oauth" ? "oauth" : "auth_file"]
                           ? ""
-                          : `（${item.authentication}，请在提供商添加）`}
+                          : t("accountPool.onboarding.panel.supplierUnsupportedSuffix", {
+                              authentication: item.authentication,
+                            })}
                       </option>
                     ))}
                   </select>
@@ -440,7 +456,7 @@ export function AccountPoolOnboardingPanel({
                 />
                 {source === "oauth" && (
                   <div className="space-y-2">
-                    <Label htmlFor="onboarding-mailbox">邮箱类型</Label>
+                    <Label htmlFor="onboarding-mailbox">{t("accountPool.onboarding.panel.mailboxTypeLabel")}</Label>
                     <select
                       id="onboarding-mailbox"
                       className="h-9 w-full rounded-md border bg-background px-3"
@@ -453,13 +469,15 @@ export function AccountPoolOnboardingPanel({
                     >
                       <option value="outlook">Outlook / Hotmail</option>
                       <option value="gmail">Gmail</option>
-                      <option value="mail">通用邮箱</option>
+                      <option value="mail">{t("accountPool.onboarding.panel.mailboxGeneric")}</option>
                     </select>
                   </div>
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="onboarding-files">
-                    {source === "auth_file" ? "认证 JSON 文件（可多选）" : "账号 JSON 文件"}
+                    {source === "auth_file"
+                      ? t("accountPool.onboarding.panel.filesLabelAuthFile")
+                      : t("accountPool.onboarding.panel.filesLabelOAuth")}
                   </Label>
                   <Input
                     key={`${source}-${supplier}-${mailbox}-${prepareMailbox}`}
@@ -486,36 +504,39 @@ export function AccountPoolOnboardingPanel({
                         reset();
                       }}
                     />
-                    使用默认认证模板
+                    {t("accountPool.onboarding.panel.useDefaultTemplate")}
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    认证模板仅用于单账号 JSON；显式选择节点优先于模板。多账号整包不使用模板。
-                    {!fileFormat && " 2FA 文本须选择出站代理"}
+                    {t("accountPool.onboarding.panel.templateHint")}
+                    {!fileFormat && t("accountPool.onboarding.panel.templateHint2faSuffix")}
                   </p>
                   {useTemplate && template && (
                     <p className="text-xs text-muted-foreground">
-                      模板预览：优先级 {template.priority ?? "保留"}，前缀{" "}
-                      {template.prefix === "" ? "清空" : template.prefix ?? "保留"}，代理 {templateProxyLabel()}
+                      {t("accountPool.onboarding.panel.templatePreview", {
+                        priority: template.priority ?? t("accountPool.onboarding.panel.templateKeep"),
+                        prefix:
+                          template.prefix === ""
+                            ? t("accountPool.onboarding.panel.templateClear")
+                            : template.prefix ?? t("accountPool.onboarding.panel.templateKeep"),
+                        proxy: templateProxyLabel(),
+                      })}
                     </p>
                   )}
                   {missingTemplateProxy && (
                     <p role="alert" className="text-sm text-destructive">
-                      默认模板的代理不可用，请重新选择节点
+                      {t("accountPool.onboarding.panel.templateProxyMissingError")}
                     </p>
                   )}
                   {settingsQuery.isError && (
                     <p role="status" className="text-xs text-destructive">
-                      默认模板读取失败，仍可不使用模板导入
+                      {t("accountPool.onboarding.panel.templateLoadError")}
                     </p>
                   )}
                 </div>
               )}
               {source === "oauth" && (
                 <div className="rounded-lg bg-muted/40 p-4 text-sm space-y-3">
-                  <p>
-                    Outlook、Gmail
-                    个人账号和通用邮箱暂由你完成改密。可以生成随机密码，改密成功后再确认保存。供应商密码与邮箱密码并不一定相同。
-                  </p>
+                  <p>{t("accountPool.onboarding.panel.oauthMailboxHint")}</p>
                   <Label className="flex items-center gap-2">
                     <input
                       type="checkbox"
@@ -526,48 +547,44 @@ export function AccountPoolOnboardingPanel({
                         reset();
                       }}
                     />
-                    导入后先准备邮箱并确认密码
+                    {t("accountPool.onboarding.panel.prepareMailboxLabel")}
                   </Label>
                   <details>
-                    <summary className="cursor-pointer">查看账号文件格式</summary>
+                    <summary className="cursor-pointer">{t("accountPool.onboarding.panel.viewAccountFormat")}</summary>
                     <pre className="mt-2 overflow-auto text-xs">
-                      {
-                        '[{"email":"you@example.com","mailbox_password":"邮箱密码","supplier_password":"可选的供应商密码"}]'
-                      }
+                      {t("accountPool.onboarding.panel.accountFormatSample")}
                     </pre>
-                    <p className="mt-2">
-                      也支持 TXT，每行：邮箱----供应商密码----2FA密钥。不会把供应商密码当成邮箱密码，不自动填写验证码。
-                    </p>
+                    <p className="mt-2">{t("accountPool.onboarding.panel.accountFormatTxtHint")}</p>
                   </details>
                 </div>
               )}
               {suppliersQuery.isError && (
                 <p role="alert" className="text-sm text-destructive">
-                  供应商目录读取失败，请刷新重试
+                  {t("accountPool.onboarding.panel.suppliersLoadError")}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground">
-                目录与提供商模块保持一致。灰色项使用其他认证方式，可在提供商中添加。
-              </p>
-              <p className="text-sm text-muted-foreground">
-                新卡片沿用现有全局默认配置。命名：供应商-套餐-账号；套餐读取不到时标记“套餐待识别”。
-              </p>
+              <p className="text-xs text-muted-foreground">{t("accountPool.onboarding.panel.catalogSyncHint")}</p>
+              <p className="text-sm text-muted-foreground">{t("accountPool.onboarding.panel.defaultConfigHint")}</p>
               {preview.length > 0 && (
                 <div className="space-y-3">
                   <p className="text-sm font-medium">
-                    可导入 {preview.filter((item) => item.status === "valid").length} · 重复{" "}
-                    {preview.filter((item) => item.status === "duplicate").length} · 无效{" "}
-                    {preview.filter((item) => item.status === "invalid").length}
+                    {t("accountPool.onboarding.panel.previewSummary", {
+                      valid: preview.filter((item) => item.status === "valid").length,
+                      duplicate: preview.filter((item) => item.status === "duplicate").length,
+                      invalid: preview.filter((item) => item.status === "invalid").length,
+                    })}
                   </p>
                   {rotationProfiles !== null && request && (
                     <details open className="rounded-lg border p-3 text-sm">
-                      <summary className="cursor-pointer font-medium">代理分配（任务及重试保持不变）</summary>
+                      <summary className="cursor-pointer font-medium">
+                        {t("accountPool.onboarding.panel.proxyAssignmentSummary")}
+                      </summary>
                       <ul className="mt-2 grid max-h-40 gap-1 overflow-auto text-xs text-muted-foreground">
                         {request.entries.map((entry, index) => (
                           <li key={index} className="break-words">
                             {entry.label} →{" "}
                             {proxyProfiles.find((profile) => profile.id === entry.proxy_profile_id)?.name ??
-                              "节点不可用"}
+                              t("accountPool.onboarding.panel.proxyUnavailable")}
                           </li>
                         ))}
                       </ul>
@@ -577,8 +594,8 @@ export function AccountPoolOnboardingPanel({
                     <table className="w-full text-left text-sm">
                       <thead className="bg-muted/50">
                         <tr>
-                          <th className="p-3">文件 / 账号</th>
-                          <th>检查结果</th>
+                          <th className="p-3">{t("accountPool.onboarding.panel.colFileAccount")}</th>
+                          <th>{t("accountPool.onboarding.panel.colCheckResult")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -595,10 +612,12 @@ export function AccountPoolOnboardingPanel({
                     disabled={busy || !preview.some((item) => item.status === "valid")}
                     onClick={() => void submit()}
                   >
-                    {busy ? "处理中…" : "导入有效项"}
+                    {busy
+                      ? t("accountPool.onboarding.panel.submitting")
+                      : t("accountPool.onboarding.panel.importValidItems")}
                   </Button>
                   <Button variant="outline" disabled={busy} className="ml-2" onClick={reset}>
-                    取消本批次
+                    {t("accountPool.onboarding.panel.cancelBatch")}
                   </Button>
                 </div>
               )}
@@ -608,22 +627,24 @@ export function AccountPoolOnboardingPanel({
       </Tabs>
       {source === "oauth" && <AccountPoolOnboardingTarget accessToken={accessToken} supplier={supplier} />}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-semibold">{source === "oauth" ? "OAuth 账号汇总与任务" : fileTasksTitle}</h3>
+        <h3 className="font-semibold">
+          {source === "oauth" ? t("accountPool.onboarding.panel.oauthTasksTitle") : fileTasksTitle}
+        </h3>
         <div className="flex flex-wrap gap-2">
           <AccountPoolOnboardingCleanup key={source} accessToken={accessToken} source={source} onChange={refresh} />
           <Button variant="outline" size="sm" onClick={() => void refresh()}>
             <RefreshCw className="size-4" />
-            刷新
+            {t("accountPool.onboarding.panel.refresh")}
           </Button>
         </div>
       </div>
       {query.isError && (
         <p role="alert" className="text-sm text-destructive">
-          任务读取失败，请刷新重试
+          {t("accountPool.onboarding.panel.tasksLoadError")}
         </p>
       )}
       {query.isLoading ? (
-        <p>正在读取任务…</p>
+        <p>{t("accountPool.onboarding.panel.tasksLoading")}</p>
       ) : (
         <AccountPoolOnboardingTasks
           key={source}

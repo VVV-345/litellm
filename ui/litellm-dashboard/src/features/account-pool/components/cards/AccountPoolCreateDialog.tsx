@@ -283,11 +283,11 @@ export const AccountPoolCreateDialog = ({
   const automationEntry = canAutomate && (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900 dark:bg-blue-950/20">
       <p className="text-xs leading-5 text-muted-foreground">
-        这张空白 Codex 卡片也可使用服务端浏览器，自动登录、处理 2FA 并完成回调与模型验收
+        {t("accountPool.create.codexAutomationHint")}
       </p>
       <Button type="button" size="sm" variant="outline" onClick={() => onAutomation?.(authorization.environment.id)}>
         <Bot aria-hidden="true" />
-        浏览器自动化授权
+        {t("accountPool.create.browserAutomationAction")}
       </Button>
     </div>
   );

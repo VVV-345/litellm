@@ -44,24 +44,24 @@ export const AccountPoolAuthorizationOverview = ({
     <div className="grid gap-4">
       {onAutomation && (
         <section
-          aria-label="浏览器自动化授权"
+          aria-label={t("accountPool.oauth.browserAutomationAria")}
           className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900 dark:bg-blue-950/20"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-start gap-3">
               <Bot className="mt-0.5 size-5 shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true" />
               <div>
-                <h3 className="text-sm font-semibold">Codex 浏览器自动化</h3>
+                <h3 className="text-sm font-semibold">{t("accountPool.oauth.codexAutomationTitle")}</h3>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  空白卡片与出口代理、固定指纹、自动登录与 2FA、回调与模型验收，复用同一授权队列
+                  {t("accountPool.oauth.codexAutomationDesc1")}
                 </p>
                 <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                  不覆盖已有凭据；遇到验证码或额外验证需人工接管。其他供应商仍使用下方原有授权方式
+                  {t("accountPool.oauth.codexAutomationDesc2")}
                 </p>
               </div>
             </div>
             <Button type="button" size="sm" variant="outline" onClick={() => onAutomation()}>
-              浏览器自动化授权
+              {t("accountPool.oauth.browserAutomationAction")}
             </Button>
           </div>
         </section>
@@ -73,7 +73,7 @@ export const AccountPoolAuthorizationOverview = ({
         <Network className="size-3.5 shrink-0" aria-hidden="true" />
         {defaultLabel}
       </p>
-      <div className="flex flex-wrap gap-2" aria-label="新建 OAuth 授权">
+      <div className="flex flex-wrap gap-2" aria-label={t("accountPool.oauth.createOAuthAria")}>
         {OAUTH_PROVIDERS.map((supplier) => (
           <Button key={supplier} type="button" size="sm" variant="outline" onClick={() => onCreate(supplier)}>
             <AccountPoolSupplierLogo supplier={supplier} className="size-4" />
@@ -83,7 +83,9 @@ export const AccountPoolAuthorizationOverview = ({
         ))}
       </div>
       <div className="grid gap-3 xl:grid-cols-2">
-        {cards.length === 0 && <p className="p-4 text-sm text-muted-foreground">暂无 OAuth 卡片，可从上方新建授权。</p>}
+        {cards.length === 0 && (
+          <p className="p-4 text-sm text-muted-foreground">{t("accountPool.oauth.emptyCards")}</p>
+        )}
         {cards.map((environment) => {
           const codexOAuth =
             environment.supplier === "openai_codex" && environment.authorization_flow === "browser_oauth";
@@ -129,10 +131,10 @@ export const AccountPoolAuthorizationOverview = ({
                     size="sm"
                     variant="outline"
                     onClick={() => onAutomation(environment.id)}
-                    aria-label={`自动化授权 ${environment.name}`}
+                    aria-label={t("accountPool.oauth.automateCardAria", { name: environment.name })}
                   >
                     <Bot aria-hidden="true" />
-                    自动化授权
+                    {t("accountPool.oauth.automateAction")}
                   </Button>
                 )}
                 {canAuthorizeEnvironment(environment) && (

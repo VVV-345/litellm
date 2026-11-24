@@ -25494,6 +25494,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * In Flight
+             * @default 0
+             */
+            in_flight?: number;
             /** Last Error */
             last_error: string | null;
             /** Manual Cooldown */

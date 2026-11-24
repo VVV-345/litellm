@@ -1,6 +1,7 @@
 /** 配置 OAuth 可用数量目标并展示真实缺口，不把待授权计为成功。 */
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ export function AccountPoolOnboardingTarget({
   accessToken: string;
   supplier: OnboardingTarget["supplier"];
 }) {
+  const { t } = useTranslation();
   const client = useQueryClient();
   const [draft, setDraft] = useState<OnboardingTarget | null>(null);
   const [busy, setBusy] = useState(false);
@@ -30,9 +32,9 @@ export function AccountPoolOnboardingTarget({
       await saveOnboardingTarget(accessToken, body);
       await client.invalidateQueries({ queryKey });
       setDraft(null);
-      toast.success("数量目标已保存");
+      toast.success(t("accountPool.onboarding.target.saveSuccess"));
     } catch {
-      toast.error("保存失败，请重试");
+      toast.error(t("accountPool.onboarding.target.saveError"));
     } finally {
       setBusy(false);
     }
@@ -40,23 +42,21 @@ export function AccountPoolOnboardingTarget({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>可用账号目标</CardTitle>
-        <CardDescription>
-          仅统计此处导入的 OAuth 账号。数量不足时从待授权库存排队；登录或验证码仍需人工完成，完成验证后才计入可用。
-        </CardDescription>
+        <CardTitle>{t("accountPool.onboarding.target.title")}</CardTitle>
+        <CardDescription>{t("accountPool.onboarding.target.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {query.isError && (
           <p role="alert" className="text-destructive">
-            目标读取失败，请刷新
+            {t("accountPool.onboarding.target.loadError")}
           </p>
         )}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           {[
-            ["已就绪", saved?.ready ?? 0],
-            ["处理中", saved?.in_progress ?? 0],
-            ["待授权库存", saved?.standby ?? 0],
-            ["尚缺", saved?.shortage ?? 0],
+            [t("accountPool.onboarding.target.metricReady"), saved?.ready ?? 0],
+            [t("accountPool.onboarding.target.metricInProgress"), saved?.in_progress ?? 0],
+            [t("accountPool.onboarding.target.metricStandby"), saved?.standby ?? 0],
+            [t("accountPool.onboarding.target.metricShortage"), saved?.shortage ?? 0],
           ].map(([label, count]) => (
             <div key={label} className="rounded-xl border bg-muted/30 p-4">
               <p className="text-xs text-muted-foreground">{label}</p>
@@ -66,7 +66,7 @@ export function AccountPoolOnboardingTarget({
         </div>
         <div className="grid items-end gap-4 md:grid-cols-[1fr_1fr_auto]">
           <div className="space-y-2">
-            <Label htmlFor="onboarding-target-count">目标数量（0～100）</Label>
+            <Label htmlFor="onboarding-target-count">{t("accountPool.onboarding.target.countLabel")}</Label>
             <Input
               id="onboarding-target-count"
               type="number"
@@ -79,7 +79,7 @@ export function AccountPoolOnboardingTarget({
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="onboarding-target-model">指定模型（留空不限）</Label>
+            <Label htmlFor="onboarding-target-model">{t("accountPool.onboarding.target.modelLabel")}</Label>
             <Input
               id="onboarding-target-model"
               value={value.model}
@@ -87,7 +87,7 @@ export function AccountPoolOnboardingTarget({
             />
           </div>
           <Button disabled={busy || query.isLoading || query.isError} onClick={() => void save()}>
-            保存目标
+            {t("accountPool.onboarding.target.saveButton")}
           </Button>
         </div>
         <Label className="flex items-center gap-2">
@@ -96,11 +96,9 @@ export function AccountPoolOnboardingTarget({
             checked={value.enabled}
             onChange={(event) => setDraft({ ...value, enabled: event.target.checked })}
           />
-          启用自动排队补充
+          {t("accountPool.onboarding.target.enableAutoQueue")}
         </Label>
-        <p className="text-xs text-muted-foreground">
-          降低目标不会停用现有卡片。手动暂停的账号不会自动恢复；未准备好邮箱的账号需先确认。
-        </p>
+        <p className="text-xs text-muted-foreground">{t("accountPool.onboarding.target.footnote")}</p>
       </CardContent>
     </Card>
   );
