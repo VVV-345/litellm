@@ -3,6 +3,7 @@
 
 import { getEmailBindingScript, updateEmailBindingScript } from "../../api/AccountPoolEmailRebindingApi";
 
+import { useTranslation } from "react-i18next";
 import { useId, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,7 @@ export function SettingsForm({
   disabled: boolean;
   save: (settings: AutomationSettings) => Promise<void>;
 }) {
+  const { t } = useTranslation(undefined, { keyPrefix: "accountPool.automation.script" });
   const [enabled, setEnabled] = useState(settings.enabled ?? false);
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -53,15 +55,15 @@ export function SettingsForm({
   return (
     <form className="grid max-w-xl gap-4" onSubmit={submit}>
       <p className="text-sm text-muted-foreground">
-        默认关闭。先自检固定镜像，再开启。全局同时只运行一个账号，人工等待计入总时限
+        {t("settingsHelp")}
       </p>
       <Label>
         <Checkbox checked={enabled} onCheckedChange={(value) => setEnabled(value === true)} disabled={disabled} />
-        开启授权自动化
+        {t("enable")}
       </Label>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-2">
-          <Label htmlFor="automation-total">总时限（秒）</Label>
+          <Label htmlFor="automation-total">{t("total")}</Label>
           <Input
             id="automation-total"
             name="total"
@@ -74,7 +76,7 @@ export function SettingsForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="automation-human">人工处理时限（秒）</Label>
+          <Label htmlFor="automation-human">{t("human")}</Label>
           <Input
             id="automation-human"
             name="human"
@@ -88,19 +90,20 @@ export function SettingsForm({
         </div>
       </div>
       <Button className="w-fit" type="submit" disabled={disabled}>
-        保存运行设置
+        {t("save")}
       </Button>
     </form>
   );
 }
 
-function scriptStatusLabel(value: LoginScriptStatus | undefined, failed: boolean) {
-  if (failed) return "无法加载脚本设置，请刷新后重试";
-  if (value?.invalid) return "当前脚本包损坏，请重新发布或切回内置脚本";
+function scriptStatusLabel(value: LoginScriptStatus | undefined, failed: boolean,
+  t: (key: string, options?: Record<string, string | number>) => string) {
+  if (failed) return t("loadError");
+  if (value?.invalid) return t("invalid");
   const active = value?.active;
   return active
-    ? `当前：${active.entrypoint} · ${active.file_count} 个文件 · ${active.sha256.slice(0, 12)}`
-    : "当前：内置脚本";
+    ? t("current", { entry: active.entrypoint, count: active.file_count, hash: active.sha256.slice(0, 12) })
+    : t("builtin");
 }
 
 export function AccountPoolLoginScriptSettings({
@@ -110,6 +113,7 @@ export function AccountPoolLoginScriptSettings({
   accessToken: string;
   kind?: "login" | "rebinding";
 }) {
+  const { t } = useTranslation(undefined, { keyPrefix: "accountPool.automation.script" });
   const rebinding = kind === "rebinding";
   const id = useId();
   const client = useQueryClient();
@@ -137,14 +141,14 @@ export function AccountPoolLoginScriptSettings({
     if (entries.length > maxFiles || entries.reduce((sum, { file }) => sum + file.size, 0) > maxBytes) {
       setFiles([]);
       setEntrypoint("");
-      setError("请选最多 64 个文件、总大小不超过 64 KiB 的脚本包");
+      setError(t("size"));
       return;
     }
     const available = entries.filter(({ path }) => isEntry(path));
     const entry = available.find(({ path }) => path === (rebinding ? "rebind.mjs" : "login.mjs")) ?? available[0];
     setFiles(entries);
     setEntrypoint(entry?.path ?? "");
-    setError(entry ? "" : "请选择包含一个 .mjs 或 .js 入口文件的目录");
+    setError(entry ? "" : t("entryRequired"));
   };
 
   const submit = async (form: HTMLFormElement, reset: boolean) => {
@@ -172,13 +176,13 @@ export function AccountPoolLoginScriptSettings({
         ? await updateEmailBindingScript(accessToken, publisherKey, bundle)
         : await updateAutomationLoginScript(accessToken, publisherKey, bundle);
       client.setQueryData(queryKey, current);
-      const successNotice = rebinding ? "已发布，下次换绑使用新脚本" : "已发布，下次启动自动授权时使用";
-      setNotice(reset ? "已切回内置脚本，运行中的任务不受影响" : successNotice);
+      const successNotice = rebinding ? t("publishedRebinding") : t("published");
+      setNotice(reset ? t("reset") : successNotice);
       setFiles([]);
       setEntrypoint("");
       form.reset();
     } catch {
-      setError("未能保存。请检查发布密钥、入口、文件大小或 Manager 日志");
+      setError(t("saveError"));
     } finally {
       setBusy(false);
     }
@@ -194,23 +198,23 @@ export function AccountPoolLoginScriptSettings({
   return (
     <section className="max-w-xl space-y-3 rounded-lg border p-4" aria-labelledby={`${id}-oauth-login-script-title`}>
       <h3 id={`${id}-oauth-login-script-title`} className="text-sm font-semibold">
-        {rebinding ? "邮箱换绑脚本" : "浏览器登录脚本"}
+        {rebinding ? t("emailScript") : t("browserScript")}
       </h3>
       <p className="break-all text-sm text-muted-foreground">
-        {status.isPending ? "正在加载脚本设置" : scriptStatusLabel(status.data, status.isError)}
+        {status.isPending ? t("loading") : scriptStatusLabel(status.data, status.isError, t)}
       </p>
       {publishingNotConfigured && (
-        <p className="text-sm text-muted-foreground">上传未启用，请联系管理员开启脚本发布。当前脚本不受影响。</p>
+        <p className="text-sm text-muted-foreground">{t("disabled")}</p>
       )}
       <p className="text-sm text-muted-foreground">
         {rebinding
-          ? "选 rebind.mjs（也支持 .js），入口导出 rebindEmail；有辅助文件就上传整个目录，不用打包，发布时须填写脚本发布密钥。"
-          : "独立脚本：选 login.mjs（也支持 .js）。有相对引用：选包含入口和依赖文件的目录，不用打包。入口须导出 automateLogin 和 verifyResumableAccount。"}
+          ? t("emailHelp")
+          : t("loginHelp")}
       </p>
       {!publishingNotConfigured && (
         <form className="grid gap-3" onSubmit={publish}>
           <div className="grid gap-2">
-            <Label htmlFor={`${id}-oauth-script-single`}>上传单文件</Label>
+            <Label htmlFor={`${id}-oauth-script-single`}>{t("upload")}</Label>
             <Input
               id={`${id}-oauth-script-single`}
               type="file"
@@ -218,7 +222,7 @@ export function AccountPoolLoginScriptSettings({
               disabled={disabled}
               onChange={(event) => choose(event.target.files)}
             />
-            <Label htmlFor={`${id}-oauth-script-folder`}>上传目录</Label>
+            <Label htmlFor={`${id}-oauth-script-folder`}>{t("directory")}</Label>
             <Input
               id={`${id}-oauth-script-folder`}
               type="file"
@@ -230,7 +234,7 @@ export function AccountPoolLoginScriptSettings({
           </div>
           {files.filter(({ path }) => isEntry(path)).length > 1 && (
             <div className="grid gap-2">
-              <Label htmlFor={`${id}-oauth-script-entry`}>入口文件（{files.length} 个文件）</Label>
+              <Label htmlFor={`${id}-oauth-script-entry`}>{t("entry", { count: files.length })}</Label>
               <select
                 id={`${id}-oauth-script-entry`}
                 className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -238,7 +242,7 @@ export function AccountPoolLoginScriptSettings({
                 disabled={disabled}
                 onChange={(event) => setEntrypoint(event.target.value)}
               >
-                <option value="">选择入口</option>
+                <option value="">{t("chooseEntry")}</option>
                 {files
                   .filter(({ path }) => isEntry(path))
                   .map(({ path }) => (
@@ -249,7 +253,7 @@ export function AccountPoolLoginScriptSettings({
               </select>
             </div>
           )}
-          <Label htmlFor={`${id}-oauth-script-key`}>脚本发布密钥</Label>
+          <Label htmlFor={`${id}-oauth-script-key`}>{t("publisherKey")}</Label>
           <Input
             id={`${id}-oauth-script-key`}
             name="publisher-key"
@@ -262,7 +266,7 @@ export function AccountPoolLoginScriptSettings({
           />
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={disabled || !entrypoint}>
-              发布脚本
+              {t("publish")}
             </Button>
             <Button
               type="button"
@@ -272,7 +276,7 @@ export function AccountPoolLoginScriptSettings({
                 if (event.currentTarget.form) void submit(event.currentTarget.form, true);
               }}
             >
-              切回内置脚本
+              {t("useBuiltin")}
             </Button>
           </div>
           {notice && (

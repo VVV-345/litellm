@@ -1,4 +1,5 @@
 /** 为创建和授权页面复用代理目录、默认出口与完整卡片统计。 */
+import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { getAccountPoolSettings } from "../api/AccountPoolManagementApi";
 import { proxyOptionLabel } from "../utils/AccountPoolProxyOptions";
@@ -7,6 +8,7 @@ import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 import { proxyGatewayQueryOptions } from "./useProxyGateways";
 
 export const useAccountPoolProxyOptions = (accessToken: string | null, enabled: boolean) => {
+  const { t } = useTranslation(undefined, { keyPrefix: "accountPool.proxyDisplay" });
   const active = enabled && accessToken !== null;
   const profilesQuery = useQuery({ ...accountPoolProxyProfileOptions(accessToken), enabled: active });
   const gatewaysQuery = useQuery({ ...proxyGatewayQueryOptions(accessToken), enabled: active });
@@ -29,10 +31,10 @@ export const useAccountPoolProxyOptions = (accessToken: string | null, enabled: 
     label: proxyOptionLabel(profile, gateways, cards, defaultId),
   }));
   const resolveDefaultLabel = () => {
-    if (settingsQuery.isError || profilesQuery.isError) return "默认网关读取失败";
-    if (settingsQuery.isPending || profilesQuery.isPending) return "默认网关读取中";
-    if (!defaultId) return "号池默认出站代理未配置";
-    return options.find((option) => option.value === defaultId)?.label ?? "号池默认出站代理当前不可用";
+    if (settingsQuery.isError || profilesQuery.isError) return t("failed");
+    if (settingsQuery.isPending || profilesQuery.isPending) return t("loading");
+    if (!defaultId) return t("notSet");
+    return options.find((option) => option.value === defaultId)?.label ?? t("unavailable");
   };
   const defaultLabel = resolveDefaultLabel();
   return { profilesQuery, profiles, options, defaultLabel };

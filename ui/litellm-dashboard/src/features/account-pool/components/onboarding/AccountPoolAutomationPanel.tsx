@@ -1,6 +1,7 @@
 /** 授权自动化工作区，登录资料仅保留在提交表单，画面访问复用临时浏览器票据。 */
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fingerprint, ListChecks, Mail, Settings2 } from "lucide-react";
@@ -41,28 +42,12 @@ import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { AccountPoolWorkspace } from "../shared/AccountPoolWorkspace";
 
 const active = new Set(["starting", "running", "waiting", "manual", "callback_pending", "validating", "verifying"]);
-const labels: Record<AutomationJob["stage"], string> = {
-  queued: "排队",
-  starting: "启动浏览器",
-  running: "自动登录 / 2FA",
-  waiting: "需要人工处理",
-  manual: "人工接管",
-  callback_pending: "等待回调",
-  validating: "确认凭据",
-  verifying: "模型验收",
-  verification_failed: "验收未通过",
-  completed: "验收通过",
-  cancelled: "已取消",
-  failed: "失败",
-  expired: "已超时",
-};
 type Operation = AutomationOperation;
-const localeNames = new Intl.DisplayNames("zh-CN", { type: "language" });
-const screenUnavailableAfterTakeover = new Error("已接管，但画面未能打开。请点「查看画面」重开，无需重新授权");
+const screenUnavailableAfterTakeover = new Error("screen-unavailable-after-takeover");
 
-const retryActionLabel = (job: AutomationJob) => {
-  if (job.credentials_saved) return "仅重试验收";
-  return job.callback_consumed ? "核对凭据后重试" : "新会话重试";
+const retryActionKey = (job: AutomationJob) => {
+  if (job.credentials_saved) return "retryVerify";
+  return job.callback_consumed ? "retryCredential" : "retrySession";
 };
 
 const toggleManualControl = async (
@@ -105,27 +90,28 @@ function JobRow({
   accessToken: string;
   view: (id: string) => Promise<void>;
 }) {
+  const { t } = useTranslation(undefined, { keyPrefix: "accountPool.automation" });
   const [retryModel, setRetryModel] = useState(job.credentials_saved ? job.model || "" : "");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const finished = !active.has(job.stage) && job.stage !== "queued";
   const remaining = remainingJobSeconds(job, now);
   const interactive = ["running", "waiting", "manual"].includes(job.stage);
   const locale = profile?.auto_match_proxy ? profile.matched_locale : profile?.locale;
-  const unverified = job.credentials_saved ? "未确认通过" : "未验收";
+  const unverified = job.credentials_saved ? t("notConfirmed") : t("notVerified");
   return (
-    <article className="space-y-3 rounded-lg border bg-background p-3" aria-label={`任务 ${job.id.slice(0, 8)}`}>
+    <article className="space-y-3 rounded-lg border bg-background p-3" aria-label={t("jobName", { id: job.id.slice(0, 8) })}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap gap-3 text-sm">
-          <strong>{labels[job.stage]}</strong>
-          <span>{job.draft_pending ? "待创建卡片" : "卡片"} {job.environment_id.slice(0, 8)}</span>
-          <span>出口 {job.proxy_profile_id}</span>
-          {locale && <span>配置语言 {locale}</span>}
-          {active.has(job.stage) && remaining !== null && <span className="tabular-nums">剩余 {remaining} 秒</span>}
+          <strong>{t(`status.${job.stage}`)}</strong>
+          <span>{job.draft_pending ? t("draftCard") : t("card")} {job.environment_id.slice(0, 8)}</span>
+          <span>{t("egress", { profile: job.proxy_profile_id })}</span>
+          {locale && <span>{t("profileLanguage", { locale })}</span>}
+          {active.has(job.stage) && remaining !== null && <span className="tabular-nums">{t("remaining", { seconds: remaining })}</span>}
         </div>
         <fieldset className="flex flex-wrap gap-2" disabled={disabled}>
           {interactive && (
             <Button size="sm" variant="outline" disabled={disabled} onClick={() => void run(() => view(job.id))}>
-              查看画面
+              {t("viewScreen")}
             </Button>
           )}
           {interactive && (
@@ -135,7 +121,7 @@ function JobRow({
               disabled={disabled}
               onClick={() => void run(() => toggleManualControl(accessToken, job, view))}
             >
-              {job.stage === "manual" ? "交回自动化" : "停止脚本并接管"}
+              {job.stage === "manual" ? t("resume") : t("takeover")}
             </Button>
           )}
           {(active.has(job.stage) || job.stage === "queued") && (
@@ -145,12 +131,12 @@ function JobRow({
               disabled={disabled}
               onClick={() => void run(() => actOnAutomation(accessToken, job.id, "cancel"))}
             >
-              取消
+              {t("cancel")}
             </Button>
           )}
           {finished && job.cleanup_pending && (
             <Button size="sm" variant="outline" onClick={() => void run(() => actOnAutomation(accessToken, job.id, "cleanup"))}>
-              重试清理
+              {t("retryCleanup")}
             </Button>
           )}
           {!job.cleanup_pending && ["failed", "expired", "cancelled", "verification_failed"].includes(job.stage) && (
@@ -160,12 +146,12 @@ function JobRow({
               disabled={cardMissing}
               onClick={() => void run(() => actOnAutomation(accessToken, job.id, "retry", retryModel.trim()))}
             >
-              {retryActionLabel(job)}
+              {t(retryActionKey(job))}
             </Button>
           )}
           {finished && !job.cleanup_pending && (
             <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>
-              删除记录
+              {t("deleteRecord")}
             </Button>
           )}
         </fieldset>
@@ -173,12 +159,12 @@ function JobRow({
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>删除授权任务记录</DialogTitle>
-            <DialogDescription>只删除任务历史。已保存的一键重授权资料请在指纹配置中单独忘记。</DialogDescription>
+            <DialogTitle>{t("deleteTitle")}</DialogTitle>
+            <DialogDescription>{t("deleteDescription")}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setConfirmDelete(false)}>
-              取消
+              {t("cancel")}
             </Button>
             <Button
               type="button"
@@ -189,32 +175,35 @@ function JobRow({
                 void run(() => deleteAutomationJob(accessToken, job.id));
               }}
             >
-              确认删除记录
+              {t("confirmDelete")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
       <p hidden={!cardMissing} className="text-sm text-muted-foreground">
-        原卡片已删除，请使用新卡提交新任务；不能重试旧卡任务
+        {t("missingCard")}
       </p>
       <p className="text-sm text-muted-foreground" role="status">
         {job.message}
       </p>
       {job.stage === "verification_failed" && (job.credentials_saved || job.callback_consumed) && (
         <Input
-          aria-label="重试验收模型"
+          aria-label={t("retryModel")}
           value={retryModel}
           onChange={(event) => setRetryModel(event.target.value)}
           maxLength={256}
           className="max-w-xs"
           disabled={disabled}
-          placeholder="选择这张卡片已启用的模型"
+          placeholder={t("selectEnabled")}
         />
       )}
       <p className="text-xs text-muted-foreground">
-        凭据{job.credentials_saved ? "已保存" : "未确认"}，Chat {job.chat_verified ? "通过" : unverified}，Responses{" "}
-        {job.responses_verified ? "通过" : unverified}
-        {job.model ? `，模型 ${job.model}` : ""}
+        {t("verificationSummary", {
+          credentials: job.credentials_saved ? t("saved") : t("unconfirmed"),
+          chat: job.chat_verified ? t("passed") : unverified,
+          responses: job.responses_verified ? t("passed") : unverified,
+        })}
+        {job.model ? t("modelSuffix", { model: job.model }) : ""}
       </p>
     </article>
   );
@@ -229,7 +218,9 @@ export function AccountPoolAutomationPanel({
   initialEnvironmentId?: string;
   reauthorizingJob?: AutomationJob;
 }) {
+  const { t, i18n } = useTranslation(undefined, { keyPrefix: "accountPool.automation" });
   const client = useQueryClient();
+  const localeNames = new Intl.DisplayNames(i18n.language, { type: "language" });
   const queryOptions = {
     queryKey: accountPoolQueryKeys.automation(accessToken),
     queryFn: () => getAutomation(accessToken),
@@ -270,10 +261,10 @@ export function AccountPoolAutomationPanel({
     try {
       await action();
       await client.invalidateQueries({ queryKey: accountPoolQueryKeys.automation(accessToken) });
-      toast.success("操作已完成");
+      toast.success(t("done"));
     } catch (error) {
       const message = error === screenUnavailableAfterTakeover
-        ? screenUnavailableAfterTakeover.message
+        ? t("screenUnavailable")
         : safeAutomationOperationMessage(error);
       setOperationError(message);
       toast.error(message);
@@ -302,7 +293,7 @@ export function AccountPoolAutomationPanel({
         })()
       : null;
     if (creatingCard && (!validProxy || !account || new TextEncoder().encode(credentials).length > 8192)) {
-      setFileError("请选有效代理，并填写一条有效的 2FA 登录资料");
+      setFileError(t("invalidInput"));
       return;
     }
     const name = explicitName || `Codex-套餐待识别-${account ?? ""}`.slice(0, 80);
@@ -333,14 +324,14 @@ export function AccountPoolAutomationPanel({
     setFileError("");
     if (!file) return;
     if (file.size > 8192) {
-      setFileError("文件不能超过 8 KB，只接收一个授权账号");
+      setFileError(t("fileTooLarge"));
       return;
     }
     try {
       const text = await file.text();
       if (generation === fileGeneration.current) setCredentials(text);
     } catch {
-      if (generation === fileGeneration.current) setFileError("无法读取文件，请重新选择");
+      if (generation === fileGeneration.current) setFileError(t("fileReadError"));
     }
   };
   const submitProfile = (event: FormEvent<HTMLFormElement>) => {
@@ -394,11 +385,11 @@ export function AccountPoolAutomationPanel({
       <DialogContent className="h-[85vh] w-[95vw] max-w-6xl">
         <DialogHeader>
           <div className="flex flex-wrap items-center justify-between gap-2 pr-6">
-            <DialogTitle>临时授权浏览器</DialogTitle>
+            <DialogTitle>{t("screenTitle")}</DialogTitle>
             {screenJob && (
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="rounded bg-muted px-2 py-0.5 font-medium">{labels[screenJob.stage]}</span>
-                {screenRemaining !== null && <span className="tabular-nums text-muted-foreground">剩余 {screenRemaining} 秒</span>}
+                <span className="rounded bg-muted px-2 py-0.5 font-medium">{t(`status.${screenJob.stage}`)}</span>
+                {screenRemaining !== null && <span className="tabular-nums text-muted-foreground">{t("remaining", { seconds: screenRemaining })}</span>}
                 {screenInteractive && (
                   <Button
                     type="button"
@@ -407,19 +398,19 @@ export function AccountPoolAutomationPanel({
                     disabled={busy}
                     onClick={() => void run(() => toggleManualControl(accessToken, screenJob, openJobScreen))}
                   >
-                    {screenJob.stage === "manual" ? "交回自动化" : "停止脚本并接管"}
+                    {screenJob.stage === "manual" ? t("resume") : t("takeover")}
                   </Button>
                 )}
               </div>
             )}
           </div>
           <DialogDescription>
-            查看画面不会开启输入。接管成功后请在授权页完成验证；返回任务可交回自动化。不支持录屏或保留 Cookie
+            {t("screenHelp")}
           </DialogDescription>
         </DialogHeader>
         {screen && (
           <iframe
-            title="授权浏览器画面"
+            title={t("screenFrame")}
             src={getAccountPoolOAuthBrowserUrl(screen.sessionId)}
             className="h-full min-h-0 w-full border"
             referrerPolicy="no-referrer"
@@ -431,21 +422,21 @@ export function AccountPoolAutomationPanel({
   if (reauthorizingJob) {
     return (
       <div className="space-y-3" aria-live="polite">
-        {query.isError && <p role="alert">无法读取最新任务进度，正在重试</p>}
+        {query.isError && <p role="alert">{t("progressUnavailable")}</p>}
         {operationError && (
           <p role="alert" className="text-sm text-destructive">{operationError}</p>
         )}
         {currentJob || !query.isSuccess || !query.isFetchedAfterMount ? (
           renderJob(currentJob ?? reauthorizingJob)
         ) : (
-          <p role="status">当前任务不在此列表，请刷新或到授权任务队列查看</p>
+          <p role="status">{t("jobNotListed")}</p>
         )}
         {screenDialog}
       </div>
     );
   }
-  if (query.isLoading) return <p role="status">正在读取授权自动化状态</p>;
-  if (!query.data) return <p role="alert">授权自动化不可用，请检查 Manager 连接后刷新</p>;
+  if (query.isLoading) return <p role="status">{t("loading")}</p>;
+  if (!query.data) return <p role="alert">{t("unavailable")}</p>;
   const state = query.data;
   const orphanedProfiles = state.profiles.filter((profile) =>
     profile.bound_environment_id && cards.isSuccess &&
@@ -464,7 +455,7 @@ export function AccountPoolAutomationPanel({
     <div className="space-y-4">
       <form className="grid gap-3 rounded-lg border bg-muted/10 p-4 md:grid-cols-2" onSubmit={submitJob}>
         <div className="space-y-2">
-          <Label htmlFor="automation-card">空白 Codex 卡片</Label>
+          <Label htmlFor="automation-card">{t("blankCard")}</Label>
           <select
             id="automation-card"
             name="card"
@@ -474,8 +465,8 @@ export function AccountPoolAutomationPanel({
             value={creatingCard || selectedCardAvailable ? selectedCard : ""}
             onChange={(event) => setSelectedCard(event.target.value)}
           >
-            <option value="">选择已同步出口代理的空白卡片</option>
-            <option value="__new__">新建 Codex 卡片</option>
+            <option value="">{t("selectCard")}</option>
+            <option value="__new__">{t("newCard")}</option>
             {emptyCards.map((card) => (
               <option key={card.id} value={card.id}>
                 {card.name}
@@ -486,17 +477,17 @@ export function AccountPoolAutomationPanel({
         {creatingCard && (
           <>
             <div className="space-y-2">
-              <Label htmlFor="automation-card-name">卡片名称（可留空）</Label>
+              <Label htmlFor="automation-card-name">{t("cardName")}</Label>
               <Input
                 id="automation-card-name"
                 name="card_name"
                 maxLength={80}
                 disabled={busy}
-                placeholder="留空按 Codex-套餐-账号 命名"
+                placeholder={t("nameHint")}
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="automation-proxy-profile">OAuth 出站代理</Label>
+              <Label htmlFor="automation-proxy-profile">{t("proxy")}</Label>
               <select
                 id="automation-proxy-profile"
                 required
@@ -505,7 +496,7 @@ export function AccountPoolAutomationPanel({
                 onChange={(event) => setNewProxyId(event.target.value)}
                 className="h-9 w-full rounded-md border bg-background px-3 text-sm"
               >
-                <option value="">选择代理节点</option>
+                <option value="">{t("selectProxy")}</option>
                 {proxyOptions.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
@@ -518,25 +509,25 @@ export function AccountPoolAutomationPanel({
         )}
         {linkedCardUnavailable && !creatingCard && (
           <p role="status" className="text-sm text-muted-foreground md:col-span-2">
-            所选卡片不满足空白 Codex 卡片与代理同步条件，请检查卡片状态后再选择。不会自动替换为其他账号
+            {t("unavailableCard")}
           </p>
         )}
         <div className="space-y-2">
-          <Label htmlFor="automation-model">验收模型（可留空，授权后发现）</Label>
+          <Label htmlFor="automation-model">{t("model")}</Label>
           <Input id="automation-model" name="model" maxLength={256} disabled={busy} />
         </div>
         {orphanedProfiles.length > 0 && (
           <div className="space-y-2">
-            <Label htmlFor="automation-reuse-profile">沿用原指纹（只限同一账号）</Label>
+            <Label htmlFor="automation-reuse-profile">{t("reuseProfile")}</Label>
             <select id="automation-reuse-profile" name="reuse_profile_id" disabled={busy}
               className="h-9 w-full rounded-md border bg-background px-3 text-sm">
-              <option value="">使用现有绑定或未绑定指纹</option>
+              <option value="">{t("availableProfile")}</option>
               {orphanedProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
             </select>
           </div>
         )}
         <div className="space-y-2 md:col-span-2">
-          <Label htmlFor="automation-file">登录资料文件</Label>
+          <Label htmlFor="automation-file">{t("file")}</Label>
           <Input
             id="automation-file"
             type="file"
@@ -544,7 +535,7 @@ export function AccountPoolAutomationPanel({
             disabled={busy}
             onChange={readCredentialFile}
           />
-          <Label htmlFor="automation-credentials">单账号资料</Label>
+          <Label htmlFor="automation-credentials">{t("credentials")}</Label>
           <Textarea
             id="automation-credentials"
             value={credentials}
@@ -560,7 +551,7 @@ export function AccountPoolAutomationPanel({
             required
           />
           <p className="text-xs text-muted-foreground">
-            仅用于你有权登录的账号。验证账号后，登录资料加密保存供原卡重新授权，可在指纹配置中忘记；验证码或未知页面转人工处理。
+            {t("authorizedOnly")}
           </p>
           {fileError && (
             <p role="alert" className="text-sm text-destructive">
@@ -573,12 +564,12 @@ export function AccountPoolAutomationPanel({
           disabled={busy || !credentials || !(creatingCard ? validProxy : selectedCardAvailable)}
           type="submit"
         >
-          {creatingCard ? "创建卡片并加入队列" : "添加到串行队列"}
+          {creatingCard ? t("createAndQueue") : t("enqueue")}
         </Button>
-        {!state.settings.enabled && <p className="text-sm text-muted-foreground">当前自动化已暂停，排队任务保留；开启后继续，添加后不会立即登录</p>}
+        {!state.settings.enabled && <p className="text-sm text-muted-foreground">{t("paused")}</p>}
       </form>
       {state.jobs.length === 0 ? (
-        <p className="text-sm text-muted-foreground">还没有授权任务。先生成指纹，再添加空白卡片和授权资料</p>
+        <p className="text-sm text-muted-foreground">{t("empty")}</p>
       ) : (
         [...state.jobs].reverse().map(renderJob)
       )}
@@ -587,16 +578,15 @@ export function AccountPoolAutomationPanel({
   const profiles = (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
-        选择浏览器呈现的系统，容器仍运行 Linux，不继承
-        Cookie。首次绑定按代理出口匹配地区、语言和时区，之后保持不变，已有账号不覆盖
+        {t("profileHelp")}
       </p>
       <form className="flex flex-wrap items-end gap-3" onSubmit={submitProfile}>
         <div className="space-y-2">
-          <Label htmlFor="automation-profile-name">配置名称</Label>
+          <Label htmlFor="automation-profile-name">{t("profileName")}</Label>
           <Input id="automation-profile-name" name="name" maxLength={80} required disabled={busy} />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="automation-os">浏览器系统</Label>
+          <Label htmlFor="automation-os">{t("os")}</Label>
           <select
             id="automation-os"
             name="os"
@@ -610,7 +600,7 @@ export function AccountPoolAutomationPanel({
           </select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="automation-locale">浏览器语言</Label>
+          <Label htmlFor="automation-locale">{t("language")}</Label>
           <select
             id="automation-locale"
             name="locale"
@@ -618,7 +608,7 @@ export function AccountPoolAutomationPanel({
             disabled={busy}
             defaultValue="auto"
           >
-            <option value="auto">按代理出口自动匹配</option>
+            <option value="auto">{t("matchProxy")}</option>
             {(state.locale_presets ?? ["en-US", "en-GB", "zh-CN"]).map((locale) => (
               <option key={locale} value={locale}>
                 {localeNames.of(locale)} ({locale})
@@ -627,12 +617,12 @@ export function AccountPoolAutomationPanel({
           </select>
         </div>
         <Button type="submit" disabled={busy || !state.image_checked}>
-          生成并验证
+          {t("generate")}
         </Button>
       </form>
-      {!state.image_checked && <p className="text-sm text-muted-foreground">请先在运行设置中完成镜像自检</p>}
+      {!state.image_checked && <p className="text-sm text-muted-foreground">{t("checkFirst")}</p>}
       <p className="text-sm text-muted-foreground">
-        原卡删除且任务清理完成后，可在新任务中为同一账号选择沿用原指纹。不迁移旧 OAuth 凭据。
+        {t("transferHelp")}
       </p>
       {state.profiles.map((profile) => (
         <ProfileRow
@@ -658,28 +648,28 @@ export function AccountPoolAutomationPanel({
         </p>
       )}
       <AccountPoolWorkspace
-        title="授权自动化"
+        title={t("title")}
         defaultOpen
         items={[
           {
             value: "jobs",
-            label: "任务队列",
+            label: t("jobs"),
             icon: ListChecks,
-            summary: `${state.jobs.filter((job) => active.has(job.stage) || job.stage === "queued").length} 个待完成`,
+            summary: t("pendingJobs", { count: state.jobs.filter((job) => active.has(job.stage) || job.stage === "queued").length }),
             content: jobs,
           },
           {
             value: "profiles",
-            label: "指纹配置",
+            label: t("profiles"),
             icon: Fingerprint,
-            summary: `${state.profiles.length} 个配置`,
+            summary: t("profileCount", { count: state.profiles.length }),
             content: profiles,
           },
           {
             value: "settings",
-            label: "运行设置",
+            label: t("settings"),
             icon: Settings2,
-            summary: state.settings.enabled ? "已开启" : "已关闭",
+            summary: state.settings.enabled ? t("enabled") : t("disabled"),
             content: (
               <div className="space-y-4">
                 <div className="flex items-center gap-3">
@@ -688,9 +678,9 @@ export function AccountPoolAutomationPanel({
                     disabled={busy}
                     onClick={() => void run(() => checkAutomationImage(accessToken))}
                   >
-                    自检浏览器镜像
+                    {t("checkImage")}
                   </Button>
-                  <span className="text-sm">{state.image_checked ? "当前镜像自检通过" : "当前镜像未通过自检"}</span>
+                  <span className="text-sm">{state.image_checked ? t("imagePassed") : t("imageUnchecked")}</span>
                 </div>
                 <SettingsForm
                   key={JSON.stringify(state.settings)}
@@ -704,7 +694,7 @@ export function AccountPoolAutomationPanel({
           },
           {
             value: "legacy-oauth",
-            label: "手动 OAuth / 邮箱库存",
+            label: t("manualOAuth"),
             icon: Mail,
             content: <AccountPoolOnboardingPanel accessToken={accessToken} legacyOAuth />,
           },

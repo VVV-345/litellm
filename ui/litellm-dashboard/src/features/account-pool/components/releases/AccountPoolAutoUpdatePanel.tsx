@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ApiError } from "@/lib/http/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,26 +17,13 @@ import {
   getAutoUpdate,
   saveAutoUpdate,
   type AutoUpdateSettings,
-  type AutoUpdateView,
 } from "../../api/AccountPoolReleasesApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 
-const statusLabels: Record<AutoUpdateView["status"], string> = {
-  disabled: "已关闭",
-  waiting: "等待检查",
-  checking: "正在检查",
-  current: "已是最新版本",
-  available: "发现新版本",
-  queued: "等待部署",
-  deploying: "正在部署",
-  paused: "已暂停",
-  error: "检查失败",
-};
-const checkedTime = (value: number | null | undefined) =>
-  value == null ? "暂无" : new Date(value * 1000).toLocaleString("zh-CN");
 type Draft = { enabled: boolean; interval: string; revision: number };
 
 export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: string }) {
+  const { t, i18n } = useTranslation(undefined, { keyPrefix: "accountPool.autoUpdate" });
   const client = useQueryClient();
   const queryKey = accountPoolQueryKeys.autoUpdate(accessToken);
   const queryOptions = { queryKey, queryFn: () => getAutoUpdate(accessToken), refetchInterval: 15000, retry: false };
@@ -70,6 +58,8 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
     },
   });
   const data = query.data;
+  const checkedTime = (value: number | null | undefined) =>
+    value == null ? t("none") : new Date(value * 1000).toLocaleString(i18n.language);
   const busy = save.isPending || check.isPending || reload.isPending;
   const form = draft ?? {
     enabled: data?.enabled ?? false,
@@ -101,22 +91,22 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
   return (
     <Card>
       <CardHeader>
-        <CardTitle>自动更新镜像</CardTitle>
-        <CardDescription>定时检查 GHCR 中 CLIProxyAPI分支 的配套镜像，开启后自动备份并部署新版本</CardDescription>
+        <CardTitle>{t("title")}</CardTitle>
+        <CardDescription>{t("description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {query.isPending && <p role="status">正在读取自动更新设置…</p>}
+        {query.isPending && <p role="status">{t("loading")}</p>}
         {query.isError && (
           <p role="alert" className="text-sm text-destructive">
             {query.error instanceof ApiError && query.error.status === 404
-              ? "自动更新接口不可用（404），请确认部署服务已启用并升级到支持自动更新的版本"
-              : `自动更新状态读取失败：${query.error.message}`}
+              ? t("missingApi")
+              : t("loadError", { message: query.error.message })}
           </p>
         )}
         {data && (
           <>
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="auto-update-enabled">自动部署新镜像</Label>
+              <Label htmlFor="auto-update-enabled">{t("enable")}</Label>
               <Switch
                 id="auto-update-enabled"
                 checked={form.enabled}
@@ -128,7 +118,7 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="auto-update-interval">检查间隔（分钟）</Label>
+              <Label htmlFor="auto-update-interval">{t("interval")}</Label>
               <Input
                 id="auto-update-interval"
                 type="number"
@@ -142,15 +132,15 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
               />
               {!validInterval && (
                 <p role="alert" className="text-sm text-destructive">
-                  检查间隔须为 5 到 1440 的整数
+                  {t("invalidInterval")}
                 </p>
               )}
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
-              自动部署会暂停业务并备份数据库，可能短暂中断请求。关闭后立即检查只检测镜像，不部署；尚未执行的自动部署会取消，已开始执行的部署会完成或安全恢复。
+              {t("downtime")}
             </p>
             {!data.database_backups_enabled && (
-              <p className="text-sm text-muted-foreground">请先配置数据库备份，才能开启自动部署</p>
+              <p className="text-sm text-muted-foreground">{t("backupRequired")}</p>
             )}
             {form.enabled && (
               <div className="flex items-start gap-2">
@@ -161,45 +151,45 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
                   disabled={busy}
                 />
                 <Label htmlFor="auto-update-acknowledgement" className="text-sm leading-5">
-                  我确认自动部署会暂停业务、备份数据库，并允许服务短暂中断
+                  {t("acknowledge")}
                 </Label>
               </div>
             )}
             <dl className="space-y-2 text-xs">
               <div>
-                <dt className="text-muted-foreground">当前状态</dt>
-                <dd>{statusLabels[data.status]}</dd>
+                <dt className="text-muted-foreground">{t("currentStatus")}</dt>
+                <dd>{t(`status.${data.status}`)}</dd>
               </div>
               {data.message && (
                 <div>
-                  <dt className="sr-only">状态说明</dt>
+                  <dt className="sr-only">{t("statusDetails")}</dt>
                   <dd>{data.message}</dd>
                 </div>
               )}
               <div>
-                <dt className="text-muted-foreground">上次检查</dt>
+                <dt className="text-muted-foreground">{t("lastCheck")}</dt>
                 <dd>{checkedTime(data.last_checked_at)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">下次检查</dt>
+                <dt className="text-muted-foreground">{t("nextCheck")}</dt>
                 <dd>{checkedTime(data.next_check_at)}</dd>
               </div>
               <div>
-                <dt className="text-muted-foreground">运行提交 / 候选提交</dt>
+                <dt className="text-muted-foreground">{t("commits")}</dt>
                 <dd className="break-all">
-                  {data.current_commit ?? "未知"} / {data.candidate_commit ?? "暂无"}
+                  {data.current_commit ?? t("unknown")} / {data.candidate_commit ?? t("none")}
                 </dd>
               </div>
               {data.last_job_id && (
                 <div>
-                  <dt className="text-muted-foreground">最近部署任务</dt>
+                  <dt className="text-muted-foreground">{t("lastJob")}</dt>
                   <dd className="break-all">{data.last_job_id}</dd>
                 </div>
               )}
             </dl>
             <div className="flex flex-wrap gap-2">
               <Button disabled={busy || !canSave} onClick={submit}>
-                {save.isPending ? "正在保存…" : "保存自动更新设置"}
+                {save.isPending ? t("saving") : t("save")}
               </Button>
               <Button
                 variant="outline"
@@ -209,36 +199,36 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
                   check.mutate();
                 }}
               >
-                {check.isPending ? "正在提交…" : "立即检查"}
+                {check.isPending ? t("submitting") : t("check")}
               </Button>
             </div>
           </>
         )}
         {error && (
           <p role="alert" className="text-sm text-destructive">
-            {conflict ? `保存未完成，编辑内容已保留。请核对错误并重新载入设置：${error.message}` : error.message}
+            {conflict ? t("conflict", { message: error.message }) : error.message}
           </p>
         )}
         {save.isSuccess && (
           <p role="status" className="text-sm">
-            自动更新设置已保存
+            {t("saved")}
           </p>
         )}
         {check.isSuccess && (
           <p role="status" className="text-sm">
-            检查请求已提交，结果将自动刷新
+            {t("submitted")}
           </p>
         )}
         {(conflict || query.isError) && (
           <Button variant="outline" disabled={busy} onClick={() => reload.mutate()}>
-            重新载入设置
+            {t("reload")}
           </Button>
         )}
         <Link
           className="block text-sm text-primary hover:underline"
           href={`${migratedHref("account-pool")}?tab=releases`}
         >
-          查看版本与部署日志
+          {t("logs")}
         </Link>
       </CardContent>
     </Card>

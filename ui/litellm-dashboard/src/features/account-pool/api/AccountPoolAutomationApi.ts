@@ -1,4 +1,5 @@
 /** 授权自动化请求仅走管理员接口，任务查询不包含密码、TOTP 或浏览器票据。 */
+import i18n from "@/i18n";
 import { ApiError } from "@/lib/http/client";
 import { apiClient } from "@/components/networking";
 import type { components } from "@/lib/http/schema";
@@ -90,8 +91,8 @@ const operatorErrorCodes = new Set([
 
 export function safeAutomationOperationMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    if (error.status === 401) return "号池登录已过期，请重新登录后台；不会重新提交 OAuth 登录";
-    if (error.status === 403) return "没有执行授权自动化操作的权限";
+    if (error.status === 401) return i18n.t("accountPool.automation.unauthorized");
+    if (error.status === 403) return i18n.t("accountPool.automation.forbidden");
     const body = error.body;
     const detail = body && typeof body === "object" && "detail" in body ? body.detail : null;
     // Gateway 只会为审核过的固定提示返回此结构；任意上游字符串仍不公开。
@@ -104,5 +105,5 @@ export function safeAutomationOperationMessage(error: unknown): string {
     }
     if ([404, 409].includes(error.status)) return error.message;
   }
-  return "操作未完成，请刷新任务或检查镜像自检、卡片与代理状态";
+  return i18n.t("accountPool.automation.operationFailed");
 }

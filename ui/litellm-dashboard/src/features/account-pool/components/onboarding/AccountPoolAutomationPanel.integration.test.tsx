@@ -7,6 +7,7 @@ import { AccountPoolAutomationPanel } from "./AccountPoolAutomationPanel";
 import type { AutomationJob, AutomationView } from "../../api/AccountPoolAutomationApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { ApiError } from "@/lib/http/client";
+import i18n from "@/i18n";
 
 const { get, post, put, del, toastError } = vi.hoisted(() => ({
   get: vi.fn(),
@@ -57,7 +58,8 @@ const mount = (initialEnvironmentId?: string) => {
   );
   return client;
 };
-beforeEach(() => {
+beforeEach(async () => {
+  await i18n.changeLanguage("zh-CN");
   vi.clearAllMocks();
   get.mockImplementation(async (path: string) =>
     path.endsWith("/oauth-automation")
@@ -78,6 +80,13 @@ beforeEach(() => {
   post.mockResolvedValue(job);
   put.mockResolvedValue(view);
   del.mockResolvedValue(view);
+});
+
+it("renders the authorization queue controls in English", async () => {
+  await i18n.changeLanguage("en");
+  mount();
+  expect(await screen.findByLabelText("Blank Codex card")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Add to queue" })).toBeInTheDocument();
 });
 
 const orphanProfile: AutomationView["profiles"][number] = {

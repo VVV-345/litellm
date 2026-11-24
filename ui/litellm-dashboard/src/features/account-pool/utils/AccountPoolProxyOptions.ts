@@ -1,4 +1,5 @@
 /** 统一代理端口、默认出口和同节点卡片数的展示，不处理代理凭据。 */
+import i18n from "@/i18n";
 import type { AccountPoolEnvironment, AccountPoolProxyGateway, AccountPoolProxyProfile } from "./AccountPoolTypes";
 
 type Gateway = Pick<AccountPoolProxyGateway, "port" | "profile_id" | "current_node" | "isp_profile_id">;
@@ -15,18 +16,19 @@ export const proxyOptionLabel = (
   cards: readonly Card[] | undefined,
   defaultProfileId?: string | null,
 ) => {
+  const t = i18n.getFixedT(null, "translation", "accountPool.proxyDisplay");
   const gateway = gateways.find((item) => item.profile_id === profile.id);
   const identity = nodeIdentity(gateway);
   const usage = identity && cards
-    ? `同节点 ${cards.filter((card) => nodeIdentity(gateways.find((item) => item.profile_id === card.proxy_profile_id)) === identity).length} 张卡片`
-    : "同节点卡片数未知";
-  const fallback = profile.id.startsWith("clash-gateway-") ? ["节点未知", usage] : [];
+    ? t("cards", { count: cards.filter((card) => nodeIdentity(gateways.find((item) => item.profile_id === card.proxy_profile_id)) === identity).length })
+    : t("unknownCards");
+  const fallback = profile.id.startsWith("clash-gateway-") ? [t("unknownNode"), usage] : [];
   const details = gateway ? [
-    ...(!profile.name.includes(String(gateway.port)) ? [`端口 ${gateway.port}`] : []),
-    gateway.current_node ? `节点：${gateway.current_node}` : "节点未知", usage,
+    ...(!profile.name.includes(String(gateway.port)) ? [t("port", { port: gateway.port })] : []),
+    gateway.current_node ? t("node", { node: gateway.current_node }) : t("unknownNode"), usage,
   ] : fallback;
   return [
-    ...(profile.id === defaultProfileId ? ["号池默认出站代理"] : []),
+    ...(profile.id === defaultProfileId ? [t("default")] : []),
     profile.name,
     ...details,
   ].join(" · ");

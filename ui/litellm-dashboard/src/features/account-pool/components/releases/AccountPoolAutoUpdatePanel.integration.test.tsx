@@ -20,7 +20,7 @@ const initial = {
   branch: "CLIProxyAPI分支",
   database_backups_enabled: true,
 };
-let state = { ...initial };
+let state: Omit<typeof initial, "last_checked_at"> & { last_checked_at: number | null } = { ...initial };
 let failure = 0;
 let getFailure = 0;
 let requests: { path: string; body: unknown; authorization: string | null }[];
@@ -70,6 +70,17 @@ describe("automatic image updates in settings", () => {
     );
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("updates the status, controls and timestamp when switching to English", async () => {
+    const timestamp = 1700000000;
+    state = { ...initial, last_checked_at: timestamp };
+    show();
+    await screen.findByRole("switch", { name: "自动部署新镜像" });
+    await act(async () => { await i18n.changeLanguage("en"); });
+    expect(screen.getByRole("switch", { name: "Automatically deploy new images" })).toBeInTheDocument();
+    expect(screen.getByText("Disabled")).toBeInTheDocument();
+    expect(screen.getByText(new Date(timestamp * 1000).toLocaleString("en"))).toBeInTheDocument();
+  });
 
   it("requires acknowledgement before saving an enabled schedule through the authenticated API", async () => {
     const user = userEvent.setup();
