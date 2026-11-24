@@ -434,6 +434,8 @@ class Conversation:
         *,
         migrated: bool = False,
     ) -> Mapping[str, object] | None:
+        if self.identity.card_id is not None:
+            return None
         deployments: Final = _DEPLOYMENTS.validate_python(router.get_model_list(model_name=self.model) or ())
         failed: Final = getattr(error, "failed_deployment_id", None) or self.origin
         origin: Final = (
@@ -450,12 +452,12 @@ class Conversation:
                 return None
             if not self._relaxed_trigger(error, snapshot):
                 return None
-            if not self._history_replayable() or self.history is None:
-                raise ConversationUnavailableError() from error
-            input_items: Final = self.history
             relaxed_excluded: Final = self._excluded(payload, deployments, failed)
             if not any(deployment_id(item) not in relaxed_excluded for item in deployments):
                 return None
+            if not self._history_replayable() or self.history is None:
+                raise ConversationUnavailableError() from error
+            input_items: Final = self.history
             verbose_proxy_logger.warning(
                 "Account pool conversation degraded migration; request_id=%s degraded=%s",
                 self.identity.request_id,
@@ -481,13 +483,13 @@ class Conversation:
             )
         ):
             return None
+        excluded: Final = self._excluded(payload, deployments, failed)
+        if not any(deployment_id(item) not in excluded for item in deployments):
+            return None
         if not migrated and not self.can_replay(router, payload):
             verbose_proxy_logger.info("Account pool conversation migration blocked; reason=incomplete_or_unsupported_history")
             if payload.get("previous_response_id") and not payload.get("disable_fallbacks") and payload.get("max_fallbacks", router.max_fallbacks) != 0:
                 raise ConversationUnavailableError() from error
-            return None
-        excluded: Final = self._excluded(payload, deployments, failed)
-        if not any(deployment_id(item) not in excluded for item in deployments):
             return None
         history: Final = self.history if self._history_replayable() else ()
         if not history:

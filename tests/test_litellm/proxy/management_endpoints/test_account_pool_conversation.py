@@ -1746,3 +1746,63 @@ async def test_conversation_switch_limit_is_five(monkeypatch, mode, limit, route
         pool_identity.reset(token)
         snapshots.replace(before)
         router.discard()
+
+
+@pytest.mark.asyncio
+async def test_card_bound_key_preserves_upstream_error_instead_of_503_when_history_missing(pool):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+
+    router, (first, _second) = pool
+    payload = {"model": "shared", "input": "Continue", "previous_response_id": response(first).id}
+    token = pool_identity.set(PoolIdentity(key_hash="bound-key", request_id=uuid4(), card_id=first))
+    try:
+        conversation = await Conversation.start(router, payload)
+        assert conversation is not None
+        upstream_error = RateLimitError(message="quota_exhausted", model="shared", llm_provider="openai")
+        upstream_error.failed_deployment_id = str(first)
+
+        async def invoke(_rebuilt):
+            raise AssertionError("card-bound key must not migrate to another card")
+
+        with pytest.raises(RateLimitError) as caught:
+            await conversation.recover(router, payload, upstream_error, invoke)
+        assert caught.value is upstream_error
+    finally:
+        pool_identity.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_single_card_pool_preserves_upstream_error_instead_of_503_when_history_missing(monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "s" * 32)
+    only_card = uuid4()
+    router = Router(
+        model_list=[
+            {
+                "model_name": "solo",
+                "litellm_params": {"model": "openai/gpt-5", "api_base": "http://solo.local/v1", "api_key": "k"},
+                "model_info": {"id": str(only_card), "account_pool_environment_id": str(only_card)},
+            }
+        ]
+    )
+    before = snapshots.values
+    snapshots.replace({str(only_card): RoutingSnapshot()})
+    token = pool_identity.set(PoolIdentity(key_hash="pool-key", request_id=uuid4()))
+    try:
+        payload = {"model": "solo", "input": "Continue", "previous_response_id": response(only_card).id}
+        conversation = await Conversation.start(router, payload)
+        assert conversation is not None
+        upstream_error = RateLimitError(message="quota_exhausted", model="solo", llm_provider="openai")
+        upstream_error.failed_deployment_id = str(only_card)
+
+        async def invoke(_rebuilt):
+            raise AssertionError("single-card pool has no backup deployment")
+
+        with pytest.raises(RateLimitError) as caught:
+            await conversation.recover(router, payload, upstream_error, invoke)
+        assert caught.value is upstream_error
+    finally:
+        pool_identity.reset(token)
+        snapshots.replace(before)
+        router.discard()

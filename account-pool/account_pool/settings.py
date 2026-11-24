@@ -548,6 +548,42 @@ class PostgresAccountPoolSettingsRepository:
                 """,
                 (Jsonb(stored_settings(defaults)), now),
             )
+            # 仅刷新从未被管理员修改过的旧版 version=0 初始行，绝不覆盖 version>0 的显式配置。
+            await connection.execute(
+                """
+                UPDATE account_pool_settings
+                SET payload = payload || jsonb_build_object(
+                    'quota_switch_project', %s::boolean,
+                    'quota_switch_preview_model', %s::boolean
+                ),
+                    updated_at = %s
+                WHERE singleton = true
+                  AND version = 0
+                  AND NOT EXISTS (SELECT 1 FROM account_pool_settings_history WHERE version > 0)
+                  AND (
+                      COALESCE((payload->>'quota_switch_project')::boolean, false) = false
+                      OR COALESCE((payload->>'quota_switch_preview_model')::boolean, false) = false
+                  )
+                """,
+                (defaults.quota_switch_project, defaults.quota_switch_preview_model, now),
+            )
+            await connection.execute(
+                """
+                UPDATE account_pool_settings_history
+                SET payload = payload || jsonb_build_object(
+                    'quota_switch_project', %s::boolean,
+                    'quota_switch_preview_model', %s::boolean
+                )
+                WHERE version = 0
+                  AND source = 'initial'
+                  AND NOT EXISTS (SELECT 1 FROM account_pool_settings_history WHERE version > 0)
+                  AND (
+                      COALESCE((payload->>'quota_switch_project')::boolean, false) = false
+                      OR COALESCE((payload->>'quota_switch_preview_model')::boolean, false) = false
+                  )
+                """,
+                (defaults.quota_switch_project, defaults.quota_switch_preview_model),
+            )
 
     async def get(self) -> AccountPoolSettingsView:
         async with database_connection(self._database_url) as connection:

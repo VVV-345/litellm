@@ -539,3 +539,32 @@ def test_auth_file_template_accepts_only_non_secret_typed_fields(template) -> No
 
     with pytest.raises(ValidationError):
         AccountPoolSettings.model_validate({"auth_file_template": template})
+
+
+@pytest.mark.asyncio
+async def test_postgres_settings_initialize_upgrades_only_untouched_version_zero_quota_defaults(monkeypatch) -> None:
+    from contextlib import asynccontextmanager
+    import account_pool.settings as settings_module
+
+    executed: list[tuple[str, object]] = []
+
+    class FakeConnection:
+        async def execute(self, sql: str, params=None):
+            executed.append((sql, params))
+
+    @asynccontextmanager
+    async def fake_connection(_database_url: str):
+        yield FakeConnection()
+
+    monkeypatch.setattr(settings_module, "database_connection", fake_connection)
+    repo: Final = settings_module.PostgresAccountPoolSettingsRepository("postgresql://fixture")
+    await repo.initialize()
+
+    updates: Final = [
+        (sql, params) for sql, params in executed if "UPDATE account_pool_settings" in sql
+    ]
+    assert len(updates) == 2
+    for sql, params in updates:
+        assert "version = 0" in sql
+        assert "NOT EXISTS (SELECT 1 FROM account_pool_settings_history WHERE version > 0)" in sql
+        assert params is not None and params[0] is True and params[1] is True

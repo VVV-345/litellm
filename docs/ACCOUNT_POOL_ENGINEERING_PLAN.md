@@ -48,9 +48,9 @@
 - **验收**：`test_compose_renderer.py`、`test_runtime_maintenance.py`、`test_oauth_browser.py`、`test_account_pool.py` 共 `283 passed, 1 skipped`（Postgres 跳过项为无测试库环境）
 
 ### 批次 3：存量默认开关升级兼容与 `/v1/responses` 错误透传（P1 #4, P2 #7）
-- [ ] `PostgresAccountPoolSettingsRepository.initialize()` 仅刷新未修改的 `version = 0` 存量初始行至最新默认开关
-- [ ] `Conversation.rebuild()` 先判断是否有除失败部署外的可用备卡，无备卡时透传上游原始错误而非 503
-- **验收**：`test_settings.py`、`test_gateway_service.py`、`test_account_pool_conversation.py`、`test_account_pool_native_routing.py`、`test_account_pool_quota_failover.py`
+- [x] `PostgresAccountPoolSettingsRepository.initialize()` 仅刷新未修改的 `version = 0` 存量初始行至最新默认开关
+- [x] `Conversation.rebuild()` 先判断是否有除失败部署外的可用备卡，无备卡（含卡绑虚拟 Key）时透传上游原始错误而非 503
+- **验收**：Manager `test_settings.py` + `test_gateway_service.py`（`94 passed`）；LiteLLM `test_account_pool_conversation.py` + `test_account_pool_quota_failover.py` + `test_account_pool_native_routing.py`（`256 passed`）
 
 ### 批次 4：实时并发与费用查询优化 + OpenAI 兼容卡发现加固（P1 #5, P2 #6）
 - [ ] `LeaseRepository.in_flight_counts(account_id: UUID | None = None)` 支持单卡精准查询并新增 `account_pool_leases_expires_idx` 幂等索引
