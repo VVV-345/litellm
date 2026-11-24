@@ -1601,3 +1601,78 @@ async def test_manual_auth_replacement_recovers_pending_only_after_credential_va
     finally:
         await native_after.close()
     assert isinstance(result, Failure if failed else Success)
+
+
+@pytest.mark.asyncio
+async def test_submit_matches_profile_outside_transaction_and_reports_readiness_error() -> None:
+    from contextlib import asynccontextmanager
+    from account_pool.oauth_automation.models import AutomationDraft, AutomationSettings, JobInput, ProfileInput
+
+    card = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None)
+    environments = MemoryRepository(card)
+    inner_repo = MemoryAutomationStore()
+    tx_active = False
+
+    class TrackingRepo:
+        @asynccontextmanager
+        async def worker_lock(self):
+            async with inner_repo.worker_lock() as acquired:
+                yield acquired
+
+        async def read(self):
+            return await inner_repo.read()
+
+        @asynccontextmanager
+        async def transaction(self):
+            nonlocal tx_active
+            async with inner_repo.transaction() as tx:
+                tx_active = True
+                try:
+                    yield tx
+                finally:
+                    tx_active = False
+
+    observed_tx_during_match: list[bool] = []
+
+    class TrackingWorker(ProfileWorker):
+        async def generate(self, locale: str, operating_system: str):
+            observed_tx_during_match.append(tx_active)
+            return await super().generate(locale, operating_system)
+
+    class TrackingProbe(FixtureLocationProbe):
+        async def locate(self, proxy_url: str):
+            observed_tx_during_match.append(tx_active)
+            return await super().locate(proxy_url)
+
+    registry = AutomationRegistry(
+        TrackingRepo(),
+        environments,
+        TrackingWorker(),
+        EnvironmentSecretDeriver("s" * 32),
+        CredentialOwnership(),
+        StaticProfiles("http://proxy.example:8080"),
+        location_probe=TrackingProbe(),
+    )
+    assert "自检" in (await registry.readiness_error() or "")
+    checked = await registry.self_check()
+    assert isinstance(checked, Success)
+    assert "开启自动化" in (await registry.readiness_error() or "")
+    enabled = await registry.save_settings(AutomationSettings(enabled=True), checked.value.version)
+    assert isinstance(enabled, Success)
+    assert await registry.readiness_error() is None
+
+    created = await registry.create_profile(ProfileInput(name="auto-match", auto_match_proxy=True, locale="en-US"))
+    assert isinstance(created, Success)
+    observed_tx_during_match.clear()
+    draft_id = uuid4()
+    submitted = await registry.submit(
+        JobInput(
+            id=draft_id,
+            environment_id=draft_id,
+            credentials="lockfree@example.test----pass1234----JBSWY3DPEHPK3PXP",
+            draft=AutomationDraft(name="Draft Card", proxy_profile_id="proxy-1"),
+        )
+    )
+    assert isinstance(submitted, Success)
+    # 关键防回归断言：location_probe.locate 与 worker.generate 均不得在 DB 事务锁内执行。
+    assert observed_tx_during_match == [False, False]

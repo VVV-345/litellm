@@ -103,6 +103,14 @@ class AutomationRegistry:
         row: Final = next((job for job in state.jobs if job.item.id == job_id), None)
         return None if row is None else row.item.model_copy(update={"cleanup_pending": row.cleanup_pending})
 
+    async def readiness_error(self) -> str | None:
+        state: Final = await self.repository.read()
+        if self.worker.image is None or state.checked_image != self.worker.image:
+            return "请先通过当前浏览器镜像自检后再执行批量 2FA 自动上号"
+        if not state.settings.enabled:
+            return "请先在浏览器 OAuth 自动化面板开启自动化后再执行批量 2FA 自动上号"
+        return None
+
     async def self_check(self) -> Result[AutomationView]:
         if self.worker.image is None:
             return Failure(FailureCode.CONFLICT, "请先配置按 digest 固定的服务端浏览器镜像")
@@ -209,115 +217,135 @@ class AutomationRegistry:
         draft: Final = request.draft
         if draft is not None and request.environment_id != request.id:
             return Failure(FailureCode.INVALID, "新卡片和授权任务必须使用同一个操作标识")
-        async with self.ownership.operation(request.environment_id), self.repository.transaction() as tx:
-            state: Final = tx.snapshot
-            existing: Final = next((job for job in state.jobs if job.item.id == request.id), None)
-            if existing is not None:
-                return (
-                    Success(existing.item)
-                    if existing.account_digest == identity and existing.item.environment_id == request.environment_id
-                    and existing.draft == draft
-                    and (request.reuse_profile_id is None or existing.item.profile_id == request.reuse_profile_id)
-                    else Failure(FailureCode.CONFLICT, "任务标识已被其他输入使用")
-                )
-            record: Final = await self.environments.get(request.environment_id)
-            if draft is not None:
-                if record is not None:
-                    return Failure(FailureCode.CONFLICT, "新卡片操作标识已占用")
-                if await self.proxy_profiles.get_url(draft.proxy_profile_id) is None:
-                    return Failure(FailureCode.INVALID, "所选出口代理不可用，未创建卡片")
-                proxy_id, config_version = draft.proxy_profile_id, 0
-            else:
-                if record is None or record.status is EnvironmentStatus.DELETING:
-                    return Failure(FailureCode.NOT_FOUND, "请选择已有的空白 Codex 卡片")
-                if (
-                    record.supplier is not SupplierKind.OPENAI_CODEX
-                    or record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH
-                ):
-                    return Failure(FailureCode.INVALID, "仅支持 Codex 浏览器 OAuth")
-                if record.auth_file_name or record.credential_fingerprints or not record.enabled or record.manual_cooldown:
-                    return Failure(FailureCode.CONFLICT, "卡片已有凭据、停用或处于手动冷却，不覆盖现有认证")
-                if (
-                    record.proxy_profile_id is None
-                    or record.configuration_pending
-                    or record.desired_configuration_version != record.observed_configuration_version
-                ):
-                    return Failure(FailureCode.CONFLICT, "请先保存并同步卡片的普通出口代理配置")
-                proxy_id, config_version = record.proxy_profile_id, record.observed_configuration_version
-            environment_id: Final = request.environment_id
-            if any(
-                job.item.environment_id == environment_id and (
-                    job.item.stage in ACTIVE | {"queued"} or job.cleanup_pending
-                ) for job in state.jobs
-            ):
-                return Failure(FailureCode.CONFLICT, "这张卡片已有排队或运行中的任务")
-            if any(p.item.bound_environment_id == environment_id and p.account_digest != identity for p in state.profiles):
-                return Failure(FailureCode.CONFLICT, "卡片已有其他账号的指纹；若从未登录，先释放未登录预留")
-            bound: Final = next((p for p in state.profiles if p.account_digest == identity), None)
-            if request.reuse_profile_id is not None and (bound is None or bound.item.id != request.reuse_profile_id):
-                return Failure(FailureCode.CONFLICT, "只能迁移与提交资料为同一账号的原指纹")
-            transfer: Final = bound is not None and bound.item.bound_environment_id != environment_id
-            if transfer and bound is not None:
-                prior_id: Final = bound.item.bound_environment_id
-                if prior_id is None or await self.environments.get(prior_id) is not None:
-                    return Failure(FailureCode.CONFLICT, "原卡片仍存在，不允许把同一账号分给两张卡")
-                if request.reuse_profile_id is None:
-                    return Failure(FailureCode.CONFLICT, "原卡片已删除，请显式选择迁移原指纹或删除失效绑定")
-                if any(job.item.profile_id == bound.item.id and (
-                    job.cleanup_pending or job.item.stage in ACTIVE | {"queued"}
-                ) for job in state.jobs):
-                    return Failure(FailureCode.CONFLICT, "原指纹还有未停止或未清理的任务")
-            profile: Final = bound or next(
-                (p for p in state.profiles if p.item.enabled and p.account_digest is None), None
-            )
-            if profile is None or not profile.item.enabled:
-                return Failure(FailureCode.CONFLICT, "没有可用的未绑定指纹，请添加或启用该账号原有指纹")
-            if len(state.jobs) >= 200:
-                return Failure(FailureCode.CONFLICT, "任务记录已达到 200 条上限，暂不能继续添加")
-            matched: Final = await self._match_profile(profile, proxy_id) if bound is None else Success(profile)
-            if isinstance(matched, Failure):
-                return matched
-            now: Final = utc_now()
-            item: Final = JobView(
-                id=request.id,
-                environment_id=environment_id,
-                profile_id=profile.item.id,
-                proxy_profile_id=proxy_id,
-                configuration_version=config_version,
-                model=request.model,
-                draft_pending=draft is not None,
-                message="待创建卡片；已保存授权任务" if draft is not None else "等待开启自动化后串行执行",
-                created_at=now,
-                updated_at=now,
-            )
-            job: Final = StoredJob(
-                item=item,
-                account_digest=identity,
-                credential_ciphertext=StateCipher(self.secrets).seal(environment_id, request.credentials),
-                draft=draft,
-            )
-            assigned: Final = matched.value.model_copy(
-                update={
-                    "account_digest": identity,
-                    **({"login_ciphertext": None} if transfer else {}),
-                    "item": matched.value.item.model_copy(
-                        update={
-                            "bound_environment_id": environment_id,
-                            "reservation": bound is None or profile.item.reservation,
-                            "version": profile.item.version + 1,
-                        }
-                    ),
-                }
-            )
-            await tx.save(
-                state.model_copy(
-                    update={
-                        "profiles": tuple(assigned if p.item.id == assigned.item.id else p for p in state.profiles),
-                        "jobs": (*state.jobs, job),
-                    }
-                )
-            )
-            return Success(item)
+        async with self.ownership.operation(request.environment_id):
+            pre_matched: tuple[UUID, int, str, StoredProfile] | None = None
+            for _ in range(3):
+                needs_match: tuple[StoredProfile, str] | None = None
+                async with self.repository.transaction() as tx:
+                    state: Final = tx.snapshot
+                    existing: Final = next((job for job in state.jobs if job.item.id == request.id), None)
+                    if existing is not None:
+                        return (
+                            Success(existing.item)
+                            if existing.account_digest == identity and existing.item.environment_id == request.environment_id
+                            and existing.draft == draft
+                            and (request.reuse_profile_id is None or existing.item.profile_id == request.reuse_profile_id)
+                            else Failure(FailureCode.CONFLICT, "任务标识已被其他输入使用")
+                        )
+                    record: Final = await self.environments.get(request.environment_id)
+                    if draft is not None:
+                        if record is not None:
+                            return Failure(FailureCode.CONFLICT, "新卡片操作标识已占用")
+                        if await self.proxy_profiles.get_url(draft.proxy_profile_id) is None:
+                            return Failure(FailureCode.INVALID, "所选出口代理不可用，未创建卡片")
+                        proxy_id, config_version = draft.proxy_profile_id, 0
+                    else:
+                        if record is None or record.status is EnvironmentStatus.DELETING:
+                            return Failure(FailureCode.NOT_FOUND, "请选择已有的空白 Codex 卡片")
+                        if (
+                            record.supplier is not SupplierKind.OPENAI_CODEX
+                            or record.authorization_flow is not AuthorizationFlow.BROWSER_OAUTH
+                        ):
+                            return Failure(FailureCode.INVALID, "仅支持 Codex 浏览器 OAuth")
+                        if record.auth_file_name or record.credential_fingerprints or not record.enabled or record.manual_cooldown:
+                            return Failure(FailureCode.CONFLICT, "卡片已有凭据、停用或处于手动冷却，不覆盖现有认证")
+                        if (
+                            record.proxy_profile_id is None
+                            or record.configuration_pending
+                            or record.desired_configuration_version != record.observed_configuration_version
+                        ):
+                            return Failure(FailureCode.CONFLICT, "请先保存并同步卡片的普通出口代理配置")
+                        proxy_id, config_version = record.proxy_profile_id, record.observed_configuration_version
+                    environment_id: Final = request.environment_id
+                    if any(
+                        job.item.environment_id == environment_id and (
+                            job.item.stage in ACTIVE | {"queued"} or job.cleanup_pending
+                        ) for job in state.jobs
+                    ):
+                        return Failure(FailureCode.CONFLICT, "这张卡片已有排队或运行中的任务")
+                    if any(p.item.bound_environment_id == environment_id and p.account_digest != identity for p in state.profiles):
+                        return Failure(FailureCode.CONFLICT, "卡片已有其他账号的指纹；若从未登录，先释放未登录预留")
+                    bound: Final = next((p for p in state.profiles if p.account_digest == identity), None)
+                    if request.reuse_profile_id is not None and (bound is None or bound.item.id != request.reuse_profile_id):
+                        return Failure(FailureCode.CONFLICT, "只能迁移与提交资料为同一账号的原指纹")
+                    transfer: Final = bound is not None and bound.item.bound_environment_id != environment_id
+                    if transfer and bound is not None:
+                        prior_id: Final = bound.item.bound_environment_id
+                        if prior_id is None or await self.environments.get(prior_id) is not None:
+                            return Failure(FailureCode.CONFLICT, "原卡片仍存在，不允许把同一账号分给两张卡")
+                        if request.reuse_profile_id is None:
+                            return Failure(FailureCode.CONFLICT, "原卡片已删除，请显式选择迁移原指纹或删除失效绑定")
+                        if any(job.item.profile_id == bound.item.id and (
+                            job.cleanup_pending or job.item.stage in ACTIVE | {"queued"}
+                        ) for job in state.jobs):
+                            return Failure(FailureCode.CONFLICT, "原指纹还有未停止或未清理的任务")
+                    profile: Final = bound or next(
+                        (p for p in state.profiles if p.item.enabled and p.account_digest is None), None
+                    )
+                    if profile is None or not profile.item.enabled:
+                        return Failure(FailureCode.CONFLICT, "没有可用的未绑定指纹，请添加或启用该账号原有指纹")
+                    if len(state.jobs) >= 200:
+                        return Failure(FailureCode.CONFLICT, "任务记录已达到 200 条上限，暂不能继续添加")
+                    if bound is None and profile.item.auto_match_proxy:
+                        if (
+                            pre_matched is None
+                            or pre_matched[0] != profile.item.id
+                            or pre_matched[1] != profile.item.version
+                            or pre_matched[2] != proxy_id
+                        ):
+                            needs_match = (profile, proxy_id)
+                        else:
+                            resolved_profile: StoredProfile = pre_matched[3]
+                    else:
+                        resolved_profile = profile
+                    if needs_match is None:
+                        now: Final = utc_now()
+                        item: Final = JobView(
+                            id=request.id,
+                            environment_id=environment_id,
+                            profile_id=profile.item.id,
+                            proxy_profile_id=proxy_id,
+                            configuration_version=config_version,
+                            model=request.model,
+                            draft_pending=draft is not None,
+                            message="待创建卡片；已保存授权任务" if draft is not None else "等待开启自动化后串行执行",
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        job: Final = StoredJob(
+                            item=item,
+                            account_digest=identity,
+                            credential_ciphertext=StateCipher(self.secrets).seal(environment_id, request.credentials),
+                            draft=draft,
+                        )
+                        assigned: Final = resolved_profile.model_copy(
+                            update={
+                                "account_digest": identity,
+                                **({"login_ciphertext": None} if transfer else {}),
+                                "item": resolved_profile.item.model_copy(
+                                    update={
+                                        "bound_environment_id": environment_id,
+                                        "reservation": bound is None or profile.item.reservation,
+                                        "version": profile.item.version + 1,
+                                    }
+                                ),
+                            }
+                        )
+                        await tx.save(
+                            state.model_copy(
+                                update={
+                                    "profiles": tuple(assigned if p.item.id == assigned.item.id else p for p in state.profiles),
+                                    "jobs": (*state.jobs, job),
+                                }
+                            )
+                        )
+                        return Success(item)
+                # 代理地区定位与容器指纹生成在全局 DB 事务锁外执行，避免长达 90 秒阻塞其他自动化管理操作。
+                matched: Final = await self._match_profile(needs_match[0], needs_match[1])
+                if isinstance(matched, Failure):
+                    return matched
+                pre_matched = (needs_match[0].item.id, needs_match[0].item.version, needs_match[1], matched.value)
+            return Failure(FailureCode.CONFLICT, "指纹分配发生并发冲突，请稍后重试")
 
     async def reauthorize(self, environment_id: UUID) -> Result[JobView | None]:
         async with self.ownership.operation(environment_id), self.repository.transaction() as tx:

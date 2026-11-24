@@ -871,12 +871,31 @@ class _FakeAutomationRegistry:
         self.jobs: dict[object, object] = {}
         self.submitted: list[object] = []
         self.deleted: list[object] = []
+        self.cancelled: list[object] = []
+        self.readiness_problem: str | None = None
+        self.delete_error: Failure | None = None
+
+    async def readiness_error(self) -> str | None:
+        return self.readiness_problem
 
     async def get_job(self, job_id):
         return self.jobs.get(job_id)
 
+    async def cancel(self, job_id):
+        self.cancelled.append(job_id)
+        job = self.jobs.get(job_id)
+        if job is None:
+            from account_pool.shared.result import FailureCode
+
+            return Failure(FailureCode.NOT_FOUND, "任务不存在")
+        updated = job.model_copy(update={"stage": "cancelled", "cancel_requested": True})
+        self.jobs[job_id] = updated
+        return Success(updated)
+
     async def delete_job(self, job_id):
         self.deleted.append(job_id)
+        if self.delete_error is not None:
+            return self.delete_error
         self.jobs.pop(job_id, None)
         return Success(None)
 
@@ -1037,3 +1056,131 @@ async def test_two_factor_onboarding_requires_proxy_when_enqueuing_automation(tm
     assert failed_view.state == "failed"
     assert "代理配置" in failed_view.message
     assert not automation.submitted
+
+
+async def test_two_factor_onboarding_blocks_when_automation_not_ready_and_guides_authorization(tmp_path):
+    from account_pool.shared.result import FailureCode
+
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    automation = _FakeAutomationRegistry()
+    automation.readiness_problem = "请先在浏览器 OAuth 自动化面板开启自动化后再执行批量 2FA 自动上号"
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="disabled@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    item = (await service.submit(request)).items[0]
+    await service.run_once()
+    failed = (await service.list())[0]
+    assert failed.state == "failed"
+    assert "开启自动化" in failed.message
+    assert not automation.submitted
+
+    # Once ready and enqueued, authorization() guides admin to automation panel and pause() cancels automation job.
+    automation.readiness_problem = None
+    assert isinstance(await service.action(item.id, OnboardingAction(action="retry")), Success)
+    await service.run_once()
+    auth_result = await service.authorization(item.id)
+    assert isinstance(auth_result, Failure) and auth_result.code is FailureCode.CONFLICT
+    assert "自动化面板" in auth_result.message
+
+    paused = await service.action(item.id, OnboardingAction(action="pause"))
+    assert isinstance(paused, Success) and paused.value.state == "disabled"
+    assert automation.cancelled == [item.card_id]
+
+
+async def test_two_factor_retry_requeues_on_delete_conflict_and_marks_verification_failed_as_failed(tmp_path):
+    from account_pool.shared.result import FailureCode
+
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    automation = _FakeAutomationRegistry()
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="verify@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    item = (await service.submit(request)).items[0]
+    await service.run_once()
+
+    # Simulate verification_failed with READY + oauth_verification_pending=True: must become failed, NOT cooling_down.
+    unverified_card = _record(status=EnvironmentStatus.READY).model_copy(
+        update={
+            "id": item.card_id,
+            "oauth_verification_pending": True,
+            "proxy_mode": "profile",
+            "proxy_profile_id": "proxy-auto",
+        }
+    )
+    await environments.save(unverified_card)
+    automation.jobs[item.card_id] = automation.jobs[item.card_id].model_copy(
+        update={"stage": "verification_failed", "message": "模型响应校验失败"}
+    )
+    stored = await tasks.get(item.id)
+    await tasks.save(
+        stored.model_copy(update={"item": stored.item.model_copy(update={"updated_at": utc_now() - timedelta(minutes=1)})})
+    )
+    await service.run_once()
+    failed_view = (await service.list())[0]
+    assert failed_view.state == "failed"
+    assert "模型验收失败" in failed_view.message
+
+    # Remove unverified draft card and simulate delete_job CONFLICT on retry: must requeue cleanly without calling submit.
+    await environments.delete(item.card_id)
+    assert isinstance(await service.action(item.id, OnboardingAction(action="retry")), Success)
+    automation.delete_error = Failure(FailureCode.CONFLICT, "任务正在推进，请稍后刷新再删除")
+    await service.run_once()
+    requeued = (await service.list())[0]
+    assert requeued.state == "queued"
+    assert len(automation.submitted) == 1
+
+
+async def test_single_card_import_login_file_enqueues_automation_when_ready(tmp_path):
+    from account_pool.domain import ProxyMode
+
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    blank = _record(status=EnvironmentStatus.AWAITING_AUTHORIZATION, auth_file_name=None).model_copy(
+        update={"proxy_mode": ProxyMode.PROFILE, "proxy_profile_id": "proxy-auto"}
+    )
+    await environments.save(blank)
+    automation = _FakeAutomationRegistry()
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    imported = await service.import_login_file(blank.id, "single@example.test----secret-pass----JBSWY3DPEHPK3PXP")
+    assert isinstance(imported, Success)
+    assert len(automation.submitted) == 1
+    assert automation.submitted[0].environment_id == blank.id
+    assert automation.submitted[0].draft is None
+    assert (await service.list())[0].state == "awaiting_authorization"
