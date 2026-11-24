@@ -972,7 +972,35 @@ async def test_model_discovery_deadline_includes_dns(monkeypatch) -> None:
         channel = OpenAICompatibleChannel(secrets, client=http, resolver=pending_dns)
         with pytest.raises(openai_compatible.ModelListDiscoveryError, match="model_list_timeout"):
             await channel.discover_model_catalog(record)
-        assert await channel.data_plane_health_check(record) is bool(record.available_models)
+        assert not await channel.data_plane_health_check(record)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [httpx.Response(503), httpx.Response(200, json={"data": []})])
+async def test_cached_catalog_cannot_release_cooldown_until_live_models_return(
+    tmp_path: Path, failure: httpx.Response,
+) -> None:
+    secrets = EnvironmentSecretDeriver("s" * 32)
+    base = _compatible_card("https://api.example.test/v1", secrets)
+    assert base.openai_compatible is not None
+    card = base.model_copy(update={
+        "status": EnvironmentStatus.COOLING_DOWN,
+        "cooldown_until": datetime.now(timezone.utc) - timedelta(minutes=1),
+        "available_models": ("cached",),
+        "openai_compatible": base.openai_compatible.model_copy(update={"custom_models": ("manual",)}),
+    })
+    upstream = failure
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: upstream)) as http:
+        channel = OpenAICompatibleChannel(secrets, http, public_resolver)
+        channels = replace(ChannelRegistry.default(), implementations=MappingProxyType({card.channel: channel}))
+        service = EnvironmentService(
+            _settings(tmp_path), MemoryRepository(card), FakeRuntime(), FakeCLIProxy(), EmptyProfiles(), secrets,
+            channels=channels,
+        )
+        assert (await channel.read_account(card)).available_models == ("cached", "manual")
+        assert (await service._refresh_if_needed(card)).status is EnvironmentStatus.COOLING_DOWN
+        upstream = httpx.Response(200, json={"data": [{"id": "live"}]})
+        assert (await service._refresh_if_needed(card)).status is EnvironmentStatus.READY
 
 
 @pytest.mark.asyncio

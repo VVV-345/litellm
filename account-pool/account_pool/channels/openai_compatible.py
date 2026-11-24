@@ -325,7 +325,10 @@ class OpenAICompatibleChannel:
         )
 
     async def data_plane_health_check(self, record: EnvironmentRecord) -> bool:
-        return bool(await self._discover_models(record))
+        try:
+            return bool(await self.discover_model_catalog(record))
+        except (ModelListDiscoveryError, ValueError):
+            return False
 
     async def apply_configuration(self, record: EnvironmentRecord, configuration: EnvironmentConfiguration) -> None:
         return None
