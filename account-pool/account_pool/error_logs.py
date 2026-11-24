@@ -204,7 +204,7 @@ class ErrorLogRepository(Protocol):
         self, card_id: UUID | None, account_id: UUID | None, model: str | None, query: ErrorLogQuery | None = None
     ) -> ErrorStats: ...
 
-    async def spend_by_environment(self) -> dict[UUID, float]: ...
+    async def spend_by_environment(self, environment_id: UUID | None = None) -> dict[UUID, float]: ...
 
     async def prune(self, before: datetime, limit: int | None = None) -> int: ...
 
@@ -226,9 +226,16 @@ class ErrorLogService:
         self.repository: Final = repository
         self.retention_days: Final = retention_days
 
-    async def spend_by_environment(self) -> dict[UUID, float]:
+    async def spend_by_environment(self, environment_id: UUID | None = None) -> dict[UUID, float]:
         spend = getattr(self.repository, "spend_by_environment", None)
-        return await spend() if spend is not None else {}
+        if spend is None:
+            return {}
+        if environment_id is None:
+            return await spend()
+        try:
+            return await spend(environment_id)
+        except TypeError:
+            return await spend()
 
     async def record(
         self,

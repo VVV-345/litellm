@@ -1050,6 +1050,62 @@ async def test_environment_views_include_runtime_in_flight_concurrency(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_environment_metrics_scope_single_card_queries_and_degrade_on_db_errors(tmp_path: Path) -> None:
+    record: Final = _record(status=EnvironmentStatus.READY)
+    spend_calls: list[UUID | None] = []
+    in_flight_calls: list[UUID | None] = []
+
+    class ScopedSpendLogs:
+        async def spend_by_environment(self, environment_id: UUID | None = None) -> dict[UUID, float]:
+            spend_calls.append(environment_id)
+            return {record.id: 2.5}
+
+    async def scoped_in_flight(account_id: UUID | None = None) -> dict[UUID, int]:
+        in_flight_calls.append(account_id)
+        return {record.id: 3}
+
+    runtime: Final = FakeRuntime()
+    service: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=runtime,
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, FakeCLIProxy()),
+        error_logs=ScopedSpendLogs(),
+        runtime_in_flight=scoped_in_flight,
+    )
+    single: Final = await service.get_environment(record.id)
+    assert isinstance(single, Success)
+    assert single.value.spend_usd == 2.5 and single.value.in_flight == 3
+    assert spend_calls == [record.id]
+    assert in_flight_calls == [record.id]
+
+    class FailingSpendLogs:
+        async def spend_by_environment(self, environment_id: UUID | None = None) -> dict[UUID, float]:
+            raise RuntimeError("pool timeout")
+
+    async def failing_in_flight(account_id: UUID | None = None) -> dict[UUID, int]:
+        raise RuntimeError("pool timeout")
+
+    degraded: Final = EnvironmentService(
+        settings=_settings(tmp_path),
+        repository=MemoryRepository(record),
+        runtime=runtime,
+        cli_proxy=FakeCLIProxy(),
+        proxy_profiles=EmptyProfiles(),
+        secrets=EnvironmentSecretDeriver("s" * 32),
+        channels=_fake_channels(runtime, FakeCLIProxy()),
+        error_logs=FailingSpendLogs(),
+        runtime_in_flight=failing_in_flight,
+    )
+    views: Final = await degraded.list_environments()
+    assert len(views) == 1
+    assert views[0].spend_usd == 0.0 and views[0].in_flight == 0
+
+
+@pytest.mark.asyncio
 async def test_discover_model_catalog_does_not_change_configuration_or_routing(tmp_path: Path) -> None:
     class CatalogCLI(FakeCLIProxy):
         async def discover_model_catalog(self, record: EnvironmentRecord, filename: str) -> tuple[str, ...]:

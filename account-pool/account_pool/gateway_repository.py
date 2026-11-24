@@ -23,6 +23,7 @@ _SCHEMA: Final = (
         lease_id uuid PRIMARY KEY, account_id uuid NOT NULL, expires_at timestamptz NOT NULL, payload jsonb NOT NULL
     )""",
     "CREATE INDEX IF NOT EXISTS account_pool_leases_account_idx ON account_pool_leases (account_id, expires_at)",
+    "CREATE INDEX IF NOT EXISTS account_pool_leases_expires_idx ON account_pool_leases (expires_at)",
     """CREATE TABLE IF NOT EXISTS account_pool_sessions (
         binding_hash text PRIMARY KEY, card_id uuid NOT NULL, account_id uuid NOT NULL, expires_at timestamptz NOT NULL
     )""",
@@ -46,7 +47,7 @@ class CooldownRepository(Protocol):
 class LeaseRepository(CooldownRepository, Protocol):
     async def sticky(self, binding_hash: str | None) -> UUID | None: ...
     async def cooling(self) -> tuple[UUID, ...]: ...
-    async def in_flight_counts(self) -> dict[UUID, int]: ...
+    async def in_flight_counts(self, account_id: UUID | None = None) -> dict[UUID, int]: ...
     async def acquire(
         self,
         request: AcquireRequest,
@@ -106,12 +107,19 @@ class PostgresLeaseRepository:
             rows: Final = await cursor.fetchall()
         return tuple(TypeAdapter(UUID).validate_python(row["account_id"]) for row in rows)
 
-    async def in_flight_counts(self) -> dict[UUID, int]:
+    async def in_flight_counts(self, account_id: UUID | None = None) -> dict[UUID, int]:
         async with database_connection(self._database_url) as connection:
-            cursor: Final = await connection.execute(
-                "SELECT account_id, count(*)::int AS used "
-                "FROM account_pool_leases WHERE expires_at > now() GROUP BY account_id",
-            )
+            if account_id is not None:
+                cursor: Final = await connection.execute(
+                    "SELECT account_id, count(*)::int AS used "
+                    "FROM account_pool_leases WHERE account_id = %s AND expires_at > now() GROUP BY account_id",
+                    (account_id,),
+                )
+            else:
+                cursor = await connection.execute(
+                    "SELECT account_id, count(*)::int AS used "
+                    "FROM account_pool_leases WHERE expires_at > now() GROUP BY account_id",
+                )
             rows: Final = await cursor.fetchall()
         return {
             TypeAdapter(UUID).validate_python(row["account_id"]): TypeAdapter(int).validate_python(row["used"])

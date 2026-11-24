@@ -954,3 +954,42 @@ def test_compatible_models_repr_hides_stored_secrets_without_changing_persistenc
         setattr(credential, "api_key_ciphertext", "changed")
     with pytest.raises(ValidationError, match="frozen"):
         setattr(configuration, "credentials", ())
+
+
+@pytest.mark.asyncio
+async def test_request_models_caps_unbounded_model_list_and_refresh_preserves_custom_models() -> None:
+    from account_pool.channels.openai_compatible import _MAX_MODEL_LIST_BYTES
+
+    secrets: Final = EnvironmentSecretDeriver("s" * 32)
+    base: Final = _compatible_card("https://api.example.test/v1", secrets)
+    assert base.openai_compatible is not None
+    record: Final = base.model_copy(update={
+        "openai_compatible": base.openai_compatible.model_copy(update={
+            "test_model": "manual-model",
+            "prefix": "compat/",
+            "custom_models": ("manual-model",),
+        }),
+        "available_models": ("compat/manual-model",),
+        "enabled_models": ("compat/manual-model",),
+    })
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        if request.headers.get("X-Oversized") == "1":
+            return httpx.Response(200, content=b"x" * (_MAX_MODEL_LIST_BYTES + 1024))
+        return httpx.Response(200, json={"data": [{"id": "remote-a"}, {"id": "manual-model"}]})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(upstream)) as http:
+        channel: Final = OpenAICompatibleChannel(secrets, http, public_resolver)
+        catalog: Final = await channel.discover_model_catalog(record)
+        assert catalog == ("compat/remote-a", "compat/manual-model")
+        refreshed_models: Final = await channel._discover_models(record)
+        assert refreshed_models == ("compat/manual-model", "compat/remote-a")
+        oversized: Final = await channel._request_models(
+            "sk-fixture-key",
+            None,
+            {"X-Oversized": "1"},
+            "https://api.example.test/v1",
+            None,
+            bounded=False,
+        )
+        assert oversized is None

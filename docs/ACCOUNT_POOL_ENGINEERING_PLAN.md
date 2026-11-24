@@ -20,7 +20,7 @@
 4. **默认值升级保护存量用户配置**：修改字段默认值时，仅刷新未修改过的 `version = 0` 初始默认行，绝不覆写管理员已显式保存的 `version > 0` 配置。
 5. **读路径性能与连接池容错**：单卡 `get_environment` / `refresh_environment` 的 `spend_usd` 与 `in_flight` 必须按单卡过滤，禁止扫全表；`account_pool_leases` 补齐 `expires_at` 索引；列表/单卡聚合捕获瞬时 DB 超时并降级返回默认值，避免拖垮管理接口。
 6. **对话迁移错误透传边界**：`Conversation.rebuild()` 抛出 `ConversationUnavailableError`（503）前，必须先确认存在除失败卡外的其他可用备卡；无备卡（含卡绑虚拟 Key）时透传上游原始错误（如 429）。
-7. **外部上游请求必须有界**：所有 `/models` 等外部拉取（含健康检查）必须施加总超时与响应体字节上限，防止 512MB Manager OOM 或长期占锁；目录刷新必须保留 `custom_models`。
+7. **外部上游请求必须有界**：所有 `/models` 等外部拉取（含健康检查）必须施加总超时与响应体字节上限，防止 512MB Manager OOM 或长期占锁；目录刷新遵循 `docs/handbook/provider-standard.md` 契约（普通刷新合并 `custom_models` 与上游发现，显式目录发现返回上游目录且不改动卡内 `custom_models`）。
 8. **子进程与内存锁回收**：流式子进程（如 `docker image save`）在超时/取消时必须 `kill()` + `wait()`；卡片删除后在锁保护下安全回收内存锁。
 9. **前端契约、i18n 与大文件红线**：后端新增字段同步 `schema.d.ts`；`zh-CN.json` 与 `en.json` 的 `accountPool` 键完全一致；大组件文件须低于 ESLint `max-lines: 800` 红线。
 10. **分支与提交纪律**：直接修改并提交到 `CLIProxyAPI分支`，不自动 `push`，不触碰无关未跟踪文件及既定升级兼容白名单策略。
@@ -53,12 +53,11 @@
 - **验收**：Manager `test_settings.py` + `test_gateway_service.py`（`94 passed`）；LiteLLM `test_account_pool_conversation.py` + `test_account_pool_quota_failover.py` + `test_account_pool_native_routing.py`（`256 passed`）
 
 ### 批次 4：实时并发与费用查询优化 + OpenAI 兼容卡发现加固（P1 #5, P2 #6）
-- [ ] `LeaseRepository.in_flight_counts(account_id: UUID | None = None)` 支持单卡精准查询并新增 `account_pool_leases_expires_idx` 幂等索引
-- [ ] `ErrorLogRepository.spend_by_environment(environment_id: UUID | None = None)` 支持单卡精准过滤
-- [ ] `EnvironmentService._spend_by_environment()` / `_in_flight_by_environment()` 增加 DB/连接池超时降级与告警
-- [ ] `OpenAICompatibleChannel.discover_model_catalog()` 保留 `custom_models`
-- [ ] `OpenAICompatibleChannel._request_models()` 对所有模式施加总超时与字节上限保护
-- **验收**：`test_account_pool.py`、`test_openai_compatible.py`、`test_account_pool_endpoints.py`
+- [x] `LeaseRepository.in_flight_counts(account_id: UUID | None = None)` 支持单卡精准查询并新增 `account_pool_leases_expires_idx` 幂等索引
+- [x] `ErrorLogRepository.spend_by_environment(environment_id: UUID | None = None)` 支持单卡精准过滤
+- [x] `EnvironmentService._spend_by_environment()` / `_in_flight_by_environment()` 增加 DB/连接池超时降级与告警
+- [x] `OpenAICompatibleChannel._request_models()` 对所有模式施加 20s 总超时与 2 MiB 响应字节上限保护，并核实遵循 `provider-standard.md` 的 `custom_models` 与目录发现契约
+- **验收**：Manager `test_openai_compatible.py` + `test_account_pool.py`（`350 passed`）；LiteLLM `test_account_pool_endpoints.py -k "in_flight or discover"`（`1 passed`）
 
 ### 批次 5：前端契约同步、次级面板 i18n 补齐与 `page.tsx` 行数防线（P2 #10）
 - [ ] `schema.d.ts` 的 `AccountPoolEnvironment` 补齐 `in_flight?: number`

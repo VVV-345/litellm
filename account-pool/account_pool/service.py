@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
@@ -88,6 +89,7 @@ from account_pool.shared.result import Failure, FailureCode, Result, Success
 from account_pool.shared.secrets import EnvironmentSecretDeriver
 
 _safe_error: Final = safe_error
+_LOGGER: Final = logging.getLogger(__name__)
 
 
 class EnvironmentService:
@@ -107,7 +109,7 @@ class EnvironmentService:
         ownership: CredentialOwnership | None = None,
         cleanup_browser: Callable[[UUID], Awaitable[None]] | None = None,
         runtime_cooldowns: Callable[[], Awaitable[tuple[UUID, ...]]] | None = None,
-        runtime_in_flight: Callable[[], Awaitable[Mapping[UUID, int]]] | None = None,
+        runtime_in_flight: Callable[..., Awaitable[Mapping[UUID, int]]] | None = None,
         direct_credential_validation_timeout_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_TIMEOUT_SECONDS,
         direct_credential_validation_interval_seconds: float = _DIRECT_CREDENTIAL_VALIDATION_INTERVAL_SECONDS,
     ) -> None:
@@ -256,11 +258,33 @@ class EnvironmentService:
         if self._error_logs is not None:
             await self._error_logs.record(record, stage, error, retryable=retryable)
 
-    async def _spend_by_environment(self) -> dict[UUID, float]:
-        return {} if self._error_logs is None else await self._error_logs.spend_by_environment()
+    async def _spend_by_environment(self, environment_id: UUID | None = None) -> dict[UUID, float]:
+        if self._error_logs is None:
+            return {}
+        try:
+            if environment_id is None:
+                return await self._error_logs.spend_by_environment()
+            try:
+                return await self._error_logs.spend_by_environment(environment_id)
+            except TypeError:
+                return await self._error_logs.spend_by_environment()
+        except Exception as error:
+            _LOGGER.warning("Failed to aggregate card spend metrics: %s", error.__class__.__name__)
+            return {}
 
-    async def _in_flight_by_environment(self) -> dict[UUID, int]:
-        return {} if self._runtime_in_flight is None else dict(await self._runtime_in_flight())
+    async def _in_flight_by_environment(self, environment_id: UUID | None = None) -> dict[UUID, int]:
+        if self._runtime_in_flight is None:
+            return {}
+        try:
+            if environment_id is None:
+                return dict(await self._runtime_in_flight())
+            try:
+                return dict(await self._runtime_in_flight(environment_id))
+            except TypeError:
+                return dict(await self._runtime_in_flight())
+        except Exception as error:
+            _LOGGER.warning("Failed to aggregate card in_flight concurrency: %s", error.__class__.__name__)
+            return {}
 
     def _view_with_metrics(
         self,
@@ -297,8 +321,8 @@ class EnvironmentService:
         if record is None:
             return Failure(FailureCode.NOT_FOUND, "environment not found")
         refreshed: Final = await self._refresh_if_needed(record)
-        spends: Final = await self._spend_by_environment()
-        in_flight: Final = await self._in_flight_by_environment()
+        spends: Final = await self._spend_by_environment(environment_id)
+        in_flight: Final = await self._in_flight_by_environment(environment_id)
         return Success(self._view_with_metrics(refreshed, spends, in_flight))
 
     async def refresh_environment(self, environment_id: UUID) -> Result[EnvironmentView]:
@@ -310,8 +334,8 @@ class EnvironmentService:
                 refreshed: Final = await self._refresh_if_needed(record, refresh_quota=True)
         except Exception:
             return Failure(FailureCode.UPSTREAM, "environment quota refresh failed")
-        spends: Final = await self._spend_by_environment()
-        in_flight: Final = await self._in_flight_by_environment()
+        spends: Final = await self._spend_by_environment(environment_id)
+        in_flight: Final = await self._in_flight_by_environment(environment_id)
         return Success(self._view_with_metrics(refreshed, spends, in_flight))
 
     async def refresh_quota_after_failure(self, environment_id: UUID) -> bool:

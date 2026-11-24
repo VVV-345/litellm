@@ -456,7 +456,7 @@ class OpenAICompatibleChannel:
         source: Final = destination.rstrip("/")
         catalog: Final = OPENCODE_GO_CATALOG_BASE if source in OPENCODE_GO_BASES else source
         try:
-            async with asyncio.timeout(20 if bounded else None), client.stream(
+            async with asyncio.timeout(20), client.stream(
                 "GET",
                 f"{catalog}/models",
                 headers={
@@ -469,8 +469,10 @@ class OpenAICompatibleChannel:
                 response.raise_for_status()
                 body: Final = BytesIO()
                 async for chunk in response.aiter_bytes():
-                    if bounded and body.tell() + len(chunk) > _MAX_MODEL_LIST_BYTES:
-                        raise ModelListDiscoveryError("model_list_format")
+                    if body.tell() + len(chunk) > _MAX_MODEL_LIST_BYTES:
+                        if bounded:
+                            raise ModelListDiscoveryError("model_list_format")
+                        return None
                     body.write(chunk)
                 return tuple(model.id for model in _ModelList.model_validate_json(body.getvalue()).data)
         except (httpx.HTTPError, TimeoutError, ValueError) as error:
