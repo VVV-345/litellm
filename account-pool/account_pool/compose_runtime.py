@@ -55,6 +55,7 @@ class DockerProcess(Protocol):
 DockerRunner = Callable[[tuple[str, ...], dict[str, str]], Awaitable[DockerProcess]]
 
 _LOGGER: Final = logging.getLogger(__name__)
+_SUBPROCESS_CLEANUP_WAIT_SECONDS: Final = 5.0
 
 
 class _BrowserContainerState(BaseModel):
@@ -227,11 +228,15 @@ class ComposeRuntime:
 
     async def _ensure_runtime_network(self) -> None:
         inspect_process: Final = await self._runner(
-            ("docker", "network", "inspect", self._settings.runtime_network),
+            ("docker", "network", "inspect", "--format",
+             '{{index .Labels "com.docker.compose.network"}}', self._settings.runtime_network),
             self._docker_environment(),
         )
-        await communicate_with_timeout(inspect_process, min(10.0, self._settings.docker_command_timeout_seconds))
+        label, _ = await communicate_with_timeout(inspect_process, min(10.0, self._settings.docker_command_timeout_seconds))
         if inspect_process.returncode == 0:
+            if label.strip() != b"account-pool-runtime":
+                _LOGGER.warning("Network %s lacks the expected Compose network label; inspect it during maintenance "
+                                "before upgrading with Compose", self._settings.runtime_network)
             return
         create_args: list[str] = ["docker", "network", "create", "--driver", "bridge"]
         project: Final = await self._compose_project_label()
@@ -330,8 +335,8 @@ class ComposeRuntime:
             # 流式落盘镜像 tar 并计算校验和，避免 512MB Manager 进程一次性缓存整包 OOM。
             digest = hashlib.sha256()
             image_size = 0
-            fd: Final = os.open(image_tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             try:
+                fd: Final = os.open(image_tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
                 with os.fdopen(fd, "wb") as handle:
                     async with asyncio.timeout(self._settings.docker_command_timeout_seconds):
                         while chunk := await image_stream.read(1024 * 1024):
@@ -345,7 +350,11 @@ class ComposeRuntime:
                 if image_process.returncode is None:
                     with suppress(Exception):
                         image_process.kill()
-                        await image_process.wait()
+                try:
+                    # communicate drains both pipes before waiting; wait alone can hang with a full pipe.
+                    await asyncio.wait_for(image_process.communicate(), timeout=_SUBPROCESS_CLEANUP_WAIT_SECONDS)
+                except (OSError, TimeoutError) as cleanup_error:
+                    _LOGGER.warning("Runtime image backup process cleanup failed: %s", type(cleanup_error).__name__)
                 image_tmp.unlink(missing_ok=True)
                 raise
             if image_process.returncode != 0:

@@ -2016,7 +2016,8 @@ async def test_provision_seeds_named_data_volume_before_compose_up(tmp_path: Pat
     assert "config.yaml" in seed[-1]
     assert not any("secret-key" in argument for argument in seed)
     assert runner.stdin_payloads and b"secret-key" in runner.stdin_payloads[0]
-    assert arguments[3] == ("docker", "network", "inspect", settings.runtime_network)
+    assert arguments[3][:3] == ("docker", "network", "inspect")
+    assert arguments[3][-1] == settings.runtime_network
     assert arguments[4][:6] == (
         "docker",
         "compose",
@@ -2064,7 +2065,7 @@ async def test_shared_runtime_network_keeps_legacy_fallback_and_cleans_legacy_ne
 
 
 @pytest.mark.asyncio
-async def test_ensure_runtime_network_reuses_existing_or_inherits_compose_labels(tmp_path: Path) -> None:
+async def test_ensure_runtime_network_reuses_existing_or_inherits_compose_labels(tmp_path: Path, caplog) -> None:
     settings: Final = _settings(tmp_path)
     seen_calls: list[tuple[str, ...]] = []
 
@@ -2099,6 +2100,7 @@ async def test_ensure_runtime_network_reuses_existing_or_inherits_compose_labels
 
     existing_runtime: Final = ComposeRuntime(settings, EnvironmentSecretDeriver("s" * 32), runner=already_exists_runner)
     await existing_runtime._ensure_runtime_network()
+    assert "lacks the expected Compose network label" in caplog.text
     assert not any(call[:3] == ("docker", "network", "create") for call in seen_calls)
 
 
@@ -2139,11 +2141,13 @@ async def test_restore_control_plane_connections_recovers_shared_network_once_fo
 async def test_delete_environment_releases_card_lock_entry(tmp_path: Path) -> None:
     record: Final = _record(status=EnvironmentStatus.READY)
     service: Final = _service(record, FakeCLIProxy(), tmp_path)
-    await service._lock_for(record.id)
-    assert record.id in service._locks
+    lock = await service._lock_for(record.id)
+    assert await service._lock_for(record.id) is lock
 
     deleted: Final = await service.delete_environment(record.id)
     assert isinstance(deleted, Success)
+    assert await service._lock_for(record.id) is lock
+    del lock
     assert record.id not in service._locks
 
 

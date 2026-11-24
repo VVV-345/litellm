@@ -73,11 +73,12 @@
 - **验收**：Manager `test_onboarding_service.py` + `test_oauth_automation.py`（`133 passed, 25 skipped`）；LiteLLM `test_account_pool_conversation.py`（`163 passed`）；UI `AccountPoolOnboardingPanel.integration.test.tsx`（`10 passed`）+ `eslint --quiet`（`0` 错误）
 
 ### 批次 7：索引、DNS 总超时、网络与资源回收加固（#5、#6、#3/#8、#11/#12）
-- [ ] `management_repository.py` 新增部分表达式索引 `account_pool_log_spend_env_idx` 并与 `spend_by_environment()` 查询谓词对齐
-- [ ] `OpenAICompatibleChannel._discover_models()` 与 `discover_models_from_source()` 将 `_validate_destination()` 前置 DNS 解析纳入 20 秒总超时
-- [ ] `ComposeRuntime._ensure_runtime_network()` 检测既有无标签共享网络并告警；`OAuthBrowserSessionRepository.count_active()` 将未清理 `cleanup_pending` 会话计入并发上限
-- [ ] `ComposeRuntime.backup_runtime()` 超时/取消时关闭管道并限时等待子进程；`EnvironmentService._locks` 升级引用计数托管锁，在 `NOT_FOUND` 与删卡/异常退出后零残留
-- **验收**：`test_openai_compatible.py`、`test_compose_renderer.py`、`test_runtime_maintenance.py`、`test_oauth_browser.py`、`test_account_pool.py` 全通过
+- 本轮以 `a2ecd561ae` 及已有的 5 个后端工作区改动为起点；先验证第 7 批，再验证第 8 批，不改动线上网络或部署。
+- [x] `management_repository.py` 新增部分表达式索引 `account_pool_log_spend_env_idx` 并与 `spend_by_environment()` 查询谓词对齐
+- [x] `OpenAICompatibleChannel._discover_models()` 与 `discover_models_from_source()` 将 `_validate_destination()` 前置 DNS 解析纳入 20 秒总超时
+- [x] `ComposeRuntime._ensure_runtime_network()` 检测既有无标签共享网络并告警；`OAuthBrowserSessionRepository.count_active()` 将未清理 `cleanup_pending` 会话计入并发上限
+- [x] `ComposeRuntime.backup_runtime()` 超时/取消时关闭管道并限时等待子进程；`EnvironmentService._locks` 使用弱引用注册表，仅由使用者和等待者持有锁，在 `NOT_FOUND` 与删卡/异常退出后零残留
+- **本地验收**：Manager venv 下 `pytest -q -rs` 运行上述 5 个模块与 `test_cliproxy_runtime_image.py`，401 通过、1 跳过（未配置独立 PostgreSQL 测试库）。取消备份用真实本地子进程和管道；未启动 Docker，宿主 Docker 服务不可用。隔离的 PGlite 实例插入 12,000 条费用记录后，执行实际单卡 SQL 的 `EXPLAIN` 命中 `account_pool_log_spend_env_idx`；同一数据库验证过期未清理会话仍占一个名额。
 
 ### 批次 8：补齐剩余前端面板中英文 i18n（#10）
 - [ ] `AccountPoolAutoUpdatePanel.tsx` 接入 `useTranslation()` 并按 `i18n.language` 格式化时间

@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Final, Literal
 from uuid import UUID
+from weakref import WeakValueDictionary
 
 from account_pool.application.effective_policy import effective_policy
 from account_pool.application.environment_state import (
@@ -122,7 +123,7 @@ class EnvironmentService:
         self._secrets: Final = secrets
         self._channels: Final = channels or ChannelRegistry.default(self._settings, self._secrets)
         self._proxy_gateways: Final = proxy_gateways or ProxyGatewayService.disabled(self._settings, proxy_profiles, ownership=self._ownership)
-        self._locks: dict[UUID, asyncio.Lock] = {}
+        self._locks: Final[WeakValueDictionary[UUID, asyncio.Lock]] = WeakValueDictionary()
         self._locks_guard: Final = asyncio.Lock()
         self._quota_refresh_slots: Final = asyncio.Semaphore(max(1, settings.quota_refresh_max_concurrency))
         self._operation_fanout_slots: Final = asyncio.Semaphore(
@@ -873,10 +874,7 @@ class EnvironmentService:
         return await self._configuration_operations.apply_and_persist_configuration(record, desired)
 
     async def delete_environment(self, environment_id: UUID, operation_id: str | None = None) -> Result[None]:
-        result: Final = await self._deletion_operations.delete_environment(environment_id, operation_id)
-        if isinstance(result, Success):
-            await self._release_lock_entry(environment_id)
-        return result
+        return await self._deletion_operations.delete_environment(environment_id, operation_id)
 
     async def _remove_compose_step(self, record: EnvironmentRecord) -> EnvironmentRecord | None:
         return await self._deletion_operations.remove_compose_step(record)
@@ -1075,12 +1073,6 @@ class EnvironmentService:
             created: Final = asyncio.Lock()
             self._locks[environment_id] = created
             return created
-
-    async def _release_lock_entry(self, environment_id: UUID) -> None:
-        async with self._locks_guard:
-            existing: Final = self._locks.get(environment_id)
-            if existing is not None and not existing.locked():
-                self._locks.pop(environment_id, None)
 
 
 def _oauth_proxy_in_use(record: EnvironmentRecord, now: datetime) -> bool:

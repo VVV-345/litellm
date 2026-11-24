@@ -86,6 +86,7 @@ _SUPPLIER: Final = SupplierDefinition(
 )
 _HEADERS: Final = TypeAdapter(tuple[tuple[str, str], ...])
 _MAX_MODEL_LIST_BYTES: Final = 2 * 1024 * 1024
+_MODEL_LIST_TIMEOUT_SECONDS: Final = 20
 _MAX_DISPLAY_QUOTA_BYTES: Final = 64 * 1024
 _MAX_PREVIEW_MODELS: Final = 500
 _AZURE_WIRE_SERVER: Final = ipaddress.ip_address("168.63.129.16")
@@ -366,18 +367,22 @@ class OpenAICompatibleChannel:
 
     async def _discover_models(self, record: EnvironmentRecord) -> tuple[str, ...]:
         configuration: Final = self._configuration(record)
-        destination, host_header = await _validate_destination(configuration.base_url, self._resolver)
         headers: Final = (
             dict(_HEADERS.validate_json(self._cipher.open(record.id, configuration.headers_ciphertext)))
             if configuration.headers_ciphertext
             else {}
         )
-        discoveries: Final = await asyncio.gather(
-            *(
-                self._discover_models_for_credential(record, credential, headers, destination, host_header)
-                for credential in configuration.credentials
-            )
-        )
+        try:
+            async with asyncio.timeout(_MODEL_LIST_TIMEOUT_SECONDS):
+                destination, host_header = await _validate_destination(configuration.base_url, self._resolver)
+                discoveries: Final = await asyncio.gather(
+                    *(
+                        self._discover_models_for_credential(record, credential, headers, destination, host_header)
+                        for credential in configuration.credentials
+                    )
+                )
+        except TimeoutError:
+            discoveries = ()
         discovered: Final = tuple(dict.fromkeys(model for models in discoveries for model in models))
         raw: Final = tuple(dict.fromkeys((*configuration.custom_models, *discovered)))
         models: Final = tuple(
@@ -426,10 +431,14 @@ class OpenAICompatibleChannel:
     async def discover_models_from_source(
         self, base_url: str, api_key: str, headers: tuple[tuple[str, str], ...], proxy_url: str | None
     ) -> tuple[str, ...] | None:
-        destination, host_header = await _validate_destination(base_url, self._resolver)
-        models: Final = await self._request_models(
-            api_key, proxy_url, MappingProxyType(dict(headers)), destination, host_header, bounded=True
-        )
+        try:
+            async with asyncio.timeout(_MODEL_LIST_TIMEOUT_SECONDS):
+                destination, host_header = await _validate_destination(base_url, self._resolver)
+                models: Final = await self._request_models(
+                    api_key, proxy_url, MappingProxyType(dict(headers)), destination, host_header, bounded=True
+                )
+        except TimeoutError:
+            raise ModelListDiscoveryError("model_list_timeout") from None
         if models is None:
             return None
         valid: Final = (
@@ -456,7 +465,7 @@ class OpenAICompatibleChannel:
         source: Final = destination.rstrip("/")
         catalog: Final = OPENCODE_GO_CATALOG_BASE if source in OPENCODE_GO_BASES else source
         try:
-            async with asyncio.timeout(20), client.stream(
+            async with client.stream(
                 "GET",
                 f"{catalog}/models",
                 headers={

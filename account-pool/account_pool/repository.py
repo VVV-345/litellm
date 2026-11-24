@@ -428,8 +428,8 @@ class PostgresOAuthBrowserSessionRepository:
                 """
                 SELECT count(*)::int AS active_count
                 FROM account_pool_oauth_browser_sessions
-                WHERE status IN (%s, %s, %s)
-                  AND expires_at > %s
+                WHERE COALESCE((payload->>'cleanup_pending')::boolean, true)
+                   OR (status IN (%s, %s, %s) AND expires_at > %s)
                 """,
                 (
                     OAuthBrowserSessionStatus.STARTING.value,

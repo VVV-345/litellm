@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import hashlib
 import io
@@ -288,6 +289,58 @@ async def test_rollout_backup_is_private_verified_and_never_recaptured_after_swi
     (directory / "data.tar").write_bytes(b"corrupted")
     with pytest.raises(ValueError, match="backup checksum"):
         await runtime.backup_runtime(record, directory, capture)
+
+
+def test_cancelled_image_backup_drains_pipes_and_removes_partial_archive(tmp_path: Path) -> None:
+    # Windows database tests use a Selector loop, which cannot launch subprocesses.
+    factory = asyncio.ProactorEventLoop if sys.platform == "win32" else asyncio.new_event_loop
+    with asyncio.Runner(loop_factory=factory) as loop:
+        loop.run(_cancel_image_backup(tmp_path))
+
+
+async def _cancel_image_backup(tmp_path: Path) -> None:
+    ready = asyncio.Event()
+    processes = []
+    fallback = _BackupRunner()
+
+    async def runner(args, environment):
+        if args[1:3] != ("image", "save"):
+            return await fallback(args, environment)
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "-c",
+            "import sys,time;sys.stderr.buffer.write(b'x'*524288);sys.stderr.flush();time.sleep(30)",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=8192,
+        )
+        processes.append(proc)
+        ready.set()
+        return proc
+
+    async def capture(_record):
+        return "fixture-state"
+
+    record = _record()
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    compose = runtime.environment_dir(record.id) / "compose.yaml"
+    compose.parent.mkdir()
+    compose.write_text(render_compose(record, runtime.settings), encoding="utf-8")
+    directory = tmp_path / "backup"
+    task = asyncio.create_task(runtime.backup_runtime(record, directory, capture))
+    try:
+        await asyncio.wait_for(ready.wait(), timeout=5)
+        assert processes[0].stderr is not None
+        await asyncio.wait_for(processes[0].stderr.readexactly(1), timeout=5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=8)
+        assert processes[0].returncode is not None
+        assert not (directory / ".image.tar.tmp").exists()
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        if processes and processes[0].returncode is None:
+            processes[0].kill()
+            await processes[0].communicate()
 
 
 @pytest.mark.parametrize("running", [True, False])

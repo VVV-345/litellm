@@ -50,6 +50,9 @@ _SCHEMA: Final = (
     "CREATE INDEX IF NOT EXISTS account_pool_log_card_idx ON account_pool_error_log (card_id, occurred_at DESC)",
     "CREATE INDEX IF NOT EXISTS account_pool_log_request_idx ON account_pool_error_log (request_id, card_id)",
     "CREATE INDEX IF NOT EXISTS account_pool_log_filter_idx ON account_pool_error_log USING gin (payload jsonb_path_ops)",
+    "CREATE INDEX IF NOT EXISTS account_pool_log_spend_env_idx "
+    "ON account_pool_error_log ((payload->>'environment_id')) "
+    "WHERE payload->>'operation' = 'model_request' AND payload->>'cost_usd' IS NOT NULL",
     """
     CREATE TABLE IF NOT EXISTS account_pool_proxy_gateways (
         port integer PRIMARY KEY CHECK (port BETWEEN 1 AND 65535),
@@ -379,20 +382,19 @@ class PostgresErrorLogRepository:
                     "SELECT payload->>'environment_id' AS environment_id, "
                     "sum((payload->>'cost_usd')::double precision) AS spend_usd "
                     "FROM account_pool_error_log "
-                    "WHERE payload->>'operation' = %s "
+                    "WHERE payload->>'operation' = 'model_request' "
                     "AND payload->>'environment_id' = %s "
                     "AND payload->>'cost_usd' IS NOT NULL "
                     "GROUP BY 1",
-                    (MODEL_REQUEST_OPERATION, str(environment_id)),
+                    (str(environment_id),),
                 )
             else:
                 cursor = await connection.execute(
                     "SELECT payload->>'environment_id' AS environment_id, "
                     "sum((payload->>'cost_usd')::double precision) AS spend_usd "
                     "FROM account_pool_error_log "
-                    "WHERE payload->>'operation' = %s AND payload->>'cost_usd' IS NOT NULL "
+                    "WHERE payload->>'operation' = 'model_request' AND payload->>'cost_usd' IS NOT NULL "
                     "GROUP BY 1",
-                    (MODEL_REQUEST_OPERATION,),
                 )
             rows: Final = await cursor.fetchall()
         return {

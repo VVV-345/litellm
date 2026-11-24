@@ -957,6 +957,25 @@ def test_compatible_models_repr_hides_stored_secrets_without_changing_persistenc
 
 
 @pytest.mark.asyncio
+async def test_model_discovery_deadline_includes_dns(monkeypatch) -> None:
+    import asyncio
+    from account_pool.channels import openai_compatible
+
+    async def pending_dns(_host: str, _port: int) -> tuple[str, ...]:
+        await asyncio.Event().wait()
+        raise AssertionError("DNS must be cancelled")
+
+    monkeypatch.setattr(openai_compatible, "_MODEL_LIST_TIMEOUT_SECONDS", 0.01)
+    secrets = EnvironmentSecretDeriver("s" * 32)
+    record = _compatible_card("https://api.example.test/v1", secrets)
+    async with httpx.AsyncClient() as http, asyncio.timeout(2):
+        channel = OpenAICompatibleChannel(secrets, client=http, resolver=pending_dns)
+        with pytest.raises(openai_compatible.ModelListDiscoveryError, match="model_list_timeout"):
+            await channel.discover_model_catalog(record)
+        assert await channel.data_plane_health_check(record) is bool(record.available_models)
+
+
+@pytest.mark.asyncio
 async def test_request_models_caps_unbounded_model_list_and_refresh_preserves_custom_models() -> None:
     from account_pool.channels.openai_compatible import _MAX_MODEL_LIST_BYTES
 
