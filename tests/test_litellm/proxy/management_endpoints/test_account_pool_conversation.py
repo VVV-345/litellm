@@ -1806,3 +1806,41 @@ async def test_single_card_pool_preserves_upstream_error_instead_of_503_when_his
         pool_identity.reset(token)
         snapshots.replace(before)
         router.discard()
+
+
+@pytest.mark.asyncio
+async def test_preempt_skips_when_ordinary_key_has_single_cooled_card_and_no_history(monkeypatch):
+    from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
+    from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
+
+    monkeypatch.setenv("ACCOUNT_POOL_MANAGER_TOKEN", "s" * 32)
+    monkeypatch.setenv("ACCOUNT_POOL_DEGRADED_CONTINUATION", "1")
+    only_card = uuid4()
+    router = Router(
+        model_list=[
+            {
+                "model_name": "solo",
+                "litellm_params": {"model": "openai/gpt-5", "api_base": "http://solo.local/v1", "api_key": "k"},
+                "model_info": {"id": str(only_card), "account_pool_environment_id": str(only_card)},
+            }
+        ]
+    )
+    before = snapshots.values
+    snapshots.replace(
+        {
+            str(only_card): RoutingSnapshot(
+                quota_switch_project=True,
+                quota=RoutingQuota(remaining_percent=0, observed_at=now_utc()),
+            )
+        }
+    )
+    token = pool_identity.set(PoolIdentity(key_hash="pool-key", request_id=uuid4()))
+    try:
+        payload = {"model": "solo", "input": "Continue", "previous_response_id": response(only_card).id}
+        conversation = await Conversation.start(router, payload)
+        assert conversation is not None
+        assert conversation.preempt(router, payload) is None
+    finally:
+        pool_identity.reset(token)
+        snapshots.replace(before)
+        router.discard()

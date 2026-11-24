@@ -365,7 +365,7 @@ class Conversation:
             )
         ):
             raise _PreviousResponseNotFound()
-        if not self.relaxed or self.origin is None:
+        if self.identity.card_id is not None or not self.relaxed or self.origin is None:
             return None
         if payload.get("disable_fallbacks") or payload.get("max_fallbacks", router.max_fallbacks) == 0:
             return None
@@ -382,12 +382,12 @@ class Conversation:
             return None
         if origin is not None and origin_snapshot is None and origin.get("blocked") is not True:
             return None
-        if not self._history_replayable() or self.history is None:
-            raise ConversationUnavailableError()
-        input_items: Final = self.history
         excluded: Final = self._excluded(payload, deployments, self.origin)
         if not any(deployment_id(item) not in excluded for item in deployments):
             return None
+        if not self._history_replayable() or self.history is None:
+            raise ConversationUnavailableError()
+        input_items: Final = self.history
         verbose_proxy_logger.info(
             "Account pool preemptive migration; request_id=%s degraded=%s",
             self.identity.request_id,

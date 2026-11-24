@@ -12,6 +12,7 @@ from account_pool.domain import (
     EnvironmentStatus,
     ModelCooldown,
     ModelQuotaSnapshot,
+    ProxyMode,
     QuotaSnapshot,
     QuotaWindow,
     SupplierKind,
@@ -1184,3 +1185,180 @@ async def test_single_card_import_login_file_enqueues_automation_when_ready(tmp_
     assert automation.submitted[0].environment_id == blank.id
     assert automation.submitted[0].draft is None
     assert (await service.list())[0].state == "awaiting_authorization"
+
+
+async def test_verification_failed_retry_with_preserved_card_invokes_retry_automation_job(tmp_path):
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    automation = _FakeAutomationRegistry()
+    retried_ids: list[object] = []
+
+    async def retry_job(job_id):
+        retried_ids.append(job_id)
+        updated = automation.jobs[job_id].model_copy(
+            update={"stage": "verifying", "message": "重新触发同卡模型验收"}
+        )
+        automation.jobs[job_id] = updated
+        return Success(updated)
+
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+        retry_automation_job=retry_job,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="retry-card@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    item = (await service.submit(request)).items[0]
+    await service.run_once()
+    assert (await service.list())[0].state == "awaiting_authorization"
+
+    # Preserve the existing card AND its saved credentials when verification fails (#2).
+    preserved_card = _record(status=EnvironmentStatus.READY, auth_file_name="saved-codex.json").model_copy(
+        update={
+            "id": item.card_id,
+            "oauth_verification_pending": True,
+            "proxy_mode": ProxyMode.PROFILE,
+            "proxy_profile_id": "proxy-auto",
+        }
+    )
+    await environments.save(preserved_card)
+    automation.jobs[item.card_id] = automation.jobs[item.card_id].model_copy(
+        update={"stage": "verification_failed", "message": "模型响应校验失败"}
+    )
+    stored = await tasks.get(item.id)
+    await tasks.save(
+        stored.model_copy(update={"item": stored.item.model_copy(update={"updated_at": utc_now() - timedelta(minutes=1)})})
+    )
+    await service.run_once()
+    assert (await service.list())[0].state == "failed"
+
+    # Clicking retry while preserving the card must trigger retry_automation_job and re-enter awaiting_authorization.
+    assert isinstance(await service.action(item.id, OnboardingAction(action="retry")), Success)
+    assert (await service.list())[0].state == "queued"
+    await service.run_once()
+    retriggered = (await service.list())[0]
+    assert retried_ids == [item.card_id]
+    assert retriggered.state == "awaiting_authorization"
+    assert "重新触发同卡模型验收" in retriggered.message
+    assert len(automation.submitted) == 1
+
+
+async def test_queued_onboarding_item_stops_and_surfaces_readiness_error_when_automation_disabled(tmp_path):
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    automation = _FakeAutomationRegistry()
+    service = OnboardingService(
+        tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="disabled-after-queue@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    item = (await service.submit(request)).items[0]
+    await service.run_once()
+    assert (await service.list())[0].state == "awaiting_authorization"
+
+    automation.readiness_problem = "请先通过当前镜像自检并开启自动化"
+    auth_result = await service.authorization(item.id)
+    assert isinstance(auth_result, Failure)
+    assert "镜像自检" in auth_result.message
+
+    stored = await tasks.get(item.id)
+    await tasks.save(
+        stored.model_copy(update={"item": stored.item.model_copy(update={"updated_at": utc_now() - timedelta(minutes=1)})})
+    )
+    await service.run_once()
+    stopped = (await service.list())[0]
+    assert stopped.state == "failed"
+    assert "未就绪" in stopped.message and "镜像自检" in stopped.message
+
+
+async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on_pause(tmp_path):
+    import asyncio
+
+    _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
+    lock_held = False
+
+    class TrackedOnboarding(MemoryOnboarding):
+        @asynccontextmanager
+        async def worker_lock(self):
+            nonlocal lock_held
+            if lock_held:
+                yield False
+                return
+            lock_held = True
+            try:
+                yield True
+            finally:
+                lock_held = False
+
+    tracked_tasks = TrackedOnboarding()
+    submit_started = asyncio.Event()
+    allow_submit_finish = asyncio.Event()
+
+    class SlowAutomation(_FakeAutomationRegistry):
+        async def submit(self, request):
+            submit_started.set()
+            await allow_submit_finish.wait()
+            return await super().submit(request)
+
+    automation = SlowAutomation()
+    service = OnboardingService(
+        tracked_tasks,
+        environments,
+        environment_service,
+        EnvironmentSecretDeriver("s" * 32),
+        automation=automation,
+    )
+    request = OnboardingImport(
+        job_id=uuid4(),
+        source="auth_file",
+        supplier="openai_codex",
+        proxy_profile_id="proxy-auto",
+        entries=(
+            OnboardingEntry(
+                label="accounts.txt",
+                content="slow-submit@example.test----secret-pass----JBSWY3DPEHPK3PXP",
+            ),
+        ),
+    )
+    submitted = await service.submit(request)
+    item = submitted.items[0]
+
+    worker_task = asyncio.create_task(service.run_once())
+    await submit_started.wait()
+    assert not lock_held
+
+    paused = await service.action(item.id, OnboardingAction(action="pause"))
+    assert isinstance(paused, Success)
+    assert paused.value.state == "disabled"
+
+    allow_submit_finish.set()
+    await worker_task
+
+    final_item = (await service.list())[0]
+    assert final_item.state == "disabled"
+    assert automation.cancelled == [item.card_id]

@@ -5,8 +5,16 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPoolOnboardingPanel } from "./AccountPoolOnboardingPanel";
 
-const { get, post, put } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
+const { get, post, put, toastError } = vi.hoisted(() => ({
+  get: vi.fn(),
+  post: vi.fn(),
+  put: vi.fn(),
+  toastError: vi.fn(),
+}));
 vi.mock("@/components/networking", () => ({ serverRootPath: "", apiClient: { get, post, put } }));
+vi.mock("@/lib/toast", () => ({
+  toast: { error: toastError, success: vi.fn(), info: vi.fn(), fromError: vi.fn() },
+}));
 const item = {
   id: "one",
   job_id: "job",
@@ -337,6 +345,25 @@ describe("onboarding workflows", () => {
           body: expect.objectContaining({ source: "oauth", proxy_profile_id: "proxy-original" }),
         }),
       ),
+    );
+  });
+
+  it("surfaces backend authorization guidance instead of masking it with a generic toast", async () => {
+    const originalGet = get.getMockImplementation()!;
+    get.mockImplementation(async (path: string) => {
+      if (path.endsWith("/authorization")) {
+        throw new Error("任务已接入浏览器 OAuth 自动化队列，请在自动化面板查看进度或接管屏幕");
+      }
+      return originalGet(path);
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("tab", { name: "OAuth 上号" }));
+    await user.click(await screen.findByRole("button", { name: "查看 / 操作" }));
+    await user.click(await screen.findByRole("button", { name: "显示授权步骤" }));
+
+    await waitFor(() =>
+      expect(toastError).toHaveBeenCalledWith("任务已接入浏览器 OAuth 自动化队列，请在自动化面板查看进度或接管屏幕"),
     );
   });
 });

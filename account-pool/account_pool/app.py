@@ -186,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         service,
         secrets,
         automation=automation.registry,
+        retry_automation_job=lambda job_id: automation.act(job_id, "retry"),
     )
     binding_repository: Final = PostgresBindingRepository(resolved.database_url)
     binding_reader: Final = MailboxReader(automation_http)

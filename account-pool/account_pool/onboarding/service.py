@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets as random_secrets
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -33,7 +34,7 @@ from account_pool.domain import (
     utc_now,
 )
 from account_pool.oauth_automation.models import ACTIVE as AUTOMATION_ACTIVE
-from account_pool.oauth_automation.models import AutomationDraft, JobInput
+from account_pool.oauth_automation.models import AutomationDraft, JobInput, JobView
 from account_pool.oauth_automation.service import AutomationRegistry
 from account_pool.onboarding.models import (
     OnboardingAction,
@@ -146,13 +147,18 @@ class OnboardingService:
         service: EnvironmentService,
         secrets: EnvironmentSecretDeriver,
         automation: AutomationRegistry | None = None,
+        *,
+        retry_automation_job: Callable[[UUID], Awaitable[Result[JobView]]] | None = None,
     ) -> None:
         self.repository: Final = repository
         self._environments: Final = environments
         self._service: Final = service
         self._secrets: Final = secrets
         self._automation: Final = automation
+        self._retry_automation_job: Final = retry_automation_job
         self._cipher: Final = StateCipher(secrets)
+        self._active_item_ids: Final[set[UUID]] = set()
+        self._processing_batch = False
 
     def _payload(self, row: StoredOnboarding) -> OnboardingPayload:
         return OnboardingPayload.model_validate_json(self._cipher.open(row.item.id, row.ciphertext))
@@ -397,11 +403,56 @@ class OnboardingService:
         await self.repository.save(row.model_copy(update={"item": item}))
         return item
 
+    async def _persist_unlocked(
+        self,
+        row: StoredOnboarding,
+        state: OnboardingState,
+        message: str,
+        *,
+        created_automation_job_id: UUID | None = None,
+    ) -> OnboardingItem | None:
+        cancel_after_unlock: UUID | None = None
+        saved_item: OnboardingItem | None = None
+        for attempt in range(25):
+            async with self.repository.worker_lock() as acquired:
+                if not acquired:
+                    if attempt < 24:
+                        await asyncio.sleep(0.01)
+                        continue
+                    latest = await self.repository.get(row.item.id)
+                else:
+                    latest = await self.repository.get(row.item.id)
+                if latest is None or latest.history_cleared or latest.paused or latest.item.state == "disabled":
+                    cancel_after_unlock = created_automation_job_id
+                else:
+                    merged = latest.model_copy(
+                        update={
+                            "ciphertext": row.ciphertext,
+                            "item": row.item.model_copy(
+                                update={
+                                    "attempts": row.item.attempts,
+                                    "card_name": row.item.card_name or latest.item.card_name,
+                                    "models": row.item.models or latest.item.models,
+                                }
+                            ),
+                        }
+                    )
+                    saved_item = await self._save(merged, state, message)
+                break
+        if cancel_after_unlock is not None and self._automation is not None:
+            await self._automation.cancel(cancel_after_unlock)
+        return saved_item
+
     async def import_login_file(self, card_id: UUID, content: str) -> Result[EnvironmentView]:
+        row: StoredOnboarding | None = None
+        payload: OnboardingPayload | None = None
+        entries: tuple[OnboardingEntry, ...] = ()
+        record: EnvironmentRecord | None = None
+        item_id: UUID | None = None
         async with self.repository.worker_lock() as acquired:
             if not acquired:
                 return Failure(FailureCode.CONFLICT, "后台正在处理卡片，请稍后重试")
-            record: Final = await self._environments.get(card_id)
+            record = await self._environments.get(card_id)
             if record is None:
                 return Failure(FailureCode.NOT_FOUND, "卡片不存在")
             if record.auth_file_name or record.credential_fingerprints:
@@ -411,7 +462,7 @@ class OnboardingService:
             if record.proxy_mode is not ProxyMode.PROFILE or not record.proxy_profile_id:
                 return Failure(FailureCode.CONFLICT, "请先为卡片选择 OAuth 出站代理")
             try:
-                entries: Final = parse_two_factor_text(content, record.supplier.value)
+                entries = parse_two_factor_text(content, record.supplier.value)
             except CredentialConflict as error:
                 return Failure(FailureCode.INVALID, str(error))
             if len(entries) != 1:
@@ -425,7 +476,7 @@ class OnboardingService:
                 entries=entries,
             )
             keys: Final = self._fingerprints(request, entries[0])
-            existing: Final = tuple(row for row in await self.repository.list() if row.item.card_id == card_id)
+            existing: Final = tuple(item for item in await self.repository.list() if item.item.card_id == card_id)
             if existing:
                 if existing[0].fingerprints != keys or self._payload(existing[0]).entry != entries[0]:
                     return Failure(FailureCode.CONFLICT, "该卡片已有不同的上号资料，请在原任务中继续")
@@ -434,7 +485,7 @@ class OnboardingService:
             if checked[0].status != "valid":
                 return Failure(FailureCode.CONFLICT, checked[0].message)
             now: Final = utc_now()
-            item_id: Final = uuid5(request.job_id, "0")
+            item_id = uuid5(request.job_id, "0")
             item: Final = OnboardingItem(
                 id=item_id,
                 job_id=request.job_id,
@@ -448,24 +499,27 @@ class OnboardingService:
                 created_at=now,
                 updated_at=now,
             )
-            use_automation: Final = (
+            use_automation = (
                 self._automation is not None
                 and record.supplier is SupplierKind.OPENAI_CODEX
                 and bool(entries[0].totp_secret)
                 and bool(entries[0].supplier_password)
                 and await self._automation.readiness_error() is None
             )
-            payload: Final = OnboardingPayload(
+            payload = OnboardingPayload(
                 entry=entries[0],
                 mailbox_ready=True,
                 proxy_profile_id=record.proxy_profile_id,
                 manual_oauth_only=not use_automation,
             )
-            row: Final = StoredOnboarding(
+            row = StoredOnboarding(
                 item=item, ciphertext=self._cipher.seal(item_id, payload.model_dump_json()), fingerprints=keys
             )
             if not await self.repository.insert(row):
                 return Failure(FailureCode.CONFLICT, "账号已有上号任务，请在原任务中继续")
+            self._active_item_ids.add(item_id)
+        try:
+            assert row is not None and payload is not None and record is not None and item_id is not None
             if use_automation and self._automation is not None:
                 credentials: Final = (
                     f"{entries[0].label}----{entries[0].supplier_password}----{entries[0].totp_secret}"
@@ -479,22 +533,38 @@ class OnboardingService:
                     )
                 )
                 if isinstance(submitted, Failure):
-                    await self._save(row, "failed", submitted.message or "浏览器 OAuth 自动队列入队失败，请检查原卡片后重试")
+                    await self._persist_unlocked(
+                        row, "failed", submitted.message or "浏览器 OAuth 自动队列入队失败，请检查原卡片后重试"
+                    )
                     return submitted
                 tracked_payload: Final = payload.model_copy(update={"automation_job_id": submitted.value.id})
                 tracked_row: Final = row.model_copy(
                     update={"ciphertext": self._cipher.seal(item_id, tracked_payload.model_dump_json())}
                 )
-                await self._save(tracked_row, "awaiting_authorization", "登录资料已保存并加入浏览器 OAuth 自动队列")
+                persisted: Final = await self._persist_unlocked(
+                    tracked_row,
+                    "awaiting_authorization",
+                    "登录资料已保存并加入浏览器 OAuth 自动队列",
+                    created_automation_job_id=submitted.value.id,
+                )
+                if persisted is None:
+                    return Failure(FailureCode.CONFLICT, "任务已被暂停或清理")
                 return Success(to_view(record))
             authorization: Final = await self._service.authorize_environment(
                 card_id, operation_id=f"onboarding:{item_id}", require_empty=True
             )
             if isinstance(authorization, Failure):
-                await self._save(row, "failed", "授权启动失败，登录资料已保存，请检查原卡片后重试")
+                await self._persist_unlocked(row, "failed", "授权启动失败，登录资料已保存，请检查原卡片后重试")
                 return authorization
-            await self._save(row, "awaiting_authorization", "登录资料已保存，请完成登录和二次验证")
+            persisted_manual: Final = await self._persist_unlocked(
+                row, "awaiting_authorization", "登录资料已保存，请完成登录和二次验证"
+            )
+            if persisted_manual is None:
+                return Failure(FailureCode.CONFLICT, "任务已被暂停或清理")
             return Success(authorization.value.environment)
+        finally:
+            if item_id is not None:
+                self._active_item_ids.discard(item_id)
 
     async def targets(self) -> tuple[OnboardingTargetView, ...]:
         items: Final = tuple(row.item for row in await self.repository.list())
@@ -509,71 +579,114 @@ class OnboardingService:
             if payload.automation_job_id is not None:
                 job: Final = await self._automation.get_job(payload.automation_job_id)
                 if job is not None and (job.stage in ("queued", *AUTOMATION_ACTIVE) or job.cleanup_pending):
+                    if job.stage == "queued":
+                        readiness_problem: Final = await self._automation.readiness_error()
+                        if readiness_problem is not None:
+                            return Failure(FailureCode.CONFLICT, readiness_problem)
                     return Failure(
                         FailureCode.CONFLICT,
                         "任务已接入浏览器 OAuth 自动化队列，请在自动化面板查看进度或接管屏幕",
                     )
         return await self._service.pending_authorization(row.item.card_id)
 
-    async def _process(self, row: StoredOnboarding) -> None:
-        payload: Final = self._payload(row)
+    async def _process(self, running: StoredOnboarding) -> None:
+        payload: Final = self._payload(running)
         request: Final = CreateEnvironmentRequest(
-            name=onboarding_card_name(row.item.supplier, row.item.label),
-            supplier=SupplierKind(row.item.supplier),
+            name=onboarding_card_name(running.item.supplier, running.item.label),
+            supplier=SupplierKind(running.item.supplier),
             proxy_profile_id=payload.proxy_profile_id,
-            operation_id=f"onboarding:{row.item.id}",
+            operation_id=f"onboarding:{running.item.id}",
         )
-        running: Final = row.model_copy(
-            update={"item": row.item.model_copy(update={"attempts": row.item.attempts + 1})}
-        )
-        await self._save(running, "running", "创建或恢复卡片，验证凭证与模型")
-        if row.item.source == "auth_file":
+        if running.item.source == "auth_file":
             result: Final = await self._service.create_auth_file_environment(
                 request,
-                row.item.card_id,
+                running.item.card_id,
                 payload.entry.label,
                 payload.entry.content.encode(),
             )
             if isinstance(result, Failure):
-                await self._save(running, "failed", "凭证导入或验证失败，请检查原卡片后重试")
+                await self._persist_unlocked(running, "failed", "凭证导入或验证失败，请检查原卡片后重试")
                 return
-            await self._observe(running)
+            await self._observe(running, unlocked=True)
             return
-        existing: Final = await self._environments.get(row.item.card_id)
+        existing: Final = await self._environments.get(running.item.card_id)
         if existing is not None and (
             not existing.enabled or existing.manual_cooldown or existing.status is EnvironmentStatus.DELETING
         ):
-            await self._save(running, "disabled", "原卡片已手动停用、冷却或删除，自动化不会覆盖")
+            await self._persist_unlocked(running, "disabled", "原卡片已手动停用、冷却或删除，自动化不会覆盖")
             return
+        if (
+            existing is not None
+            and self._automation is not None
+            and self._retry_automation_job is not None
+            and payload.automation_job_id is not None
+        ):
+            previous_job: Final = await self._automation.get_job(payload.automation_job_id)
+            if previous_job is not None and (
+                previous_job.stage == "verification_failed"
+                or (existing.oauth_verification_pending and previous_job.stage in ("failed", "cancelled", "expired"))
+            ):
+                if previous_job.cleanup_pending:
+                    requeued: Final = running.model_copy(
+                        update={"item": running.item.model_copy(update={"attempts": max(0, running.item.attempts - 1)})}
+                    )
+                    await self._persist_unlocked(requeued, "queued", "浏览器自动化清理中，稍后自动重试验收")
+                    return
+                retried: Final = await self._retry_automation_job(previous_job.id)
+                if isinstance(retried, Failure):
+                    latest_job: Final = await self._automation.get_job(previous_job.id)
+                    if retried.code is FailureCode.CONFLICT and (
+                        "已有运行任务" in retried.message
+                        or "清理" in retried.message
+                        or (
+                            latest_job is not None
+                            and (latest_job.stage in ("queued", *AUTOMATION_ACTIVE) or latest_job.cleanup_pending)
+                        )
+                    ):
+                        requeued = running.model_copy(
+                            update={
+                                "item": running.item.model_copy(update={"attempts": max(0, running.item.attempts - 1)})
+                            }
+                        )
+                        await self._persist_unlocked(requeued, "queued", "浏览器自动化队列正在推进，稍后自动重试验收")
+                        return
+                    await self._persist_unlocked(
+                        running, "failed", retried.message or "自动重试验收失败，请检查原卡片后重试"
+                    )
+                    return
+                await self._persist_unlocked(
+                    running, "awaiting_authorization", f"已重新触发同卡模型验收：{retried.value.message}"
+                )
+                return
         if (
             existing is not None
             and existing.auth_file_name is not None
             and existing.status is not EnvironmentStatus.ERROR
         ):
-            await self._observe(running)
+            await self._observe(running, unlocked=True)
             return
         if (
             self._automation is not None
             and not payload.manual_oauth_only
-            and row.item.supplier == "openai_codex"
-            and row.item.source == "oauth"
+            and running.item.supplier == "openai_codex"
+            and running.item.source == "oauth"
             and payload.entry.totp_secret
             and payload.entry.supplier_password
         ):
             await self._enqueue_automation(running, payload, request, existing)
             return
-        pending: Final = await self._service.pending_authorization(row.item.card_id)
+        pending: Final = await self._service.pending_authorization(running.item.card_id)
         if isinstance(pending, Success):
-            await self._save(running, "awaiting_authorization", "请打开授权并完成登录，验证通过后自动完成")
+            await self._persist_unlocked(running, "awaiting_authorization", "请打开授权并完成登录，验证通过后自动完成")
             return
         result_oauth: Final = (
-            await self._service.create_environment(request, environment_id=row.item.card_id)
+            await self._service.create_environment(request, environment_id=running.item.card_id)
             if existing is None
-            else await self._service.authorize_environment(row.item.card_id, require_empty=True)
+            else await self._service.authorize_environment(running.item.card_id, require_empty=True)
             if payload.entry.totp_secret
-            else await self._service.resume_onboarding_oauth(row.item.card_id)
+            else await self._service.resume_onboarding_oauth(running.item.card_id)
         )
-        await self._save(
+        await self._persist_unlocked(
             running,
             "failed" if isinstance(result_oauth, Failure) else "awaiting_authorization",
             "授权启动失败，请检查卡片并手动重试"
@@ -592,22 +705,29 @@ class OnboardingService:
         if payload.automation_job_id is not None:
             previous: Final = await self._automation.get_job(payload.automation_job_id)
             if previous is not None and (previous.stage in ("queued", *AUTOMATION_ACTIVE) or previous.cleanup_pending):
+                if previous.stage == "queued":
+                    queued_problem: Final = await self._automation.readiness_error()
+                    if queued_problem is not None:
+                        await self._persist_unlocked(
+                            running, "failed", f"浏览器 OAuth 自动化未就绪，排队任务已暂停推进：{queued_problem}"
+                        )
+                        return
                 message: Final = (
                     "浏览器自动登录等待人工接管验证码或二次验证"
                     if previous.stage == "manual"
                     else f"浏览器 OAuth 自动队列执行中：{previous.message}"
                 )
-                await self._save(running, "awaiting_authorization", message)
+                await self._persist_unlocked(running, "awaiting_authorization", message)
                 return
         readiness_problem: Final = await self._automation.readiness_error()
         if readiness_problem is not None:
-            await self._save(running, "failed", readiness_problem)
+            await self._persist_unlocked(running, "failed", readiness_problem)
             return
         credentials: Final = f"{running.item.label}----{payload.entry.supplier_password}----{payload.entry.totp_secret}"
         if existing is None:
             proxy_id: Final = payload.proxy_profile_id or await self._service.default_proxy_profile_id()
             if not proxy_id:
-                await self._save(running, "failed", "批量 2FA 自动上号需要指定代理配置，请先选择代理后重试")
+                await self._persist_unlocked(running, "failed", "批量 2FA 自动上号需要指定代理配置，请先选择代理后重试")
                 return
             stale: Final = await self._automation.get_job(running.item.card_id)
             if stale is not None and (stale.stage in ("queued", *AUTOMATION_ACTIVE) or stale.cleanup_pending):
@@ -615,7 +735,9 @@ class OnboardingService:
                 tracked: Final = running.model_copy(
                     update={"ciphertext": self._cipher.seal(running.item.id, updated_payload.model_dump_json())}
                 )
-                await self._save(tracked, "awaiting_authorization", f"浏览器 OAuth 自动队列执行中：{stale.message}")
+                await self._persist_unlocked(
+                    tracked, "awaiting_authorization", f"浏览器 OAuth 自动队列执行中：{stale.message}"
+                )
                 return
             if stale is not None and stale.stage in ("failed", "cancelled", "expired", "verification_failed"):
                 deleted: Final = await self._automation.delete_job(stale.id)
@@ -624,9 +746,11 @@ class OnboardingService:
                         requeued: Final = running.model_copy(
                             update={"item": running.item.model_copy(update={"attempts": max(0, running.item.attempts - 1)})}
                         )
-                        await self._save(requeued, "queued", "浏览器自动化队列正在推进，稍后自动重新入队")
+                        await self._persist_unlocked(requeued, "queued", "浏览器自动化队列正在推进，稍后自动重新入队")
                         return
-                    await self._save(running, "failed", deleted.message or "清理历史自动化任务失败，请稍后重试")
+                    await self._persist_unlocked(
+                        running, "failed", deleted.message or "清理历史自动化任务失败，请稍后重试"
+                    )
                     return
             job_input: Final = JobInput(
                 id=running.item.card_id,
@@ -643,15 +767,27 @@ class OnboardingService:
             )
         submitted: Final = await self._automation.submit(job_input)
         if isinstance(submitted, Failure):
-            await self._save(running, "failed", submitted.message or "浏览器 OAuth 自动队列入队失败，请检查资料后重试")
+            await self._persist_unlocked(
+                running, "failed", submitted.message or "浏览器 OAuth 自动队列入队失败，请检查资料后重试"
+            )
             return
         saved_payload: Final = payload.model_copy(update={"automation_job_id": submitted.value.id})
         queued_row: Final = running.model_copy(
             update={"ciphertext": self._cipher.seal(running.item.id, saved_payload.model_dump_json())}
         )
-        await self._save(queued_row, "awaiting_authorization", "已加入浏览器 OAuth 自动队列，等待自动登录并验证")
+        await self._persist_unlocked(
+            queued_row,
+            "awaiting_authorization",
+            "已加入浏览器 OAuth 自动队列，等待自动登录并验证",
+            created_automation_job_id=submitted.value.id,
+        )
 
-    async def _observe(self, row: StoredOnboarding) -> None:
+    async def _observe(self, row: StoredOnboarding, *, unlocked: bool = False) -> None:
+        async def persist(target: StoredOnboarding, state: OnboardingState, message: str) -> OnboardingItem | None:
+            if unlocked:
+                return await self._persist_unlocked(target, state, message)
+            return await self._save(target, state, message)
+
         result: Final = await self._service.get_environment(row.item.card_id)
         record: Final = await self._environments.get(row.item.card_id)
         if self._automation is not None:
@@ -659,15 +795,24 @@ class OnboardingService:
             if payload.automation_job_id is not None:
                 job: Final = await self._automation.get_job(payload.automation_job_id)
                 if job is not None and (job.stage in ("queued", *AUTOMATION_ACTIVE) or job.cleanup_pending):
+                    if job.stage == "queued":
+                        queued_problem: Final = await self._automation.readiness_error()
+                        if queued_problem is not None:
+                            await persist(
+                                row,
+                                "failed",
+                                f"浏览器 OAuth 自动化未就绪，排队任务已暂停推进：{queued_problem}",
+                            )
+                            return
                     message: Final = (
                         "浏览器自动登录等待人工接管验证码或二次验证"
                         if job.stage == "manual"
                         else f"浏览器 OAuth 自动队列执行中：{job.message}"
                     )
-                    await self._save(row, "awaiting_authorization", message)
+                    await persist(row, "awaiting_authorization", message)
                     return
                 if job is not None and job.stage == "verification_failed":
-                    await self._save(row, "failed", f"自动上号模型验收失败：{job.message}")
+                    await persist(row, "failed", f"自动上号模型验收失败：{job.message}")
                     return
                 if (
                     job is not None
@@ -678,17 +823,17 @@ class OnboardingService:
                         or record.oauth_verification_pending
                     )
                 ):
-                    await self._save(row, "failed", f"自动上号失败：{job.message}")
+                    await persist(row, "failed", f"自动上号失败：{job.message}")
                     return
         if record is None:
-            await self._save(row, "failed", "卡片已不存在，请检查；不会自动重复创建")
+            await persist(row, "failed", "卡片已不存在，请检查；不会自动重复创建")
             return
         if (
             not record.enabled
             or record.manual_cooldown
             or record.status in (EnvironmentStatus.DISABLED, EnvironmentStatus.DELETING)
         ):
-            await self._save(row, "disabled", "卡片已手动停用或冷却，自动化已暂停")
+            await persist(row, "disabled", "卡片已手动停用或冷却，自动化已暂停")
             return
         if (
             record.status is EnvironmentStatus.READY
@@ -696,36 +841,41 @@ class OnboardingService:
             and isinstance(result, Success)
         ):
             if record.oauth_verification_pending:
-                await self._save(row, "failed", "凭据已保存但模型验收未通过，请检查卡片验收状态后重试")
+                await persist(row, "failed", "凭据已保存但模型验收未通过，请检查卡片验收状态后重试")
                 return
             gateway: Final = self._service.gateway_environment(record)
             if not gateway.routable:
-                await self._save(row, "cooling_down", "当前卡片不可路由，等待后台配额或健康恢复")
+                await persist(row, "cooling_down", "当前卡片不可路由，等待后台配额或健康恢复")
                 return
             if not usable_models(record):
-                await self._save(row, "cooling_down", "当前模型额度耗尽或处于冷却，等待恢复")
+                await persist(row, "cooling_down", "当前模型额度耗尽或处于冷却，等待恢复")
                 return
-            await self._complete(row, record)
+            await self._complete(row, record, unlocked=unlocked)
             return
         if record.status is EnvironmentStatus.COOLING_DOWN or record.automatic_cooldown:
-            await self._save(row, "cooling_down", "额度或健康冷却中，恢复验证通过后重新计入")
+            await persist(row, "cooling_down", "额度或健康冷却中，恢复验证通过后重新计入")
             return
         if record.status is EnvironmentStatus.ERROR:
-            await self._save(row, "failed", "卡片验证失败或授权失效，请检查卡片后重试")
+            await persist(row, "failed", "卡片验证失败或授权失效，请检查卡片后重试")
             return
         if (
             record.oauth_expires_at is not None
             and record.oauth_expires_at <= utc_now()
             and record.auth_file_name is None
         ):
-            await self._save(row, "failed", "授权已过期，请手动重试")
+            await persist(row, "failed", "授权已过期，请手动重试")
             return
         if row.item.source == "auth_file":
-            await self._save(row, "failed", "凭证已保存，卡片配置或模型仍未就绪，请稍后重试原任务")
+            await persist(row, "failed", "凭证已保存，卡片配置或模型仍未就绪，请稍后重试原任务")
             return
-        await self._save(row, "awaiting_authorization", "等待授权完成和模型验证")
+        await persist(row, "awaiting_authorization", "等待授权完成和模型验证")
 
-    async def _complete(self, row: StoredOnboarding, record: EnvironmentRecord) -> None:
+    async def _complete(self, row: StoredOnboarding, record: EnvironmentRecord, *, unlocked: bool = False) -> None:
+        async def persist(target: StoredOnboarding, state: OnboardingState, message: str) -> OnboardingItem | None:
+            if unlocked:
+                return await self._persist_unlocked(target, state, message)
+            return await self._save(target, state, message)
+
         if (
             row.item.source == "oauth"
             and record.credential_email
@@ -745,7 +895,7 @@ class OnboardingService:
                 ),
             )
             if isinstance(disabled, Success):
-                await self._save(row, "failed", "实际授权账号与导入邮箱不一致，卡片已停用，请检查登录账号")
+                await persist(row, "failed", "实际授权账号与导入邮箱不一致，卡片已停用，请检查登录账号")
             return
         account: Final = record.credential_email or record.credential_account_id or row.item.label.removesuffix(".json")
         name: Final = onboarding_card_name(row.item.supplier, account, record.quota.plan_type)
@@ -764,7 +914,7 @@ class OnboardingService:
                 ),
             )
             if isinstance(renamed, Failure):
-                await self._save(row, "failed", "凭证已验证，但卡片命名或配置尚未完成，请重试原任务")
+                await persist(row, "failed", "凭证已验证，但卡片命名或配置尚未完成，请重试原任务")
                 return
         completed: Final = row.model_copy(
             update={
@@ -776,9 +926,10 @@ class OnboardingService:
                 )
             }
         )
-        await self._save(completed, "ready", "凭证、模型与网关配置验证通过")
+        await persist(completed, "ready", "凭证、模型与网关配置验证通过")
 
     async def run_once(self) -> None:
+        selected: StoredOnboarding | None = None
         async with self.repository.worker_lock() as acquired:
             if not acquired:
                 return
@@ -806,18 +957,31 @@ class OnboardingService:
                 )
                 for row in standby[: view.shortage]:
                     await self._save(row, "queued", "可用数量不足，已排队等待授权")
+            if self._processing_batch:
+                return
             pending: Final = tuple(
-                row for row in await self.repository.list() if row.item.state in ("queued", "running")
+                row
+                for row in await self.repository.list()
+                if row.item.state in ("queued", "running") and row.item.id not in self._active_item_ids
             )
-            if pending:
-                if pending[0].item.state == "running" and pending[0].item.attempts >= 3:
-                    await self._save(pending[0], "failed", "任务多次中断，已暂停自动恢复，请检查后手动重试")
-                    return
-                try:
-                    await self._process(pending[0])
-                except Exception:
-                    latest: Final = await self.repository.get(pending[0].item.id)
-                    await self._save(latest or pending[0], "failed", "后台任务未完成，检查卡片后可重试")
+            if not pending:
+                return
+            if pending[0].item.state == "running" and pending[0].item.attempts >= 3:
+                await self._save(pending[0], "failed", "任务多次中断，已暂停自动恢复，请检查后手动重试")
+                return
+            selected = pending[0].model_copy(
+                update={"item": pending[0].item.model_copy(update={"attempts": pending[0].item.attempts + 1})}
+            )
+            await self._save(selected, "running", "创建或恢复卡片，验证凭证与模型")
+            self._processing_batch = True
+            self._active_item_ids.add(selected.item.id)
+        try:
+            await self._process(selected)
+        except Exception:
+            await self._persist_unlocked(selected, "failed", "后台任务未完成，检查卡片后可重试")
+        finally:
+            self._active_item_ids.discard(selected.item.id)
+            self._processing_batch = False
 
     async def run_until_cancelled(self, stopped: asyncio.Event) -> None:
         while not stopped.is_set():

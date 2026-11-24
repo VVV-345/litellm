@@ -96,8 +96,12 @@ export function AccountPoolOnboardingTasks({
     setBusy(true);
     try {
       setAuthorization(await authorizeOnboarding(accessToken, selected.id));
-    } catch {
-      toast.error(t("accountPool.onboarding.tasks.authorizationUnavailableToast"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message.trim()
+          ? error.message
+          : t("accountPool.onboarding.tasks.authorizationUnavailableToast"),
+      );
     } finally {
       setBusy(false);
     }
