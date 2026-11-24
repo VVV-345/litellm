@@ -1,6 +1,6 @@
 # 号池系统工程实施计划书与防回归治理规范
 
-- **文档版本**：`v1.3`
+- **文档版本**：`v1.4`
 - **主工作分支**：`CLIProxyAPI分支`（本地分批验证后提交，收到用户明确指令后才执行 `push`）
 - **基线提交**：`1e13b2c7a7`
 - **最后更新**：`2026-11-24`
@@ -89,6 +89,12 @@
 
 ---
 
+### 批次 7 复查：兼容卡自动冷却恢复
+- [x] 普通目录刷新保留缓存与手工模型；自动恢复只认本次上游返回的有效模型。503、空目录或 DNS 超时不判为健康，正常目录可通过探活。
+- **本地验收**：`pytest -q account-pool/tests/account_pool/test_openai_compatible.py account-pool/tests/account_pool/onboarding/test_onboarding_api.py::test_manager_and_proxy_onboarding_contracts_match` 在同时具备 Manager 和 LiteLLM 依赖的环境中 87 项通过。三个针对冷却与超时的用例修复前均失败，修复后均通过。
+- **镜像门禁**：`CLIProxyAPI分支` 的推送触发 `publish-deployment-images.yml`，四个镜像均依赖 `verify-quota`。MCP 编辑、SSO 编辑及 Manager 跨包上号测试均不在该清单。按工作流点名的文件在本地运行，前端 Vitest 150 项和 Node 14 项均通过，Dashboard 类型检查退出 0；未改工作流或触发远端构建。
+- **后端门禁复跑**：按同一工作流选取的 41 个 pytest 文件或用例运行，2,063 通过、43 跳过、0 失败。跳过项均要求专用 PostgreSQL 数据库；本地 Windows 结果不能代替 GitHub Linux 构建结果。
+
 ## 三、变更记录（Change Log）
 
 | 版本 | 日期 | 变更说明 | 对应提交 |
@@ -97,3 +103,4 @@
 | `v1.1` | `2026-11-24` | 完成批次 2–5 全部加固与回归验证；按 `docs/handbook/provider-standard.md` 明确兼容卡 `custom_models` 与显式目录发现边界；红线 #9 新增 JSON 重复键门禁 | `13a3dec3d2`、`29955707a9`、`e853735f84`、`4a558f66d3` |
 | `v1.2` | `2026-11-24` | 依据 `4a558f66d3` 复核结论新增批次 6–8（#2 保留原卡重试验收、#1 队列停用观察与前端透传、#7 `preempt()` 备卡前移、#9 上号 `worker_lock` 缩锁、#5 部分索引、#6 DNS 总超时、#3/#8 未清理会话计数与无标签告警、#11/#12 限时子进程回收与引用计数锁、#10 剩余两面板 i18n），并强化红线 #2/#3/#5/#6/#7/#8 | 批次 6–8 进行中 |
 | `v1.3` | `2026-11-24` | 批次 6 已提交；批次 7、8 实现及号池回归完成。独立 PostgreSQL 会话测试因环境跳过，Dashboard 全库旧失败单独保留。 | 批次 6 `a2ecd561ae`、批次 7 `6e2cf145c4`、批次 8 `ff4b72e0f9` |
+| `v1.4` | `2026-11-24` | 分开兼容卡目录展示与实时探活，避免缓存掩盖上游故障。 | `38691e5228` |
