@@ -948,11 +948,13 @@ class EnvironmentService:
                 return current
             channel: Final = self._channel(current)
             if not credential_state_changed and not refresh_quota:
-                if current.automatic_cooldown and not await channel.data_plane_health_check(current):
-                    return current
                 if _cooldown_active(current):
                     return current
-                if _cooldown_elapsed(current) and not await channel.data_plane_health_check(current):
+                if (
+                    current.channel is not ChannelKind.OPENAI_COMPATIBLE
+                    and (current.automatic_cooldown or _cooldown_elapsed(current))
+                    and not await channel.data_plane_health_check(current)
+                ):
                     return current
             try:
                 observed: Final = await channel.read_account(current, refresh_quota=refresh_quota)
@@ -985,6 +987,7 @@ class EnvironmentService:
             # 额度刷新不能被旧冷却时间挡住，但自动恢复仍必须通过数据面探活。
             recovery_blocked: Final = (
                 refresh_quota
+                and current.channel is not ChannelKind.OPENAI_COMPATIBLE
                 and current.enabled
                 and not current.manual_cooldown
                 and (current.automatic_cooldown or current.status is EnvironmentStatus.COOLING_DOWN)

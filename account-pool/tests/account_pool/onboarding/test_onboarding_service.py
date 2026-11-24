@@ -1187,13 +1187,16 @@ async def test_single_card_import_login_file_enqueues_automation_when_ready(tmp_
     assert (await service.list())[0].state == "awaiting_authorization"
 
 
-async def test_verification_failed_retry_with_preserved_card_invokes_retry_automation_job(tmp_path):
+@pytest.mark.parametrize("pause_during_retry", [False, True])
+async def test_verification_failed_retry_with_preserved_card_invokes_retry_automation_job(tmp_path, pause_during_retry):
     _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
     automation = _FakeAutomationRegistry()
     retried_ids: list[object] = []
 
     async def retry_job(job_id):
         retried_ids.append(job_id)
+        if pause_during_retry:
+            assert isinstance(await service.action(item.id, OnboardingAction(action="pause")), Success)
         updated = automation.jobs[job_id].model_copy(
             update={"stage": "verifying", "message": "重新触发同卡模型验收"}
         )
@@ -1250,6 +1253,10 @@ async def test_verification_failed_retry_with_preserved_card_invokes_retry_autom
     await service.run_once()
     retriggered = (await service.list())[0]
     assert retried_ids == [item.card_id]
+    if pause_during_retry:
+        assert retriggered.state == "disabled"
+        assert automation.jobs[item.card_id].stage == "cancelled"
+        return
     assert retriggered.state == "awaiting_authorization"
     assert "重新触发同卡模型验收" in retriggered.message
     assert len(automation.submitted) == 1
@@ -1294,6 +1301,7 @@ async def test_queued_onboarding_item_stops_and_surfaces_readiness_error_when_au
     stopped = (await service.list())[0]
     assert stopped.state == "failed"
     assert "未就绪" in stopped.message and "镜像自检" in stopped.message
+    assert automation.jobs[item.card_id].stage == "cancelled"
 
 
 async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on_pause(tmp_path):
@@ -1301,11 +1309,16 @@ async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on
 
     _, tasks, environments, _, _, environment_service = setup_service(tmp_path)
     lock_held = False
+    denied = 0
 
     class TrackedOnboarding(MemoryOnboarding):
         @asynccontextmanager
         async def worker_lock(self):
-            nonlocal lock_held
+            nonlocal lock_held, denied
+            if denied:
+                denied -= 1
+                yield False
+                return
             if lock_held:
                 yield False
                 return
@@ -1356,8 +1369,10 @@ async def test_onboarding_worker_lock_not_held_during_slow_submit_and_cancels_on
     assert isinstance(paused, Success)
     assert paused.value.state == "disabled"
 
+    denied = 26
     allow_submit_finish.set()
     await worker_task
+    assert denied == 0
 
     final_item = (await service.list())[0]
     assert final_item.state == "disabled"

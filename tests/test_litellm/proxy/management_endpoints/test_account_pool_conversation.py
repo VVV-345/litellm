@@ -1809,7 +1809,8 @@ async def test_single_card_pool_preserves_upstream_error_instead_of_503_when_his
 
 
 @pytest.mark.asyncio
-async def test_preempt_skips_when_ordinary_key_has_single_cooled_card_and_no_history(monkeypatch):
+@pytest.mark.parametrize("blocked_backup", [False, True])
+async def test_preempt_skips_when_ordinary_key_has_single_cooled_card_and_no_history(monkeypatch, blocked_backup):
     from litellm.proxy.management_endpoints.account_pool_conversation import Conversation
     from litellm.proxy.management_endpoints.account_pool_native_routing import RoutingQuota, now_utc
 
@@ -1823,7 +1824,11 @@ async def test_preempt_skips_when_ordinary_key_has_single_cooled_card_and_no_his
                 "litellm_params": {"model": "openai/gpt-5", "api_base": "http://solo.local/v1", "api_key": "k"},
                 "model_info": {"id": str(only_card), "account_pool_environment_id": str(only_card)},
             }
-        ]
+        ] + ([{
+            "model_name": "solo",
+            "litellm_params": {"model": "openai/gpt-5", "api_base": "http://unused.test/v1", "api_key": "fixture"},
+            "model_info": {"id": str(uuid4()), "account_pool_environment_id": str(uuid4()), "blocked": True},
+        }] if blocked_backup else [])
     )
     before = snapshots.values
     snapshots.replace(

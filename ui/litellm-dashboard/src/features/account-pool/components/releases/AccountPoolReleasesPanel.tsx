@@ -1,4 +1,5 @@
 /** 本文件展示项目运行版本、真实镜像备份及实际回退操作。 */
+import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient, type Query } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useState } from "react";
@@ -22,26 +23,26 @@ import {
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 
 const actionTitles: Record<ReleaseAction["action"], string> = {
-  apply: "回退检查与确认",
-  delete: "删除镜像备份",
-  note: "保存版本备注",
-  guide: "保存回退说明",
-  scan: "备份当前运行版本",
-  backup_selected: "备份所选镜像",
-  delete_backups: "批量删除备份",
-  delete_images: "批量删除本机镜像",
-  deploy: "部署新版本",
-  recover: "恢复运行版本",
-  restore_data: "恢复程序与数据库快照",
-  upgrade_cards: "确认升级所选卡片",
+  apply: "accountPool.releaseManagement.reviewAndConfirmRollback",
+  delete: "accountPool.releaseManagement.deleteImageBackup",
+  note: "accountPool.releaseManagement.saveVersionNotes",
+  guide: "accountPool.releaseManagement.saveRollbackExplanation",
+  scan: "accountPool.releaseManagement.backUpTheRunningVersion",
+  backup_selected: "accountPool.imageArchive.backUpSelectedImages",
+  delete_backups: "accountPool.releaseManagement.deleteBackupsInBulk",
+  delete_images: "accountPool.releaseManagement.deleteLocalImagesInBulk",
+  deploy: "accountPool.releaseManagement.deployNewVersion",
+  recover: "accountPool.releaseManagement.restoreRunningVersion",
+  restore_data: "accountPool.releaseManagement.restoreApplicationAndDatabaseSnapshots",
+  upgrade_cards: "accountPool.releaseManagement.confirmUpgradeOfSelectedCards",
 };
 const jobLabels = {
-  queued: "等待执行",
-  running: "执行中",
-  succeeded: "已完成",
-  failed: "执行失败",
-  recovered: "切换失败，已恢复原版本",
-  interrupted: "任务已中断",
+  queued: "accountPool.releaseManagement.queued",
+  running: "accountPool.upstreamSync.states.running",
+  succeeded: "accountPool.managerLogs.states.completed",
+  failed: "accountPool.releaseManagement.failed",
+  recovered: "accountPool.releaseManagement.switchFailedOriginalVersionRestored",
+  interrupted: "accountPool.releaseManagement.taskInterrupted",
 };
 
 const jobIsPending = (job: ReleaseJob | null | undefined) => job?.status === "queued" || job?.status === "running";
@@ -51,6 +52,7 @@ const selectedVersion = (data: ReleaseView | undefined, id: string | null) =>
   data?.versions[0];
 
 export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string }) {
+  const { t } = useTranslation();
   const client = useQueryClient();
   const queryKey = accountPoolQueryKeys.releases(accessToken);
   const queryOptions = {
@@ -100,7 +102,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
       setPending(null);
       setNote(null);
       client.setQueryData(queryKey, data ? { ...data, job } : data);
-      toast.success("任务已提交，执行结果将在此页显示");
+      toast.success(t("accountPool.releaseManagement.taskSubmittedResultsWillAppearHere"));
       void refresh();
     },
     onError: (error) => {
@@ -118,15 +120,15 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
   const selectRollback = (id: string) => {
     setSelectedId(id);
     setNote(null);
-    prepare({ action: "apply", version_id: id }, "重新核对所选版本的兼容性，确认后才会切换服务。");
+    prepare({ action: "apply", version_id: id }, t("accountPool.releaseManagement.recheckCompatibilityForTheSelectedVersion"));
   };
   if (!data)
     return (
       <Card>
         <CardHeader>
-          <CardTitle>版本管理</CardTitle>
+          <CardTitle>{t("accountPool.releaseManagement.versionManagement")}</CardTitle>
           <CardDescription>
-            {query.isError ? "版本管理暂时不可用，请检查部署服务是否启用" : "正在读取运行版本与备份…"}
+            {query.isError ? t("accountPool.releaseManagement.versionManagementIsUnavailableCheckWhether") : t("accountPool.releaseManagement.loadingRunningVersionAndBackups")}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -136,8 +138,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
             </p>
           )}
           <Button variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching}>
-            重新读取
-          </Button>
+            {t("accountPool.releaseManagement.reload")}</Button>
         </CardContent>
       </Card>
     );
@@ -145,8 +146,8 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">版本管理</h2>
-          <p className="mt-1 text-sm text-muted-foreground">管理 LiteLLM 与号池 Manager 的配套镜像备份</p>
+          <h2 className="text-lg font-semibold">{t("accountPool.releaseManagement.versionManagement")}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{t("accountPool.releaseManagement.managePairedImageBackupsForLitellm")}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -156,14 +157,13 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
               prepare(
                 { action: "scan" },
                 data.database_backups_enabled
-                  ? "仅刷新当前版本的镜像备份和两库快照，期间业务暂停。新快照校验成功后替换旧引用，不自动备份历史镜像。"
-                  : "仅将当前运行版本保存为归档，不自动备份历史镜像。数据库备份未启用，不包含数据库。",
+                  ? t("accountPool.releaseManagement.refreshOnlyTheRunningVersionS")
+                  : t("accountPool.releaseManagement.archiveOnlyTheRunningVersionHistorical"),
               )
             }
           >
-            备份当前版本
-          </Button>
-          <Button variant="ghost" aria-label="刷新版本列表" disabled={query.isFetching} onClick={() => void refresh()}>
+            {t("accountPool.releaseManagement.backUpCurrentVersion")}</Button>
+          <Button variant="ghost" aria-label={t("accountPool.releaseManagement.refreshVersionList")} disabled={query.isFetching} onClick={() => void refresh()}>
             <RefreshCw className={query.isFetching ? "animate-spin" : ""} />
           </Button>
         </div>
@@ -172,8 +172,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
       <AccountPoolRuntimeCards accessToken={accessToken} busy={busy} prepare={prepare} />
       {query.isError && (
         <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">
-          暂时无法连接，保留上次数据并继续重试。服务切换期间可能短暂中断。
-        </p>
+          {t("accountPool.releaseManagement.temporarilyDisconnectedShowingTheLastData")}</p>
       )}
       {data.problems?.map((problem) => (
         <p key={problem} role="alert" className="text-sm text-destructive">
@@ -183,7 +182,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
       {data.job && (
         <div role="status" className="rounded-xl border bg-muted/30 px-4 py-3 text-sm">
           <p className="font-medium">
-            {jobLabels[data.job.status]} · {data.job.phase}
+            {t(jobLabels[data.job.status])} · {data.job.phase}
           </p>
           {data.job.message && <p className="mt-1 text-muted-foreground">{data.job.message}</p>}
         </div>
@@ -191,8 +190,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
       {preparation.isPending && preparation.variables.action.action === "apply" && (
         <p role="status" className="flex items-center gap-2 rounded-xl border bg-muted/30 p-4 text-sm">
           <RefreshCw className="size-4 shrink-0 animate-spin" />
-          正在检查镜像、配置和功能差异，暂未切换服务…
-        </p>
+          {t("accountPool.releaseManagement.checkingImageConfigurationAndFeatureDifferences")}</p>
       )}
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {selected ? (
@@ -208,8 +206,8 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle>尚无可用版本</CardTitle>
-              <CardDescription>请先检查运行版本，或扫描本机镜像生成备份</CardDescription>
+              <CardTitle>{t("accountPool.releaseManagement.noVersionsAvailable")}</CardTitle>
+              <CardDescription>{t("accountPool.releaseManagement.checkTheRunningVersionOrScan")}</CardDescription>
             </CardHeader>
           </Card>
         )}
@@ -220,7 +218,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
         <AccountPoolReleaseConfirmation
           key={pending.confirmation.token}
           {...pending}
-          title={actionTitles[pending.confirmation.action.action]}
+          title={t(actionTitles[pending.confirmation.action.action])}
           busy={execution.isPending || preparation.isPending}
           stale={
             pending.confirmation.action.revision !== data.revision ||
@@ -236,7 +234,7 @@ export function AccountPoolReleasesPanel({ accessToken }: { accessToken: string 
                 force: true,
                 force_acknowledgement: pending.confirmation.rollback?.target_commit,
               },
-              "已选择强制回退。请再次核对未验证项与目标版本，确认后仅切换程序，保留当前数据。",
+              t("accountPool.releaseManagement.forcedRollbackSelectedReviewTheUnverified"),
             )
           }
           onClose={() => setPending(null)}

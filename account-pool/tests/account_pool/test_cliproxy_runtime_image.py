@@ -327,13 +327,11 @@ async def _cancel_image_backup(tmp_path: Path) -> None:
     task = asyncio.create_task(runtime.backup_runtime(record, directory, capture))
     try:
         await asyncio.wait_for(ready.wait(), timeout=5)
-        assert processes[0].stderr is not None
-        await asyncio.wait_for(processes[0].stderr.readexactly(1), timeout=5)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(task, timeout=8)
         assert processes[0].returncode is not None
-        assert not (directory / ".image.tar.tmp").exists()
+        assert not list(directory.glob(".image.tar.*.tmp"))
     finally:
         if not task.done():
             task.cancel()
@@ -532,3 +530,74 @@ async def test_matching_runtime_only_pins_compose_without_recreating_or_changing
     assert runner.running is running
     assert yaml.safe_load(compose.read_text(encoding="utf-8"))["services"]["cli-proxy-api"]["image"] == _NEW_IMAGE
     assert all("inspect" in call or "ps" in call for call in runner.calls)
+
+
+@pytest.mark.parametrize("running", [True, False])
+@pytest.mark.parametrize("missing_on_resume", [False, True])
+async def test_failed_recreation_without_container_restores_old_image_and_state(
+    tmp_path: Path, running: bool, missing_on_resume: bool
+) -> None:
+    class FailedRecreation(_BackupRunner):
+        missing = False
+        failed = False
+
+        async def __call__(self, args, env):
+            if "up" in args:
+                if not self.failed:
+                    self.failed = self.missing = True
+                    return _Process(1, stderr=b"fixture: create failed after removal")
+                self.missing = False
+            if self.missing and "ps" in args:
+                return _Process(stdout=b"")
+            return await super().__call__(args, env)
+
+    record = _record()
+    runner = FailedRecreation(running=running)
+    runtime = ComposeRuntime(_settings(tmp_path), EnvironmentSecretDeriver("s" * 32), runner=runner)
+    compose = runtime.environment_dir(record.id) / "compose.yaml"
+    compose.parent.mkdir()
+    original = render_compose(record, runtime.settings).replace(_NEW_IMAGE, _OLD_IMAGE)
+    compose.write_text(original, encoding="utf-8")
+    backup = tmp_path / "backup"
+
+    async def capture(_record):
+        return "fixture-state"
+
+    await runtime.backup_runtime(record, backup, capture)
+    runner.missing = missing_on_resume
+    with pytest.raises(RuntimeError, match="create failed"):
+        await runtime.rollout_runtime_image(record, backup, verify=_verified)
+    assert not runner.missing and runner.running is running
+    assert runner.current_image == "sha256:" + "b" * 64
+    assert compose.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("verbose_archive", ["volume", "image"])
+def test_verbose_backup_drains_stderr_while_streaming_tar(tmp_path: Path, verbose_archive: str) -> None:
+    factory = asyncio.ProactorEventLoop if sys.platform == "win32" else asyncio.new_event_loop
+    fallback = _BackupRunner()
+    src = tmp_path / "fixture.tar"
+    src.write_bytes(_fixture_archive("manifest.json", b"[]"))
+
+    async def runner(args, env):
+        if (verbose_archive == "image" and args[1:3] == ("image", "save")) or (verbose_archive == "volume" and "tar" in args):
+            return await asyncio.create_subprocess_exec(
+                sys.executable, "-c",
+                "import sys,pathlib;sys.stderr.buffer.write(b'x'*524288);sys.stderr.flush();"
+                "sys.stdout.buffer.write(pathlib.Path(sys.argv[1]).read_bytes())", str(src),
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=8192,
+            )
+        return await fallback(args, env)
+
+    runtime = ComposeRuntime(_settings(tmp_path).model_copy(update={"docker_command_timeout_seconds": 3}),
+                             EnvironmentSecretDeriver("s" * 32), runner=runner)
+    record = _record()
+    compose = runtime.environment_dir(record.id) / "compose.yaml"
+    compose.parent.mkdir()
+    compose.write_text(render_compose(record, runtime.settings), encoding="utf-8")
+
+    async def capture(_record):
+        return "fixture-state"
+
+    with asyncio.Runner(loop_factory=factory) as loop:
+        assert loop.run(runtime.backup_runtime(record, tmp_path / "backup", capture)) == "fixture-state"

@@ -2105,7 +2105,8 @@ async def test_ensure_runtime_network_reuses_existing_or_inherits_compose_labels
 
 
 @pytest.mark.asyncio
-async def test_restore_control_plane_connections_recovers_shared_network_once_for_many_cards() -> None:
+@pytest.mark.parametrize("shared_fails", [False, True])
+async def test_restore_control_plane_connections_recovers_shared_network_once_for_many_cards(shared_fails: bool) -> None:
     from account_pool.app import _restore_control_plane_connections
 
     records: Final = tuple(_record(status=EnvironmentStatus.READY) for _ in range(5))
@@ -2120,9 +2121,15 @@ async def test_restore_control_plane_connections_recovers_shared_network_once_fo
         async def ensure_runtime_network_connected(self) -> None:
             nonlocal shared_calls, shared_connected
             shared_calls += 1
+            if shared_fails:
+                raise OSError("fixture: shared network unavailable")
             shared_connected = True
 
         async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
+            await self.ensure_runtime_network_connected()
+            await self.ensure_legacy_control_plane_connections(environment_id)
+
+        async def ensure_legacy_control_plane_connections(self, environment_id: UUID) -> None:
             per_card_calls.append(environment_id)
 
     class FakeRegistry:
@@ -2134,7 +2141,7 @@ async def test_restore_control_plane_connections_recovers_shared_network_once_fo
 
     await _restore_control_plane_connections(FakeRegistry(), records)
     assert shared_calls == 1
-    assert per_card_calls == []
+    assert set(per_card_calls) == ({r.id for r in records} if shared_fails else set())
 
 
 @pytest.mark.asyncio

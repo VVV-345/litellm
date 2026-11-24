@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import i18n from "@/i18n";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccountPoolReleaseConfirmation } from "./AccountPoolReleaseConfirmation";
 import { AccountPoolReleasesPanel } from "./AccountPoolReleasesPanel";
@@ -213,6 +214,13 @@ describe("project releases", () => {
         <AccountPoolReleasesPanel accessToken="admin" />
       </QueryClientProvider>,
     );
+
+  it("shows release and image controls in English", async () => {
+    await i18n.changeLanguage("en");
+    mount();
+    expect(await screen.findByRole("button", { name: "Scan local images" })).toBeVisible();
+    expect(screen.getByText("Server backup directory")).toBeVisible();
+  });
 
   it("scans without backing up and sends only selected versions for backup or image deletion", async () => {
     const user = userEvent.setup();

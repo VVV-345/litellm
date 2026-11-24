@@ -1,4 +1,6 @@
 /** 本文件展示服务器签发的操作内容与倒计时，倒计时结束仍需手动确认。 */
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +15,7 @@ import {
 import type { ReleaseConfirmation } from "../../api/AccountPoolReleasesApi";
 import { AccountPoolRollbackReport } from "./AccountPoolRollbackReport";
 
-function confirmationStatus({
+function confirmationStatus(t: TFunction, {
   busy,
   stale,
   allowed,
@@ -26,17 +28,17 @@ function confirmationStatus({
   expired: boolean;
   remaining: number;
 }) {
-  if (busy) return "正在处理，请稍候…";
-  if (stale) return "版本或备份已变化，请取消后重新检查";
-  if (!allowed) return "检查尚未通过，无法确认回退";
-  if (expired) return "确认已过期，请取消后重新操作";
-  return remaining > 0 ? `请核对操作，${remaining} 秒后可以确认` : "已结束等待，请确认是否执行";
+  if (busy) return t("accountPool.releaseConfirm.processingPleaseWait");
+  if (stale) return t("accountPool.releaseConfirm.theVersionOrBackupHasChanged");
+  if (!allowed) return t("accountPool.releaseConfirm.checksHaveNotPassedRollbackCannot");
+  if (expired) return t("accountPool.releaseConfirm.confirmationExpiredCancelAndStartAgain");
+  return remaining > 0 ? t("accountPool.releaseConfirm.reviewTheOperationYouCanConfirm", { seconds: remaining }) : t("accountPool.releaseConfirm.theWaitingPeriodIsOverConfirm");
 }
 
-function confirmationLabel(busy: boolean, allowed: boolean, remaining: number) {
-  if (busy) return "正在处理…";
-  if (!allowed) return "暂不可回退";
-  return remaining > 0 ? `确认（${remaining} 秒）` : "确认执行";
+function confirmationLabel(t: TFunction, busy: boolean, allowed: boolean, remaining: number) {
+  if (busy) return t("accountPool.releaseConfirm.processing");
+  if (!allowed) return t("accountPool.releaseConfirm.rollbackUnavailable");
+  return remaining > 0 ? t("accountPool.releaseConfirm.confirmS", { seconds: remaining }) : t("accountPool.releaseConfirm.confirmOperation");
 }
 
 export function AccountPoolReleaseConfirmation({
@@ -62,6 +64,7 @@ export function AccountPoolReleaseConfirmation({
   onForce?: () => void;
   stale?: boolean;
 }) {
+  const { t, i18n } = useTranslation();
   const [openedAt] = useState(Date.now);
   const heading = useRef<HTMLHeadingElement>(null);
   const [now, setNow] = useState(Date.now);
@@ -111,9 +114,9 @@ export function AccountPoolReleaseConfirmation({
         </DialogHeader>
         {restoresData && (
           <div className="space-y-3 text-sm">
-            <p role="alert" className="text-destructive">两库数据将恢复到 {confirmation.database_snapshot ? new Date(confirmation.database_snapshot.created_at * 1000).toLocaleString() : "未知时间"}，之后的新增与修改不会保留在运行库。恢复期间服务不可用。</p>
-            <p className="break-all">快照：{confirmation.database_snapshot?.id}</p>
-            <label htmlFor="database-restore-confirm" className="block break-all">输入 {dataPhrase} 确认恢复旧数据</label>
+            <p role="alert" className="text-destructive">{t("accountPool.releaseConfirm.restoreWarning", { time: confirmation.database_snapshot ? new Date(confirmation.database_snapshot.created_at * 1000).toLocaleString(i18n.language) : t("accountPool.releaseConfirm.anUnknownTime") })}</p>
+            <p className="break-all">{t("accountPool.releaseConfirm.snapshot")}{confirmation.database_snapshot?.id}</p>
+            <label htmlFor="database-restore-confirm" className="block break-all">{t("accountPool.releaseConfirm.confirmSnapshot", { phrase: dataPhrase })}</label>
             <Input id="database-restore-confirm" value={forceText} onChange={(event) => setForceText(event.target.value)} autoComplete="off" />
           </div>
         )}
@@ -126,20 +129,20 @@ export function AccountPoolReleaseConfirmation({
                 onSelect={onSelectVersion ?? (() => {})}
               />
             ) : (
-              <p role="alert">部署服务未返回回退检查结果，请更新部署服务后重新检查。</p>
+              <p role="alert">{t("accountPool.releaseConfirm.theDeploymentServiceReturnedNoRollback")}</p>
             )}
           </div>
         )}
         {editing && (
           <div className="grid max-h-72 gap-3 overflow-auto text-sm sm:grid-cols-2">
             <div>
-              <p className="mb-2 font-medium">修改前</p>
-              <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-3 font-sans">{before || "空"}</pre>
+              <p className="mb-2 font-medium">{t("accountPool.releaseConfirm.before")}</p>
+              <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-3 font-sans">{before || t("accountPool.releaseConfirm.empty")}</pre>
             </div>
             <div>
-              <p className="mb-2 font-medium">修改后</p>
+              <p className="mb-2 font-medium">{t("accountPool.releaseConfirm.after")}</p>
               <pre className="whitespace-pre-wrap break-words rounded-lg bg-muted p-3 font-sans">
-                {confirmation.action.text || "空"}
+                {confirmation.action.text || t("accountPool.releaseConfirm.empty")}
               </pre>
             </div>
           </div>
@@ -147,29 +150,27 @@ export function AccountPoolReleaseConfirmation({
         <div className={rollback ? "shrink-0 space-y-3 border-t bg-muted/20 px-5 py-4 sm:px-6" : "space-y-3"}>
           {rollback && forceAvailable && !forced && (
             <div className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950">
-              <p className="font-medium">可选择强制回退</p>
-              <p>跳过未验证的兼容项，旧程序可能无法正常使用当前数据。仅切换程序，不恢复数据库或认证文件。</p>
-              <label htmlFor="rollback-force-version">输入目标版本 {confirmation.rollback?.target_commit.slice(0, 10)}，再进入强制确认</label>
+              <p className="font-medium">{t("accountPool.releaseConfirm.forceRollbackIsAvailable")}</p>
+              <p>{t("accountPool.releaseConfirm.skipUnverifiedCompatibilityChecksTheOld")}</p>
+              <label htmlFor="rollback-force-version">{t("accountPool.releaseConfirm.confirmTarget", { version: confirmation.rollback?.target_commit.slice(0, 10) })}</label>
               <Input id="rollback-force-version" value={forceText} onChange={(event) => setForceText(event.target.value)} autoComplete="off" />
               <Button variant="destructive" disabled={!forceAcknowledged || busy || stale || expired || !onForce} onClick={onForce}>
-                进入强制回退确认
-              </Button>
+                {t("accountPool.releaseConfirm.reviewForcedRollback")}</Button>
             </div>
           )}
-          {forced && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">当前为强制回退：上述未验证项不会阻止切换。若启动失败会尝试切回原程序，不恢复数据快照。</p>}
+          {forced && <p role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">{t("accountPool.releaseConfirm.forcedRollbackTheUnverifiedItemsAbove")}</p>}
           <p role="status" className="text-sm text-muted-foreground">
-            {confirmationStatus({ busy, stale, allowed, expired, remaining })}
+            {confirmationStatus(t, { busy, stale, allowed, expired, remaining })}
           </p>
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={onClose}>
-              取消
-            </Button>
+              {t("accountPool.onboarding.cleanup.cancel")}</Button>
             <Button
               variant={confirmation.action.action === "delete" || forced || restoresData ? "destructive" : "default"}
               disabled={unavailable || busy}
               onClick={() => onConfirm(restoresData ? forceText : undefined)}
             >
-              {forced && allowed && remaining === 0 && !busy ? "确认强制回退" : confirmationLabel(busy, allowed, remaining)}
+              {forced && allowed && remaining === 0 && !busy ? t("accountPool.releaseConfirm.confirmForcedRollback") : confirmationLabel(t, busy, allowed, remaining)}
             </Button>
           </DialogFooter>
         </div>

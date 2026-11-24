@@ -203,6 +203,28 @@ class OpenAICompatibleChannel:
         configuration: Final = self._configuration(record)
         if len(configuration.credentials) != 1:
             raise CredentialConflict("一张卡片只能使用一个 API Key，请先删除多余凭证")
+        recovery_models: tuple[str, ...] | None = None
+        recovering: Final = (
+            record.automatic_cooldown or record.cooldown_until is not None or record.status is EnvironmentStatus.COOLING_DOWN
+        )
+        if recovering:
+            fresh: tuple[str, ...] = ()
+            can_probe = record.enabled and not record.manual_cooldown
+            if can_probe and (record.cooldown_until is None or record.cooldown_until <= utc_now()):
+                try:
+                    fresh = await self.discover_model_catalog(record)
+                except (ModelListDiscoveryError, ValueError):
+                    pass
+            manual = tuple(f"{configuration.prefix or ''}{name}" for name in configuration.custom_models)
+            recovery_models = tuple(dict.fromkeys((*manual, *fresh) if fresh else (*record.available_models, *manual)))
+            # 只有本次上游确认可用才解除冷却，保留旧目录仅用于展示。
+            record = record.model_copy(update={
+                "available_models": recovery_models,
+                "status": EnvironmentStatus.DISABLED if not record.enabled else (
+                    EnvironmentStatus.READY if fresh else EnvironmentStatus.COOLING_DOWN
+                ),
+                **({"automatic_cooldown": False, "cooldown_until": None} if fresh else {}),
+            })
         if refresh_quota:
             display_quota: Final = await self._read_display_quota(record)
             if display_quota is not None:
@@ -243,7 +265,9 @@ class OpenAICompatibleChannel:
         )
         if self._ownership is not None:
             await self._ownership.claim(record.id, identity.fingerprints)
-        models: Final = await self._discover_models(record)
+        models: Final = recovery_models if recovery_models is not None else await self._discover_models(record)
+        if not models and recovering:
+            return record
         if not models:
             raise RuntimeError("OpenAI-compatible upstream did not report any models")
         enabled: Final = (
@@ -254,7 +278,7 @@ class OpenAICompatibleChannel:
             EnvironmentStatus.DISABLED
             if not record.enabled
             else EnvironmentStatus.COOLING_DOWN
-            if record.manual_cooldown
+            if record.manual_cooldown or (recovering and record.status is EnvironmentStatus.COOLING_DOWN)
             else EnvironmentStatus.READY
         )
         return record.model_copy(
@@ -355,6 +379,7 @@ class OpenAICompatibleChannel:
             and (self._ownership is None or bool(record.credential_fingerprints))
             and record.enabled
             and not record.manual_cooldown
+            and not record.automatic_cooldown
             and record.cooldown_until is None
             and not record.configuration_pending
             and record.desired_configuration_version <= record.observed_configuration_version,

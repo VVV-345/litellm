@@ -176,7 +176,7 @@ async def test_operation_budget_rejects_seventh_without_blocking_model_queries()
         pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
     registry: Final = CredentialOwnership(url)
     local_profile: Final = asyncio.Lock()
-    async with database_pool(url, max_size=1) as main_pool:
+    async with database_pool(url, max_size=1, operation_max_size=6) as main_pool:
         environments: Final = PostgresEnvironmentRepository(url)
         await environments.initialize()
         async with local_profile, AsyncExitStack() as locks:
@@ -205,7 +205,7 @@ async def test_nested_operation_exhaustion_releases_existing_advisory_lock() -> 
         pytest.skip("requires an isolated ACCOUNT_POOL_TEST_DATABASE_URL")
     registry: Final = CredentialOwnership(url)
     outer: Final = uuid4()
-    async with database_pool(url), AsyncExitStack() as occupied:
+    async with database_pool(url, operation_max_size=6), AsyncExitStack() as occupied:
         for _ in range(5):
             await occupied.enter_async_context(registry.operation(uuid4()))
         with pytest.raises(PoolTimeout):
@@ -237,7 +237,7 @@ async def test_child_task_cannot_inherit_lock_budget_and_cancelled_waiter_return
         async with registry.operation(owner):
             pass
 
-    async with database_pool(url):
+    async with database_pool(url, operation_max_size=6):
         async with AsyncExitStack() as occupied:
             owners: Final = tuple(uuid4() for _ in range(6))
             for owner in owners:

@@ -71,6 +71,18 @@ const environment = {
 } as AccountPoolEnvironment;
 
 describe("AccountPoolCredentialsPanel", () => {
+  it("shows credential controls in English", async () => {
+    await i18n.changeLanguage("en");
+    listCredentials.mockResolvedValue([]);
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <AccountPoolCredentialsPanel accessToken="token" environments={[environment]} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByRole("searchbox", { name: "Search credential files" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Bulk edit (0)" })).toBeDisabled();
+  });
+
   it("accepts a two-factor text upload and shows the pending authorization instead of claiming a token was imported", async () => {
     const user = userEvent.setup();
     listCredentials.mockResolvedValue([]);

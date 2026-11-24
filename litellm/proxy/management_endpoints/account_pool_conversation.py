@@ -37,6 +37,7 @@ from litellm.proxy.management_endpoints.account_pool_failover import (
 from litellm.proxy.management_endpoints.account_pool_integration import PoolIdentity, pool_identity
 from litellm.proxy.management_endpoints.account_pool_native_routing import (
     RoutingSnapshot,
+    deployment_blocked,
     exhausted_snapshot,
     now_utc,
     quota_depleted,
@@ -375,12 +376,12 @@ class Conversation:
         # 原卡已下线、禁用、进入模型冷却、订阅过期或耗尽时，都可以提前迁移到健康卡。
         origin_unavailable: Final = (
             origin is None
-            or origin.get("blocked") is True
+            or deployment_blocked(origin)
             or (origin_snapshot is not None and unavailable_reason(origin_snapshot, self.model, now_utc()) is not None)
         )
         if not origin_unavailable:
             return None
-        if origin is not None and origin_snapshot is None and origin.get("blocked") is not True:
+        if origin is not None and origin_snapshot is None and not deployment_blocked(origin):
             return None
         excluded: Final = self._excluded(payload, deployments, self.origin)
         if not any(deployment_id(item) not in excluded for item in deployments):
@@ -538,9 +539,8 @@ class Conversation:
         base: Final = (
             *(_EXCLUSIONS.validate_python(previous_excluded) if previous_excluded is not None else ()),
             *(identifier for item in deployments
-              if self._search_history()
-              and (identifier := deployment_id(item)) is not None
-              and not _accepts_search_history(item)),
+              if (identifier := deployment_id(item)) is not None
+              and (deployment_blocked(item) or (self._search_history() and not _accepts_search_history(item)))),
         )
         if not isinstance(failed, str):
             return base

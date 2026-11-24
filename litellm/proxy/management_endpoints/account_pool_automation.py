@@ -64,6 +64,7 @@ _OPERATOR_ERRORS: Final = MappingProxyType({
     "指纹配置已满，请先整理未使用的配置": "operation_rejected",
     "指纹配置不存在": "operation_rejected",
     "指纹配置已改变，请刷新": "operation_rejected",
+    "指纹分配发生并发冲突，请稍后重试": "operation_rejected",
     "运行中的指纹配置不能修改": "operation_rejected",
     "固定指纹的系统和语言不可变，请创建新的未绑定配置": "operation_rejected",
     "只能迁移与提交资料为同一账号的原指纹": "operation_rejected",

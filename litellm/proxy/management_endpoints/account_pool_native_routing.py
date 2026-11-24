@@ -371,9 +371,16 @@ def protocol_available(snapshot: RoutingSnapshot) -> bool:
             or identity.protocol in snapshot.supported_protocols)
 
 
+def deployment_blocked(deployment: Mapping[str, object]) -> bool:
+    info: Final = deployment.get("model_info")
+    return deployment.get("blocked") is True or (isinstance(info, Mapping) and info.get("blocked") is True)
+
+
 def exclusion_reason(
     deployment: Deployment, model: str, values: Mapping[str, RoutingSnapshot], now: datetime
 ) -> str | None:
+    if deployment_blocked(deployment):
+        return "blocked"
     snapshot: Final = snapshot_for(deployment, values)
     if snapshot is None:
         return None
@@ -388,8 +395,7 @@ def eligible_deployments(
     eligible: Final = [
         deployment
         for deployment in deployments
-        if (snapshot := snapshot_for(deployment, values)) is None
-        or (protocol_available(snapshot) and available(snapshot, model, now))
+        if exclusion_reason(deployment, model, values, now) is None
     ]
     if deployments and not eligible:
         verbose_router_logger.info(

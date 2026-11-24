@@ -1,6 +1,8 @@
 /** 独立换绑入口：只在明确确认后修改账号，任务失败保留原卡和目标邮箱占用。 */
 "use client";
 
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -26,14 +28,14 @@ import { getAutomation } from "../../api/AccountPoolAutomationApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import type { AccountPoolEnvironment } from "../../utils/AccountPoolTypes";
 
-function mailboxLabel(status: string) {
-  if (status === "bound") return "已绑定";
-  if (status === "reserved") return "处理中，不可重复分配";
-  return "未使用";
+function mailboxLabel(t: TFunction, status: string) {
+  if (status === "bound") return t("accountPool.automation.bound");
+  if (status === "reserved") return t("accountPool.mailboxChange.inProgressUnavailableForReassignment");
+  return t("accountPool.mailboxChange.unused");
 }
-function retryLabel(changed: boolean, stage: string) {
-  if (changed) return "仅重试授权与验收";
-  return stage === "waiting_code" ? "重试收信" : "重试准备浏览器";
+function retryLabel(t: TFunction, changed: boolean, stage: string) {
+  if (changed) return t("accountPool.mailboxChange.retryAuthorizationAndVerificationOnly");
+  return stage === "waiting_code" ? t("accountPool.mailboxChange.retryReceivingEmail") : t("accountPool.mailboxChange.retryBrowserSetup");
 }
 
 const Scripts = dynamic(() =>
@@ -50,6 +52,7 @@ export function AccountPoolEmailRebinding({
   accessToken: string | null;
   environment: AccountPoolEnvironment;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -59,18 +62,15 @@ export function AccountPoolEmailRebinding({
         variant="outline"
         disabled={!accessToken}
         onClick={() => setOpen(true)}
-        aria-label={`换绑邮箱 ${environment.name}`}
+        aria-label={t("accountPool.mailboxChange.changeEmailFor", { name: environment.name })}
       >
-        换绑邮箱
-      </Button>
+        {t("accountPool.mailboxChange.changeEmail")}</Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>换绑邮箱 · {environment.name}</DialogTitle>
+            <DialogTitle>{t("accountPool.mailboxChange.changeEmailDetail")} {environment.name}</DialogTitle>
             <DialogDescription>
-              已完成 OAuth
-              才能准备换绑；已有任务即使授权失败也可在此继续。同一卡片重新授权、保存凭据并测试，上传文件不会开始换绑。
-            </DialogDescription>
+              {t("accountPool.mailboxChange.completeOauthBeforePreparingAnEmail")}</DialogDescription>
           </DialogHeader>
           {open && accessToken && <BindingPanel accessToken={accessToken} environment={environment} />}
         </DialogContent>
@@ -86,6 +86,7 @@ export function BindingPanel({
   accessToken: string;
   environment: AccountPoolEnvironment;
 }) {
+  const { t } = useTranslation();
   const id = useId();
   const file = useRef<HTMLInputElement>(null);
   const client = useQueryClient();
@@ -126,28 +127,25 @@ export function BindingPanel({
     const selected = file.current?.files?.[0];
     if (!selected) return;
     if (selected.size > 1048576) {
-      setError("文件不能超过 1 MiB");
+      setError(t("accountPool.mailboxChange.theFileMustBe1Mib"));
       return;
     }
     await run(async () => {
       const result = await uploadEmailPool(accessToken, await selected.text(), selected.name);
-      setNotice(`新增 ${result.added} 条，已存在 ${result.existing} 条；不会覆盖已绑定标记或轮换后的令牌`);
+      setNotice(t("accountPool.mailboxChange.addedAlreadyExistedExistingAssignmentsAnd", { added: result.added, existing: result.existing }));
       if (file.current) file.current.value = "";
     });
   };
   return (
     <div className="space-y-4">
       <section className="space-y-2 rounded-lg border p-3">
-        <Label htmlFor={`${id}-file`}>上传目标邮箱 CSV / TXT</Label>
+        <Label htmlFor={`${id}-file`}>{t("accountPool.mailboxChange.uploadTargetMailboxesCsvTxt")}</Label>
         <Input id={`${id}-file`} ref={file} type="file" accept=".csv,.txt,text/plain,text/csv" disabled={busy} />
         <p className="text-xs text-muted-foreground">
-          支持邮箱----密码----客户端ID----刷新令牌，或带 email/password/client_id/refresh_token 表头的
-          CSV。其它邮箱可使用应用密码收信或手工填码。
-        </p>
+          {t("accountPool.mailboxChange.useEmailPasswordClientIdRefresh")}</p>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" disabled={busy} onClick={() => void importFile()}>
-            导入邮箱池
-          </Button>
+            {t("accountPool.mailboxChange.importMailboxes")}</Button>
           <Button
             type="button"
             variant="outline"
@@ -164,8 +162,7 @@ export function BindingPanel({
               })
             }
           >
-            下载绑定状态 CSV
-          </Button>
+            {t("accountPool.mailboxChange.downloadBindingStatusCsv")}</Button>
         </div>
         {notice && (
           <p role="status" className="text-sm">
@@ -173,12 +170,11 @@ export function BindingPanel({
           </p>
         )}
         <p className="text-xs text-muted-foreground">
-          不修改你电脑里的原文件。系统保存已绑定记录，重复上传不能重置占用状态。
-        </p>
+          {t("accountPool.mailboxChange.yourOriginalFileIsNotModified")}</p>
       </section>
-      {query.isError && <p role="alert">无法加载邮箱池，请检查连接后重试</p>}
+      {query.isError && <p role="alert">{t("accountPool.mailboxChange.couldNotLoadMailboxesCheckYour")}</p>}
       <section className="space-y-2">
-        <Label htmlFor={`${id}-target`}>目标邮箱（可用 {available.length} 个）</Label>
+        <Label htmlFor={`${id}-target`}>{t("accountPool.mailboxChange.availableMailboxes", { total: available.length })}</Label>
         <select
           id={`${id}-target`}
           className="h-9 w-full rounded-md border bg-background px-3 text-sm"
@@ -186,7 +182,7 @@ export function BindingPanel({
           disabled={busy || Boolean(pending)}
           onChange={(e) => setTarget(e.target.value)}
         >
-          <option value="">按需分配一个未使用邮箱</option>
+          <option value="">{t("accountPool.mailboxChange.allocateAnUnusedMailbox")}</option>
           {available.map((m) => (
             <option key={m.id} value={m.id}>
               {m.email}
@@ -202,8 +198,7 @@ export function BindingPanel({
             })
           }
         >
-          准备换绑，先核对资料
-        </Button>
+          {t("accountPool.mailboxChange.reviewDetailsBeforeChangingEmail")}</Button>
       </section>
       {job && (
         <BindingProgress
@@ -217,18 +212,17 @@ export function BindingPanel({
         />
       )}
       <details>
-        <summary>邮箱池绑定标记</summary>
+        <summary>{t("accountPool.mailboxChange.mailboxAssignments")}</summary>
         <ul className="max-h-48 overflow-auto text-sm">
           {query.data?.mailboxes.map((m) => (
             <li key={m.id}>
-              {m.email} · {mailboxLabel(m.status)}
+              {m.email} · {mailboxLabel(t, m.status)}
             </li>
           ))}
         </ul>
       </details>
       <Button type="button" variant="ghost" onClick={() => setScripts(!scripts)}>
-        换绑脚本设置
-      </Button>
+        {t("accountPool.mailboxChange.emailChangeScriptSettings")}</Button>
       {scripts && <Scripts accessToken={accessToken} kind="rebinding" />}
       {error && (
         <p role="alert" className="text-sm text-destructive">
@@ -238,12 +232,12 @@ export function BindingPanel({
       <Dialog open={screen !== null} onOpenChange={(value) => !value && setScreen(null)}>
         <DialogContent className="h-[85vh] w-[95vw] max-w-6xl">
           <DialogHeader>
-            <DialogTitle>邮箱换绑浏览器</DialogTitle>
-            <DialogDescription>查看不启用输入；接管后只在官网完成验证，不保留 Cookie</DialogDescription>
+            <DialogTitle>{t("accountPool.mailboxChange.emailChangeBrowser")}</DialogTitle>
+            <DialogDescription>{t("accountPool.mailboxChange.viewingDoesNotEnableInputAfter")}</DialogDescription>
           </DialogHeader>
           {screen && (
             <iframe
-              title="邮箱换绑浏览器画面"
+              title={t("accountPool.mailboxChange.emailChangeBrowserView")}
               src={getAccountPoolOAuthBrowserUrl(screen)}
               className="h-full w-full border-0"
             />
@@ -269,6 +263,7 @@ function BindingProgress({
   setScreen: (id: string) => void;
   mailboxStatus?: string;
 }) {
+  const { t } = useTranslation();
   const id = useId();
   const code = useRef<HTMLInputElement>(null);
   const [ack, setAck] = useState(false);
@@ -287,27 +282,25 @@ function BindingProgress({
     if (job) void run(() => provideEmailBindingCode(accessToken, job.id, value));
   };
   return (
-    <section className="space-y-3 rounded-lg border p-3" aria-label="换绑任务进度">
+    <section className="space-y-3 rounded-lg border p-3" aria-label={t("accountPool.mailboxChange.emailChangeProgress")}>
       <p className="break-all text-sm">
-        原邮箱：{job.old_email}
+        {t("accountPool.mailboxChange.originalEmail")}{job.old_email}
         <br />
-        目标邮箱：{job.target_email}
+        {t("accountPool.mailboxChange.targetEmail")}{job.target_email}
       </p>
       <p role="status" className="text-sm">
         {job.message}
       </p>
       <p className="text-xs text-muted-foreground">
-        目标邮箱状态：{mailboxStatus === "bound" ? "已绑定" : "已预占"}。已提交的换绑不重放，失败不删除原卡。
-      </p>
+        {t("accountPool.mailboxChange.targetMailboxStatus")}{mailboxStatus === "bound" ? t("accountPool.automation.bound") : t("accountPool.mailboxChange.reserved")}{t("accountPool.mailboxChange.submittedChangesAreNotRepeatedAnd")}</p>
       {job.stage === "awaiting_confirmation" && (
         <>
           <p className="text-sm">
-            确认后会暂停此卡的新请求，等待在途请求结束。换邮箱可能退出登录，随后必须重新授权；原邮箱被要求验证但无法收信时会暂停。
-          </p>
+            {t("accountPool.mailboxChange.confirmingPausesNewRequestsOnThis")}</p>
           <div className="flex items-center gap-2">
             <Checkbox id={`${id}-ack`} checked={ack} onCheckedChange={(v) => setAck(v === true)} />
             <Label htmlFor={`${id}-ack`}>
-              我确认将此卡从 {job.old_email} 换绑为 {job.target_email}
+              {t("accountPool.mailboxChange.confirmAddresses", { old: job.old_email, target: job.target_email })}
             </Label>
           </div>
           <Button
@@ -315,8 +308,7 @@ function BindingProgress({
             disabled={busy || !ack}
             onClick={() => void run(() => confirmEmailBinding(accessToken, job))}
           >
-            确认并开始换绑
-          </Button>
+            {t("accountPool.mailboxChange.confirmAndChangeEmail")}</Button>
         </>
       )}
       <div className="flex flex-wrap gap-2">
@@ -327,8 +319,7 @@ function BindingProgress({
             disabled={busy}
             onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "cancel"))}
           >
-            取消，释放未使用邮箱
-          </Button>
+            {t("accountPool.mailboxChange.cancelAndReleaseUnusedMailbox")}</Button>
         )}
         {["failed", "verification_failed", "waiting_code"].includes(job.stage) && (
           <Button
@@ -337,7 +328,7 @@ function BindingProgress({
             disabled={busy}
             onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "retry"))}
           >
-            {retryLabel(job.email_changed, job.stage)}
+            {retryLabel(t, job.email_changed, job.stage)}
           </Button>
         )}
         {job.irreversible_started && !job.email_changed && (
@@ -347,8 +338,7 @@ function BindingProgress({
             disabled={busy}
             onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "reconcile"))}
           >
-            仅核实结果，不再次换绑
-          </Button>
+            {t("accountPool.mailboxChange.checkTheOutcomeWithoutRepeatingThe")}</Button>
         )}
         {job.irreversible_started && ["uncertain", "failed", "verification_failed"].includes(job.stage) && (
           <Button
@@ -357,8 +347,7 @@ function BindingProgress({
             disabled={busy}
             onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "abort"))}
           >
-            强制解除卡片占用
-          </Button>
+            {t("accountPool.mailboxChange.forceReleaseTheCard")}</Button>
         )}
         {job.browser_session_id && !job.email_changed && (
           <>
@@ -372,36 +361,32 @@ function BindingProgress({
                 })
               }
             >
-              查看浏览器
-            </Button>
+              {t("accountPool.mailboxChange.viewBrowser")}</Button>
             <Button
               type="button"
               variant="outline"
               disabled={busy}
               onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "takeover"))}
             >
-              停止脚本并接管
-            </Button>
+              {t("accountPool.automation.takeover")}</Button>
             <Button
               type="button"
               variant="outline"
               disabled={busy}
               onClick={() => void run(() => actOnEmailBinding(accessToken, job.id, "resume"))}
             >
-              交回自动化
-            </Button>
+              {t("accountPool.mailboxChange.returnControlToAutomation")}</Button>
           </>
         )}
       </div>
       {job.stage === "waiting_code" && (
         <form className="flex items-end gap-2" onSubmit={submitCode}>
           <div>
-            <Label htmlFor={`${id}-code`}>目标邮箱验证码</Label>
+            <Label htmlFor={`${id}-code`}>{t("accountPool.mailboxChange.targetMailboxVerificationCode")}</Label>
             <Input id={`${id}-code`} ref={code} autoComplete="off" pattern="[0-9]{6}" maxLength={6} required />
           </div>
           <Button type="submit" disabled={busy}>
-            提交验证码
-          </Button>
+            {t("accountPool.mailboxChange.submitVerificationCode")}</Button>
         </form>
       )}
       {oauthJob && <Authorization accessToken={accessToken} reauthorizingJob={oauthJob} />}

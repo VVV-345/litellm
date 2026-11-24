@@ -977,8 +977,9 @@ async def test_model_discovery_deadline_includes_dns(monkeypatch) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [httpx.Response(503), httpx.Response(200, json={"data": []})])
+@pytest.mark.parametrize("refresh_quota", [False, True])
 async def test_cached_catalog_cannot_release_cooldown_until_live_models_return(
-    tmp_path: Path, failure: httpx.Response,
+    tmp_path: Path, failure: httpx.Response, refresh_quota: bool,
 ) -> None:
     secrets = EnvironmentSecretDeriver("s" * 32)
     base = _compatible_card("https://api.example.test/v1", secrets)
@@ -987,10 +988,16 @@ async def test_cached_catalog_cannot_release_cooldown_until_live_models_return(
         "status": EnvironmentStatus.COOLING_DOWN,
         "cooldown_until": datetime.now(timezone.utc) - timedelta(minutes=1),
         "available_models": ("cached",),
+        "enabled_models": ("manual",),
+        "automatic_cooldown": True,
         "openai_compatible": base.openai_compatible.model_copy(update={"custom_models": ("manual",)}),
     })
     upstream = failure
-    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda _: upstream)) as http:
+    requests = []
+    def respond(request):
+        requests.append(request.url.path)
+        return upstream
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as http:
         channel = OpenAICompatibleChannel(secrets, http, public_resolver)
         channels = replace(ChannelRegistry.default(), implementations=MappingProxyType({card.channel: channel}))
         service = EnvironmentService(
@@ -998,9 +1005,14 @@ async def test_cached_catalog_cannot_release_cooldown_until_live_models_return(
             channels=channels,
         )
         assert (await channel.read_account(card)).available_models == ("cached", "manual")
-        assert (await service._refresh_if_needed(card)).status is EnvironmentStatus.COOLING_DOWN
+        assert (await service._refresh_if_needed(card, refresh_quota=refresh_quota)).status is EnvironmentStatus.COOLING_DOWN
         upstream = httpx.Response(200, json={"data": [{"id": "live"}]})
-        assert (await service._refresh_if_needed(card)).status is EnvironmentStatus.READY
+        requests.clear()
+        recovered = await service._refresh_if_needed(card, refresh_quota=refresh_quota)
+        assert recovered.status is EnvironmentStatus.READY and recovered.cooldown_until is None
+        assert not recovered.automatic_cooldown and channel.gateway(recovered).routable
+        assert recovered.enabled_models == ("manual",)
+        assert requests == ["/v1/models"]
 
 
 @pytest.mark.asyncio

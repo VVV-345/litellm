@@ -413,32 +413,29 @@ class OnboardingService:
     ) -> OnboardingItem | None:
         cancel_after_unlock: UUID | None = None
         saved_item: OnboardingItem | None = None
-        for attempt in range(25):
+        while True:
             async with self.repository.worker_lock() as acquired:
-                if not acquired:
-                    if attempt < 24:
-                        await asyncio.sleep(0.01)
-                        continue
+                if acquired:
                     latest = await self.repository.get(row.item.id)
-                else:
-                    latest = await self.repository.get(row.item.id)
-                if latest is None or latest.history_cleared or latest.paused or latest.item.state == "disabled":
-                    cancel_after_unlock = created_automation_job_id
-                else:
-                    merged = latest.model_copy(
-                        update={
-                            "ciphertext": row.ciphertext,
-                            "item": row.item.model_copy(
-                                update={
-                                    "attempts": row.item.attempts,
-                                    "card_name": row.item.card_name or latest.item.card_name,
-                                    "models": row.item.models or latest.item.models,
-                                }
-                            ),
-                        }
-                    )
-                    saved_item = await self._save(merged, state, message)
-                break
+                    if latest is None or latest.history_cleared or latest.paused or latest.item.state == "disabled":
+                        cancel_after_unlock = created_automation_job_id
+                    else:
+                        merged = latest.model_copy(
+                            update={
+                                "ciphertext": row.ciphertext,
+                                "item": row.item.model_copy(
+                                    update={
+                                        "attempts": row.item.attempts,
+                                        "card_name": row.item.card_name or latest.item.card_name,
+                                        "models": row.item.models or latest.item.models,
+                                    }
+                                ),
+                            }
+                        )
+                        saved_item = await self._save(merged, state, message)
+                    break
+            # 未拿到锁时先释放数据库连接；不能用旧快照覆盖已经确认的暂停。
+            await asyncio.sleep(0.05)
         if cancel_after_unlock is not None and self._automation is not None:
             await self._automation.cancel(cancel_after_unlock)
         return saved_item
@@ -655,7 +652,8 @@ class OnboardingService:
                     )
                     return
                 await self._persist_unlocked(
-                    running, "awaiting_authorization", f"已重新触发同卡模型验收：{retried.value.message}"
+                    running, "awaiting_authorization", f"已重新触发同卡模型验收：{retried.value.message}",
+                    created_automation_job_id=previous_job.id,
                 )
                 return
         if (
@@ -694,6 +692,16 @@ class OnboardingService:
             else "请完成登录；验证码或二次验证需人工接续",
         )
 
+    async def _stop_unready_job(self, job_id: UUID) -> str | None:
+        assert self._automation is not None
+        reason = await self._automation.readiness_error()
+        if reason is None:
+            return None
+        result = await self._automation.cancel(job_id)
+        if isinstance(result, Failure):
+            return reason if result.code is FailureCode.NOT_FOUND else None
+        return reason if result.value.stage == "cancelled" or result.value.cancel_requested else None
+
     async def _enqueue_automation(
         self,
         running: StoredOnboarding,
@@ -706,10 +714,10 @@ class OnboardingService:
             previous: Final = await self._automation.get_job(payload.automation_job_id)
             if previous is not None and (previous.stage in ("queued", *AUTOMATION_ACTIVE) or previous.cleanup_pending):
                 if previous.stage == "queued":
-                    queued_problem: Final = await self._automation.readiness_error()
+                    queued_problem: Final = await self._stop_unready_job(previous.id)
                     if queued_problem is not None:
                         await self._persist_unlocked(
-                            running, "failed", f"浏览器 OAuth 自动化未就绪，排队任务已暂停推进：{queued_problem}"
+                            running, "failed", f"浏览器 OAuth 自动化未就绪，已取消排队任务：{queued_problem}"
                         )
                         return
                 message: Final = (
@@ -796,12 +804,12 @@ class OnboardingService:
                 job: Final = await self._automation.get_job(payload.automation_job_id)
                 if job is not None and (job.stage in ("queued", *AUTOMATION_ACTIVE) or job.cleanup_pending):
                     if job.stage == "queued":
-                        queued_problem: Final = await self._automation.readiness_error()
+                        queued_problem: Final = await self._stop_unready_job(job.id)
                         if queued_problem is not None:
                             await persist(
                                 row,
                                 "failed",
-                                f"浏览器 OAuth 自动化未就绪，排队任务已暂停推进：{queued_problem}",
+                                f"浏览器 OAuth 自动化未就绪，已取消排队任务：{queued_problem}",
                             )
                             return
                     message: Final = (

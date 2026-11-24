@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import io
 import json
 import logging
 import os
@@ -89,6 +88,10 @@ async def run_docker(arguments: tuple[str, ...], environment: dict[str, str]) ->
         stderr=asyncio.subprocess.PIPE,
         env=environment,
     )
+
+
+class _RuntimeContainerMissing(ValueError):
+    pass
 
 
 class ComposeRuntime:
@@ -266,6 +269,9 @@ class ComposeRuntime:
 
     async def ensure_control_plane_connections(self, environment_id: UUID) -> None:
         await self.ensure_runtime_network_connected()
+        await self.ensure_legacy_control_plane_connections(environment_id)
+
+    async def ensure_legacy_control_plane_connections(self, environment_id: UUID) -> None:
         if self._uses_legacy_network(environment_id):
             await self._connect_control_plane(environment_id, self._settings.manager_container)
             await self._connect_control_plane(environment_id, self._settings.gateway_container)
@@ -307,7 +313,7 @@ class ComposeRuntime:
         capture: Callable[[EnvironmentRecord], Awaitable[str]],
     ) -> str:
         if (directory / "manifest.json").exists():
-            return _load_runtime_backup(directory).state
+            return (await asyncio.to_thread(_load_runtime_backup, directory)).state
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         directory.chmod(0o700)
         compose: Final = (self.environment_dir(record.id) / "compose.yaml").read_bytes()
@@ -321,72 +327,22 @@ class ComposeRuntime:
              image_id, "-C", "/data", "-cf", "-", "."),
             self._docker_environment(),
         )
-        data, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
-        if process.returncode != 0:
-            raise ValueError("runtime volume backup failed")
-        with tarfile.open(fileobj=io.BytesIO(data)) as archive:
-            if not archive.getmembers():
-                raise ValueError("runtime volume backup is empty")
-        image_process: Final = await self._runner(("docker", "image", "save", image_id), self._docker_environment())
-        image_path: Final = directory / "image.tar"
-        image_tmp: Final = directory / ".image.tar.tmp"
-        image_stream: Final = getattr(image_process, "stdout", None)
-        if isinstance(image_stream, asyncio.StreamReader):
-            # 流式落盘镜像 tar 并计算校验和，避免 512MB Manager 进程一次性缓存整包 OOM。
-            digest = hashlib.sha256()
-            image_size = 0
-            try:
-                fd: Final = os.open(image_tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-                with os.fdopen(fd, "wb") as handle:
-                    async with asyncio.timeout(self._settings.docker_command_timeout_seconds):
-                        while chunk := await image_stream.read(1024 * 1024):
-                            handle.write(chunk)
-                            digest.update(chunk)
-                            image_size += len(chunk)
-                        if image_process.stderr is not None:
-                            await image_process.stderr.read()
-                        await image_process.wait()
-            except BaseException:
-                if image_process.returncode is None:
-                    with suppress(Exception):
-                        image_process.kill()
-                try:
-                    # communicate drains both pipes before waiting; wait alone can hang with a full pipe.
-                    await asyncio.wait_for(image_process.communicate(), timeout=_SUBPROCESS_CLEANUP_WAIT_SECONDS)
-                except (OSError, TimeoutError) as cleanup_error:
-                    _LOGGER.warning("Runtime image backup process cleanup failed: %s", type(cleanup_error).__name__)
-                image_tmp.unlink(missing_ok=True)
-                raise
-            if image_process.returncode != 0:
-                image_tmp.unlink(missing_ok=True)
-                raise ValueError("runtime image backup failed")
-            if shutil.disk_usage(directory).free < image_size + len(data):
-                image_tmp.unlink(missing_ok=True)
+        data_file: Final = directory / "data.tar"
+        image_file: Final = directory / "image.tar"
+        timeout: Final = self._settings.docker_command_timeout_seconds
+        data_sha256: Final = await _save_backup_archive(process, data_file, timeout)
+        try:
+            image_process: Final = await self._runner(("docker", "image", "save", image_id), self._docker_environment())
+            image_sha256: Final = await _save_backup_archive(image_process, image_file, timeout)
+            if shutil.disk_usage(directory).free < image_file.stat().st_size + data_file.stat().st_size:
+                image_file.unlink()
                 raise ValueError("insufficient space for protected runtime backup")
-            try:
-                with tarfile.open(image_tmp, mode="r") as archive:
-                    archive.getmember("manifest.json")
-            except Exception:
-                image_tmp.unlink(missing_ok=True)
-                raise
-            image_tmp.replace(image_path)
-            image_sha256: Final = digest.hexdigest()
-        else:
-            image_data, _image_stderr = await communicate_with_timeout(
-                image_process, self._settings.docker_command_timeout_seconds
-            )
-            if image_process.returncode != 0:
-                raise ValueError("runtime image backup failed")
-            with tarfile.open(fileobj=io.BytesIO(image_data)) as archive:
-                archive.getmember("manifest.json")
-            if shutil.disk_usage(directory).free < len(image_data) * 2 + len(data):
-                raise ValueError("insufficient space for protected runtime backup")
-            _write_private_bytes(image_path, image_data)
-            image_sha256 = hashlib.sha256(image_data).hexdigest()
+        except BaseException:
+            data_file.unlink(missing_ok=True)
+            raise
         meta_files: Final = (
             ("compose.yaml", compose),
             ("record.json", record.model_dump_json().encode()),
-            ("data.tar", data),
         )
         for name, content in meta_files:
             _write_private_bytes(directory / name, content)
@@ -396,11 +352,11 @@ class ComposeRuntime:
             state,
             (
                 *((name, hashlib.sha256(content).hexdigest()) for name, content in meta_files),
-                ("image.tar", image_sha256),
+                ("data.tar", data_sha256), ("image.tar", image_sha256),
             ),
         )
         _write_private_bytes(directory / "manifest.json", _RUNTIME_BACKUP.dump_json(backup))
-        return _load_runtime_backup(directory).state
+        return (await asyncio.to_thread(_load_runtime_backup, directory)).state
 
     async def _runtime_image_id(self, environment_id: UUID) -> str:
         return await self._inspect_image_id("container", await self._runtime_container_id(environment_id))
@@ -433,6 +389,8 @@ class ComposeRuntime:
         )
         stdout, _stderr = await communicate_with_timeout(process, self._settings.docker_command_timeout_seconds)
         identifier: Final = stdout.decode().strip()
+        if process.returncode == 0 and not identifier:
+            raise _RuntimeContainerMissing("runtime container identity is missing")
         if process.returncode != 0 or re.fullmatch(r"[a-f0-9]{12,64}", identifier) is None:
             raise ValueError("runtime container identity is missing or ambiguous")
         return identifier
@@ -470,7 +428,7 @@ class ComposeRuntime:
         self, record: EnvironmentRecord, directory: Path, *, verify: Callable[[EnvironmentRecord], Awaitable[None]]
     ) -> bool:
         """只供已安装持久门禁且已排空租约的显式发布编排调用。"""
-        backup: Final = _load_runtime_backup(directory)
+        backup: Final = await asyncio.to_thread(_load_runtime_backup, directory)
         if EnvironmentRecord.model_validate_json((directory / "record.json").read_bytes()).id != record.id:
             raise ValueError("runtime backup belongs to another card")
         return await self._switch_runtime_image(
@@ -490,10 +448,16 @@ class ComposeRuntime:
             raise ValueError("card compose file is missing")
         current: Final = compose_file.read_text(encoding="utf-8")
         desired: Final = _replace_compose_service_image(current, self._settings.cli_proxy_image)
-        running: Final = await self._is_running(record.id)
-        before_image: Final = await self._runtime_image_id(record.id)
+        try:
+            before_image = await self._runtime_image_id(record.id)
+        except _RuntimeContainerMissing:
+            if backup is None:
+                raise
+            before_image = None
+        running: Final = before_image is not None and await self._is_running(record.id)
         restore_compose: Final = current if original is None else original
-        restore_image: Final = before_image if backup is None else backup.image_id
+        restore_image: Final = backup.image_id if backup is not None else before_image
+        assert restore_image is not None
         restore_running: Final = running if backup is None else backup.running
         _write_private_bytes(compose_file, desired.encode())
         try:
@@ -513,9 +477,13 @@ class ComposeRuntime:
             _write_private_bytes(compose_file, _replace_compose_service_image(restore_compose, restore_image).encode())
             if image_archive is not None:
                 await asyncio.shield(self._load_runtime_image(image_archive))
-            if await self._runtime_image_id(record.id) != restore_image or await self._is_running(record.id) != restore_running:
+            try:
+                current_image = await self._runtime_image_id(record.id)
+            except _RuntimeContainerMissing:
+                current_image = None
+            if current_image != restore_image or await self._is_running(record.id) != restore_running:
                 await asyncio.shield(self._restore_runtime(record, restore_running))
-            if await self._runtime_image_id(record.id) != restore_image:
+            if await self._runtime_image_id(record.id) != restore_image or await self._is_running(record.id) != restore_running:
                 raise ValueError("runtime image rollback could not be verified") from None
             await self._require_runtime_volume(record.id)
             _write_private_bytes(compose_file, restore_compose.encode())
@@ -903,12 +871,62 @@ class _RuntimeBackup:
 _RUNTIME_BACKUP: Final = TypeAdapter(_RuntimeBackup)
 
 
+async def _save_backup_archive(process: DockerProcess, path: Path, timeout: float) -> str:
+    pending: Final = path.with_name("." + path.name + "." + uuid4().hex + ".tmp")
+    digest: Final = hashlib.sha256()
+
+    async def drain(reader: asyncio.StreamReader) -> None:
+        while await reader.read(65536):
+            pass
+
+    try:
+        with os.fdopen(os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "wb") as out:
+            if isinstance(process, asyncio.subprocess.Process) and process.stdout is not None:
+                async with asyncio.timeout(timeout):
+                    async with asyncio.TaskGroup() as group:
+                        if process.stderr is not None:
+                            group.create_task(drain(process.stderr))
+                        while chunk := await process.stdout.read(1024 * 1024):
+                            out.write(chunk)
+                            digest.update(chunk)
+                    await process.wait()
+            else:
+                data, _ = await communicate_with_timeout(process, timeout)
+                out.write(data)
+                digest.update(data)
+        if process.returncode != 0:
+            raise ValueError(f"runtime {path.stem} backup failed")
+        with tarfile.open(pending, mode="r:") as archive:
+            if path.name == "image.tar":
+                archive.getmember("manifest.json")
+            elif not archive.getmembers():
+                raise ValueError("runtime volume backup is empty")
+        pending.replace(path)
+        return digest.hexdigest()
+    except BaseException:
+        if process.returncode is None:
+            with suppress(ProcessLookupError):
+                process.kill()
+            try:
+                await asyncio.wait_for(process.communicate(), _SUBPROCESS_CLEANUP_WAIT_SECONDS)
+            except (OSError, TimeoutError) as error:
+                _LOGGER.warning("Runtime backup process cleanup failed: %s", type(error).__name__)
+        raise
+    finally:
+        pending.unlink(missing_ok=True)
+
+
+def _file_sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
 def _load_runtime_backup(directory: Path) -> _RuntimeBackup:
     backup: Final = _RUNTIME_BACKUP.validate_json((directory / "manifest.json").read_bytes())
     if ({name for name, _digest in backup.hashes} != {"compose.yaml", "record.json", "data.tar", "image.tar"}
             or re.fullmatch(r"sha256:[a-f0-9]{64}", backup.image_id) is None
             or any((directory / name).is_symlink()
-                   or hashlib.sha256((directory / name).read_bytes()).hexdigest() != digest
+                   or _file_sha256(directory / name) != digest
                    for name, digest in backup.hashes)):
         raise ValueError("runtime backup checksum mismatch")
     return backup

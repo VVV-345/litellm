@@ -62,7 +62,7 @@ export function AccountPoolAuthFileFieldsDialog({
   };
   const saveTemplate = useMutation({
     mutationFn: async () => {
-      if (!settings.data) throw new Error("请先读取配置后重试");
+      if (!settings.data) throw new Error(t("accountPool.credentialFields.reloadTheConfigurationAndTryAgain"));
       return updateAccountPoolSettings(
         accessToken,
         {
@@ -74,15 +74,15 @@ export function AccountPoolAuthFileFieldsDialog({
     },
     onSuccess: (saved) => {
       client.setQueryData(accountPoolQueryKeys.settings(accessToken), saved);
-      toast.success("默认认证模板已保存");
-      setMessage("默认认证模板已保存，未修改现有认证文件");
+      toast.success(t("accountPool.credentialFields.defaultCredentialTemplateSaved"));
+      setMessage(t("accountPool.credentialFields.defaultTemplateSavedExistingCredentialFiles"));
     },
     onError: (error: Error) => setMessage(error.message),
   });
   const apply = useMutation({
     mutationFn: async () => {
       const fields = authFileTemplateFields(authFileTemplateFromForm(form));
-      if (Object.keys(fields).length === 0) throw new Error("请勾选需要修改的字段");
+      if (Object.keys(fields).length === 0) throw new Error(t("accountPool.credentialFields.selectTheFieldsToChange"));
       const succeeded: string[] = [];
       const failed: string[] = [];
       for (const target of remaining) {
@@ -99,10 +99,10 @@ export function AccountPoolAuthFileFieldsDialog({
       setCompleted((current) => [...current, ...succeeded]);
       onSaved(succeeded);
       if (failed.length === 0) {
-        toast.success(`已更新 ${succeeded.length} 项认证字段`);
+        toast.success(t("accountPool.credentialFields.updatedCredentialEntries", { updated: succeeded.length }));
         onClose();
       } else {
-        setMessage(`本次成功 ${succeeded.length} 项，失败 ${failed.length} 项：${failed.join("、")}。重试只处理失败项`);
+        setMessage(t("accountPool.credentialFields.updatedEntriesFailedOnlyFailedEntries", { updated: succeeded.length, failed: failed.length, names: failed.join(t("accountPool.credentialFields.listSeparator")) }));
       }
     },
     onError: (error: Error) => setMessage(error.message),
@@ -114,19 +114,18 @@ export function AccountPoolAuthFileFieldsDialog({
     form.proxyProfileId !== "" &&
     !profiles.data?.some((profile) => profile.id === form.proxyProfileId);
   const selectedFields = [
-    form.applyPriority && "优先级",
-    form.applyPrefix && "模型前缀",
-    form.applyProxy && "出站代理",
+    form.applyPriority && t("accountPool.policy.options.priority"),
+    form.applyPrefix && t("accountPool.providers.openaiCompatible.prefix"),
+    form.applyProxy && t("accountPool.providers.openaiCompatible.proxyProfileId"),
   ].filter(Boolean);
 
   return (
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] min-w-0 overflow-y-auto sm:max-w-xl" showCloseButton={!busy}>
         <DialogHeader className="min-w-0">
-          <DialogTitle>{mode === "template" ? "认证模板" : t("accountPool.credentials.editFields")}</DialogTitle>
+          <DialogTitle>{mode === "template" ? t("accountPool.credentialFields.credentialTemplate") : t("accountPool.credentials.editFields")}</DialogTitle>
           <DialogDescription className="break-words">
-            勾选要修改的字段，未勾选的保持原值。账号身份和令牌不会改变
-          </DialogDescription>
+            {t("accountPool.credentialFields.selectTheFieldsToChangeUnselected")}</DialogDescription>
         </DialogHeader>
         <fieldset disabled={fieldsLocked} className="grid min-w-0 gap-4">
           <div className="grid gap-2">
@@ -136,9 +135,8 @@ export function AccountPoolAuthFileFieldsDialog({
                 disabled={fieldsLocked}
                 onCheckedChange={(checked) => update({ applyPriority: checked === true })}
               />
-              修改优先级
-            </label>
-            <Label htmlFor="auth-template-priority">优先级</Label>
+              {t("accountPool.credentialFields.changePriority")}</label>
+            <Label htmlFor="auth-template-priority">{t("accountPool.policy.options.priority")}</Label>
             <Input
               id="auth-template-priority"
               type="number"
@@ -157,16 +155,15 @@ export function AccountPoolAuthFileFieldsDialog({
                 disabled={fieldsLocked}
                 onCheckedChange={(checked) => update({ applyPrefix: checked === true })}
               />
-              修改模型前缀
-            </label>
-            <Label htmlFor="auth-template-prefix">模型前缀</Label>
+              {t("accountPool.credentialFields.changeModelPrefix")}</label>
+            <Label htmlFor="auth-template-prefix">{t("accountPool.providers.openaiCompatible.prefix")}</Label>
             <Input
               id="auth-template-prefix"
               maxLength={256}
               disabled={!form.applyPrefix}
               value={form.prefix}
               onChange={(event) => update({ prefix: event.target.value })}
-              placeholder="留空可清除前缀"
+              placeholder={t("accountPool.credentialFields.leaveBlankToClearThePrefix")}
             />
           </div>
           <div className="grid gap-2">
@@ -176,9 +173,8 @@ export function AccountPoolAuthFileFieldsDialog({
                 disabled={fieldsLocked}
                 onCheckedChange={(checked) => update({ applyProxy: checked === true })}
               />
-              修改出站代理
-            </label>
-            <Label htmlFor="auth-template-proxy">认证文件出站代理</Label>
+              {t("accountPool.credentialFields.changeOutboundProxy")}</label>
+            <Label htmlFor="auth-template-proxy">{t("accountPool.credentialFields.credentialFileProxy")}</Label>
             <select
               id="auth-template-proxy"
               className="h-9 w-full min-w-0 rounded-md border bg-background px-3"
@@ -186,8 +182,8 @@ export function AccountPoolAuthFileFieldsDialog({
               disabled={!form.applyProxy || profiles.isPending}
               onChange={(event) => update({ proxyProfileId: event.target.value })}
             >
-              <option value="">沿用卡片代理（清除文件内代理）</option>
-              {missingProfile && <option value={form.proxyProfileId}>原节点不可用，请重新选择</option>}
+              <option value="">{t("accountPool.credentialFields.useCardProxyClearTheFile")}</option>
+              {missingProfile && <option value={form.proxyProfileId}>{t("accountPool.credentialFields.theOriginalProxyIsUnavailableSelect")}</option>}
               {(profiles.data ?? []).map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {profile.name}
@@ -196,13 +192,11 @@ export function AccountPoolAuthFileFieldsDialog({
             </select>
             {profiles.isError && (
               <p role="alert" className="text-sm text-destructive">
-                代理读取失败，请关闭后重试
-              </p>
+                {t("accountPool.credentialFields.couldNotLoadProxiesCloseThis")}</p>
             )}
             {missingProfile && (
               <p role="alert" className="text-sm text-destructive">
-                请选择当前可用的代理节点
-              </p>
+                {t("accountPool.credentialFields.selectAnAvailableProxy")}</p>
             )}
           </div>
           <Button
@@ -214,23 +208,21 @@ export function AccountPoolAuthFileFieldsDialog({
               setMessage(null);
             }}
           >
-            载入默认模板
-          </Button>
+            {t("accountPool.credentialFields.loadDefaultTemplate")}</Button>
         </fieldset>
         {mode === "apply" && (
-          <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3 text-sm" aria-label="修改预览">
+          <div className="grid min-w-0 gap-1 rounded-md border bg-muted/20 p-3 text-sm" aria-label={t("accountPool.credentialFields.previewChanges")}>
             <p>
-              将修改 {remaining.length} 项：{selectedFields.join("、") || "未选择字段"}
+              {t("accountPool.credentialFields.previewSummary", { total: remaining.length, fields: selectedFields.join(t("accountPool.credentialFields.listSeparator")) || t("accountPool.credentialFields.noFieldsSelected") })}
             </p>
             <p className="max-h-24 overflow-y-auto break-all text-muted-foreground">
-              {remaining.map((target) => target.name).join("、")}
+              {remaining.map((target) => target.name).join(t("accountPool.credentialFields.listSeparator"))}
             </p>
           </div>
         )}
         {settings.isError && (
           <p role="alert" className="text-sm text-destructive">
-            默认模板读取失败，无法保存模板，请关闭后重试
-          </p>
+            {t("accountPool.credentialFields.couldNotLoadTheDefaultTemplate")}</p>
         )}
         {message && (
           <p role="status" className="break-words text-sm">
@@ -250,8 +242,7 @@ export function AccountPoolAuthFileFieldsDialog({
               saveTemplate.mutate();
             }}
           >
-            保存为默认模板
-          </Button>
+            {t("accountPool.credentialFields.saveAsDefaultTemplate")}</Button>
           {mode === "apply" && (
             <Button
               type="button"
@@ -261,7 +252,7 @@ export function AccountPoolAuthFileFieldsDialog({
                 apply.mutate();
               }}
             >
-              {targets.length === 1 ? t("accountPool.save") : `应用到 ${remaining.length} 项`}
+              {targets.length === 1 ? t("accountPool.save") : t("accountPool.credentialFields.applyToEntries", { total: remaining.length })}
             </Button>
           )}
         </DialogFooter>

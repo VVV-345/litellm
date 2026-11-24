@@ -502,39 +502,29 @@ async def _restore_control_plane_connections(
     if not missing_ids:
         return
     ensure_shared: Final = getattr(channel, "ensure_runtime_network_connected", None)
+    restore_one = channel.ensure_control_plane_connections
     if callable(ensure_shared):
         try:
             await ensure_shared()
         except Exception as error:
             _LOGGER.warning("Failed to restore shared account pool runtime network: %s", error.__class__.__name__)
+            if not callable(getattr(channel, "ensure_legacy_control_plane_connections", None)):
+                return
         else:
             if callable(missing_lookup):
                 missing_ids = frozenset(await missing_lookup(target_ids))
                 if not missing_ids:
                     return
+        restore_one = getattr(channel, "ensure_legacy_control_plane_connections", restore_one)
     semaphore: Final = asyncio.Semaphore(2)
 
     async def restore(record: EnvironmentRecord) -> None:
         async with semaphore:
-            await _restore_control_plane_connection(channels, record)
+            try:
+                await restore_one(record.id)
+            except UnsupportedChannelError:
+                return
+            except Exception as error:
+                _LOGGER.warning("Failed to restore account pool network for %s: %s", record.id, error.__class__.__name__)
 
     await asyncio.gather(*(restore(record) for record in targets if record.id in missing_ids))
-
-
-async def _restore_control_plane_connection(channels: ChannelRegistry, record: EnvironmentRecord) -> None:
-    if record.channel is ChannelKind.OPENAI_COMPATIBLE:
-        return
-    try:
-        channels.get(record.channel)
-    except UnsupportedChannelError:
-        return
-    try:
-        await channels.channel(record.channel).ensure_control_plane_connections(record.id)
-    except UnsupportedChannelError:
-        return
-    except Exception as error:
-        _LOGGER.warning(
-            "Failed to restore account pool network for %s: %s",
-            record.id,
-            error.__class__.__name__,
-        )

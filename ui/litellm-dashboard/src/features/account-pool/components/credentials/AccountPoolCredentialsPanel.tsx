@@ -118,8 +118,7 @@ export const AccountPoolCredentialsPanel = ({
             disabled={accessToken === null}
             onClick={() => setFieldsDialog({ mode: "template", targets: [] })}
           >
-            认证模板
-          </Button>
+            {t("accountPool.credentialFields.credentialTemplate")}</Button>
           <AccountPoolRefreshIntervalSelect
             value={refreshStatus?.interval_minutes ?? 15}
             onChange={(value) => intervalMutation.mutate(value)}
@@ -174,11 +173,11 @@ export const AccountPoolCredentialsPanel = ({
       )}
       <div className="flex flex-wrap items-end gap-3">
         <div className="grid min-w-0 flex-1 gap-1 sm:min-w-64">
-          <Label htmlFor="credential-search">搜索认证文件</Label>
+          <Label htmlFor="credential-search">{t("accountPool.credentialTable.searchCredentialFiles")}</Label>
           <Input
             id="credential-search"
             type="search"
-            placeholder="卡片、账号或文件名"
+            placeholder={t("accountPool.credentialTable.cardAccountOrFilename")}
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
@@ -187,7 +186,7 @@ export const AccountPoolCredentialsPanel = ({
           />
         </div>
         <div className="grid gap-1">
-          <Label htmlFor="credential-state">认证状态筛选</Label>
+          <Label htmlFor="credential-state">{t("accountPool.credentialTable.filterByCredentialStatus")}</Label>
           <select
             id="credential-state"
             className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -197,9 +196,9 @@ export const AccountPoolCredentialsPanel = ({
               setPage(1);
             }}
           >
-            <option value="all">全部状态</option>
-            <option value="enabled">已启用</option>
-            <option value="disabled">已停用</option>
+            <option value="all">{t("accountPool.status.all")}</option>
+            <option value="enabled">{t("accountPool.quotas.enabled")}</option>
+            <option value="disabled">{t("accountPool.status.disabled")}</option>
           </select>
         </div>
         <Button
@@ -213,14 +212,14 @@ export const AccountPoolCredentialsPanel = ({
             })
           }
         >
-          批量设置（{selected.length}）
+          {t("accountPool.credentialTable.bulkEdit", { total: selected.length })}
         </Button>
       </div>
       <div className="min-w-0 overflow-hidden rounded-lg border">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/30 px-4 py-2 text-sm">
           <label className="flex items-center gap-2">
             <Checkbox
-              aria-label="全选本页认证文件"
+              aria-label={t("accountPool.credentialTable.selectAllCredentialFilesOnThis")}
               disabled={visibleEditable.length === 0 || accessToken === null}
               checked={
                 visibleEditable.length > 0 && visibleEditable.every((credential) => selectedIds.includes(credential.id))
@@ -235,20 +234,18 @@ export const AccountPoolCredentialsPanel = ({
                 })
               }
             />
-            全选本页
-          </label>
+            {t("accountPool.credentialTable.selectPage")}</label>
           <span className="text-muted-foreground">
-            共 {filtered.length} 项，已选 {selected.length} 项
-          </span>
+            {t("accountPool.credentialTable.selectionCount", { total: filtered.length, selected: selected.length })}</span>
         </div>
         {query.isError && (
           <p role="alert" className="p-4">
             {t("accountPool.credentials.loadFailed")}
           </p>
         )}
-        {query.isPending && <p className="p-4 text-sm text-muted-foreground">正在读取认证文件…</p>}
+        {query.isPending && <p className="p-4 text-sm text-muted-foreground">{t("accountPool.credentialTable.loadingCredentialFiles")}</p>}
         {!query.isPending && !query.isError && filtered.length === 0 && (
-          <p className="p-4 text-sm text-muted-foreground">没有匹配的认证文件</p>
+          <p className="p-4 text-sm text-muted-foreground">{t("accountPool.credentialTable.noMatchingCredentialFiles")}</p>
         )}
         <ul className="divide-y">
           {visible.map((credential) => {
@@ -257,7 +254,7 @@ export const AccountPoolCredentialsPanel = ({
               <li key={credential.id} className="grid min-w-0 gap-3 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="flex min-w-0 items-start gap-3">
                   <Checkbox
-                    aria-label={`选择 ${credential.card_name}`}
+                    aria-label={t("accountPool.credentialTable.select", { name: credential.card_name })}
                     className="mt-1"
                     disabled={!editable(credential) || accessToken === null}
                     checked={selectedIds.includes(credential.id)}
@@ -371,11 +368,9 @@ export const AccountPoolCredentialsPanel = ({
             disabled={currentPage <= 1}
             onClick={() => setPage(currentPage - 1)}
           >
-            上一页
-          </Button>
+            {t("accountPool.credentialTable.previousPage")}</Button>
           <span>
-            第 {currentPage} / {pageCount} 页
-          </span>
+            {t("accountPool.credentialTable.pageNumber", { page: currentPage, pages: pageCount })}</span>
           <Button
             type="button"
             variant="outline"
@@ -383,8 +378,7 @@ export const AccountPoolCredentialsPanel = ({
             disabled={currentPage >= pageCount}
             onClick={() => setPage(currentPage + 1)}
           >
-            下一页
-          </Button>
+            {t("accountPool.credentialTable.nextPage")}</Button>
         </div>
       </div>
       <Dialog
@@ -484,9 +478,7 @@ export const AccountPoolCredentialsPanel = ({
               </Button>
               {uploadFile && <p className="min-w-0 break-all text-sm">{uploadFile.name}</p>}
               <p className="text-xs text-muted-foreground">
-                自动识别 CPA、OpenAI OAuth Sub2API JSON 和 2FA 文本。2FA 仅保存登录资料，需为空卡片配置代理并完成
-                OAuth，不能直接替换有效凭据。
-              </p>
+                {t("accountPool.credentialTable.detectsCpaOpenaiOauthSub2ApiJson")}</p>
             </div>
             {uploadMutation.isError && (
               <p role="alert" className="text-sm text-destructive">
@@ -517,8 +509,7 @@ export const AccountPoolCredentialsPanel = ({
       </Dialog>
       {pendingLogin && (
         <p role="status" className="text-sm">
-          登录资料已保存，尚未完成认证。请到“批量上号”的“OAuth 上号”任务中完成登录和二次验证。
-        </p>
+          {t("accountPool.credentialTable.loginDetailsSavedAuthenticationIsNot")}</p>
       )}
       {fieldsDialog && accessToken && (
         <AccountPoolAuthFileFieldsDialog
