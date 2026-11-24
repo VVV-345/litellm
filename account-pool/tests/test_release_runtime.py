@@ -776,6 +776,51 @@ def test_oauth_browser_upgrade_runtime_reads_raw_prisma_and_complete_manager_sou
     assert all("--network" in call and "none" in call for call in command.calls if call[0] == "create")
 
 
+def lease_and_spend_index_sources() -> tuple[tuple[tuple[str, bytes], ...], tuple[tuple[str, bytes], ...]]:
+    from account_pool.gateway_repository import _SCHEMA as leases
+    from account_pool.management_repository import _SCHEMA as logs
+
+    schema = (*leases, *logs)
+    indexes = tuple(statement for statement in schema if any(
+        name in statement for name in ("account_pool_leases_expires_idx", "account_pool_log_spend_env_idx")
+    ))
+    assert len(indexes) == 2
+    baseline = (("schema.prisma", b"model A { id String @id }"), (
+        "schema.py", f"SQL = {tuple(statement for statement in schema if statement not in indexes)!r}".encode(),
+    ))
+    return baseline, (*baseline, ("indexes.py", f"SQL = {indexes!r}".encode()))
+
+
+def test_lease_and_spend_index_upgrade_accepts_only_reviewed_indexes() -> None:
+    baseline, target = lease_and_spend_index_sources()
+    assert additive_manager_schema_upgrade(baseline, target)
+    assert not additive_manager_schema_upgrade(target, baseline)
+    assert not additive_manager_schema_upgrade(baseline, (*target, ("bad.py", b'SQL="DROP TABLE old"')))
+    assert not additive_manager_schema_upgrade(baseline, (*target, (
+        "extra.py", b'SQL="CREATE INDEX IF NOT EXISTS account_pool_unreviewed ON account_pool_leases (account_id)"',
+    )))
+    assert not additive_manager_schema_upgrade(baseline, (target[0], target[-1]))
+    assert not additive_manager_schema_upgrade(baseline, (("schema.prisma", b"changed"), *target[1:]))
+
+
+@pytest.mark.parametrize("original,replacement", (
+    ("(expires_at)", "(account_id)"),
+    ("payload->>'environment_id'", "payload->>'card_id'"),
+    ("'model_request'", "'quota'"),
+    ("IS NOT NULL", "IS NULL"),
+    ("CREATE INDEX", "CREATE UNIQUE INDEX"),
+    ("ON account_pool_error_log", "ON account_pool_card_keys"),
+    ("account_pool_leases_expires_idx", "account_pool_other_idx"),
+))
+def test_lease_and_spend_index_upgrade_rejects_unreviewed_changes(original: str, replacement: str) -> None:
+    baseline, target = lease_and_spend_index_sources()
+    name, source = target[-1]
+    assert original.encode() in source
+    assert not additive_manager_schema_upgrade(baseline, (*baseline, (
+        name, source.replace(original.encode(), replacement.encode()),
+    )))
+
+
 def test_email_rebinding_upgrade_accepts_only_the_exact_additive_table() -> None:
     root = Path(__file__).resolve().parents[1] / "account_pool"
     repository = root / "email_rebinding" / "repository.py"

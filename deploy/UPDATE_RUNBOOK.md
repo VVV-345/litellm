@@ -175,6 +175,8 @@ CI 在构建镜像前运行 `account-pool/tests/test_release_runtime.py` 与 `ac
 
 `account_pool_email_rebinding` 只允许新增已审阅的单例表：`id integer PRIMARY KEY CHECK(id=1), payload jsonb NOT NULL`。Prisma、既有结构及持久化契约必须保持不变，并启用两库备份和试还原。删表、字段或约束变化、额外未审阅结构和缺少备份继续阻断。该规则只授权单向升级，不跳过程序回退检查，也不在镜像回退时恢复旧业务数据。首次使用该规则前须先更新独立 release-worker
 
+租约与费用查询索引只允许同时新增精确的 `account_pool_leases_expires_idx ON account_pool_leases (expires_at)` 和 `account_pool_log_spend_env_idx ON account_pool_error_log ((payload->>'environment_id')) WHERE payload->>'operation' = 'model_request' AND payload->>'cost_usd' IS NOT NULL`。索引名称、表、列、过滤条件及唯一性不得变化，其他结构和 Prisma 必须保持不变；首次使用前先更新包含该规则的独立 release-worker，两库备份、试还原和失败回退校验仍保留
+
 ## 5. 何时先更新 release-worker
 
 发布器独立固定版本，业务镜像包含新规则不代表正在运行的发布器已经会检查。只有本次确实修改发布器时执行这一节

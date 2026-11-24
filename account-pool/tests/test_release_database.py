@@ -263,6 +263,45 @@ def test_email_rebinding_upgrade_requires_verified_database_backup(tmp_path, bac
     assert not any(event.startswith("restore:") for event in database.events)
 
 
+@pytest.mark.parametrize("backups,fail_capture,fail_apply", (
+    (False, False, False), (True, False, False), (True, True, False), (True, False, True),
+))
+def test_lease_and_spend_index_upgrade_requires_verified_backup(tmp_path, backups, fail_capture, fail_apply):
+    from account_pool.release_compatibility import additive_manager_schema_upgrade
+    from test_release_runtime import lease_and_spend_index_sources
+
+    baseline, target = lease_and_spend_index_sources()
+
+    class IndexRuntime(Runtime):
+        def is_additive_manager_schema_upgrade(self, current, target_pair):
+            return current == CURRENT and target_pair == NEW and additive_manager_schema_upgrade(baseline, target)
+
+    runtime, clock, database = IndexRuntime(), Clock(), Database()
+    runtime.changed_schema = NEW.id
+    runtime.fail_apply = NEW.id if fail_apply else None
+    database.fail_capture = fail_capture
+    service = ReleaseService(ReleaseStore(tmp_path, clock), runtime, 0, database if backups else None)
+    service.run(queued(service, clock, action(service, "deploy", tag=NEW.commit)))
+    if not backups or fail_capture or fail_apply:
+        assert service.store.jobs()[0].status == ("recovered" if fail_apply else "failed")
+        assert runtime.running == CURRENT
+        if fail_apply:
+            assert "apply:" + NEW.id in runtime.events
+            assert "apply:" + CURRENT.id in runtime.events
+        else:
+            assert not any(event.startswith("apply:") for event in runtime.events)
+        if not backups:
+            assert database.events == []
+    else:
+        assert service.store.jobs()[0].status == "succeeded"
+        assert runtime.running == NEW
+    if backups and not fail_capture:
+        assert service.store.backup(CURRENT.id).database_snapshot is not None
+        assert database.events[:2] == ["stop", "capture"]
+    assert database.data == b"current-data"
+    assert not any(event.startswith("restore:") for event in database.events)
+
+
 def test_failed_oauth_upgrade_backup_does_not_start_new_images(setup_data):
     service, runtime, clock, database = setup_data
     runtime.changed_schema = NEW.id

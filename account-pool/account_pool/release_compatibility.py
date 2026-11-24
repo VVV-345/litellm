@@ -161,6 +161,11 @@ EMAIL_REBINDING_SCHEMA_ADDITIONS: Final = (
     b"CREATE TABLE IF NOT EXISTS account_pool_email_rebinding "
     b"(id integer PRIMARY KEY CHECK(id=1),payload jsonb NOT NULL)",
 )
+LEASE_AND_SPEND_INDEX_SCHEMA_ADDITIONS: Final = (
+    b"CREATE INDEX IF NOT EXISTS account_pool_leases_expires_idx ON account_pool_leases (expires_at)",
+    b"CREATE INDEX IF NOT EXISTS account_pool_log_spend_env_idx ON account_pool_error_log ((payload->>'environment_id')) "
+    b"WHERE payload->>'operation' = 'model_request' AND payload->>'cost_usd' IS NOT NULL",
+)
 
 
 def manager_source_digest(sources: tuple[tuple[str, bytes], ...]) -> str:
@@ -306,6 +311,7 @@ def additive_manager_schema_upgrade(
     )
     if additions not in (
         EMAIL_REBINDING_SCHEMA_ADDITIONS,
+        LEASE_AND_SPEND_INDEX_SCHEMA_ADDITIONS,
         RUNTIME_ROLLOUT_SCHEMA_ADDITIONS,
         *(tuple(sorted((*group, *RUNTIME_ROLLOUT_SCHEMA_ADDITIONS))) for group in (
             QUOTA_VERIFICATION_SCHEMA_ADDITIONS,
