@@ -217,4 +217,104 @@ describe("(dashboard) Layout", () => {
     expect(screen.queryByTestId("dashboard-header")).not.toBeInTheDocument();
     expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
   });
+
+  it("falls back to hard navigation when switching from policy-center back to account-pool stalls for 5s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const originalLocation = window.location;
+    const assignSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, assign: assignSpy },
+    });
+    pathnameValue = "/ui/policy-center/";
+    const route = createDeferred();
+    function AccountPoolDestination() {
+      use(route.promise);
+      return <div>Pool content</div>;
+    }
+    function TestNavigation() {
+      const [opened, setOpened] = useState(false);
+      pushMock.mockImplementation(() => setOpened(true));
+      return <Layout>{opened ? <AccountPoolDestination /> : <div>Policy content</div>}</Layout>;
+    }
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <AuthProvider>
+            <TestNavigation />
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+      await act(async () => {
+        pendingUiConfig.resolve();
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      const link = screen.getByRole("button", { name: "Account Pool" });
+      await act(async () => {
+        fireEvent.click(link);
+      });
+      expect(screen.getByRole("status")).toHaveTextContent(i18n.t("nav.openingAccountPool"));
+      await act(() => vi.advanceTimersByTimeAsync(4999));
+      expect(assignSpy).not.toHaveBeenCalled();
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(assignSpy).toHaveBeenCalledWith("/ui/account-pool/");
+    } finally {
+      await act(async () => {
+        route.resolve();
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not trigger hard navigation when switching back to account-pool completes before 5s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const originalLocation = window.location;
+    const assignSpy = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: { ...originalLocation, assign: assignSpy },
+    });
+    pathnameValue = "/ui/policy-center/";
+    const route = createDeferred();
+    function AccountPoolDestination() {
+      use(route.promise);
+      return <div>Pool content</div>;
+    }
+    function TestNavigation() {
+      const [opened, setOpened] = useState(false);
+      pushMock.mockImplementation(() => setOpened(true));
+      return <Layout>{opened ? <AccountPoolDestination /> : <div>Policy content</div>}</Layout>;
+    }
+    try {
+      render(
+        <QueryClientProvider client={new QueryClient()}>
+          <AuthProvider>
+            <TestNavigation />
+          </AuthProvider>
+        </QueryClientProvider>,
+      );
+      await act(async () => {
+        pendingUiConfig.resolve();
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      const link = screen.getByRole("button", { name: "Account Pool" });
+      await act(async () => {
+        fireEvent.click(link);
+      });
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      expect(assignSpy).not.toHaveBeenCalled();
+      await act(async () => {
+        route.resolve();
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(screen.getByText("Pool content")).toBeVisible();
+      await act(() => vi.advanceTimersByTimeAsync(5000));
+      expect(assignSpy).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: originalLocation });
+      vi.useRealTimers();
+    }
+  });
 });

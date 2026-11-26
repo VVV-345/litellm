@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { migratedHref } from "@/utils/migratedPages";
+import { pageHref } from "@/utils/migratedPages";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -364,19 +364,19 @@ const GeneralSettings: React.FC<GeneralSettingsPageProps> = ({ accessToken, user
           </Card>
           <p className="text-sm text-muted-foreground">
   流式、插件与请求改写设置已统一到策略中心。
-  <Link href={migratedHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
+  <Link href={pageHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
 </p>
         </TabsContent>
         <TabsContent value="streaming" className="px-8 py-6">
           <p className="text-sm text-muted-foreground">
   流式、插件与请求改写设置已统一到策略中心。
-  <Link href={migratedHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
+  <Link href={pageHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
 </p>
         </TabsContent>
         <TabsContent value="payload" className="px-8 py-6">
           <p className="text-sm text-muted-foreground">
   流式、插件与请求改写设置已统一到策略中心。
-  <Link href={migratedHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
+  <Link href={pageHref("policy-center")} className="ml-1 underline">前往策略中心</Link>
 </p>
         </TabsContent>
       </Tabs>

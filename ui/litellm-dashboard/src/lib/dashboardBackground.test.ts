@@ -30,10 +30,16 @@ describe("dashboard background preload", () => {
 
   it("keeps every preload task when nothing is disabled", () => {
     const all = dashboardBackgroundTasks(context, new AbortController().signal);
-    const filtered = dashboardBackgroundTasks(context, new AbortController().signal, ["agents", "guardrails"]);
+    const filtered = dashboardBackgroundTasks(context, new AbortController().signal, [
+      "agents",
+      "guardrails",
+      "policy-center",
+    ]);
 
     expect(all.length).toBeGreaterThan(filtered.length);
     expect(all.map((task) => task.id)).toContain("page:agents");
+    expect(all.map((task) => task.id)).toContain("page:policy-center");
     expect(filtered.map((task) => task.id)).not.toContain("page:agents");
+    expect(filtered.map((task) => task.id)).not.toContain("page:policy-center");
   });
 });

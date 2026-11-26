@@ -24,6 +24,7 @@ import { disabledPagesOrDefault, isPageDisabled } from "@/lib/moduleVisibility";
 import { accountPoolEnvironmentOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 
 const pluginApiClient = createApiClient({ getBaseUrl: () => getProxyBaseUrl() ?? "" });
+const ACCOUNT_POOL_NAV_FALLBACK_MS = 5_000;
 
 // Wrapper so PluginModeProvider receives the live accessToken from auth context,
 // which means plugin data refreshes on login/logout without stale cookie reads.
@@ -127,6 +128,7 @@ function DashboardShell({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [openingAccountPool, startAccountPoolNavigation] = useTransition();
+  const accountPoolNavStartedAtRef = useRef<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
@@ -143,17 +145,37 @@ function DashboardShell({
   const isGateway = mode === "ai-gateway";
   const pageDisabled = isPageDisabled(page, disabledUiPages);
 
+  useEffect(() => {
+    if (!openingAccountPool || page === "account-pool") {
+      accountPoolNavStartedAtRef.current = null;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      window.location.assign(pageHref("account-pool"));
+    }, ACCOUNT_POOL_NAV_FALLBACK_MS);
+    return () => window.clearTimeout(timer);
+  }, [openingAccountPool, page]);
+
   const navigateToPage = (newPage: string) => {
     const href = pageHref(newPage);
     if (newPage !== "account-pool" || page === newPage) {
       router.push(href);
       return;
     }
-    if (openingAccountPool) return;
+    if (openingAccountPool) {
+      if (
+        accountPoolNavStartedAtRef.current !== null &&
+        Date.now() - accountPoolNavStartedAtRef.current >= ACCOUNT_POOL_NAV_FALLBACK_MS
+      ) {
+        window.location.assign(href);
+      }
+      return;
+    }
     // 让卡片请求和路由切换并行；与号池页面、预热共用缓存和在途请求。
     if (accessToken && !isPageDisabled(newPage, disabledUiPages)) {
       void queryClient.prefetchQuery(accountPoolEnvironmentOptions(accessToken));
     }
+    accountPoolNavStartedAtRef.current = Date.now();
     startAccountPoolNavigation(() => router.push(href));
   };
 

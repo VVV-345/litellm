@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { migratedHref } from "@/utils/migratedPages";
+import { pageHref } from "@/utils/migratedPages";
 import {
   checkAutoUpdate,
   getAutoUpdate,
@@ -226,7 +226,7 @@ export function AccountPoolAutoUpdatePanel({ accessToken }: { accessToken: strin
         )}
         <Link
           className="block text-sm text-primary hover:underline"
-          href={`${migratedHref("account-pool")}?tab=releases`}
+          href={`${pageHref("account-pool")}?tab=releases`}
         >
           {t("logs")}
         </Link>

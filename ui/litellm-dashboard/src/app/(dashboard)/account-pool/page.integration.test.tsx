@@ -17,6 +17,7 @@ const reauthorizeAutomation = vi.fn();
 const automationJobs = vi.fn();
 const searchState = { value: "" };
 const loadStats = vi.fn();
+const measureDelays = vi.fn();
 vi.mock("@/features/account-pool/api/AccountPoolAutomationApi", async (original) => ({
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolAutomationApi")>()),
   reauthorizeAutomation: (...args: unknown[]) => reauthorizeAutomation(...args),
@@ -42,6 +43,7 @@ vi.mock("@/features/account-pool/api/AccountPoolApi", async (original) => ({
   authorizeAccountPoolEnvironment: (...args: unknown[]) => authorizeAccount(...args),
   listAccountPoolProxyGateways: async () => [],
   listAccountPoolProxyProfiles: async () => [],
+  measureAccountPoolProxyGatewayDelays: (...args: unknown[]) => measureDelays(...args),
 }));
 vi.mock("@/features/account-pool/api/AccountPoolManagementApi", async (original) => ({
   ...(await original<typeof import("@/features/account-pool/api/AccountPoolManagementApi")>()),
@@ -116,6 +118,7 @@ describe("account card local configuration", () => {
     searchState.value = "";
     listAccounts.mockResolvedValue([environment]);
     loadStats.mockResolvedValue({ cards: [], summary: {} });
+    measureDelays.mockResolvedValue([]);
     updateAccount.mockImplementation(async (_token, _id, payload) => ({ ...environment, ...payload }));
   });
   afterEach(() => vi.useRealTimers());
@@ -405,5 +408,18 @@ describe("account card local configuration", () => {
     await user.click(await screen.findByRole("combobox", { name: "统计天数" }));
     await user.click(await screen.findByRole("option", { name: "近 7 天" }));
     await waitFor(() => expect(loadStats).toHaveBeenCalledWith("token", 7, expect.any(AbortSignal)));
+  });
+
+  it("defers proxy gateway delay probing until environments finish loading", async () => {
+    const deferred = Promise.withResolvers<AccountPoolEnvironment[]>();
+    listAccounts.mockReturnValueOnce(deferred.promise);
+    renderPage();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(measureDelays).not.toHaveBeenCalled();
+    deferred.resolve([environment]);
+    expect(await screen.findByTestId(`account-pool-card-${environment.id}`)).toBeInTheDocument();
+    await waitFor(() => expect(measureDelays).toHaveBeenCalledWith("token"));
   });
 });

@@ -10,6 +10,7 @@ import { isPageDisabled } from "./moduleVisibility";
 import type { PreloadTask } from "./progressivePreload";
 
 const routes = {
+  "policy-center": () => import("@/app/(dashboard)/policy-center/page"),
   "api-reference": () => import("@/app/(dashboard)/api-reference/page"),
   playground: () => import("@/app/(dashboard)/playground/page"),
   projects: () => import("@/app/(dashboard)/projects/page"),
@@ -168,6 +169,7 @@ export const dashboardBackgroundTasks = (
     organizations: () => api.organizationListCall(accessToken, null, null),
   };
   const adminPages = new Set([
+    "policy-center",
     "access-groups",
     "budgets",
     "skills",

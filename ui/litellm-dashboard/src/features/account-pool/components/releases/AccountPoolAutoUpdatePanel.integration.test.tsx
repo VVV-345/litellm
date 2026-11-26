@@ -100,7 +100,7 @@ describe("automatic image updates in settings", () => {
     ]);
     expect(screen.getByRole("link", { name: "查看版本与部署日志" })).toHaveAttribute(
       "href",
-      "/ui/account-pool?tab=releases",
+      expect.stringMatching(/^\/ui\/account-pool\/?\?tab=releases$/),
     );
   });
 

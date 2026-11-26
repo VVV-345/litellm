@@ -2,7 +2,7 @@
 "use client";
 
 import Link from "next/link";
-import { migratedHref } from "@/utils/migratedPages";
+import { pageHref } from "@/utils/migratedPages";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
@@ -370,7 +370,7 @@ export function AccountPoolOnboardingPanel({
     <div className="space-y-5">
       <p className="text-sm text-muted-foreground">
         {t("accountPool.onboarding.panel.providerLinkPrefix")}
-        <Link href={migratedHref("account-pool?tab=providers")} className="ml-1 underline">
+        <Link href={`${pageHref("account-pool")}?tab=providers`} className="ml-1 underline">
           {t("accountPool.onboarding.panel.providerLinkLabel")}
         </Link>
         {t("accountPool.onboarding.panel.providerLinkSuffix")}

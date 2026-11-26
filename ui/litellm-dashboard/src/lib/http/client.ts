@@ -19,6 +19,7 @@ export interface RequestOptions {
   query?: QueryParams;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  timeoutMs?: number | null;
   cache?: RequestCache;
   invalidateOnSuccess?: boolean;
 }
@@ -141,6 +142,38 @@ export const fetchDashboardBuildId = async (url: string, signal?: AbortSignal): 
     .querySelector<HTMLMetaElement>('meta[name="litellm-ui-build"]')?.content ?? null;
 };
 
+const DEFAULT_GET_TIMEOUT_MS = 35_000;
+
+const withRequestTimeout = (
+  method: HttpMethod,
+  path: string,
+  signal: AbortSignal | undefined,
+  timeoutMs: number | null | undefined,
+): { signal: AbortSignal | undefined; cleanup: () => void } => {
+  const defaultTimeout = method === "GET" ? DEFAULT_GET_TIMEOUT_MS : null;
+  const effectiveTimeout = timeoutMs === undefined ? defaultTimeout : timeoutMs;
+  if (effectiveTimeout === null || effectiveTimeout <= 0) {
+    return { signal, cleanup: () => {} };
+  }
+  const controller = new AbortController();
+  const onParentAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) {
+    onParentAbort();
+  } else {
+    signal?.addEventListener("abort", onParentAbort, { once: true });
+  }
+  const timer = globalThis.setTimeout(() => {
+    controller.abort(new DOMException(`Request timed out after ${effectiveTimeout}ms: ${path}`, "TimeoutError"));
+  }, effectiveTimeout);
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      globalThis.clearTimeout(timer);
+      signal?.removeEventListener("abort", onParentAbort);
+    },
+  };
+};
+
 export function createApiClient(config: ApiClientConfig): ApiClient {
   const { getBaseUrl, getAuthHeaderName, onError, fetchImpl } = config;
   const doFetch: typeof fetch = async (input, init) => {
@@ -155,7 +188,7 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
   };
 
   async function request<T = any>(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<T> {
-    const { accessToken, body, rawBody, query, headers: extraHeaders, signal } = options;
+    const { accessToken, body, rawBody, query, headers: extraHeaders, signal, timeoutMs } = options;
     const sessionToken = getSessionToken();
 
     const url = appendQuery(`${getBaseUrl()}${path}`, query);
@@ -172,32 +205,42 @@ export function createApiClient(config: ApiClientConfig): ApiClient {
       Object.assign(headers, extraHeaders);
     }
 
-    const init: RequestInit = { method, headers, signal, ...(options.cache ? { cache: options.cache } : {}) };
+    const { signal: requestSignal, cleanup } = withRequestTimeout(method, path, signal, timeoutMs);
+    const init: RequestInit = {
+      method,
+      headers,
+      signal: requestSignal,
+      ...(options.cache ? { cache: options.cache } : {}),
+    };
     if (rawBody !== undefined) {
       init.body = rawBody;
     } else if (body !== undefined) {
       init.body = JSON.stringify(body);
     }
 
-    const response = await doFetch(url, init);
-    if (response.ok && method !== "GET" && options.invalidateOnSuccess !== false) notifyDashboardDataChanged();
+    try {
+      const response = await doFetch(url, init);
+      if (response.ok && method !== "GET" && options.invalidateOnSuccess !== false) notifyDashboardDataChanged();
 
-    if (!response.ok) {
-      const raw = await response.text();
-      let errorBody: unknown = raw;
-      let message: string;
-      try {
-        errorBody = JSON.parse(raw);
-        message = deriveErrorMessage(errorBody);
-      } catch {
-        message = raw || `HTTP ${response.status}`;
+      if (!response.ok) {
+        const raw = await response.text();
+        let errorBody: unknown = raw;
+        let message: string;
+        try {
+          errorBody = JSON.parse(raw);
+          message = deriveErrorMessage(errorBody);
+        } catch {
+          message = raw || `HTTP ${response.status}`;
+        }
+        reportFailure(message, response.status, sessionToken);
+        throw new ApiError(message, response.status, errorBody);
       }
-      reportFailure(message, response.status, sessionToken);
-      throw new ApiError(message, response.status, errorBody);
-    }
 
-    const text = await response.text();
-    return (text ? JSON.parse(text) : undefined) as T;
+      const text = await response.text();
+      return (text ? JSON.parse(text) : undefined) as T;
+    } finally {
+      cleanup();
+    }
   }
 
   async function requestBlob(method: HttpMethod, path: string, options: RequestOptions = {}): Promise<Blob> {

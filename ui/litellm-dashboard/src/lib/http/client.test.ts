@@ -118,6 +118,60 @@ describe("createApiClient", () => {
       globalThis.fetch = original;
     }
   });
+
+  it("aborts stalled GET requests after 35s by default without leaving timers after normal responses", async () => {
+    vi.useFakeTimers();
+    try {
+      const fastClient = createApiClient({ getBaseUrl: () => "", fetchImpl: async () => okResponse({ ok: true }) });
+      await expect(fastClient.get("/fast")).resolves.toEqual({ ok: true });
+      expect(vi.getTimerCount()).toBe(0);
+
+      let requestSignal: AbortSignal | undefined;
+      const stalledFetch = vi.fn<typeof fetch>(
+        (_input, init) =>
+          new Promise<Response>((_, reject) => {
+            requestSignal = init?.signal ?? undefined;
+            requestSignal?.addEventListener("abort", () => reject(requestSignal?.reason), { once: true });
+          }),
+      );
+      const stalledClient = createApiClient({ getBaseUrl: () => "", fetchImpl: stalledFetch });
+      const pending = stalledClient.get("/stalled");
+      const caught = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(34_999);
+      expect(requestSignal?.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      const error = await caught;
+      expect(requestSignal?.aborted).toBe(true);
+      expect(error).toMatchObject({ name: "TimeoutError" });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not apply the default 35s timeout to writes or when timeoutMs is null", async () => {
+    vi.useFakeTimers();
+    try {
+      const deferredPost = Promise.withResolvers<Response>();
+      const deferredGet = Promise.withResolvers<Response>();
+      const fetchImpl = vi
+        .fn<typeof fetch>()
+        .mockImplementationOnce(() => deferredPost.promise)
+        .mockImplementationOnce(() => deferredGet.promise);
+      const client = createApiClient({ getBaseUrl: () => "", fetchImpl });
+      const write = client.post("/slow-write", { body: {} });
+      const read = client.get("/slow-read", { timeoutMs: null });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetchImpl.mock.calls[0]?.[1]?.signal).toBeUndefined();
+      expect(fetchImpl.mock.calls[1]?.[1]?.signal).toBeUndefined();
+      deferredPost.resolve(okResponse({ written: true }));
+      deferredGet.resolve(okResponse({ read: true }));
+      await expect(write).resolves.toEqual({ written: true });
+      await expect(read).resolves.toEqual({ read: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("deriveErrorMessage", () => {

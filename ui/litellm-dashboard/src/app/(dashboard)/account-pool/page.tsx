@@ -48,7 +48,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/lib/toast";
 import { ApiError } from "@/lib/http/client";
-import { migratedHref } from "@/utils/migratedPages";
+import { pageHref } from "@/utils/migratedPages";
 
 import type { AutomationJob } from "@/features/account-pool/api/AccountPoolAutomationApi";
 import { AccountPoolCard } from "@/features/account-pool/components/cards/AccountPoolCard";
@@ -161,7 +161,10 @@ export default function AccountPoolPage() {
     staleTime: 30_000,
     retry: false,
   });
-  const gatewayDelaysQuery = useProxyGatewayDelays(accessToken, canManage && cardTabActive);
+  const gatewayDelaysQuery = useProxyGatewayDelays(
+    accessToken,
+    canManage && cardTabActive && environmentsQuery.isSuccess,
+  );
   const proxyISPsQuery = useProxyISPQuery(accessToken, canManage && cardTabActive);
   const policiesQueryOptions = {
     ...accountPoolPolicyOptions(accessToken),
@@ -254,12 +257,12 @@ export default function AccountPoolPage() {
   );
   const handleManageKey = useCallback(
     (environment: AccountPoolEnvironment) =>
-      router.push(`${migratedHref("api-keys")}?create=true&account_id=${encodeURIComponent(environment.id)}`),
+      router.push(`${pageHref("api-keys")}?create=true&account_id=${encodeURIComponent(environment.id)}`),
     [router],
   );
   const handleViewLogs = useCallback(
     (environment: AccountPoolEnvironment) =>
-      router.push(`${migratedHref("logs")}?account_id=${encodeURIComponent(environment.id)}`),
+      router.push(`${pageHref("logs")}?account_id=${encodeURIComponent(environment.id)}`),
     [router],
   );
   const renderCard = useCallback(

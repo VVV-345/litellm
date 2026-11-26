@@ -68,19 +68,19 @@ describe("global settings overview", () => {
     expect(screen.getByText(/Card streaming/)).toHaveTextContent("card-a");
     expect(screen.getByRole("link", { name: "流式传输" })).toHaveAttribute(
       "href",
-      "/ui/policy-center?section=streaming",
+      expect.stringMatching(/^\/ui\/policy-center\/?\?section=streaming$/),
     );
     await user.click(screen.getByRole("tab", { name: /LiteLLM 路由、重试与回退/ }));
     expect(await screen.findByText("simple-shuffle")).toBeVisible();
     await user.click(screen.getByRole("tab", { name: /供应商模型与访问/ }));
     expect(screen.getByRole("link", { name: "供应商模型与访问" })).toHaveAttribute(
       "href",
-      "/ui/policy-center?section=access",
+      expect.stringMatching(/^\/ui\/policy-center\/?\?section=access$/),
     );
     await user.click(screen.getByRole("tab", { name: /日常日志与完整日志/ }));
     expect(screen.getByRole("link", { name: "日常日志与完整日志" })).toHaveAttribute(
       "href",
-      "/ui/logs?log_view=settings",
+      expect.stringMatching(/^\/ui\/logs\/?\?log_view=settings$/),
     );
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "保留的旧路由值" })).not.toBeInTheDocument();

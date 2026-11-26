@@ -29,7 +29,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { apiClient } from "@/components/networking";
 import { Button } from "@/components/ui/button";
-import { migratedHref } from "@/utils/migratedPages";
+import { pageHref } from "@/utils/migratedPages";
 import { getAccountPoolSettings, type AccountPoolSettings } from "../../api/AccountPoolManagementApi";
 import { accountPoolQueryKeys } from "../../hooks/accountPoolQueryKeys";
 import { AccountPoolAutoUpdatePanel } from "../releases/AccountPoolAutoUpdatePanel";
@@ -248,7 +248,7 @@ const valueText = (value: unknown, t: TFunction): string => {
 };
 const settingHref = (target: string) => {
   const [page, query] = target.split("?");
-  return `${migratedHref(page)}${query ? `?${query}` : ""}`;
+  return `${pageHref(page)}${query ? `?${query}` : ""}`;
 };
 
 export function AccountPoolSettingsOverview({ accessToken }: { accessToken: string }) {
