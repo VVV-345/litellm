@@ -28,8 +28,8 @@ type AccountPoolLogStorageStats = components["schemas"]["AccountPoolLogStorageSt
 type LogPage = components["schemas"]["ErrorLogPage"];
 type AccountPoolLogClearResult = components["schemas"]["AccountPoolLogClearResult"];
 
-export const listOperationLogs = (accessToken: string, query: LogFilters) =>
-  apiClient.get<LogPage>("/logs/operations", { accessToken, query });
+export const listOperationLogs = (accessToken: string, query: LogFilters, signal?: AbortSignal) =>
+  apiClient.get<LogPage>("/logs/operations", { accessToken, query, signal });
 
 export interface OperationLogsQueryParams {
   accessToken: string;
@@ -49,7 +49,7 @@ export const operationLogsQueryOptions = ({
   const pageQuery = { ...filters, offset, limit: pageSize };
   return {
     queryKey: ["logs", "logs", accessToken, filters, offset, pageSize] as const,
-    queryFn: () => listOperationLogs(accessToken, pageQuery),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => listOperationLogs(accessToken, pageQuery, signal),
     retry: false,
     refetchInterval: refreshInterval,
     refetchIntervalInBackground: false,

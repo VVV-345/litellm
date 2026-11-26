@@ -52,11 +52,17 @@ const runIdempotentMutation = async <T>(
   }
 };
 
-export const listAccountPoolProviderFamilies = (accessToken: string): Promise<AccountPoolProviderFamily[]> =>
-  apiClient.get<AccountPoolProviderFamily[]>("/account_pool/provider-families", { accessToken });
+export const listAccountPoolProviderFamilies = (
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<AccountPoolProviderFamily[]> =>
+  apiClient.get<AccountPoolProviderFamily[]>("/account_pool/provider-families", { accessToken, signal });
 
-export const listAccountPoolEnvironments = (accessToken: string): Promise<AccountPoolEnvironment[]> =>
-  apiClient.get<AccountPoolEnvironment[]>("/account_pool/environments", { accessToken });
+export const listAccountPoolEnvironments = (
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<AccountPoolEnvironment[]> =>
+  apiClient.get<AccountPoolEnvironment[]>("/account_pool/environments", { accessToken, signal });
 
 export const discoverAccountPoolModelCatalog = (
   accessToken: string,
@@ -227,8 +233,11 @@ export const deleteAccountPoolEnvironment = (accessToken: string, environmentId:
 export const listAccountPoolProxyProfiles = (accessToken: string): Promise<AccountPoolProxyProfile[]> =>
   apiClient.get<AccountPoolProxyProfile[]>("/account_pool/proxy-profiles", { accessToken });
 
-export const listAccountPoolProxyGateways = (accessToken: string): Promise<AccountPoolProxyGateway[]> =>
-  apiClient.get<AccountPoolProxyGateway[]>("/account_pool/proxy-gateways", { accessToken });
+export const listAccountPoolProxyGateways = (
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<AccountPoolProxyGateway[]> =>
+  apiClient.get<AccountPoolProxyGateway[]>("/account_pool/proxy-gateways", { accessToken, signal });
 
 export const measureAccountPoolProxyGatewayDelays = (accessToken: string): Promise<AccountPoolProxyGatewayDelay[]> =>
   apiClient.post<AccountPoolProxyGatewayDelay[]>("/account_pool/proxy-gateways/delay", {

@@ -39,9 +39,9 @@ import type {
 
 export const proxyGatewayQueryOptions = (accessToken: string | null) => ({
   queryKey: accountPoolQueryKeys.proxyGateways(accessToken),
-  queryFn: () => {
+  queryFn: ({ signal }: { signal?: AbortSignal }) => {
     if (!accessToken) throw new Error("Access token required");
-    return listAccountPoolProxyGateways(accessToken);
+    return listAccountPoolProxyGateways(accessToken, signal);
   },
   retry: false,
   staleTime: 15_000,

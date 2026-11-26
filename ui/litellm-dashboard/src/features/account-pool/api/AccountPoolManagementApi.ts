@@ -93,8 +93,8 @@ const policyPath = (cardId: string) => `/account_pool/environments/${encodeURICo
 export const getAccountPolicy = (accessToken: string, cardId: string) =>
   apiClient.get<PolicyView>(policyPath(cardId), { accessToken });
 
-export const listAccountPolicies = (accessToken: string) =>
-  apiClient.get<PolicyView[]>("/account_pool/policies", { accessToken });
+export const listAccountPolicies = (accessToken: string, signal?: AbortSignal) =>
+  apiClient.get<PolicyView[]>("/account_pool/policies", { accessToken, signal });
 
 export const saveAccountPolicy = (accessToken: string, cardId: string, version: number, policy: AccountPolicy) =>
   apiClient.put<PolicyView>(policyPath(cardId), { accessToken, body: { version, policy } });
@@ -107,8 +107,12 @@ export const getAccountPoolRoutingStatus = (accessToken: string, cardId: string,
   return apiClient.get<AccountPoolRoutingStatus>(`/account_pool/routing-status?${params.toString()}`, { accessToken });
 };
 
-export const getAccountPoolDashboardStats = (accessToken: string, days = 30): Promise<AccountPoolDashboardStats> =>
-  apiClient.get<AccountPoolDashboardStats>(`/account_pool/dashboard?days=${days}`, { accessToken });
+export const getAccountPoolDashboardStats = (
+  accessToken: string,
+  days = 30,
+  signal?: AbortSignal,
+): Promise<AccountPoolDashboardStats> =>
+  apiClient.get<AccountPoolDashboardStats>(`/account_pool/dashboard?days=${days}`, { accessToken, signal });
 
 export const listAccountPoolCredentials = (accessToken: string) =>
   apiClient.get<AccountPoolCredential[]>("/account_pool/auth-files", { accessToken });
@@ -196,8 +200,8 @@ export const setAccountPoolAuthFileRefreshInterval = (
 export const refreshAccountPoolQuotas = (accessToken: string) =>
   apiClient.post<AccountPoolQuotaRefreshResult>("/account_pool/quotas/refresh", { accessToken });
 
-export const getAccountPoolQuotaRefreshStatus = (accessToken: string) =>
-  apiClient.get<AccountPoolQuotaRefreshStatus>("/account_pool/quotas/refresh/status", { accessToken });
+export const getAccountPoolQuotaRefreshStatus = (accessToken: string, signal?: AbortSignal) =>
+  apiClient.get<AccountPoolQuotaRefreshStatus>("/account_pool/quotas/refresh/status", { accessToken, signal });
 
 export const setAccountPoolQuotaRefreshInterval = (
   accessToken: string,

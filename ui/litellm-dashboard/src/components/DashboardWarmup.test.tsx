@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createDashboardQueryClient } from "@/lib/queryClient";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import DashboardWarmup, { runDashboardWarmup } from "./DashboardWarmup";
 import { useDashboardReadiness } from "./DashboardReadinessContext";
 import { registerResponseCache } from "@/lib/http/responseCache";
 import { registerAuthTokenGetter } from "@/lib/http/runtime";
+import { accountPoolEnvironmentOptions } from "@/features/account-pool/hooks/accountPoolOptions";
 import { initialLogsRange, requestLogsQueryOptions, DEFAULT_LOGS_SORTING } from "./view_logs/log_filter_logic";
 
 const modules = vi.hoisted(() => ({ loaded: new Set<number>(), wait: async () => {}, failModules: false }));
@@ -393,5 +394,125 @@ describe("dashboard warmup wiring", () => {
     expect(client.getQueryCache().find({ queryKey: ["modelCostMap"], exact: false })).toBeDefined();
     unmount();
     vi.useRealTimers();
+  });
+
+  it("prefetches primary routes using trailing-slash URLs aligned with static export", async () => {
+    vi.useFakeTimers();
+    router.prefetch.mockClear();
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <p>Dashboard content</p>
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(1000));
+    expect(router.prefetch.mock.calls.map(([href]) => href)).toEqual([
+      "/ui/api-keys/",
+      "/ui/models-and-endpoints/",
+      "/ui/logs/",
+      "/ui/usage/",
+      "/ui/account-pool/",
+    ]);
+    await act(() => vi.runAllTimersAsync());
+    unmount();
+  });
+
+  it("aborts hung optional preload requests at 15s, updates the settled title, and can be dismissed", async () => {
+    vi.useFakeTimers();
+    const baseFetch = fetch.getMockImplementation()!;
+    let envSignal: AbortSignal | undefined;
+    fetch.mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/account_pool/environments") {
+        envSignal = init?.signal ?? undefined;
+        return new Promise<Response>((_, reject) => {
+          envSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("The operation was aborted.", "AbortError")),
+            { once: true },
+          );
+        });
+      }
+      return baseFetch(input, init);
+    });
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <input aria-label="Current form" defaultValue="draft" />
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(envSignal?.aborted).toBe(true);
+    expect(screen.getByText("部分预加载未完成")).toBeVisible();
+    expect(screen.queryByText("后台加载中")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
+    expect(screen.queryByText("部分预加载未完成")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Current form" })).toBeEnabled();
+    unmount();
+  });
+
+  it("caps concurrent queries inside each module data task at two", async () => {
+    vi.useFakeTimers();
+    const baseFetch = fetch.getMockImplementation()!;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    fetch.mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname.startsWith("/account_pool/")) {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        return new Promise<Response>((resolve) => {
+          setTimeout(() => {
+            inFlight -= 1;
+            resolve(Response.json(url.pathname === "/account_pool/dashboard" ? {} : []));
+          }, 50);
+        });
+      }
+      return baseFetch(input, init);
+    });
+    const finished = runDashboardWarmup(
+      { queryClient: client, router, accessToken: "test", userId: "user", userRole: "Admin", token: "session" },
+      () => {},
+      controller.signal,
+    );
+    await vi.runAllTimersAsync();
+    await finished;
+    expect(maxInFlight).toBe(2);
+  });
+
+  it("does not cancel an actively observed page query when warmup times out", async () => {
+    vi.useFakeTimers();
+    const baseFetch = fetch.getMockImplementation()!;
+    const deferred = Promise.withResolvers<Response>();
+    let envSignal: AbortSignal | undefined;
+    fetch.mockImplementation((input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input), "http://localhost");
+      if (url.pathname === "/account_pool/environments") {
+        envSignal = init?.signal ?? undefined;
+        return deferred.promise;
+      }
+      return baseFetch(input, init);
+    });
+    function ActiveObserver() {
+      const { data } = useQuery(accountPoolEnvironmentOptions("test"));
+      return <p>{data?.length ? `envs:${data.length}` : "envs:loading"}</p>;
+    }
+    const { unmount } = render(
+      <QueryClientProvider client={client}>
+        <DashboardWarmup>
+          <ActiveObserver />
+        </DashboardWarmup>
+      </QueryClientProvider>,
+    );
+    await act(() => vi.advanceTimersByTimeAsync(16_000));
+    expect(envSignal?.aborted).toBe(false);
+    expect(screen.getByText("envs:loading")).toBeInTheDocument();
+    deferred.resolve(Response.json([{ id: "env-1" }]));
+    await act(() => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByText("envs:1")).toBeInTheDocument();
+    await act(() => vi.runAllTimersAsync());
+    unmount();
   });
 });

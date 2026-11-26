@@ -25,8 +25,8 @@ export const normalizeFullLogFilters = (filters: FullLogFilters): FullLogFilters
   limit: filters.limit ?? 50,
 });
 
-export const listFullLogs = (accessToken: string, query: FullLogFilters) =>
-  apiClient.get<components["schemas"]["FullLogPage"]>("/logs/full", { accessToken, query, cache: "no-store" });
+export const listFullLogs = (accessToken: string, query: FullLogFilters, signal?: AbortSignal) =>
+  apiClient.get<components["schemas"]["FullLogPage"]>("/logs/full", { accessToken, query, cache: "no-store", signal });
 
 export const fullLogsQueryOptions = (
   accessToken: string,
@@ -36,18 +36,19 @@ export const fullLogsQueryOptions = (
   const normalizedFilters = normalizeFullLogFilters(filters);
   return {
     queryKey: ["logs", "full-logs", accessToken, normalizedFilters] as const,
-    queryFn: () => listFullLogs(accessToken, normalizedFilters),
+    queryFn: ({ signal }: { signal?: AbortSignal }) => listFullLogs(accessToken, normalizedFilters, signal),
     retry: false,
     refetchInterval: refreshInterval,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: refreshInterval !== false,
   };
 };
-export const listFullLogSessions = (accessToken: string, query: FullLogFilters) =>
+export const listFullLogSessions = (accessToken: string, query: FullLogFilters, signal?: AbortSignal) =>
   apiClient.get<components["schemas"]["FullLogSessionPage"]>("/logs/full/sessions", {
     accessToken,
     query,
     cache: "no-store",
+    signal,
   });
 
 export const fullLogSessionsQueryOptions = (
@@ -57,12 +58,13 @@ export const fullLogSessionsQueryOptions = (
 ) => ({
   ...fullLogsQueryOptions(accessToken, filters, refreshInterval),
   queryKey: ["logs", "full-sessions", accessToken, normalizeFullLogFilters(filters)] as const,
-  queryFn: () => listFullLogSessions(accessToken, normalizeFullLogFilters(filters)),
+  queryFn: ({ signal }: { signal?: AbortSignal }) =>
+    listFullLogSessions(accessToken, normalizeFullLogFilters(filters), signal),
 });
 export const getFullLog = (accessToken: string, id: string) =>
   apiClient.get<FullLogRecord>(`/logs/full/${encodeURIComponent(id)}`, { accessToken, cache: "no-store" });
-export const fullLogStorage = (accessToken: string) =>
-  apiClient.get<components["schemas"]["FullLogStorageStats"]>("/logs/full/storage", { accessToken });
+export const fullLogStorage = (accessToken: string, signal?: AbortSignal) =>
+  apiClient.get<components["schemas"]["FullLogStorageStats"]>("/logs/full/storage", { accessToken, signal });
 export const clearFullLogs = (accessToken: string, days: number | null) =>
   apiClient.delete<{ deleted: number }>("/logs/full", {
     accessToken,

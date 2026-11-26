@@ -195,22 +195,34 @@ export const dashboardBackgroundTasks = (
     .filter(([page]) => !isPageDisabled(page, disabledPages))
     .map(([page, load]) => ({
       id: `page:${page}`,
-      run: async () => {
+      run: async (taskSignal) => {
         await load();
-        if (signal.aborted) return;
+        if (signal.aborted || taskSignal.aborted) return;
         if (adminPages.has(page) && !all_admin_roles.includes(userRole)) return;
         const capability = capabilities[page as keyof typeof routes];
         if (capability && !hasCapability(userRole, capability)) return;
         const loadData = initialData[page as keyof typeof routes];
-        if (loadData)
+        if (!loadData) return;
+        const queryKey = ["dashboard-page-data", page] as const;
+        const cancelIfUnobserved = () => {
+          const query = queryClient.getQueryCache().find({ queryKey, exact: true });
+          if (query && query.getObserversCount() === 0) {
+            void queryClient.cancelQueries({ queryKey, exact: true });
+          }
+        };
+        taskSignal.addEventListener("abort", cancelIfUnobserved, { once: true });
+        try {
           await queryClient.fetchQuery({
-            queryKey: ["dashboard-page-data", page],
+            queryKey,
             queryFn: async () => {
               await loadData();
               return true;
             },
             meta: { dashboardWarmup: "background" },
           });
+        } finally {
+          taskSignal.removeEventListener("abort", cancelIfUnobserved);
+        }
       },
     }));
 };

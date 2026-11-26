@@ -298,4 +298,52 @@ describe("progressive preloading", () => {
     expect(result.background).toEqual({ completed: 1, total: 1, failed: 1 });
     expect(progress).toHaveBeenLastCalledWith(result);
   });
+
+  it("passes a per-task AbortSignal and aborts hung tasks with a timeout error at 15s", async () => {
+    let taskSignal: AbortSignal | undefined;
+    const resultPromise = runPreloadStages(
+      [
+        {
+          id: "hung",
+          critical: false,
+          run: (signal) =>
+            new Promise<void>((_, reject) => {
+              taskSignal = signal;
+              signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), {
+                once: true,
+              });
+            }),
+        },
+      ],
+      [],
+    );
+    await vi.advanceTimersByTimeAsync(15_250);
+    const result = await resultPromise;
+    expect(taskSignal?.aborted).toBe(true);
+    expect((taskSignal?.reason as Error)?.message).toContain("Preload timed out: hung");
+    expect(result.primary).toEqual({ completed: 1, total: 1, failed: 1 });
+  });
+
+  it("aborts the per-task AbortSignal when the parent signal aborts", async () => {
+    const controller = new AbortController();
+    let taskSignal: AbortSignal | undefined;
+    const resultPromise = runPreloadStages(
+      [
+        {
+          id: "pending",
+          run: (signal) => {
+            taskSignal = signal;
+            return new Promise<void>(() => {});
+          },
+        },
+      ],
+      [],
+      { signal: controller.signal },
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    controller.abort("logout");
+    await resultPromise;
+    expect(taskSignal?.aborted).toBe(true);
+    expect(taskSignal?.reason).toBe("logout");
+  });
 });

@@ -1,6 +1,15 @@
 import type { QueryClient } from "@tanstack/react-query";
 
 let client: QueryClient | null = null;
+const consumersByClient = new WeakMap<QueryClient, Map<string, number>>();
+
+const clientConsumers = (sessionClient: QueryClient): Map<string, number> => {
+  const existing = consumersByClient.get(sessionClient);
+  if (existing) return existing;
+  const created = new Map<string, number>();
+  consumersByClient.set(sessionClient, created);
+  return created;
+};
 
 export function registerResponseCache(next: QueryClient): () => void {
   client = next;
@@ -55,12 +64,46 @@ export const cachedDashboardRequest = async (
     structuralSharing: false,
     retry: false,
   };
+  const consumers = clientConsumers(sessionClient);
+  const consumerKey = JSON.stringify(options.queryKey);
+  consumers.set(consumerKey, (consumers.get(consumerKey) ?? 0) + 1);
+  let released = false;
+  const release = (cancelIfLast: boolean) => {
+    if (released) return;
+    released = true;
+    const remaining = (consumers.get(consumerKey) ?? 1) - 1;
+    if (remaining <= 0) {
+      consumers.delete(consumerKey);
+      if (cancelIfLast) void sessionClient.cancelQueries({ queryKey: options.queryKey, exact: true });
+      return;
+    }
+    consumers.set(consumerKey, remaining);
+  };
+
+  const fetchPromise = sessionClient.fetchQuery(options);
+  void fetchPromise.catch(() => {});
+  let onAbort: (() => void) | undefined;
   try {
-    const response = await sessionClient.fetchQuery(options);
+    const response = signal
+      ? await Promise.race([
+          fetchPromise,
+          new Promise<never>((_, reject) => {
+            onAbort = () => {
+              release(true);
+              reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+            };
+            signal.addEventListener("abort", onAbort, { once: true });
+            if (signal.aborted) onAbort();
+          }),
+        ])
+      : await fetchPromise;
     signal?.throwIfAborted();
     return new Response(response.body.slice(0), response);
   } catch (error) {
     if (error instanceof Response) return error.clone();
     throw error;
+  } finally {
+    if (onAbort) signal?.removeEventListener("abort", onAbort);
+    release(false);
   }
 };

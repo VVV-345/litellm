@@ -112,4 +112,44 @@ describe("dashboard response cache", () => {
       vi.useRealTimers();
     }
   });
+
+  it("aborts the underlying request when the sole consumer aborts", async () => {
+    let underlyingSignal: AbortSignal | undefined;
+    send.mockImplementationOnce(
+      (_input, init) =>
+        new Promise<Response>((_, reject) => {
+          underlyingSignal = init?.signal ?? undefined;
+          underlyingSignal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("The operation was aborted.", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    const controller = new AbortController();
+    const pending = read({ signal: controller.signal });
+    await Promise.resolve();
+    controller.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(underlyingSignal?.aborted).toBe(true);
+  });
+
+  it("keeps a shared underlying request alive when one of two concurrent consumers aborts", async () => {
+    let underlyingSignal: AbortSignal | undefined;
+    const deferred = Promise.withResolvers<Response>();
+    send.mockImplementationOnce((_input, init) => {
+      underlyingSignal = init?.signal ?? undefined;
+      return deferred.promise;
+    });
+    const controllerA = new AbortController();
+    const controllerB = new AbortController();
+    const reqA = read({ signal: controllerA.signal });
+    const reqB = read({ signal: controllerB.signal });
+    await Promise.resolve();
+    controllerA.abort();
+    await expect(reqA).rejects.toMatchObject({ name: "AbortError" });
+    expect(underlyingSignal?.aborted).toBe(false);
+    deferred.resolve(Response.json({ version: 4 }));
+    expect(await (await reqB).json()).toEqual({ version: 4 });
+  });
 });

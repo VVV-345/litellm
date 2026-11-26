@@ -12,9 +12,9 @@ import { accountPoolQueryKeys } from "./accountPoolQueryKeys";
 export const accountPoolEnvironmentOptions = (accessToken: string | null) =>
   queryOptions<AccountPoolEnvironment[]>({
     queryKey: accountPoolQueryKeys.environments(accessToken),
-    queryFn: (): Promise<AccountPoolEnvironment[]> => {
+    queryFn: ({ signal }): Promise<AccountPoolEnvironment[]> => {
       if (!accessToken) throw new Error("Access token required");
-      return listAccountPoolEnvironments(accessToken);
+      return listAccountPoolEnvironments(accessToken, signal);
     },
     retry: false,
     staleTime: 10_000,
@@ -24,9 +24,9 @@ export const accountPoolEnvironmentOptions = (accessToken: string | null) =>
 export const accountPoolDashboardStatsOptions = (accessToken: string | null, days = 30) =>
   queryOptions({
     queryKey: accountPoolQueryKeys.dashboardStats(accessToken, days),
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!accessToken) throw new Error("Access token required");
-      return getAccountPoolDashboardStats(accessToken, days);
+      return getAccountPoolDashboardStats(accessToken, days, signal);
     },
     retry: false,
     staleTime: 15_000,
@@ -36,9 +36,9 @@ export const accountPoolDashboardStatsOptions = (accessToken: string | null, day
 export const accountPoolQuotaRefreshStatusOptions = (accessToken: string | null) =>
   queryOptions({
     queryKey: accountPoolQueryKeys.quotaRefreshStatus(accessToken),
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!accessToken) throw new Error("Access token required");
-      return getAccountPoolQuotaRefreshStatus(accessToken);
+      return getAccountPoolQuotaRefreshStatus(accessToken, signal);
     },
     retry: false,
     staleTime: 15_000,
@@ -48,9 +48,9 @@ export const accountPoolQuotaRefreshStatusOptions = (accessToken: string | null)
 export const accountPoolPolicyOptions = (accessToken: string | null) =>
   queryOptions({
     queryKey: accountPoolQueryKeys.policies(accessToken),
-    queryFn: () => {
+    queryFn: ({ signal }) => {
       if (!accessToken) throw new Error("Access token required");
-      return listAccountPolicies(accessToken);
+      return listAccountPolicies(accessToken, signal);
     },
     retry: false,
   });

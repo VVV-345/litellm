@@ -1,12 +1,16 @@
 import { reportModuleLoadError } from "./dashboardRecovery";
 
+export type PreloadTaskRunner = (signal: AbortSignal) => unknown | Promise<unknown>;
+
 type Preload = () => unknown | Promise<unknown>;
 
 export interface PreloadTask {
   id: string;
-  run: Preload;
+  run: PreloadTaskRunner;
   critical?: boolean;
 }
+
+const TASK_TIMEOUT_MS = 15_000;
 
 export interface PreloadProgress {
   completed: number;
@@ -83,14 +87,26 @@ export async function runPreloadStages(
     if (options.signal?.aborted) return;
     await waitUntilVisible();
     if (options.signal?.aborted) return;
+    const taskController = new AbortController();
+    const abortTask = () => taskController.abort(options.signal?.reason);
+    options.signal?.addEventListener("abort", abortTask, { once: true });
+    if (options.signal?.aborted) abortTask();
     let failed = false;
     let deadline: number | undefined;
     let stopWaiting: (() => void) | undefined;
     try {
+      const taskPromise = Promise.resolve().then(() =>
+        taskController.signal.aborted ? undefined : task.run(taskController.signal),
+      );
+      void taskPromise.catch(() => {});
       await Promise.race([
-        Promise.resolve().then(() => options.signal?.aborted ? undefined : task.run()),
+        taskPromise,
         new Promise<void>((resolve, reject) => {
-          deadline = window.setTimeout(() => reject(new Error(`Preload timed out: ${task.id}`)), 15_000);
+          deadline = window.setTimeout(() => {
+            const timeoutError = new Error(`Preload timed out: ${task.id}`);
+            taskController.abort(timeoutError);
+            reject(timeoutError);
+          }, TASK_TIMEOUT_MS);
           stopWaiting = resolve;
           options.signal?.addEventListener("abort", stopWaiting, { once: true });
           if (options.signal?.aborted) resolve();
@@ -103,6 +119,7 @@ export async function runPreloadStages(
     } finally {
       window.clearTimeout(deadline);
       if (stopWaiting) options.signal?.removeEventListener("abort", stopWaiting);
+      options.signal?.removeEventListener("abort", abortTask);
     }
     if (options.signal?.aborted) return;
     const current = target === "primary" ? primary : background;
