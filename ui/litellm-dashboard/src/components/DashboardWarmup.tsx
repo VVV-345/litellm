@@ -330,15 +330,11 @@ function WarmupProgress({
   const value = progressPercent(succeeded, progress.total);
   return (
     <div
-      className={
-        primaryOnly
-          ? "flex min-h-screen items-center justify-center bg-background p-6"
-          : "fixed bottom-4 right-4 z-floating w-72 rounded-md border bg-background p-3 shadow-sm"
-      }
+      className="fixed bottom-4 right-4 z-floating w-72 max-w-[calc(100%-2rem)] rounded-md border bg-background p-3 shadow-sm"
       role="status"
       aria-live="polite"
     >
-      <div className={primaryOnly ? "w-full max-w-md space-y-3" : "space-y-2"}>
+      <div className="space-y-2">
         <div className="flex items-center justify-between gap-3 text-sm">
           <span>{primaryOnly ? "正在准备主要模块" : "后台加载中"}</span>
           <span>
@@ -384,7 +380,6 @@ export default function DashboardWarmup({
   const { mode } = usePluginMode();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const [readyKey, setReadyKey] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<PreloadStageProgress>({
     primary: { completed: 0, total: PRIMARY_PAGES.length, failed: 0 },
@@ -393,8 +388,8 @@ export default function DashboardWarmup({
   });
 
   const shouldWarmup = Boolean(accessToken && mode === "ai-gateway");
-  const warmupKey = shouldWarmup ? `${accessToken}:${userID}:${userRole}:${attempt}` : null;
-  const ready = !shouldWarmup || readyKey === warmupKey;
+  const primarySettled = state.primary.total > 0 && state.primary.completed === state.primary.total;
+  const ready = !shouldWarmup || state.stage !== "primary" || primarySettled;
   const disabledPagesKey = JSON.stringify(disabledPages);
 
   useEffect(() => {
@@ -417,7 +412,6 @@ export default function DashboardWarmup({
       (next) => {
         if (controller.signal.aborted) return;
         setState(next);
-        if (next.stage !== "primary") setReadyKey(warmupKey);
       },
       controller.signal,
       JSON.parse(disabledPagesKey) as string[],
@@ -426,7 +420,7 @@ export default function DashboardWarmup({
       controller.abort();
       window.removeEventListener(SESSION_RESET_EVENT, stop);
     };
-  }, [accessToken, mode, queryClient, router, userID, userRole, warmupKey, token, attempt, disabledPagesKey]);
+  }, [accessToken, mode, queryClient, router, userID, userRole, token, attempt, disabledPagesKey]);
 
   const retry = () => setAttempt((value) => value + 1);
   const relogin = () => clearTokenCookies();
@@ -439,14 +433,13 @@ export default function DashboardWarmup({
       failed: prefetchFailed,
     },
   };
-  if (!ready) return <WarmupProgress state={state} primaryOnly retry={retry} relogin={relogin} />;
   return (
     <DashboardReadinessProvider value={ready}>
       {children}
-      {shouldWarmup && (state.stage === "background" || prefetchFailed > 0) && (
+      {shouldWarmup && (state.stage !== "complete" || prefetchFailed > 0) && (
         <WarmupProgress
-          state={prefetchFailed > 0 ? failureState : state}
-          primaryOnly={false}
+          state={state.stage !== "primary" && prefetchFailed > 0 ? failureState : state}
+          primaryOnly={state.stage === "primary"}
           retry={retry}
           relogin={relogin}
         />

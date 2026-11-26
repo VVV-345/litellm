@@ -170,7 +170,7 @@ describe("dashboard warmup wiring", () => {
     },
   );
 
-  it("blocks the initial page while primary warmup starts without waiting for idle", async () => {
+  it("shows the initial page while primary warmup starts without waiting for idle", async () => {
     vi.useFakeTimers();
     const idle = vi.fn(() => 1);
     vi.stubGlobal("requestIdleCallback", idle);
@@ -182,14 +182,14 @@ describe("dashboard warmup wiring", () => {
         </DashboardWarmup>
       </QueryClientProvider>,
     );
-    expect(screen.queryByRole("textbox", { name: "Current form" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Current form" })).toBeEnabled();
     expect(screen.getByRole("progressbar", { name: "主要模块加载进度" })).toHaveAttribute("aria-valuenow", "0");
     await act(() => vi.advanceTimersByTimeAsync(100));
     expect(fetch).toHaveBeenCalled();
     unmount();
   });
 
-  it("reveals the initial page only after every required account-pool module is loaded", async () => {
+  it("marks navigation warm only after the required account-pool modules load", async () => {
     vi.useFakeTimers();
     const pending = Promise.withResolvers<void>();
     modules.wait = () => pending.promise;
@@ -209,6 +209,34 @@ describe("dashboard warmup wiring", () => {
     expect(screen.getByText("warm")).toBeInTheDocument();
     expect(modules.loaded.size).toBe(12);
     unmount();
+  });
+
+  it("keeps the current form usable at 5/10 when all five route prefetches fail", async () => {
+    vi.useFakeTimers();
+    router.prefetch.mockRejectedValue(new Error("route prefetch failed"));
+    try {
+      render(
+        <QueryClientProvider client={client}>
+          <DashboardWarmup>
+            <input aria-label="Current form" defaultValue="draft" />
+            <ReadinessProbe />
+          </DashboardWarmup>
+        </QueryClientProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(20_000));
+      expect(screen.getByText("5/10")).toBeVisible();
+      expect(screen.getByRole("alert")).toHaveTextContent("5 个模块加载失败");
+      const form = screen.getByRole("textbox", { name: "Current form" });
+      fireEvent.change(form, { target: { value: "edited" } });
+      expect(screen.getByText("warm")).toBeVisible();
+      router.prefetch.mockReset();
+      fireEvent.click(screen.getByRole("button", { name: "重试加载" }));
+      await act(() => vi.advanceTimersByTimeAsync(20_000));
+      expect(screen.getByRole("textbox", { name: "Current form" })).toHaveValue("edited");
+      expect(screen.queryByText("5/10")).not.toBeInTheDocument();
+    } finally {
+      router.prefetch.mockReset();
+    }
   });
 
   it("finishes all twelve account-pool modules in primary before discovering background work", async () => {
@@ -303,12 +331,12 @@ describe("dashboard warmup wiring", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByText("Dashboard content", {}, { timeout: 10_000 })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "重试加载" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "重试加载" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "重新登录" }));
     expect(clear).toHaveBeenCalledOnce();
   });
 
-  it("keeps the initial page blocked and offers retry or a new login when a required module fails", async () => {
+  it("keeps the initial page usable and offers retry or a new login when a module prefetch fails", async () => {
     modules.failModules = true;
     render(
       <QueryClientProvider client={client}>
@@ -319,7 +347,7 @@ describe("dashboard warmup wiring", () => {
     );
     expect(await screen.findByRole("button", { name: "重试加载" }, { timeout: 10_000 })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "重新登录" })).toBeInTheDocument();
-    expect(screen.queryByText("Dashboard content")).not.toBeInTheDocument();
+    expect(screen.getByText("Dashboard content")).toBeVisible();
   });
 
   it("continues loading other log pages when the full-log service is unavailable", async () => {
