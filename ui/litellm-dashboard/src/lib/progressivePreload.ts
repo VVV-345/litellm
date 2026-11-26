@@ -84,12 +84,25 @@ export async function runPreloadStages(
     await waitUntilVisible();
     if (options.signal?.aborted) return;
     let failed = false;
+    let deadline: number | undefined;
+    let stopWaiting: (() => void) | undefined;
     try {
-      await task.run();
+      await Promise.race([
+        Promise.resolve().then(() => options.signal?.aborted ? undefined : task.run()),
+        new Promise<void>((resolve, reject) => {
+          deadline = window.setTimeout(() => reject(new Error(`Preload timed out: ${task.id}`)), 15_000);
+          stopWaiting = resolve;
+          options.signal?.addEventListener("abort", stopWaiting, { once: true });
+          if (options.signal?.aborted) resolve();
+        }),
+      ]);
     } catch (error) {
       failed = true;
       if (task.critical !== false) criticalFailed = true;
       reportModuleLoadError(error);
+    } finally {
+      window.clearTimeout(deadline);
+      if (stopWaiting) options.signal?.removeEventListener("abort", stopWaiting);
     }
     if (options.signal?.aborted) return;
     const current = target === "primary" ? primary : background;

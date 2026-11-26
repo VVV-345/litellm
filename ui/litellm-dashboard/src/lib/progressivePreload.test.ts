@@ -79,6 +79,49 @@ describe("progressive preloading", () => {
     stop();
   });
 
+  it("releases the site when five optional data tasks remain pending at 5/10", async () => {
+    const updates: string[] = [];
+    const tasks = Array.from({ length: 10 }, (_, index) => ({
+      id: `task-${index}`,
+      critical: index < 5,
+      run: () => index < 5 ? Promise.resolve() : new Promise<void>(() => {}),
+    }));
+    const result = runPreloadStages(tasks, [], {
+      onProgress: (state) => updates.push(`${state.stage}:${state.primary.completed}/${state.primary.total}`),
+    });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(updates).toContain("primary:5/10");
+    await vi.advanceTimersByTimeAsync(15_150);
+    expect(updates).toContain("complete:10/10");
+    expect((await result).primary).toEqual({ completed: 10, total: 10, failed: 5 });
+  });
+
+  it("reports a required module timeout without revealing protected content", async () => {
+    const progress = vi.fn();
+    const result = runPreloadStages([{ id: "required", run: () => new Promise<void>(() => {}) }], [], {
+      onProgress: progress,
+    });
+    await vi.advanceTimersByTimeAsync(15_250);
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({
+      stage: "primary", primary: { completed: 1, total: 1, failed: 1 },
+    }));
+    expect((await result).stage).toBe("primary");
+  });
+
+  it("settles an in-flight preload immediately on logout and clears its deadline", async () => {
+    const controller = new AbortController();
+    const done = vi.fn();
+    const result = runPreloadStages([{ id: "pending", run: () => new Promise<void>(() => {}) }], [], {
+      signal: controller.signal,
+    }).then(done);
+    await vi.advanceTimersByTimeAsync(1);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(done).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+    await result;
+  });
+
   it("finishes primary tasks before starting background batches and reports progress", async () => {
     const events: string[] = [];
     const progress: Array<{ stage: string; primary: number; background: number }> = [];
